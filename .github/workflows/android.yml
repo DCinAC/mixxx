@@ -1,0 +1,20 @@
+# android-companion: build the Android APK on every push to this branch (or by hand from the Actions tab).
+# The APK is attached to the run as the "Android 15 APK" artifact.
+name: Android APK
+
+on:
+  push:
+    branches:
+      - android-companion
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    with:
+      branch: ${{ github.ref_name }}
+      ref: ${{ github.sha }}
+    secrets: inherit
