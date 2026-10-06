@@ -9,7 +9,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: read   # to fetch code
+  actions: write   # build.yml deletes outdated compiler caches
 
 jobs:
   build:
