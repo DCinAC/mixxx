@@ -750,7 +750,6 @@ jobs:
           path: Mixxx-${{ env.GIT_DESC }}-${{ matrix.variant.arch }}.Debug.flatpak
 
   update_manifest:
-    if: false  # android-companion: only the Android APK is built
     name: "Update manifest file on download server"
     runs-on: ubuntu-latest
     needs: build
