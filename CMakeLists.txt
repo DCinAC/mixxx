@@ -2464,7 +2464,8 @@ if(QT6)
     )
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fPIC")
     # Zydek: run on Android 9-13 as well (src/zydek/androidcompat.cpp). The compat library is always
-    # packaged; with patchelf available, Qt Core and libmixxx are made to load it.
+    # packaged; with patchelf available, Qt Core and libmixxx are made to load it. --page-size 16384:
+    # the libraries use 16 KB pages, and a new segment aligned for another size doesn't load on Android.
     add_library(zydekcompat SHARED src/zydek/androidcompat.cpp)
     set_target_properties(
       zydekcompat
@@ -2480,7 +2481,7 @@ if(QT6)
     find_program(ZYDEK_PATCHELF patchelf HINTS "$ENV{ZYDEK_TOOLS}")
     if(ZYDEK_PATCHELF)
       set(_zydek_add_needed
-          "${ZYDEK_PATCHELF} --print-needed \"$1\" | grep -qx libzydekcompat.so || ${ZYDEK_PATCHELF} --add-needed libzydekcompat.so \"$1\""
+          "${ZYDEK_PATCHELF} --print-needed \"$1\" | grep -qx libzydekcompat.so || ${ZYDEK_PATCHELF} --page-size 16384 --add-needed libzydekcompat.so \"$1\""
       )
       # Qt Core comes prebuilt from the dependency bundle: patch it there once.
       set(_zydek_vcpkg "${MIXXX_VCPKG_ROOT}")
