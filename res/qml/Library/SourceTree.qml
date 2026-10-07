@@ -173,7 +173,8 @@ Mixxx.LibrarySourceTree {
             // This delays the update until the even queue is cleared
             // preventing any potential oscillations causing a loop
             delayed: true
-            value: dragArea.drag.active
+            // Qt's drag and drop crashes with touch on Android (null QDrag in QSimpleDrag::move): load via the menu instead
+            value: dragArea.drag.active && Qt.platform.os !== "android"
         }
 
         LibraryComponent.Track {

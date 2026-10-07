@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="org.mixxx"
     android:installLocation="auto"
     android:versionCode="1"
@@ -26,6 +27,8 @@
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
         android:requestLegacyExternalStorage="true"
         android:allowBackup="true"
+        android:debuggable="true"
+        tools:ignore="HardcodedDebugMode"
         android:fullBackupOnly="false">
         <activity
             android:name="org.mixxx.MainActivity"

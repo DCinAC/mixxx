@@ -1,6 +1,9 @@
 #include "util/logging.h"
 
 #include <signal.h>
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 #include <stdio.h>
 
 #include <QByteArray>
@@ -198,6 +201,20 @@ inline void writeToStdErr(
             formattedMessageStr.replace(kThreadNamePattern, threadName)
                     .toLocal8Bit();
 
+#ifdef __ANDROID__
+    // stderr goes nowhere on Android: mirror the log to logcat (adb logcat -s mixxx)
+    {
+        int prio = ANDROID_LOG_DEBUG;
+        switch (type) {
+        case QtInfoMsg: prio = ANDROID_LOG_INFO; break;
+        case QtWarningMsg: prio = ANDROID_LOG_WARN; break;
+        case QtCriticalMsg: prio = ANDROID_LOG_ERROR; break;
+        case QtFatalMsg: prio = ANDROID_LOG_FATAL; break;
+        default: break;
+        }
+        __android_log_write(prio, "mixxx", formattedMessage.constData());
+    }
+#endif
     const auto locked = lockMutex(&s_mutexStdErr);
     const std::size_t written = fwrite(
             formattedMessage.constData(), sizeof(char), formattedMessage.size(), stderr);

@@ -45,7 +45,8 @@ Item {
         return result;
     }
 
-    Drag.active: dragArea.drag.active
+    // Qt's drag and drop crashes with touch on Android (null QDrag in QSimpleDrag::move): load via the menu instead
+    Drag.active: dragArea.drag.active && Qt.platform.os !== "android"
     Drag.dragType: Drag.Automatic
     Drag.mimeData: {
         let data = {

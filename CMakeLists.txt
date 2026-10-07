@@ -2400,6 +2400,8 @@ if(QT6)
       PUBLIC __STDC_CONSTANT_MACROS __STDC_LIMIT_MACROS __STDC_FORMAT_MACROS
     )
     set_property(TARGET mixxx-lib PROPERTY ANDROID_ABIS "arm64-v8a")
+    # logcat output (util/logging.cpp)
+    target_link_libraries(mixxx-lib PRIVATE log)
     target_compile_definitions(
       mixxx-lib
       PUBLIC ANDROID_PACKAGE_NAME="org.mixxx"
