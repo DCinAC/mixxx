@@ -10,6 +10,7 @@
 
 #include "preferences/usersettings.h"
 #include "zydek/zydekhttpserver.h"
+#include "zydek/zydeklibrary.h"
 
 class QTcpSocket;
 class ZydekController;
@@ -53,6 +54,7 @@ class Hub : public QObject {
     };
 
     HttpServer::Response handleHttp(const QString& path, const HttpServer::Query& query);
+    HttpServer::Response handleApi(const QString& path, const HttpServer::Query& query);
     HttpServer::Response staticFile(const QString& name) const;
     QByteArray waveform(int trackId) const;
     QString lanUrl() const;
@@ -80,6 +82,7 @@ class Hub : public QObject {
 
     UserSettingsPointer m_pConfig;
     HttpServer m_server;
+    Library m_library;   // the phone page's library API (/api/...)
     ZydekController* m_pController = nullptr;
 
     int m_samplers[kNumSamplers] = {};

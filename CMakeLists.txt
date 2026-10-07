@@ -1268,6 +1268,7 @@ add_library(
   src/controllers/zydek/zydekcontroller.cpp
   src/zydek/zydekhttpserver.cpp
   src/zydek/zydekhub.cpp
+  src/zydek/zydeklibrary.cpp
   src/controllers/midi/midienumerator.cpp
   src/controllers/midi/midimessage.cpp
   src/controllers/midi/midioutputhandler.cpp

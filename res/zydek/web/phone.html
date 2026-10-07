@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0b0b0b">
+<title>Zydek Library</title>
+<style>
+  :root {
+    --bg: #0b0b0b; --edge: #262626; --text: #ececec; --dim: #8a8a8a; --faint: #5a5a5a;
+    --deck12: #ff8a1e; --deck34: #38b6ff; --play: #3ddc84; --err: #ff5a5f; --stem: #a47bff;
+    --tabbar: 56px; --safe-b: env(safe-area-inset-bottom, 0px); --safe-t: env(safe-area-inset-top, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.3 -apple-system, "Roboto", system-ui, sans-serif;
+    overscroll-behavior-y: contain; }
+  button, input, select { font: inherit; color: inherit; }
+  button { background: #1d1d1d; border: 1px solid #333; border-radius: 10px; padding: 0 14px; min-height: 40px; cursor: pointer; }
+  button:active { filter: brightness(1.4); }
+  button:disabled { opacity: .35; }
+
+  /* ---- decks: needle search (whole track) + zoomed waveform, per deck ---- */
+  #decks { position: sticky; top: 0; z-index: 5; background: rgba(11,11,11,.96); padding: calc(4px + var(--safe-t)) 8px 6px;
+    border-bottom: 1px solid var(--edge); }
+  .dk { --acc: var(--deck12); margin-bottom: 6px; }
+  .dk.d34 { --acc: var(--deck34); }
+  .dk .row { display: flex; align-items: baseline; gap: 6px; font-size: 12px; margin-bottom: 3px; min-width: 0; }
+  .dk .row b { color: var(--acc); font-size: 13px; }
+  .dk .row .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .dk.empty .row .t { color: var(--faint); }
+  .dk .row .tm { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .dk.playing .row b::after { content: " ▶"; color: var(--play); font-size: 9px; }
+  .needle { position: relative; height: 26px; border-radius: 4px; background: #141414; touch-action: none; overflow: hidden; }
+  .needle canvas, .zoom canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .needle .ph { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; left: 0; will-change: transform; }
+  .zoom { position: relative; height: 40px; margin-top: 3px; border-radius: 4px; background: #101010; overflow: hidden; }
+  .zoom .cur { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: var(--acc); }
+  .zoom .played { position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background: rgba(0,0,0,.45); }
+  #deckbar { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--dim); }
+  #deckbar button { min-height: 28px; padding: 0 10px; font-size: 12px; border-radius: 8px; }
+  #deckbar span { flex: 1; }
+
+  /* ---- pages ---- */
+  main { padding-bottom: calc(var(--tabbar) + var(--safe-b) + 64px); }
+  .page { display: none; } .page.on { display: block; }
+  .bar { padding: 8px 10px 6px; display: grid; gap: 8px; }
+  .search { display: flex; gap: 8px; }
+  .search input { flex: 1; min-width: 0; height: 42px; border-radius: 12px; border: 1px solid #333; background: #181818; padding: 0 14px; outline: none; }
+  .search select { height: 42px; border-radius: 12px; border: 1px solid #333; background: #181818; padding: 0 8px; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; min-height: 32px; border-radius: 16px; padding: 0 12px; font-size: 13px; background: #181818; color: #cfcfcf; }
+  .chip small { color: var(--dim); margin-left: 4px; }
+  .chip.on { background: var(--text); color: #111; border-color: var(--text); }
+  .chip.on small { color: #444; }
+  .note { color: var(--dim); font-size: 13px; padding: 14px 16px; }
+  .err { color: #ffb4b6; }
+
+  .list { list-style: none; margin: 0; padding: 0; }
+  .tr { display: grid; grid-template-columns: 40px 1fr auto; gap: 12px; align-items: center; padding: 8px 12px; border-left: 3px solid transparent; }
+  .tr:active { background: #1a1a1a; }
+  .tr.missing { opacity: .4; }
+  .art { width: 40px; height: 40px; border-radius: 6px; background: #222; display: grid; place-items: center; color: #888; font-weight: 700; }
+  .meta { min-width: 0; }
+  .meta .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+  .meta .a { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dim); font-size: 13px; }
+  .num { text-align: right; font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; line-height: 1.4; }
+  .num .bpm { color: var(--text); font-size: 13px; }
+  .badge { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .04em; border: 1px solid currentColor; border-radius: 4px;
+    padding: 0 4px; margin-right: 4px; vertical-align: 1px; }
+  .badge.stem { color: var(--stem); } .badge.miss { color: var(--err); }
+
+  /* folders */
+  .folder { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #191919; }
+  .folder span { flex: 1; min-width: 0; word-break: break-all; }
+  .folder.off span { color: var(--faint); }
+  #browser { display: none; padding: 8px 12px; border-top: 1px solid var(--edge); }
+  #browser.on { display: block; }
+  #browser .where { font-size: 13px; color: var(--dim); word-break: break-all; margin: 6px 0; }
+  #browser .dirs { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; }
+  #browser .dirs li { padding: 10px 6px; border-bottom: 1px solid #191919; }
+  #browser .dirs li:active { background: #1a1a1a; }
+  #browser .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  #scanline { padding: 10px 12px; color: var(--dim); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+  #scanline span { flex: 1; }
+
+  /* bottom: preview strip + tabs */
+  #pv { position: fixed; left: 8px; right: 8px; bottom: calc(var(--tabbar) + var(--safe-b) + 6px); z-index: 6; display: none;
+    gap: 10px; align-items: center; background: #1b1b1b; border: 1px solid #333; border-radius: 12px; padding: 6px 8px 6px 12px; }
+  #pv.on { display: flex; }
+  #pv span { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 7; display: grid; grid-template-columns: repeat(2, 1fr);
+    height: calc(var(--tabbar) + var(--safe-b)); padding-bottom: var(--safe-b); background: rgba(14,14,14,.96); border-top: 1px solid var(--edge); }
+  nav button { border: none; background: none; border-radius: 0; color: var(--dim); font-size: 12px; display: grid; place-content: center; gap: 2px; }
+  nav button .i { font-size: 18px; line-height: 1; }
+  nav button.on { color: var(--text); }
+
+  /* track sheet */
+  #scrim { position: fixed; inset: 0; z-index: 8; background: rgba(0,0,0,.6); opacity: 0; pointer-events: none; transition: opacity .18s; }
+  #scrim.on { opacity: 1; pointer-events: auto; }
+  #sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; background: #161616; border-top: 1px solid #333;
+    border-radius: 18px 18px 0 0; padding: 10px 16px calc(16px + var(--safe-b)); transform: translateY(105%); transition: transform .2s ease-out;
+    max-height: 88vh; overflow-y: auto; }
+  #sheet.on { transform: none; }
+  #sheet .grip { width: 40px; height: 4px; border-radius: 2px; background: #444; margin: 0 auto 12px; }
+  #sheet .t { font-size: 17px; font-weight: 700; }
+  #sheet .a { color: var(--dim); }
+  #sheet .facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 14px 0; }
+  #sheet .facts div { background: #1d1d1d; border-radius: 8px; padding: 6px 8px; font-size: 11px; color: var(--dim); }
+  #sheet .facts b { display: block; color: var(--text); font-size: 15px; font-variant-numeric: tabular-nums; }
+  #sheet .loads, #sheet .more { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  #sheet .more { margin-top: 8px; }
+  #sheet .loads button { min-width: 0; min-height: 58px; font-size: 16px; font-weight: 700; border-width: 2px; }
+  #sheet .loads button small { display: block; font-size: 11px; font-weight: 500; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #sheet .loads .d12 { border-color: var(--deck12); color: var(--deck12); }
+  #sheet .loads .d34 { border-color: var(--deck34); color: var(--deck34); }
+  #sheet .more button { min-height: 48px; }
+
+  #toast { position: fixed; left: 50%; top: calc(64px + var(--safe-t)); z-index: 10; transform: translate(-50%, -20px); opacity: 0;
+    transition: all .2s; background: #222; border: 1px solid #3a3a3a; border-radius: 10px; padding: 10px 14px; max-width: 92vw;
+    font-size: 14px; pointer-events: none; }
+  #toast.on { opacity: 1; transform: translate(-50%, 0); }
+  #toast.ok { border-color: var(--play); } #toast.bad { border-color: var(--err); }
+</style>
+</head>
+<body>
+<header id="decks">
+  <div id="dkA"></div><div id="dkB"></div>
+  <div id="deckbar"><span id="link">connecting…</span><button id="swap">Decks 3·4</button></div>
+</header>
+
+<main>
+  <section class="page" id="p-lib">
+    <div class="bar">
+      <div class="search"><input id="q" type="search" placeholder="Search library" autocomplete="off" enterkeyhint="search">
+        <select id="sort" aria-label="Sort"><option value="added">Newest</option><option value="artist">Artist</option>
+          <option value="title">Title</option><option value="bpm">BPM</option><option value="played">Most played</option></select></div>
+      <div class="chips" id="views"></div>
+    </div>
+    <ul class="list" id="tracks"></ul>
+    <div class="note" id="libnote"></div>
+  </section>
+
+  <section class="page" id="p-fold">
+    <div id="scanline"><span id="scanmsg">Music folders Zydek scans for tracks.</span><button id="rescan">Rescan</button></div>
+    <div id="folders"></div>
+    <div style="padding: 10px 12px"><button id="addfolder">Add a folder…</button></div>
+    <div id="browser">
+      <div class="row" id="roots"></div>
+      <div class="where" id="where"></div>
+      <ul class="dirs" id="dirs"></ul>
+      <div class="row"><button id="up">⬑ Up</button><button id="usehere">Add this folder</button><button id="closebr">Cancel</button></div>
+    </div>
+    <div class="note">Zydek needs Android's <b>All files access</b> to read your music (Settings › Apps › Mixxx › Permissions).</div>
+  </section>
+</main>
+
+<div id="pv"><span></span><button id="pvstop">Stop preview</button></div>
+<nav>
+  <button data-page="lib"><span class="i">♫</span>Library</button>
+  <button data-page="fold"><span class="i">▤</span>Folders</button>
+</nav>
+<div id="scrim"></div>
+<div id="sheet" role="dialog" aria-modal="true"></div>
+<div id="toast"></div>
+
+<script>
+// =====================================================================================================
+// Zydek phone page: the Mixxx library on the phone (vertical mode), with a needle search and zoomed
+// waveform per deck. Served by Zydek itself (src/zydek/zydekhub.cpp): /api/... for the library,
+// /ws for live deck state (the same protocol as the tablet controller), /waveform/<id> for waveforms.
+// =====================================================================================================
+const $ = s => document.querySelector(s);
+const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtTime = s => { s = Math.max(0, Math.round(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const store = { get(k, d) { try { const v = localStorage.getItem("zphone." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+                set(k, v) { try { localStorage.setItem("zphone." + k, JSON.stringify(v)); } catch {} } };
+const qs = o => Object.entries(o).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+async function api(path) {
+  const r = await fetch(path);
+  let body = null; try { body = await r.json(); } catch {}
+  if (!r.ok) throw new Error((body && body.error) || r.statusText);
+  return body;
+}
+let toastT;
+function toast(msg, kind = "") {
+  const t = $("#toast"); t.textContent = msg; t.className = "on " + kind;
+  clearTimeout(toastT); toastT = setTimeout(() => t.className = kind, 2600);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------------------------------------
+let page = store.get("page", "lib");
+function showPage(p) {
+  page = p; store.set("page", p);
+  document.querySelectorAll(".page").forEach(e => e.classList.toggle("on", e.id === "p-" + p));
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.page === p));
+  if (p === "fold") loadFolders();
+}
+document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
+
+// ---------------------------------------------------------------------------------------------------
+// Decks: live state over /ws (like the tablet controller), waveforms from /waveform/<id>
+// ---------------------------------------------------------------------------------------------------
+const decks = [1, 2, 3, 4].map(n => ({ n, loaded: false, playing: false, dur: 0, pos: 0, ppos: 0, ppT: 0, ratio: 1,
+  title: "", artist: "", id: null, wf: null, wfVer: 0, wfFor: null }));
+let pair = store.get("pair", 0);            // 0: decks 1 and 2, 1: decks 3 and 4
+let ws = null, live = false;
+const wsSend = m => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
+
+function onDeckName(d, n) {
+  d.title = n ? n.t : ""; d.artist = n ? n.a : "";
+  const id = n ? n.id : null;
+  if (id !== d.wfFor) loadWaveform(d, id);
+}
+async function loadWaveform(d, id) {
+  d.wfFor = id; d.wf = null; d.wfVer++;
+  if (!id) return;
+  for (let tries = 0; tries < 40 && d.wfFor === id; tries++) {   // a new track is still being analysed
+    try {
+      const r = await fetch(`/waveform/${id}`);
+      if (r.ok) {
+        const buf = new Uint8Array(await r.arrayBuffer()), dv = new DataView(buf.buffer);
+        if (d.wfFor !== id) return;
+        d.wf = { rate: dv.getFloat32(4, true), n: dv.getUint32(8, true), data: buf.subarray(12) };
+        d.wfVer++;
+        return;
+      }
+    } catch {}
+    await new Promise(res => setTimeout(res, 2000));
+  }
+}
+function applyCv(k, v) {
+  const m = /^\[Channel(\d)\],(.*)$/.exec(k);
+  if (!m) return;
+  const d = decks[m[1] - 1];
+  if (!d) return;
+  switch (m[2]) {
+    case "play": d.playing = v > 0; break;
+    case "track_loaded": d.loaded = v > 0; break;
+    case "duration": d.dur = v; break;
+    case "rate_ratio": d.ratio = v || 1; break;
+    case "playposition": d.ppos = v; d.ppT = performance.now(); break;
+  }
+}
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.init) {
+      live = !!m.init.live;
+      m.init.decks.forEach((x, i) => decks[i] && onDeckName(decks[i], x.n));
+      Object.entries(m.init.cv || {}).forEach(([k, v]) => applyCv(k, v));
+      const sub = [];
+      for (let n = 1; n <= 4; n++) {
+        for (const k of ["play", "track_loaded", "duration", "rate_ratio"]) sub.push([`[Channel${n}]`, k, 0]);
+        sub.push([`[Channel${n}]`, "playposition", 1]);
+      }
+      wsSend({ sub });
+      $("#link").textContent = live ? "Live · Mixxx" : "Zydek's controller is off (Preferences › Controllers)";
+      return;
+    }
+    if (m.t === "cv") applyCv(m.k, m.v);
+    else if (m.t === "dn" && decks[m.d]) onDeckName(decks[m.d], m.n);
+  };
+  ws.onclose = () => { $("#link").textContent = "reconnecting…"; setTimeout(connect, 1500); };
+}
+
+// Two deck panels (needle search + zoomed waveform), built once; painted every frame.
+const panels = ["#dkA", "#dkB"].map((sel, k) => {
+  const el = $(sel);
+  el.innerHTML = `<div class="dk"><div class="row"><b></b><span class="t"></span><span class="tm"></span></div>` +
+    `<div class="needle"><canvas></canvas><div class="ph"></div></div>` +
+    `<div class="zoom"><canvas></canvas><div class="played"></div><div class="cur"></div></div></div>`;
+  const p = { k, root: el.firstChild, num: el.querySelector("b"), title: el.querySelector(".t"), time: el.querySelector(".tm"),
+    needle: el.querySelector(".needle"), nCanvas: el.querySelector(".needle canvas"), ph: el.querySelector(".ph"),
+    zCanvas: el.querySelector(".zoom canvas"), tiles: new Map() };
+  // Needle search: touch anywhere on the bar to jump there; drag to keep seeking.
+  let seeking = false, lastSend = 0;
+  const seek = e => {
+    const d = deckFor(p), r = p.needle.getBoundingClientRect();
+    if (!d.loaded || !d.dur) return;
+    const frac = clamp((e.clientX - r.left) / r.width, 0, 1);
+    d.ppos = frac; d.ppT = performance.now();
+    const now = performance.now();
+    if (now - lastSend > 30) { lastSend = now; wsSend({ set: [`[Channel${d.n}]`, "playposition", frac, 0] }); }
+  };
+  p.needle.addEventListener("pointerdown", e => { seeking = true; p.needle.setPointerCapture(e.pointerId); lastSend = 0; seek(e); });
+  p.needle.addEventListener("pointermove", e => { if (seeking) seek(e); });
+  p.needle.addEventListener("pointerup", e => { if (seeking) { lastSend = 0; seek(e); } seeking = false; });
+  p.needle.addEventListener("pointercancel", () => { seeking = false; });
+  return p;
+});
+const deckFor = p => decks[p.k + pair * 2];
+$("#swap").addEventListener("click", () => { pair = 1 - pair; store.set("pair", pair); $("#swap").textContent = pair ? "Decks 1·2" : "Decks 3·4"; });
+$("#swap").textContent = pair ? "Decks 1·2" : "Decks 3·4";
+
+function sizeCanvas(c) {
+  const dpr = devicePixelRatio || 1, W = Math.round(c.clientWidth * dpr), H = Math.round(c.clientHeight * dpr);
+  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; return true; }
+  return false;
+}
+function colorFor(a, i) {   // like Mixxx's RGB waveform: red lows, green mids, blue highs
+  const lo = a[i + 1], mi = a[i + 2], hi = a[i + 3], m = Math.max(lo, mi, hi, 1);
+  return `rgb(${Math.round(255 * lo / m)},${Math.round(230 * mi / m)},${Math.round(255 * hi / m)})`;
+}
+// Needle search: the whole track, drawn once per track and size.
+function drawOverview(p, d) {
+  const c = p.nCanvas, resized = sizeCanvas(c), key = `${d.n}|${d.wfVer}|${c.width}`;
+  if (p.nKey === key && !resized) return;
+  p.nKey = key;
+  const g = c.getContext("2d"), W = c.width, H = c.height;
+  g.clearRect(0, 0, W, H);
+  const wf = d.wf;
+  if (!wf) return;
+  const per = wf.n / W, a = wf.data;
+  for (let x = 0; x < W; x++) {
+    const i0 = Math.floor(x * per), i1 = Math.max(i0 + 1, Math.floor((x + 1) * per));
+    let all = 0, best = i0;
+    for (let i = i0; i < i1 && i < wf.n; i++) if (a[i * 4] > all) { all = a[i * 4]; best = i; }
+    g.fillStyle = colorFor(a, best * 4);
+    const hh = Math.max(1, all / 255 * H * .48);
+    g.fillRect(x, H / 2 - hh, 1, hh * 2);
+  }
+}
+// Zoomed waveform: rolls past a fixed cursor (tiles cached per track, copied each frame).
+const TILE = 1024, ZOOM_SECONDS = 4;
+function drawZoom(p, d) {
+  const c = p.zCanvas;
+  sizeCanvas(c);
+  const W = c.width, H = c.height, wf = d.wf, pxPerSec = W / ZOOM_SECONDS;
+  const left = Math.round((d.pos - ZOOM_SECONDS / 2) * pxPerSec), key = `${d.n}|${d.wfVer}|${left}|${W}|${H}`;
+  if (p.zKey === key) return;
+  p.zKey = key;
+  const g = c.getContext("2d");
+  g.clearRect(0, 0, W, H);
+  if (!wf) return;
+  const tkey = `${d.n}|${d.wfVer}|${W}|${H}`;
+  if (p.tileKey !== tkey) { p.tileKey = tkey; p.tiles = new Map(); }
+  for (let t = Math.floor(left / TILE); t * TILE < left + W; t++) {
+    if (t < 0 || t * TILE / pxPerSec > wf.n / wf.rate) continue;
+    let tile = p.tiles.get(t);
+    if (!tile) {
+      tile = document.createElement("canvas"); tile.width = TILE; tile.height = H;
+      const tg = tile.getContext("2d"), a = wf.data, perPx = wf.rate / pxPerSec;
+      for (let x = 0; x < TILE; x++) {
+        const i0 = Math.floor((t * TILE + x) * perPx), i1 = Math.max(i0 + 1, Math.floor((t * TILE + x + 1) * perPx));
+        if (i0 >= wf.n || i1 <= 0) continue;
+        let all = 0, best = i0;
+        for (let i = Math.max(0, i0); i < Math.min(wf.n, i1); i++) if (a[i * 4] > all) { all = a[i * 4]; best = i; }
+        tg.fillStyle = colorFor(a, best * 4);
+        const hh = Math.max(1, all / 255 * H * .47);
+        tg.fillRect(x, H / 2 - hh, 1, hh * 2);
+      }
+      p.tiles.set(t, tile);
+      if (p.tiles.size > 8) p.tiles.delete(p.tiles.keys().next().value);
+    }
+    g.drawImage(tile, t * TILE - left, 0);
+  }
+}
+function frame(now) {
+  for (const p of panels) {
+    const d = deckFor(p);
+    // Between Mixxx's ~30 position updates a second, advance at the deck's speed.
+    d.pos = d.ppT ? d.ppos * d.dur + (d.playing ? (now - d.ppT) / 1000 * d.ratio : 0) : 0;
+    p.root.className = `dk${d.n > 2 ? " d34" : ""}${d.loaded ? "" : " empty"}${d.playing ? " playing" : ""}`;
+    p.num.textContent = d.n;
+    const title = d.loaded ? (d.title || "Loaded") + (d.artist ? " · " + d.artist : "") : "Empty";
+    if (p.title.textContent !== title) p.title.textContent = title;
+    const tm = d.loaded ? "-" + fmtTime((d.dur - d.pos) / (d.ratio || 1)) : "";
+    if (p.time.textContent !== tm) p.time.textContent = tm;
+    drawOverview(p, d);
+    const frac = d.dur ? clamp(d.pos / d.dur, 0, 1) : 0;
+    p.ph.style.transform = `translateX(${(frac * p.needle.clientWidth).toFixed(1)}px)`;
+    drawZoom(p, d);
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Library
+// ---------------------------------------------------------------------------------------------------
+let view = store.get("view", "all"), libSeq = 0;
+$("#sort").value = store.get("sort", "added");
+async function loadViews() {
+  let v;
+  try { v = await api("/api/library/views"); } catch (e) { $("#libnote").innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
+  const chips = [["all", "All", v.total], ["stems", "Stems", v.stems],
+    ...v.crates.map(c => [`crate:${c.id}`, c.name, c.count]),
+    ...v.playlists.map(p => [`playlist:${p.id}`, p.name, p.count]),
+    ...(v.autodj && v.autodj.count ? [[`playlist:${v.autodj.id}`, "Auto DJ", v.autodj.count]] : []),
+    ...v.history.slice(0, 6).map(p => [`playlist:${p.id}`, `Set ${p.name}`, p.count])];
+  if (!chips.some(c => c[0] === view)) view = "all";
+  const box = $("#views"); box.innerHTML = "";
+  chips.forEach(([id, name, n]) => {
+    const b = h("button", "chip" + (id === view ? " on" : ""), `${esc(name)}<small>${n}</small>`);
+    b.addEventListener("click", () => { view = id; store.set("view", id); box.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c === b)); loadTracks(); });
+    box.appendChild(b);
+  });
+}
+async function loadTracks() {
+  const seq = ++libSeq, q = $("#q").value.trim(), sort = $("#sort").value;
+  let list;
+  try { list = await api(`/api/library/tracks?${qs({ q, view, sort, limit: 300 })}`); }
+  catch (e) { $("#libnote").innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
+  if (seq !== libSeq) return;
+  const ul = $("#tracks"); ul.innerHTML = "";
+  list.forEach(t => {
+    const li = h("li", "tr" + (t.missing ? " missing" : ""));
+    if (t.color != null) li.style.borderLeftColor = `#${(t.color & 0xffffff).toString(16).padStart(6, "0")}`;
+    li.appendChild(h("div", "art", esc((t.title || "?").trim().charAt(0).toUpperCase())));
+    li.appendChild(h("div", "meta", `<div class="t">${esc(t.title)}</div><div class="a">${t.stems ? '<span class="badge stem">STEMS</span>' : ""}` +
+      `${t.missing ? '<span class="badge miss">MISSING</span>' : ""}${esc(t.artist || "Unknown artist")}</div>`));
+    li.appendChild(h("div", "num", `<div class="bpm">${t.bpm ? t.bpm.toFixed(t.bpm % 1 ? 1 : 0) : "—"}</div><div>${esc(t.key || "")} ${fmtTime(t.duration)}</div>`));
+    li.addEventListener("click", () => openSheet(t));
+    ul.appendChild(li);
+  });
+  $("#libnote").textContent = list.length ? (list.length >= 300 ? "Showing the first 300. Search to narrow it down." : "") :
+    q ? "Nothing matches." : "No tracks yet: add a music folder on the Folders tab.";
+}
+let qT;
+$("#q").addEventListener("input", () => { clearTimeout(qT); qT = setTimeout(loadTracks, 180); });
+$("#sort").addEventListener("change", () => { store.set("sort", $("#sort").value); loadTracks(); });
+
+// Track sheet: load into a deck or sampler, preview on the headphones.
+let sheetTrack = null;
+function openSheet(t) {
+  sheetTrack = t;
+  const s = $("#sheet");
+  s.innerHTML = `<div class="grip"></div><div class="t">${esc(t.title)}</div>` +
+    `<div class="a">${esc(t.artist || "Unknown artist")}${t.album ? " · " + esc(t.album) : ""}</div>` +
+    `<div class="facts"><div><b>${t.bpm ? t.bpm.toFixed(1) : "—"}</b>BPM</div><div><b>${esc(t.key || "—")}</b>Key</div>` +
+    `<div><b>${fmtTime(t.duration)}</b>Length</div><div><b>${t.played || 0}</b>Played</div></div>` +
+    `<div class="loads"></div><div class="more"><button class="pv">🎧 Preview</button><button class="smp">Load to sampler</button></div>`;
+  [1, 2, 3, 4].forEach(n => {
+    const d = decks[n - 1];
+    const b = h("button", n > 2 ? "d34" : "d12", `Deck ${n}<small>${d.playing ? "playing" : d.loaded ? esc(d.title || "loaded") : "empty"}</small>`);
+    b.disabled = d.playing || t.missing;
+    b.addEventListener("click", () => load(t, "deck" + n));
+    s.querySelector(".loads").appendChild(b);
+  });
+  s.querySelector(".pv").disabled = t.missing;
+  s.querySelector(".pv").addEventListener("click", () => preview(t));
+  s.querySelector(".smp").disabled = t.missing;
+  s.querySelector(".smp").addEventListener("click", () => load(t, "sampler"));
+  $("#scrim").classList.add("on"); s.classList.add("on");
+}
+function closeSheet() { $("#scrim").classList.remove("on"); $("#sheet").classList.remove("on"); sheetTrack = null; }
+$("#scrim").addEventListener("click", closeSheet);
+(() => {   // swipe the sheet down to close it
+  let y0 = null;
+  $("#sheet").addEventListener("touchstart", e => { y0 = $("#sheet").scrollTop === 0 ? e.touches[0].clientY : null; }, { passive: true });
+  $("#sheet").addEventListener("touchmove", e => { if (y0 != null && e.touches[0].clientY - y0 > 70) { y0 = null; closeSheet(); } }, { passive: true });
+})();
+async function load(t, target) {
+  try {
+    const r = await api(`/api/load?${qs({ track_id: t.id, target })}`);
+    toast(`Loaded into ${r.group.replace(/\[Channel(\d)\]/, "deck $1").replace(/\[Sampler(\d+)\]/, "sampler $1")}`, "ok");
+    if (navigator.vibrate) navigator.vibrate(20);
+    closeSheet();
+  } catch (e) { toast(e.message, "bad"); }
+}
+async function preview(t) {
+  try {
+    await api(`/api/preview?${qs({ track_id: t.id })}`);
+    $("#pv span").textContent = `Previewing on the headphones: ${t.title}`;
+    $("#pv").classList.add("on");
+    closeSheet();
+  } catch (e) { toast(e.message, "bad"); }
+}
+$("#pvstop").addEventListener("click", async () => { await api("/api/preview/stop").catch(() => {}); $("#pv").classList.remove("on"); });
+
+// ---------------------------------------------------------------------------------------------------
+// Music folders
+// ---------------------------------------------------------------------------------------------------
+async function loadFolders() {
+  let list;
+  try { list = await api("/api/folders"); } catch (e) { $("#folders").innerHTML = `<div class="note err">${esc(e.message)}</div>`; return; }
+  const box = $("#folders"); box.innerHTML = "";
+  list.forEach(f => box.appendChild(h("div", "folder" + (f.available ? "" : " off"),
+    `<span>${esc(f.path)}${f.available ? "" : " (not available)"}</span>`)));
+  if (!list.length) box.innerHTML = `<div class="note">No music folders yet.</div>`;
+}
+let browsePath = "";
+async function browse(path) {
+  let r;
+  try { r = await api(`/api/fs?${qs({ path })}`); } catch (e) { toast(e.message, "bad"); return; }
+  browsePath = r.path;
+  $("#where").textContent = `${r.path}  ·  ${r.audioFiles} audio files here${r.readable ? "" : "  ·  can't read (allow All files access)"}`;
+  $("#up").disabled = !r.parent;
+  $("#up").onclick = () => browse(r.parent);
+  const roots = $("#roots"); roots.innerHTML = "";
+  (r.roots || []).forEach(root => {
+    const b = h("button", "chip", esc(root === "/storage/emulated/0" ? "Phone storage" : root.replace("/storage/", "Card ")));
+    b.addEventListener("click", () => browse(root));
+    roots.appendChild(b);
+  });
+  const ul = $("#dirs"); ul.innerHTML = "";
+  r.dirs.forEach(name => {
+    const li = h("li", "", "📁 " + esc(name));
+    li.addEventListener("click", () => browse(r.path.replace(/\/$/, "") + "/" + name));
+    ul.appendChild(li);
+  });
+}
+$("#addfolder").addEventListener("click", () => { $("#browser").classList.add("on"); browse(""); });
+$("#closebr").addEventListener("click", () => $("#browser").classList.remove("on"));
+$("#usehere").addEventListener("click", async () => {
+  try {
+    await api(`/api/folders/add?${qs({ path: browsePath })}`);
+    toast("Added; scanning for tracks…", "ok");
+    $("#browser").classList.remove("on");
+    loadFolders(); watchScan();
+  } catch (e) { toast(e.message, "bad"); }
+});
+$("#rescan").addEventListener("click", async () => { await api("/api/scan").catch(() => {}); watchScan(); });
+let scanTimer = null;
+function watchScan() {
+  clearInterval(scanTimer);
+  $("#scanmsg").textContent = "Scanning…";
+  scanTimer = setInterval(async () => {
+    const s = await api("/api/scan/status").catch(() => ({ scanning: false }));
+    if (!s.scanning) {
+      clearInterval(scanTimer);
+      $("#scanmsg").textContent = "Scan finished.";
+      loadViews(); loadTracks();
+    }
+  }, 1500);
+}
+
+// ---------------------------------------------------------------------------------------------------
+showPage(page);
+connect();
+loadViews().then(loadTracks);
+requestAnimationFrame(frame);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadViews(); loadTracks(); } });
+</script>
+</body>
+</html>

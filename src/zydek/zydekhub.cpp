@@ -99,17 +99,32 @@ HttpServer::Response json(const QJsonObject& o) {
     return {200, "application/json", QJsonDocument(o).toJson(QJsonDocument::Compact), {}};
 }
 
+HttpServer::Response json(const QJsonArray& a) {
+    return {200, "application/json", QJsonDocument(a).toJson(QJsonDocument::Compact), {}};
+}
+
+/// Actions answer 200 with {ok: true, ...} or 409 with {ok: false, error}.
+HttpServer::Response result(const QJsonObject& o) {
+    HttpServer::Response r = json(o);
+    if (!o.value(QStringLiteral("ok")).toBool(true)) {
+        r.status = 409;
+    }
+    return r;
+}
+
 const QByteArray kIndexPage = QByteArrayLiteral(
         "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">"
         "<title>Zydek</title><style>body{font:18px system-ui,sans-serif;background:#111;color:#ddd;margin:24px}"
         "a{display:block;color:#ff8a1e;margin:14px 0}</style><h1>Zydek</h1>"
-        "<a href=/controller>Controller</a><a href=/settings>Settings and debug</a><a href=/sizes>Size test</a>");
+        "<a href=/phone>Library (phone)</a><a href=/controller>Controller (tablet)</a><a href=/settings>Settings and debug</a>"
+        "<a href=/sizes>Size test</a>");
 
 } // namespace
 
 Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
         : QObject(pParent),
-          m_pConfig(pConfig) {
+          m_pConfig(pConfig),
+          m_library(pConfig) {
     m_server.setHandler([this](const QString& path, const HttpServer::Query& query) {
         return handleHttp(path, query);
     });
@@ -145,7 +160,7 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         return {200, "text/html; charset=utf-8", kIndexPage, {}};
     }
     if (path == QLatin1String("/controller") || path == QLatin1String("/settings") ||
-            path == QLatin1String("/sizes")) {
+            path == QLatin1String("/sizes") || path == QLatin1String("/phone")) {
         return staticFile(path.mid(1) + QLatin1String(".html"));
     }
     if (path == QLatin1String("/controller.webmanifest")) {
@@ -158,13 +173,69 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         }
         return {200, "application/octet-stream", data, {{"Cache-Control", "max-age=3600"}}};
     }
+    if (path.startsWith(QLatin1String("/api/"))) {
+        return handleApi(path, query);
+    }
     if (path == QLatin1String("/lan-url")) {
-        return json({{"url", lanUrl()}});
+        return json(QJsonObject{{"url", lanUrl()}});
     }
     if (path == QLatin1String("/status")) {
-        return json({{"live", m_pController != nullptr}});
+        return json(QJsonObject{{"live", m_pController != nullptr}});
     }
     return {404, "text/plain", "not found\n", {}};
+}
+
+HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query& query) {
+    auto arg = [&query](const char* name) { return query.value(QLatin1String(name)); };
+    if (path == QLatin1String("/api/library/views")) {
+        return json(m_library.views());
+    }
+    if (path == QLatin1String("/api/library/tracks")) {
+        return json(m_library.tracks(arg("q"),
+                arg("view").isEmpty() ? QStringLiteral("all") : arg("view"),
+                arg("sort").isEmpty() ? QStringLiteral("added") : arg("sort"),
+                arg("limit").isEmpty() ? 200 : arg("limit").toInt(),
+                arg("offset").toInt()));
+    }
+    if (path.startsWith(QLatin1String("/api/library/track/"))) {
+        const QJsonObject t = m_library.track(path.section(QLatin1Char('/'), 4).toInt());
+        return t.isEmpty() ? HttpServer::Response{404, "text/plain", "no such track\n", {}} : json(t);
+    }
+    if (path == QLatin1String("/api/decks")) {
+        QJsonObject d = m_library.decks();
+        d.insert(QStringLiteral("live"), m_pController != nullptr);
+        return json(d);
+    }
+    if (path == QLatin1String("/api/load")) {   // ?track_id=&target=deck1..4|sampler|samplerN
+        return result(m_library.load(arg("track_id").toInt(), arg("target")));
+    }
+    if (path == QLatin1String("/api/load-path")) {   // ?path=&target=
+        return result(m_library.loadLocation(arg("path"), arg("target")));
+    }
+    if (path == QLatin1String("/api/preview")) {
+        return result(m_library.preview(arg("track_id").toInt()));
+    }
+    if (path == QLatin1String("/api/preview/stop")) {
+        m_library.stopPreview();
+        return json(QJsonObject{{"ok", true}});
+    }
+    if (path == QLatin1String("/api/folders")) {
+        return json(m_library.folders());
+    }
+    if (path == QLatin1String("/api/folders/add")) {
+        return result(m_library.addFolder(arg("path")));
+    }
+    if (path == QLatin1String("/api/fs")) {
+        return json(m_library.listDirectory(arg("path")));
+    }
+    if (path == QLatin1String("/api/scan")) {
+        m_library.startScan();
+        return json(QJsonObject{{"ok", true}});
+    }
+    if (path == QLatin1String("/api/scan/status")) {
+        return json(QJsonObject{{"scanning", m_library.scanning()}});
+    }
+    return {404, "text/plain", "no such API\n", {}};
 }
 
 HttpServer::Response Hub::staticFile(const QString& name) const {

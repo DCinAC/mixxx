@@ -28,13 +28,14 @@
         android:requestLegacyExternalStorage="true"
         android:allowBackup="true"
         android:debuggable="true"
+        android:usesCleartextTraffic="true"
         tools:ignore="HardcodedDebugMode"
         android:fullBackupOnly="false">
         <activity
             android:name="org.mixxx.MainActivity"
             android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density"
             android:launchMode="singleTop"
-            android:screenOrientation="sensorLandscape"
+            android:screenOrientation="fullSensor"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
