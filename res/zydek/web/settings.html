@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Controller Settings</title>
+<style>
+  :root { --bg: #0e0e0e; --panel: #161616; --line: #2a2a2a; --text: #e6e6e6; --dim: #8a8a8a; --acc: #ff8a1e; --ok: #3ddc84; --err: #ff5a5f; --blue: #38b6ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, sans-serif; display: grid;
+    grid-template-columns: 420px minmax(0, 1fr); height: 100vh; }
+  section { padding: 18px 20px; overflow: auto; }
+  section + section { border-left: 1px solid var(--line); }
+  h1 { font-size: 17px; margin: 0 0 4px; } h2 { font-size: 14px; margin: 20px 0 8px; color: var(--dim); font-weight: 600; }
+  p { color: var(--dim); margin: 0 0 12px; font-size: 13px; }
+  .field { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .field label { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .field label b { color: var(--acc); font-variant-numeric: tabular-nums; font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: var(--acc); }
+  .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+  button { font: inherit; color: var(--text); background: #1d1d1d; border: 1px solid #383838; border-radius: 7px; padding: 6px 12px; cursor: pointer; }
+  button.on { border-color: var(--acc); color: var(--acc); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+  .stat { background: var(--panel); border-radius: 8px; padding: 8px 10px; }
+  .stat span { display: block; color: var(--dim); font-size: 12px; } .stat b { font-size: 18px; font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--line); } th:first-child, td:first-child { text-align: left; }
+  th { color: var(--dim); font-weight: 500; }
+  canvas { width: 100%; height: 160px; background: var(--panel); border-radius: 8px; display: block; }
+  #log { font: 12px/1.5 ui-monospace, Menlo, monospace; background: var(--panel); border-radius: 8px; padding: 8px 10px; height: 260px; overflow: auto; color: #bdbdbd; }
+  #conn.ok { color: var(--ok); } #conn { color: var(--err); }
+  .yes { color: var(--ok); } .no { color: #555; }
+</style>
+</head>
+<body>
+<section>
+  <div id="qr" style="display:none;margin-bottom:16px">
+    <h1>Tablet</h1>
+    <p>Scan with the tablet's camera: <span id="qrurl"></span></p>
+    <img src="/qr.svg" alt="QR code for the tablet" style="width:180px;height:180px;background:#fff;border-radius:8px">
+  </div>
+  <h1>Controller settings</h1>
+  <p>Changes apply to the tablet's controller page live, and are saved on the Mac.</p>
+  <div id="fields"></div>
+  <div style="margin-top:14px"><button id="reset">Reset to defaults</button></div>
+</section>
+<section>
+  <h1>Debug <span id="conn" style="font-size:13px;margin-left:8px">waiting for the controller page…</span></h1>
+  <div class="stats" id="stats"></div>
+  <h2>Decks</h2>
+  <table id="decks"></table>
+  <h2>Platter speed, last 10 s <span style="font-weight:400">(1.0 = normal playback; orange = left, blue = right)</span></h2>
+  <canvas id="plot" width="1200" height="320"></canvas>
+  <h2>Events the controller would send to Mixxx <button id="pause" style="margin-left:8px">Pause</button> <button id="clear">Clear</button>
+    <label style="margin-left:8px;color:var(--dim)"><input type="checkbox" id="hideScratch"> hide scratch ticks</label></h2>
+  <div id="log"></div>
+</section>
+<script>
+// Must match DEFAULTS in controller.html.
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, inertia: 400, telemetry: true };
+const FIELDS = [
+  { k: "revs", label: "Platter strip", seg: [[.5, "½ rev"], [1, "1 rev"], [2, "2 rev"]] },
+  { k: "inertia", label: "Strip inertia", min: 0, max: 1500, step: 50, fmt: v => v ? `${v} ms` : "off" },
+  { k: "sens", label: "Tempo sensitivity", min: .04, max: .4, step: .01, fmt: v => `${v.toFixed(2)} % per mm` },
+  { k: "fasterDown", label: "Tempo direction", seg: [[true, "Down = faster"], [false, "Up = faster"]] },
+  { k: "knobMode", label: "Knob gesture", seg: [["spin", "Spin"], ["drag", "Drag (both)"], ["dragH", "Drag (left/right)"], ["dragV", "Drag (up/down)"]] },
+  { k: "knobSize", label: "Mixer knob size", min: 9, max: 18, step: .5, fmt: v => `${v} mm` },
+  { k: "bar", label: "Top bar height", min: 12, max: 28, step: 1, fmt: v => `${v} mm` },
+  { k: "pxmm", label: "Screen scale", min: 3.5, max: 8.5, step: .01, fmt: v => `${v.toFixed(2)} px per mm` },
+  { k: "palm", label: "Palm rejection", min: 0, max: 30, step: 1, fmt: v => v ? `ignore touches over ${v} mm` : "off" },
+  { k: "autoFs", label: "Fullscreen on first touch", seg: [[true, "On"], [false, "Off"]] },
+  { k: "telemetry", label: "Telemetry (debug data from the tablet)", seg: [[true, "On"], [false, "Off"]] },
+];
+let S = { ...DEFAULTS }, ws = null, pushTimer = null;
+
+function renderFields() {
+  const box = document.getElementById("fields"); box.innerHTML = "";
+  for (const f of FIELDS) {
+    const el = document.createElement("div"); el.className = "field";
+    if (f.seg) {
+      el.innerHTML = `<label>${f.label}</label><div class="seg">${f.seg.map(([v, l], i) =>
+        `<button data-i="${i}" class="${S[f.k] === v ? "on" : ""}">${l}</button>`).join("")}</div>`;
+      el.querySelectorAll("button").forEach(b => b.onclick = () => { S[f.k] = f.seg[+b.dataset.i][0]; push(true); renderFields(); });
+    } else {
+      el.innerHTML = `<label>${f.label}<b>${f.fmt(S[f.k])}</b></label><input type="range" min="${f.min}" max="${f.max}" step="${f.step}" value="${S[f.k]}">`;
+      const inp = el.querySelector("input");
+      inp.oninput = () => { S[f.k] = +inp.value; el.querySelector("b").textContent = f.fmt(S[f.k]); push(false); };
+    }
+    box.appendChild(el);
+  }
+}
+// Slider drags are throttled to ~20 updates a second.
+function push(now) {
+  clearTimeout(pushTimer);
+  const go = () => ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: "settings", settings: S }));
+  if (now) go(); else pushTimer = setTimeout(go, 50);
+}
+document.getElementById("reset").onclick = () => { S = { ...DEFAULTS }; push(true); renderFields(); };
+
+// ---------------- debug ----------------
+let lastTele = 0, paused = false;
+const history = [];             // [t, velL, velR]
+const logLines = [];
+const fmtB = b => b ? `<span class="yes">yes</span>` : `<span class="no">no</span>`;
+
+function onTelemetry(m) {
+  lastTele = Date.now();
+  const st = [["Frame rate", `${m.fps} fps`], ["Touch moves", `${m.moves} /s`], ["Fingers down", m.touches],
+    ["Page", m.page], ["Fullscreen", m.fullscreen ? "yes" : "no"], ["Viewport", `${m.viewport[0]}×${m.viewport[1]}`], ["Pixel ratio", m.dpr]];
+  document.getElementById("stats").innerHTML = st.map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join("");
+  document.getElementById("decks").innerHTML = `<tr><th>Side</th><th>Deck</th><th>Position</th><th>Speed</th><th>Playing</th><th>Grabbed</th><th>Coasting</th><th>Tempo</th><th>Over limit</th><th>Sync</th><th>Volume</th></tr>` +
+    m.decks.map(d => `<tr><td>${d.side}</td><td>${d.n}</td><td>${d.pos.toFixed(2)} s</td><td>${d.vel.toFixed(2)}×</td><td>${fmtB(d.playing)}</td><td>${fmtB(d.grabbed)}</td><td>${fmtB(d.coast)}</td><td>${d.tempo >= 0 ? "+" : ""}${d.tempo.toFixed(2)} %</td><td>${fmtB(d.ol)}</td><td>${["off", "tempo", "beat"][d.sync]}</td><td>${d.vol}</td></tr>`).join("");
+  history.push([m.t, m.decks[0].vel, m.decks[1].vel]);
+  while (history.length && m.t - history[0][0] > 10000) history.shift();
+  plot();
+  if (!paused) {
+    for (const e of m.events) logLines.push(e);
+    if (logLines.length > 600) logLines.splice(0, logLines.length - 600);
+    renderLog();
+  }
+}
+
+function renderLog() {
+  const hide = document.getElementById("hideScratch").checked;
+  document.getElementById("log").innerHTML = logLines.filter(e => !(hide && e[1] === "scratch")).slice(-200).reverse()
+    .map(([t, ...rest]) => `${(t / 1000).toFixed(3).padStart(9)}  ${rest.map(x => typeof x === "number" ? +x.toFixed(4) : x).join("  ")}`).join("<br>");
+}
+
+function plot() {
+  const c = document.getElementById("plot"), g = c.getContext("2d"), W = c.width, H = c.height;
+  g.clearRect(0, 0, W, H);
+  const lo = -3, hi = 3, y = v => H - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * H, now = Date.now();
+  g.strokeStyle = "#2a2a2a"; g.fillStyle = "#666"; g.font = "18px sans-serif";
+  for (const v of [-2, -1, 0, 1, 2]) { g.beginPath(); g.moveTo(0, y(v)); g.lineTo(W, y(v)); g.stroke(); g.fillText(`${v}×`, 6, y(v) - 4); }
+  [[1, "#ff8a1e"], [2, "#38b6ff"]].forEach(([i, col]) => {
+    g.strokeStyle = col; g.lineWidth = 2.5; g.beginPath();
+    history.forEach((h, k) => { const x = W - (now - h[0]) / 10000 * W; k ? g.lineTo(x, y(h[i])) : g.moveTo(x, y(h[i])); });
+    g.stroke();
+  });
+}
+
+document.getElementById("pause").onclick = e => { paused = !paused; e.target.textContent = paused ? "Resume" : "Pause"; };
+document.getElementById("clear").onclick = () => { logLines.length = 0; renderLog(); };
+document.getElementById("hideScratch").onchange = renderLog;
+setInterval(() => {
+  const conn = document.getElementById("conn");
+  const live = Date.now() - lastTele < 1500;
+  conn.className = live ? "ok" : "";
+  if (!live) conn.textContent = conn.dataset.n > 0 ? (S.telemetry === false ? "controller connected · telemetry is off" : "controller connected, waiting for data…") : "waiting for the controller page…";
+  else conn.textContent = "controller live";
+}, 500);
+
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ctl?role=debug`);
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === "settings") { S = { ...DEFAULTS, ...m.settings }; renderFields(); }
+    else if (m.type === "telemetry" && !m.probe) onTelemetry(m);   // probe results are for debugging scripts
+    else if (m.type === "presence") document.getElementById("conn").dataset.n = m.controllers;
+  };
+  ws.onclose = () => setTimeout(connect, 1500);
+}
+renderFields();
+connect();
+// QR for the tablet (only when the server listens on WiFi, i.e. started with --lan)
+fetch("/lan-url").then(r => r.json()).then(j => {
+  if (!j.url) return;
+  document.getElementById("qrurl").textContent = j.url;
+  document.getElementById("qr").style.display = "";
+}).catch(() => {});
+</script>
+</body>
+</html>

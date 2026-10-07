@@ -1265,6 +1265,9 @@ add_library(
   src/controllers/midi/legacymidicontrollermapping.cpp
   src/controllers/midi/legacymidicontrollermappingfilehandler.cpp
   src/controllers/midi/midicontroller.cpp
+  src/controllers/zydek/zydekcontroller.cpp
+  src/zydek/zydekhttpserver.cpp
+  src/zydek/zydekhub.cpp
   src/controllers/midi/midienumerator.cpp
   src/controllers/midi/midimessage.cpp
   src/controllers/midi/midioutputhandler.cpp

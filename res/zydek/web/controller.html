@@ -1,0 +1,1430 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b0b0b">
+<link rel="manifest" href="/controller.webmanifest">
+<title>Mixxx Controller</title>
+<style>
+  :root {
+    --mm: 5.93px; --bar: calc(var(--mm) * 20); --knob: calc(var(--mm) * 10.5);
+    --kcol: calc(var(--knob) + var(--mm) * 3.5);
+    --bg: #0b0b0b; --panel: #121212; --pad: #1a1a1a; --edge: #2c2c2c; --text: #e8e8e8; --dim: #767676;
+    --deck12: #ff8a1e; --deck34: #38b6ff; --play: #3ddc84; --cue: #f0a23b; --err: #ff5a5f; --fx: #ff7a45; --roll: #38b6ff; --jump: #a47bff;
+    --gap: calc(var(--mm) * 1.4);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--dim); overflow: hidden; overscroll-behavior: none;
+    touch-action: none; font: 600 calc(var(--mm) * 2.1)/1.15 -apple-system, "Roboto", sans-serif; }
+
+  button { font: inherit; color: #cfcfcf; background: #1c1c1c; border: 1px solid #333; border-radius: calc(var(--mm) * 1.2); padding: 0; }
+  button.on { color: var(--text); border-color: var(--text); background: #2a2a2a; }
+
+  /* ---- layout: top-left bar | mixer (full height) | top-right bar, decks under the bars ---- */
+  #app { height: 100%; display: grid; padding: var(--gap); gap: var(--gap) calc(var(--gap) * 1.4);
+    grid-template-columns: minmax(0, 1fr) calc(var(--mm) * 30 + 2 * var(--kcol)) minmax(0, 1fr);
+    grid-template-rows: calc(var(--bar) - var(--gap)) minmax(0, 1fr);
+    grid-template-areas: "tl mix tr" "dl mix dr"; }
+  #topL { grid-area: tl; } #topR { grid-area: tr; justify-content: flex-end; }
+  #mixwrap { grid-area: mix; display: grid; min-height: 0; }
+  #dl { grid-area: dl; } #dr { grid-area: dr; }
+  #dl, #dr { display: grid; min-width: 0; min-height: 0; }
+  .topbar { display: flex; align-items: center; gap: var(--gap); min-width: 0; }
+  .topbar .tab { height: calc(var(--mm) * 11); width: calc(var(--mm) * 13.5); font-size: calc(var(--mm) * 2.4); }
+  .topbar .note { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    font-size: calc(var(--mm) * 1.9); color: #555; }
+  #topknobs { margin-left: auto; }
+  /* loop controls for the deck on that side, next to the mixer */
+  .loopbox { --acc: var(--deck12); display: flex; gap: calc(var(--mm) * 1); flex: none; }
+  .loopbox.d34 { --acc: var(--deck34); }
+  .loopbox button { height: calc(var(--mm) * 11); width: calc(var(--mm) * 9); font-size: calc(var(--mm) * 2.8); }
+  .loopbox .loop { width: calc(var(--mm) * 16); border-color: var(--acc); color: var(--text); font-size: calc(var(--mm) * 3.4); line-height: 1; }
+  .loopbox .loop small { display: block; font-size: calc(var(--mm) * 1.6); color: var(--acc); margin-top: 2px; }
+  .loopbox .loop.on { background: var(--play); border-color: var(--play); color: #04200e; }
+  .loopbox .loop.on small { color: #04200e; }
+  .topbar .knob { width: calc(var(--mm) * 14); }
+  #gear { width: calc(var(--mm) * 11); height: calc(var(--mm) * 11); font-size: calc(var(--mm) * 4); }
+  #gear.live { border-color: var(--play); color: var(--play); }   /* connected to Mixxx */
+  #settings h2 small { font-size: calc(var(--mm) * 2); color: var(--dim); font-weight: 500; margin-left: calc(var(--mm) * 1.5); }
+
+  .side { --acc: var(--deck12); display: grid; gap: var(--gap); min-width: 0; min-height: 0; }
+  .side.d34 { --acc: var(--deck34); }
+  .side.left { grid-template-columns: calc(var(--mm) * 13) minmax(0, 1fr); }
+  .side.right { grid-template-columns: minmax(0, 1fr) calc(var(--mm) * 13); }
+  .side.samples { grid-template-columns: minmax(0, 1fr); }
+  .deck { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; min-height: 0; }
+
+  .head { height: calc(var(--mm) * 9); flex: none; display: flex; align-items: center; gap: calc(var(--mm) * 1.2); min-width: 0; }
+  .switch { height: 100%; min-width: calc(var(--mm) * 15); display: flex; align-items: center; justify-content: center; gap: calc(var(--mm) * .8);
+    border-color: var(--acc); color: var(--acc); font-size: calc(var(--mm) * 3.4); }
+  .switch small { font-size: calc(var(--mm) * 1.8); color: var(--dim); }
+  .title { flex: 1; min-width: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: calc(var(--mm) * 2.3); }
+  .title small { color: var(--dim); font-weight: 500; margin-left: calc(var(--mm) * .8); }
+  .num { font-variant-numeric: tabular-nums; color: var(--text); font-size: calc(var(--mm) * 2.3); }
+  .num.dim { color: var(--dim); }
+
+  /* platter strip: the record unrolled; the cursor is the sticker */
+  .strip { flex: 0 0 calc(var(--mm) * 22); position: relative; overflow: hidden; border-radius: calc(var(--mm) * 1.5);
+    border: 1px solid #3a3a3a; background:
+      repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), #2e2e2e calc(25% - 1px) 25%),
+      repeating-linear-gradient(90deg, transparent 0 calc(6.25% - 1px), #1f1f1f calc(6.25% - 1px) 6.25%), #121212; }
+  .strip.held { border-color: var(--acc); background-color: #181818; }
+  .strip .cursor { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--acc); left: 50% !important;
+    box-shadow: 0 0 calc(var(--mm) * 1.2) var(--acc); will-change: transform; left: 0; }
+  /* waveform of the stretch of record the strip shows (Mixxx's analysis: red lows, green mids, blue highs) */
+  .strip canvas.wf { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .strip .played { position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background: rgba(0,0,0,.45); pointer-events: none; }
+  .strip .label { position: absolute; left: calc(var(--mm) * 1.2); bottom: calc(var(--mm) * .8); font-size: calc(var(--mm) * 1.7); color: #4a4a4a; }
+
+  .transport { flex: 0 0 calc(var(--mm) * 13); display: grid; grid-template-columns: 1fr 1fr 1fr calc(var(--mm) * 24); gap: var(--gap); }
+  .transport button { font-size: calc(var(--mm) * 2.6); }
+  .transport .play.on { background: var(--play); border-color: var(--play); color: #04200e; }
+  .transport .cuebtn.on { background: var(--cue); border-color: var(--cue); color: #1b1206; }
+  /* sync: off (glows white as tempos converge) → TEMPO (outlined) → BEAT (filled) */
+  .transport .sync { --glow: 0; border-color: rgba(255,255,255, calc(.2 + .8 * var(--glow)));
+    box-shadow: 0 0 calc(var(--mm) * 3 * var(--glow)) rgba(255,255,255, calc(.85 * var(--glow))); }
+  .transport .sync small { display: block; font-size: calc(var(--mm) * 1.5); }
+  .transport .sync.matched { border-color: var(--play); color: var(--play);
+    box-shadow: 0 0 calc(var(--mm) * 3) color-mix(in srgb, var(--play) 80%, transparent); }
+  .transport .sync.tempo { --glow: 0; border-color: var(--acc); color: var(--acc); box-shadow: none; }
+  .transport .sync.beat { --glow: 0; background: var(--acc); border-color: var(--acc); color: #111; box-shadow: none; }
+  .keybox { display: grid; grid-template-columns: 1fr auto 1fr; gap: calc(var(--mm) * .6); align-items: stretch; }
+  .keybox button { font-size: calc(var(--mm) * 3.6); }
+  .keybox span { align-self: center; text-align: center; min-width: calc(var(--mm) * 6); color: var(--text); font-size: calc(var(--mm) * 2); }
+  .keybox span small { display: block; color: var(--dim); font-size: calc(var(--mm) * 1.5); }
+
+  .modes { flex: 0 0 calc(var(--mm) * 17); display: flex; gap: calc(var(--mm) * .8); }
+  .modes button { flex: 1; font-size: calc(var(--mm) * 2.3); letter-spacing: .02em; }
+  .modes button.on { border-color: var(--acc); color: var(--acc); }
+  .tempo .shift { flex: 0 0 calc(var(--mm) * 11); font-size: calc(var(--mm) * 1.7); }
+  .tempo .shift.on { background: var(--err); border-color: var(--err); color: #fff; }
+  .tempo .shift.idle { opacity: .35; }            /* SHIFT only does something in CUE and FX modes */
+
+  .pads { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: var(--gap); }
+  .pads.grid16 { grid-template-rows: repeat(4, minmax(0, 1fr)); }
+  .pad { position: relative; overflow: hidden; border-radius: calc(var(--mm) * 1.5); background: var(--pad); border: 1px solid var(--edge);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #8a8a8a;
+    font-size: calc(var(--mm) * 2.9); font-weight: 800; line-height: 1.05; transition: transform 40ms; }
+  .pad small { font-size: calc(var(--mm) * 1.5); font-weight: 600; opacity: .8; margin-top: 2px; }
+  .pad .n { position: absolute; left: calc(var(--mm) * 1); top: calc(var(--mm) * .8); font-size: calc(var(--mm) * 1.6); opacity: .6; }
+  .pad.lit { background: var(--c); border-color: var(--c); color: var(--fg, #111); }
+  .pad.tint { background: color-mix(in srgb, var(--c) 15%, var(--pad)); border-color: color-mix(in srgb, var(--c) 45%, var(--edge)); color: color-mix(in srgb, var(--c) 80%, #ddd); }
+  .pad.off { opacity: .3; }
+  .pad.armed { outline: 3px dashed var(--err); outline-offset: -5px; }
+  .pad.down { background: #fff !important; border-color: #fff !important; color: #111 !important; transform: scale(.97); }
+
+  /* tempo: a touchpad lane, no jump */
+  .tempo { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; }
+  .ol { flex: 0 0 calc(var(--mm) * 9); font-size: calc(var(--mm) * 1.7); }
+  .ol.on { background: var(--err); border-color: var(--err); color: #fff; }
+  .lane { flex: 1; position: relative; border-radius: calc(var(--mm) * 1.5); border: 1px solid #333; background:
+      repeating-linear-gradient(0deg, transparent 0 calc(var(--tick) - 1px), #262626 calc(var(--tick) - 1px) var(--tick)), #121212;
+    --tick: 6.25%; overflow: hidden; }
+  .lane.held { border-color: var(--acc); }
+  .lane .zero { position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; background: #4a4a4a; }
+  .lane .mark { position: absolute; left: 12%; right: 12%; height: calc(var(--mm) * 2.2); margin-top: calc(var(--mm) * -1.1); top: 50%;
+    border-radius: 3px; background: var(--acc); will-change: top; }
+  .lane .end { position: absolute; left: 0; right: 0; text-align: center; font-size: calc(var(--mm) * 1.5); color: #555; }
+  .lane .end.t { top: calc(var(--mm) * .6); } .lane .end.b { bottom: calc(var(--mm) * .6); }
+  .tread { flex: 0 0 calc(var(--mm) * 6); text-align: center; color: var(--text); font-size: calc(var(--mm) * 1.9); font-variant-numeric: tabular-nums; }
+  .tread.over { color: var(--err); }
+
+  /* ---- mixer ---- */
+  #mixer { display: grid; grid-template-columns: var(--kcol) minmax(0, 1fr) minmax(0, 1fr) var(--kcol);
+    grid-template-rows: minmax(0, 1fr) calc(var(--mm) * 15); gap: var(--gap); padding: var(--gap); border-radius: calc(var(--mm) * 2);
+    background: var(--panel); border: 1px solid #222; min-height: 0; }
+  .chan { --acc: var(--deck12); display: flex; flex-direction: column; justify-content: space-between; align-items: center; min-height: 0; }
+  .chan.d34 { --acc: var(--deck34); }
+  .chan .pfl { width: 100%; flex: 0 0 calc(var(--mm) * 9); font-size: calc(var(--mm) * 2); }
+  .chan .pfl.on { background: var(--cue); border-color: var(--cue); color: #1b1206; }
+  .chan .mute { width: 100%; flex: 0 0 calc(var(--mm) * 9); font-size: calc(var(--mm) * 1.9); line-height: 1; }
+  .chan .mute small { display: block; font-size: calc(var(--mm) * 1.4); color: var(--dim); }
+  .chan .mute.on { background: var(--err); border-color: var(--err); color: #fff; }
+  .chan .mute.on small { color: #fff; }
+  .fader.muted .cap { background: var(--err); border-color: var(--err); }
+  .knob { --acc: inherit; display: flex; flex-direction: column; align-items: center; width: 100%; touch-action: none; }
+  .knob svg { width: var(--knob); height: var(--knob); overflow: visible; }
+  .topbar .knob svg { width: calc(var(--mm) * 10.5); height: calc(var(--mm) * 10.5); }   /* top bar knobs stay fixed */
+  .knob .kbg { fill: #222; stroke: #3a3a3a; stroke-width: 1.5; }
+  .knob .ktrack { fill: none; stroke: #2e2e2e; stroke-width: 3; stroke-linecap: round; }
+  .knob .karc { fill: none; stroke: var(--acc, var(--text)); stroke-width: 3; stroke-linecap: round; }
+  .knob .kptr { stroke: #eee; stroke-width: 3; stroke-linecap: round; }
+  .knob span { font-size: calc(var(--mm) * 1.55); color: var(--dim); margin-top: calc(var(--mm) * .3); }
+  .knob.held .kbg { stroke: var(--acc, var(--text)); }
+  /* protractor shown around a knob while spinning it: ring at the finger's radius, 15° ticks, ray to the finger */
+  .protractor { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 8; overflow: visible; }
+  .protractor .ring { fill: none; stroke: rgba(255,255,255,.4); stroke-width: 1.2; stroke-dasharray: 4 5; }
+  .protractor .comet { stroke-width: 2.6; stroke-linecap: round; }
+  .protractor .ray { stroke: var(--acc, #fff); stroke-width: 1.5; opacity: .75; }
+  .protractor .ray.dead { opacity: .2; }
+  .topbar .knob { --acc: #ddd; }
+
+  .fader { --acc: var(--deck12); position: relative; min-height: 0; }
+  .fader.d34 { --acc: var(--deck34); }
+  .fader .rail { position: absolute; left: 50%; top: calc(var(--mm) * 3); bottom: calc(var(--mm) * 3); width: calc(var(--mm) * .9);
+    margin-left: calc(var(--mm) * -.45); border-radius: 3px; background: #050505; border: 1px solid #333; }
+  .fader .ticks { position: absolute; left: 12%; right: 12%; top: calc(var(--mm) * 3); bottom: calc(var(--mm) * 3);
+    background: repeating-linear-gradient(180deg, #2a2a2a 0 1px, transparent 1px 10%); }
+  .fader .cap { position: absolute; left: 6%; right: 6%; height: calc(var(--mm) * 6); border-radius: calc(var(--mm) * .9);
+    background: #d8d8d8; border: 1px solid #fff; will-change: top; }
+  .fader .cap::after { content: ""; position: absolute; left: 10%; right: 10%; top: 50%; height: 2px; margin-top: -1px; background: var(--acc); }
+  .fader .lbl { position: absolute; left: 0; right: 0; bottom: -2px; text-align: center; color: var(--acc); font-size: calc(var(--mm) * 1.8); }
+  .fader.held .cap { background: #fff; box-shadow: 0 0 calc(var(--mm) * 1.2) var(--acc); }
+  #xf { grid-column: 1 / -1; position: relative; }
+  #xf .rail { position: absolute; top: 50%; left: calc(var(--mm) * 4); right: calc(var(--mm) * 4); height: calc(var(--mm) * .9);
+    margin-top: calc(var(--mm) * -.45); border-radius: 3px; background: #050505; border: 1px solid #333; }
+  #xf .cap { position: absolute; top: 12%; bottom: 12%; width: calc(var(--mm) * 6); border-radius: calc(var(--mm) * .9);
+    background: #d8d8d8; border: 1px solid #fff; will-change: left; }
+  #xf.held .cap { background: #fff; box-shadow: 0 0 calc(var(--mm) * 1.2) #fff; }
+  #xf .mid { position: absolute; left: 50%; top: 18%; bottom: 18%; width: 1px; background: #444; }
+
+  /* ---- settings ---- */
+  #settings { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: none; align-items: center; justify-content: center; z-index: 10; }
+  #settings.open { display: flex; }
+  #settings .panel { width: min(92vw, calc(var(--mm) * 150)); max-height: 92vh; overflow: auto; background: #151515; border: 1px solid #333;
+    border-radius: calc(var(--mm) * 2.5); padding: calc(var(--mm) * 4); color: var(--text); touch-action: pan-y;
+    font-size: calc(var(--mm) * 2.3); font-weight: 500; }
+  #settings h2 { margin: 0 0 calc(var(--mm) * 2); font-size: calc(var(--mm) * 3.2); }
+  #settings .row { display: grid; grid-template-columns: calc(var(--mm) * 42) 1fr; gap: calc(var(--mm) * 2); align-items: center;
+    padding: calc(var(--mm) * 2) 0; border-top: 1px solid #262626; }
+  #settings .row small { display: block; color: var(--dim); font-size: calc(var(--mm) * 1.8); margin-top: 2px; }
+  #settings .seg { display: flex; gap: calc(var(--mm) * 1); flex-wrap: wrap; }
+  #settings .seg button { height: calc(var(--mm) * 8); padding: 0 calc(var(--mm) * 3); }
+  #settings input[type=range] { width: 100%; height: calc(var(--mm) * 6); accent-color: var(--deck12); }
+  #settings .val { color: var(--deck12); font-variant-numeric: tabular-nums; }
+  #ruler { height: calc(var(--mm) * 3); width: calc(var(--mm) * 50); border: 2px solid var(--deck12); border-top: 0; margin-top: 6px;
+    background: repeating-linear-gradient(90deg, var(--deck12) 0 2px, transparent 2px calc(var(--mm) * 10)); }
+  #settings .panel { position: relative; }
+  #settings .x { position: absolute; top: calc(var(--mm) * 2); right: calc(var(--mm) * 2); width: calc(var(--mm) * 10);
+    height: calc(var(--mm) * 10); font-size: calc(var(--mm) * 4); line-height: 1; }
+  #settings .close { height: calc(var(--mm) * 9); padding: 0 calc(var(--mm) * 5); margin-top: calc(var(--mm) * 3); }
+
+  #rotate { position: fixed; inset: 0; background: var(--bg); color: var(--text); display: none; align-items: center; justify-content: center;
+    font-size: 22px; text-align: center; z-index: 20; padding: 24px; }
+  @media (orientation: portrait) { #rotate { display: flex; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar" id="topL">
+    <button class="tab" data-page="deck">Deck</button><button class="tab" data-page="samples">Samples</button>
+    <button id="gear" aria-label="Settings">⚙</button>
+    <span class="note">UI test · simulated Mixxx</span>
+    <div class="loopbox" id="loop0"></div>
+  </div>
+  <div id="mixwrap"></div>
+  <div class="topbar" id="topR">
+    <div class="loopbox" id="loop1"></div>
+    <div id="topknobs" style="display:flex;gap:calc(var(--mm)*1)"></div>
+  </div>
+  <div id="dl"></div>
+  <div id="dr"></div>
+</div>
+<div id="settings"><div class="panel">
+  <button class="x" id="s-x" aria-label="Close">✕</button>
+  <h2>Settings<small id="s-status">UI test · simulated Mixxx</small></h2>
+  <div class="row"><div>Platter strip<small>How much of the record one full strip covers</small></div>
+    <div><div class="seg" id="s-revs"></div><small id="s-revs-info"></small></div></div>
+  <div class="row"><div>Strip inertia<small>After a flick, how long the record takes to settle back to playing speed (or a stop)</small></div>
+    <div><input type="range" id="s-inertia" min="0" max="1500" step="50"><small><span class="val" id="s-inertia-v"></span></small></div></div>
+  <div class="row"><div>Tempo sensitivity<small>Tempo change per mm of drag</small></div>
+    <div><input type="range" id="s-sens" min="0.04" max="0.4" step="0.01"><small><span class="val" id="s-sens-v"></span></small></div></div>
+  <div class="row"><div>Tempo direction</div><div class="seg" id="s-dir"></div></div>
+  <div class="row"><div>Knob gesture<small>Spin: circle the knob; the farther out you circle, the finer it gets. Drag (both): distance moved, up or right = turn up. Left/right or up/down: only that axis counts</small></div>
+    <div class="seg" id="s-knob"></div></div>
+  <div class="row"><div>Mixer knob size<small>Knob diameter; the mixer widens to fit</small></div>
+    <div><input type="range" id="s-knobsize" min="9" max="18" step="0.5"><small><span class="val" id="s-knobsize-v"></span></small></div></div>
+  <div class="row"><div>Telemetry<small>Send debug data (touch rate, deck state, events) to the Mac's settings page</small></div>
+    <div class="seg" id="s-tele"></div></div>
+  <div class="row"><div>Fullscreen<small>Enter fullscreen on the first touch</small></div><div class="seg" id="s-fs-auto"></div></div>
+  <div class="row"><div>Top bar height</div>
+    <div><input type="range" id="s-bar" min="12" max="28" step="1"><small><span class="val" id="s-bar-v"></span></small></div></div>
+  <div class="row"><div>Screen scale<small>Adjust until the bar below measures 50 mm with a ruler</small></div>
+    <div><input type="range" id="s-pxmm" min="3.5" max="8.5" step="0.01"><small><span class="val" id="s-pxmm-v"></span></small><div id="ruler"></div></div></div>
+  <div class="row"><div>Palm rejection<small>Ignore touches wider than this</small></div>
+    <div><input type="range" id="s-palm" min="0" max="30" step="1"><small><span class="val" id="s-palm-v"></span></small></div></div>
+  <button class="close" id="s-fs">Fullscreen</button>
+  <button class="close" id="s-reset">Reset to defaults</button>
+  <button class="close" id="s-close" style="float:right">Done</button>
+</div></div>
+<div id="rotate">Turn the tablet to landscape</div>
+<script>
+// =====================================================================================================
+// Settings (persisted per device)
+// =====================================================================================================
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, inertia: 400, telemetry: true };
+const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
+let S = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("ctl-settings") || "{}") }; } catch { return { ...DEFAULTS }; } })();
+let applyingRemote = false;
+const saveSettings = () => {
+  try { localStorage.setItem("ctl-settings", JSON.stringify(S)); } catch {}
+  if (!applyingRemote) ctlSend({ type: "settings", settings: S });   // keep the Mac's /settings page in sync
+};
+const mm = n => n * S.pxmm;
+const stripSeconds = () => REV_SECONDS * S.revs;
+// Element sizes are measured once per layout (reading them while painting forces the browser to lay out the
+// page again, which is slow on the tablet). Anything that changes the layout bumps layoutEpoch.
+let layoutEpoch = 0;
+function cachedRect(el) {
+  if (!el._rect || el._rect.epoch !== layoutEpoch) el._rect = { epoch: layoutEpoch, r: el.getBoundingClientRect() };
+  return el._rect.r;
+}
+// Skip DOM writes that wouldn't change anything.
+const setHTML = (el, html) => { if (el._html !== html) { el._html = html; el.innerHTML = html; } };
+const setText = (el, t) => { if (el._text !== t) { el._text = t; el.textContent = t; } };
+
+function applySettings() {
+  layoutEpoch++;
+  const r = document.documentElement.style;
+  r.setProperty("--mm", S.pxmm + "px");
+  r.setProperty("--bar", `calc(var(--mm) * ${S.bar})`);
+  r.setProperty("--knob", `calc(var(--mm) * ${S.knobSize})`);
+}
+
+// =====================================================================================================
+// Simulated Mixxx state (replaced by the real connection later)
+// =====================================================================================================
+const CUE_COLORS = [0xc50a08, 0x32be44, 0x0044ff, 0xf8d200, 0x42d4f4, 0xaf00cc, 0xfca6d7, 0xf2f2ff];
+const STEMS = [{ n: "Vocals", c: "#56B4E9" }, { n: "Other", c: "#CC79A7" }, { n: "Bass", c: "#D55E00" }, { n: "Drums", c: "#009E73" }];
+const DEMO = [["Demo track one", "Artist A", 128, 245], ["Second demo", "Artist B", 126, 312],
+              ["Third demo", "Artist C", 124, 280], ["Fourth demo", "Artist D", 130, 198]];
+const decks = DEMO.map(([title, artist, bpm, dur], i) => ({
+  n: i + 1, title, artist, bpm, dur, pos: 20 + i * 7, playing: false, grabbed: false,
+  tempo: 0, ol: false, key: 0, syncMode: 0, cuePoint: 0, muted: false, loopOn: false, loopSize: 4, loopStart: 0,
+  cues: i === 0 ? [{ pos: 4, c: CUE_COLORS[0] }, { pos: 34, c: CUE_COLORS[1] }, null, { pos: 64, c: CUE_COLORS[3] }, null, null, null, null] : new Array(8).fill(null),
+  mode: "cue", shift: false, rolls: new Array(8).fill(0), stems: [1, 1, 1, 1], fx: [0, 0, 0], fxRoute: 0,
+  gain: .5, high: .5, mid: .5, low: .5, filter: .5, vol: 1, pfl: false,
+}));
+const samplers = Array.from({ length: 32 }, (_, i) => ({ state: [0, 1, 2, 3, 5, 8, 9, 12].includes(i) ? 1 : 0, name: `Sample ${i + 1}` }));
+const master = { main: .8, phones: .6, mix: .5, xf: .5 };
+const sides = [0, 1];                    // deck index shown on the left / right side (0↔2, 1↔3)
+let page = "deck";
+const deckOf = s => decks[sides[s]];
+// Wired to Mixxx later; for now every event is logged for the Mac's /settings debug view.
+const eventLog = [];
+const send = (...args) => {
+  eventLog.push([Math.round(performance.now()), ...args]);
+  if (eventLog.length > 400) eventLog.splice(0, 200);
+  if (live && !benchQuiet) toMixxx(...args);
+};
+let benchQuiet = false;                   // a debug benchmark is driving the controls: don't send them to Mixxx
+let live = false;                         // true once the real pad server (connected to Mixxx) answers
+
+// =====================================================================================================
+// Touch handling: every control captures its finger until it lifts (pointer capture)
+// =====================================================================================================
+const active = new Map();
+function isPalm(e) {
+  return S.palm > 0 && e.pointerType === "touch" && Math.max(e.width || 0, e.height || 0) > mm(S.palm);
+}
+function drag(el, h) {
+  el.addEventListener("pointerdown", e => {
+    if (isPalm(e)) return;
+    e.preventDefault();
+    const st = h.down(e);
+    if (st === false) return;
+    try { el.setPointerCapture(e.pointerId); } catch {}
+    active.set(e.pointerId, { h, st });
+  });
+}
+addEventListener("pointermove", e => { const a = active.get(e.pointerId); if (a && a.h.move) a.h.move(e, a.st); });
+["pointerup", "pointercancel"].forEach(t => addEventListener(t, e => {
+  const a = active.get(e.pointerId);
+  if (a) { active.delete(e.pointerId); if (a.h.up) a.h.up(e, a.st); }
+}));
+addEventListener("contextmenu", e => e.preventDefault());
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const h = (tag, cls, html) => { const el = document.createElement(tag); if (cls) el.className = cls; if (html != null) el.innerHTML = html; return el; };
+
+// ---- knob: grab and drag only; up or right = clockwise; ~40 mm of drag per full turn; double-tap resets
+function polar(a, r = 15) { const t = (a - 90) * Math.PI / 180; return [20 + r * Math.cos(t), 20 + r * Math.sin(t)]; }
+function arc(a0, a1) {
+  if (Math.abs(a1 - a0) < .5) return "";
+  const [x0, y0] = polar(Math.min(a0, a1)), [x1, y1] = polar(Math.max(a0, a1));
+  return `M${x0} ${y0} A15 15 0 ${Math.abs(a1 - a0) > 180 ? 1 : 0} 1 ${x1} ${y1}`;
+}
+// target(): what the knob controls (e.g. the deck on that side). Locked at touch-down, so a deck switch
+// mid-gesture can't redirect a held control; the knob keeps showing that target until released.
+const SVG = "http://www.w3.org/2000/svg";
+let prSeq = 0;
+// Overlay while spinning a knob: a ring at the finger's radius, a radius line pointing where the knob points,
+// and a "shooting star" that streaks from the centre out to the finger twice, one pass per beat.
+function protractor(beatSec) {
+  const svg = document.createElementNS(SVG, "svg"), id = "comet" + (++prSeq);
+  svg.setAttribute("class", "protractor");
+  svg.innerHTML = `<defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse">` +
+    `<stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#fff" stop-opacity=".95"/></linearGradient></defs>` +
+    `<circle class="ring"/><line class="ray"/><line class="comet" stroke="url(#${id})"/>`;
+  document.body.appendChild(svg);
+  const grad = svg.querySelector("linearGradient"), comet = svg.querySelector(".comet");
+  svg.geo = null;
+  const t0 = performance.now(), passMs = clamp(beatSec, .2, 2) * 1000;
+  const step = now => {
+    if (!svg.isConnected || !svg.geo) { if (svg.isConnected) requestAnimationFrame(step); return; }
+    const t = (now - t0) / passMs;
+    if (t >= 2) { comet.style.display = "none"; return; }               // two passes = two beats, then gone
+    const { cx, cy, fx, fy } = svg.geo, r = Math.hypot(fx - cx, fy - cy) || 1, ux = (fx - cx) / r, uy = (fy - cy) / r;
+    const phase = t % 1, ease = 1 - (1 - phase) ** 2;                    // fast out of the centre, slowing at the finger
+    const head = ease * r, tail = Math.max(0, ease - .45) * r;
+    const pts = [cx + ux * tail, cy + uy * tail, cx + ux * head, cy + uy * head];
+    ["x1", "y1", "x2", "y2"].forEach((k, i) => { comet.setAttribute(k, pts[i]); grad.setAttribute(k, pts[i]); });
+    comet.style.opacity = phase > .8 ? (1 - phase) / .2 : 1;            // fade as it reaches the finger
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+  return svg;
+}
+function drawProtractor(svg, cx, cy, fx, fy, value) {
+  const dist = Math.hypot(fx - cx, fy - cy), r = Math.max(dist, mm(3));
+  svg.geo = { cx, cy, fx, fy };
+  const ring = svg.querySelector(".ring");
+  ring.setAttribute("cx", cx); ring.setAttribute("cy", cy); ring.setAttribute("r", r);
+  const a = (-135 + value * 270 - 90) * Math.PI / 180;                  // the knob's own pointer angle
+  const ray = svg.querySelector(".ray");
+  ray.setAttribute("x1", cx); ray.setAttribute("y1", cy);
+  ray.setAttribute("x2", cx + Math.cos(a) * r); ray.setAttribute("y2", cy + Math.sin(a) * r);
+  ray.classList.toggle("dead", dist < mm(3));                           // inside the dead zone: no rotation read
+}
+
+// Drag (both): distance along the finger's path counts the same in every direction.
+// The path's direction is measured over the last 1 mm travelled (by distance, not per touch event, so it doesn't
+// depend on speed and the screen's ~0.1 mm jitter can't flip it). Each touch step is projected onto that
+// direction instead of adding up step lengths, so jitter cancels out rather than accumulating.
+// Moving towards up/right raises the value. Only along the up-left/down-right diagonals, where that's
+// ambiguous, the previous direction decides (±20° hysteresis), so the sign can't flicker there.
+const AXIS_MM = 1, BORDER = Math.sin(20 * Math.PI / 180);
+function strokeDelta(st, ddx, ddy) {
+  const t = st.trail, x = st.x, y = st.y;
+  t.push([x, y]);
+  if (t.length > 200) t.splice(0, t.length - 200);
+  for (let i = t.length - 2; i >= 0; i--) {
+    const len = Math.hypot(x - t[i][0], y - t[i][1]);
+    if (len < mm(AXIS_MM)) continue;
+    let ux = (x - t[i][0]) / len, uy = (y - t[i][1]) / len;
+    const screen = (ux - uy) / Math.SQRT2, a = st.axis;     // screen > 0: pointing up/right
+    const flip = a && Math.abs(screen) < BORDER ? ux * a[0] + uy * a[1] < 0 : screen < 0;
+    st.axis = flip ? [-ux, -uy] : [ux, uy];
+    t.splice(0, i);
+    break;
+  }
+  if (!st.axis) { st.pend[0] += ddx; st.pend[1] += ddy; return 0; }   // first millimetre: held until the direction is known
+  ddx += st.pend[0]; ddy += st.pend[1]; st.pend[0] = st.pend[1] = 0;
+  return ddx * st.axis[0] + ddy * st.axis[1];
+}
+
+function knob(label, get, set, def, bipolar, target = () => null) {
+  const el = h("div", "knob", `<svg viewBox="0 0 40 40"><path class="ktrack" d="${arc(-135, 135)}"/><circle class="kbg" cx="20" cy="20" r="11"/>` +
+    `<path class="karc"/><line class="kptr" x1="20" y1="20" x2="20" y2="11"/></svg><span>${label}</span>`);
+  let lastTap = 0;
+  const karc = el.querySelector(".karc"), kptr = el.querySelector(".kptr");
+  el.paint = () => {
+    const v = get(el.hold ? el.hold.ctx : target());
+    if (v === el._v) return;
+    el._v = v;
+    const a = -135 + v * 270;
+    karc.setAttribute("d", arc(bipolar ? 0 : -135, a));
+    const [x, y] = polar(a, 10.5);
+    kptr.setAttribute("x2", x); kptr.setAttribute("y2", y);
+  };
+  drag(el, {
+    down: e => {
+      const now = performance.now(), ctx = target();
+      if (now - lastTap < 300) { set(def, ctx); el.paint(); lastTap = 0; return false; }
+      lastTap = now;
+      el.classList.add("held");
+      el.hold = { ctx };
+      const r = cachedRect(el.querySelector("svg"));
+      const st = { x: e.clientX, y: e.clientY, v: get(ctx), ctx, cx: r.left + r.width / 2, cy: r.top + r.height / 2, a: null,
+        trail: [[e.clientX, e.clientY]], axis: null, pend: [0, 0] };
+      if (S.knobMode === "spin") {
+        const d = ctx || deckOf(0), bpm = d.bpm * (1 + d.tempo / 100);     // beat of the knob's deck
+        st.pr = protractor(60 / bpm);
+        drawProtractor(st.pr, st.cx, st.cy, e.clientX, e.clientY, st.v);
+      }
+      return st;
+    },
+    move: (e, st) => {
+      if (S.knobMode === "spin") {
+        // Angle around the knob's centre: one full circle of the finger = the knob's whole range.
+        // The same finger movement is a smaller angle at a bigger radius, so circling wider = finer.
+        const dx = e.clientX - st.cx, dy = e.clientY - st.cy;
+        if (Math.hypot(dx, dy) < mm(3)) { st.a = null; if (st.pr) drawProtractor(st.pr, st.cx, st.cy, e.clientX, e.clientY, st.v); return; }
+        const a = Math.atan2(dy, dx);
+        if (st.a !== null) {
+          let da = a - st.a;
+          if (da > Math.PI) da -= 2 * Math.PI; else if (da < -Math.PI) da += 2 * Math.PI;
+          st.v = clamp(st.v + da / (2 * Math.PI), 0, 1);
+        }
+        st.a = a;
+        if (st.pr) drawProtractor(st.pr, st.cx, st.cy, e.clientX, e.clientY, st.v);
+      } else {
+        const ddx = e.clientX - st.x, ddy = e.clientY - st.y;
+        st.x = e.clientX; st.y = e.clientY;
+        // dragH: only left/right movement counts · dragV: only up/down movement counts
+        const delta = S.knobMode === "dragH" ? ddx : S.knobMode === "dragV" ? -ddy : strokeDelta(st, ddx, ddy);
+        st.v = clamp(st.v + delta / mm(40), 0, 1);
+      }
+      set(st.v, st.ctx); el.paint();
+    },
+    up: (e, st) => { el.classList.remove("held"); el.hold = null; el.paint(); if (st.pr) st.pr.remove(); },
+  });
+  return el;
+}
+
+// ---- fader: jumps to the finger unless the touch is within 5 mm of the cap; then follows the drag
+function fader(get, set, label, horizontal, target = () => null) {
+  const el = horizontal ? document.getElementById("xf") : h("div", "fader", `<div class="lbl"></div><div class="ticks"></div><div class="rail"></div><div class="cap"></div>`);
+  if (horizontal) el.innerHTML = `<div class="mid"></div><div class="rail"></div><div class="cap"></div>`;
+  el._px = undefined;                     // the crossfader element is reused across rebuilds; its cap is new
+  const cap = el.querySelector(".cap");
+  const geom = () => {
+    const r = cachedRect(el), pad = mm(3);
+    return horizontal ? { a: r.left + mm(4), len: r.width - mm(8) } : { a: r.top + pad, len: r.height - 2 * pad };
+  };
+  // value 1 = top (vertical) / right (horizontal)
+  const capCenter = (g, v) => horizontal ? g.a + v * g.len : g.a + (1 - v) * g.len;
+  const valueAt = (g, p) => clamp(horizontal ? (p - g.a) / g.len : 1 - (p - g.a) / g.len, 0, 1);
+  el.paint = () => {
+    const ctx = el.hold ? el.hold.ctx : target(), g = geom(), v = get(ctx), r = cachedRect(el);
+    const px = (capCenter(g, v) - (horizontal ? r.left : r.top) - mm(3)).toFixed(1) + "px";
+    if (px !== el._px) { el._px = px; cap.style[horizontal ? "left" : "top"] = px; }
+    if (label) setText(el.querySelector(".lbl"), label(ctx));
+  };
+  drag(el, {
+    down: e => {
+      const g = geom(), p = horizontal ? e.clientX : e.clientY, ctx = target();
+      el.hold = { ctx };
+      let v = get(ctx);
+      if (Math.abs(p - capCenter(g, v)) > mm(5)) { v = valueAt(g, p); set(v, ctx); el.paint(); }
+      el.classList.add("held");
+      return { p, v, g, ctx };
+    },
+    move: (e, st) => {
+      const d = ((horizontal ? e.clientX : e.clientY) - st.p) / st.g.len;
+      set(clamp(st.v + (horizontal ? d : -d), 0, 1), st.ctx); el.paint();
+    },
+    up: () => { el.classList.remove("held"); el.hold = null; el.paint(); },
+  });
+  return el;
+}
+
+// =====================================================================================================
+// Building the screen
+// =====================================================================================================
+const ui = { sides: [], chans: [], faders: [], top: [] };
+
+function buildTop() {
+  const box = document.getElementById("topknobs");
+  box.innerHTML = "";
+  ui.top = [
+    knob("MASTER", () => master.main, v => { master.main = v; send("master", v); }, .8, false),
+    knob("PHONES", () => master.phones, v => { master.phones = v; send("phones", v); }, .6, false),
+    knob("CUE MIX", () => master.mix, v => { master.mix = v; send("headMix", v); }, .5, true),
+  ];
+  ui.top.forEach(k => { box.appendChild(k); k.paint(); });
+  document.querySelectorAll(".topbar .tab").forEach(b => b.classList.toggle("on", b.dataset.page === page));
+}
+
+function buildSide(s) {
+  const el = h("div", `side ${s ? "right" : "left"}`);
+  const u = { el };
+  if (page === "samples") {
+    el.classList.add("samples");
+    const pads = h("div", "pads grid16");
+    u.spads = [];
+    for (let k = 0; k < 16; k++) {
+      const i = s * 16 + k, p = h("div", "pad");
+      bindPress(p, down => { if (live) send("pad", 0, i, down); else if (down) samplerTap(i); });
+      pads.appendChild(p); u.spads[k] = { el: p, i };
+    }
+    el.appendChild(pads);
+    ui.sides[s] = u;
+    return el;
+  }
+
+  // tempo lane (outer edge)
+  const tempo = h("div", "tempo");
+  u.ol = h("button", "ol", "OVER<br>LIMIT");
+  u.ol.addEventListener("click", () => { const d = deckOf(s); d.ol = !d.ol;
+    if (!d.ol && Math.abs(d.tempo) > 8) { d.tempo = clamp(d.tempo, -8, 8); send("tempo", d.n, d.tempo); }
+    paintSide(s); });
+  u.lane = h("div", "lane", `<div class="end t"></div><div class="zero"></div><div class="mark"></div><div class="end b"></div>`);
+  u.tread = h("div", "tread");
+  u.shiftBtn = h("button", "shift", "SHIFT");
+  u.shiftBtn.addEventListener("click", () => { const d = deckOf(s); d.shift = !d.shift; paintSide(s); });
+  tempo.append(u.ol, u.lane, u.tread, u.shiftBtn);
+  drag(u.lane, {
+    // Touchpad: only the change in finger position counts, wherever you touch.
+    down: e => { u.lane.classList.add("held"); u.laneDeck = deckOf(s); return { y: e.clientY, deck: u.laneDeck, t: u.laneDeck.tempo }; },
+    move: (e, st) => {
+      const dmm = (e.clientY - st.y) / S.pxmm;
+      const lim = st.deck.ol ? 90 : 8;
+      st.deck.tempo = clamp(st.t + dmm * S.sens * (S.fasterDown ? 1 : -1), -lim, lim);
+      send("tempo", st.deck.n, st.deck.tempo);
+      paintTempo(s);
+    },
+    up: () => { u.lane.classList.remove("held"); u.laneDeck = null; paintTempo(s); },
+  });
+
+  const deck = h("div", "deck");
+  // header
+  const head = h("div", "head");
+  u.sw = h("button", "switch");
+  u.sw.addEventListener("click", () => { sides[s] = sides[s] === s ? s + 2 : s; paintAll(); });
+  u.title = h("div", "title"); u.bpm = h("div", "num"); u.time = h("div", "num dim");
+  head.append(u.sw, u.title, u.bpm, u.time);
+
+  // platter strip
+  u.strip = h("div", "strip", `<canvas class="wf"></canvas><div class="played"></div><div class="cursor"></div><div class="label"></div>`);
+  u.cursor = u.strip.querySelector(".cursor");
+  u.wfCanvas = u.strip.querySelector("canvas.wf"); u.played = u.strip.querySelector(".played");
+  drag(u.strip, {
+    // Grab like vinyl: touching holds the record and the waveform under the finger follows it 1:1
+    // (the waveform rolls past a fixed cursor, so moving the finger left plays forward).
+    down: e => { const d = deckOf(s); d.grabbed = true; d.coast = false; d.vel = 0; u.strip.classList.add("held"); send("scratchOn", d.n);
+      return { x: e.clientX, deck: d, w: u.strip.clientWidth, samples: [{ t: performance.now(), p: d.pos }] }; },
+    move: (e, st) => {
+      const dx = e.clientX - st.x; st.x = e.clientX;
+      st.deck.pos = clamp(st.deck.pos - dx / st.w * stripSeconds(), 0, st.deck.dur);
+      const now = performance.now();
+      st.samples.push({ t: now, p: st.deck.pos });
+      while (st.samples.length > 2 && now - st.samples[0].t > 80) st.samples.shift();
+      send("scratch", st.deck.n, -dx / st.w);
+    },
+    up: (e, st) => {
+      // Release speed over the last ~80 ms (a finger held still before lifting gives ~0: no flick).
+      const now = performance.now(), d = st.deck;
+      st.samples.push({ t: now, p: d.pos });
+      const recent = st.samples.filter(x => now - x.t <= 80);
+      const a = recent[0], b = recent[recent.length - 1];
+      d.vel = recent.length > 1 && b.t > a.t ? clamp((b.p - a.p) / ((b.t - a.t) / 1000), -8, 8) : 0;
+      // Lifting off outside the strip cancels the flick: the record goes straight back to the motor's speed.
+      const sr = u.strip.getBoundingClientRect();
+      if (e.clientX < sr.left || e.clientX > sr.right || e.clientY < sr.top || e.clientY > sr.bottom) d.vel = 0;
+      d.coast = S.inertia > 0 && d.vel !== 0;
+      d.grabbed = false; u.strip.classList.remove("held"); send("scratchOff", d.n, +d.vel.toFixed(2));
+    },
+  });
+
+  // transport
+  const tr = h("div", "transport");
+  u.cue = h("button", "cuebtn", "CUE"); u.play = h("button", "play", "PLAY"); u.sync = h("button", "sync", "SYNC");
+  const kb = h("div", "keybox");
+  const kd = h("button", "", "−"), ku = h("button", "", "+"); u.key = h("span");
+  kb.append(kd, u.key, ku);
+  tr.append(u.cue, u.play, u.sync, kb);
+  bindPress(u.cue, down => { const d = deckOf(s);
+    if (live) { send("cue", d.n, down); return; }
+    if (down) { if (d.playing) { d.playing = false; d.pos = d.cuePoint; } else if (Math.abs(d.pos - d.cuePoint) > .05) d.cuePoint = d.pos; else d.preview = true; }
+    else if (d.preview) { d.preview = false; d.pos = d.cuePoint; }
+    paintSide(s); });
+  bindPress(u.play, down => { if (down) { const d = deckOf(s);
+    if (live) { send("play", d.n, d.playing ? 0 : 1); return; }
+    d.playing = !d.playing; d.preview = false; paintSide(s); } });
+  // 1st tap: match tempo · 2nd: also lock the beat · 3rd: off, keeping the current tempo
+  bindPress(u.sync, down => { if (down) { const d = deckOf(s); d.syncMode = (d.syncMode + 1) % 3;
+    if (live) send("sync", d.n, d.syncMode); else if (d.syncMode) matchTempo(d, s);
+    paintSide(s); } });
+  bindPress(kd, down => { if (down) { const d = deckOf(s); if (live) send("key", d.n, -1); d.key = clamp(d.key - 1, -6, 6); paintSide(s); } });
+  bindPress(ku, down => { if (down) { const d = deckOf(s); if (live) send("key", d.n, 1); d.key = clamp(d.key + 1, -6, 6); paintSide(s); } });
+
+  // pad modes + pads
+  const modes = h("div", "modes");
+  u.modes = ["cue", "roll", "stem", "smpl", "jump", "fx"].map(m => {
+    const b = h("button", "", m.toUpperCase()); b.dataset.mode = m;
+    b.addEventListener("click", () => { const d = deckOf(s); d.mode = m; d.shift = false; paintSide(s); });
+    modes.appendChild(b); return b;
+  });
+  const pads = h("div", "pads");
+  u.pads = [];
+  for (let k = 0; k < 8; k++) {
+    const p = h("div", "pad");
+    bindPress(p, down => padPress(s, k, down));
+    pads.appendChild(p); u.pads[k] = p;
+  }
+  deck.append(head, u.strip, tr, modes, pads);
+  if (s === 0) el.append(tempo, deck); else el.append(deck, tempo);
+  ui.sides[s] = u;
+  return el;
+}
+
+function buildMixer() {
+  const m = h("div", "", ""); m.id = "mixer";
+  ui.chans = []; ui.faders = [];
+  const chan = s => {
+    const c = h("div", "chan");
+    const k = key => knob(key.toUpperCase(), d => d[key], (v, d) => { d[key] = v; send(key, d.n, v); }, .5, true, () => deckOf(s));
+    const knobs = ["gain", "high", "mid", "low", "filter"].map(k);
+    // Headphone cue (pre-fader listen). Drawn, because the tablet's font has no headphone character.
+    const pfl = h("button", "pfl", `<svg viewBox="0 0 24 24" style="width:calc(var(--mm)*4.6);height:calc(var(--mm)*4.6);vertical-align:middle">` +
+      `<path d="M4 15v-3a8 8 0 0 1 16 0v3" fill="none" stroke="currentColor" stroke-width="2.2"/>` +
+      `<rect x="2.5" y="13.5" width="5" height="8" rx="1.8" fill="currentColor"/><rect x="16.5" y="13.5" width="5" height="8" rx="1.8" fill="currentColor"/></svg>`);
+    bindPress(pfl, down => { if (down) { const d = deckOf(s); d.pfl = !d.pfl; send("pfl", d.n, d.pfl ? 1 : 0); paintMixer(); } });
+    const mute = h("button", "mute", "MUTE<small>hold</small>");
+    let muteDeck = null;                             // held mute stays on the deck it started on
+    bindPress(mute, down => { if (down) muteDeck = deckOf(s); muteDeck.muted = down; send("mute", muteDeck.n, down); paintMixer(); });
+    knobs.forEach(x => c.appendChild(x)); c.append(pfl, mute);
+    ui.chans[s] = { el: c, knobs, pfl, mute };
+    return c;
+  };
+  const vf = s => {
+    const f = fader(d => d.vol, (v, d) => { d.vol = v; send("volume", d.n, v); }, d => "CH " + d.n, false, () => deckOf(s));
+    ui.faders[s] = f; return f;
+  };
+  const xf = h("div"); xf.id = "xf";
+  m.append(chan(0), vf(0), vf(1), chan(1), xf);
+  return m;
+}
+
+function build() {
+  layoutEpoch++;
+  document.getElementById("dl").replaceChildren(buildSide(0));
+  document.getElementById("mixwrap").replaceChildren(buildMixer());
+  document.getElementById("dr").replaceChildren(buildSide(1));
+  ui.xf = fader(() => master.xf, v => { master.xf = v; send("crossfader", v); }, null, true);
+  buildTop();
+  buildLoops();
+  requestAnimationFrame(paintAll);
+}
+
+// ½ · LOOP · ×2 for the deck on each side. Like every held control, a press stays on the deck it started on.
+function buildLoops() {
+  ui.loops = [0, 1].map(s => {
+    const box = document.getElementById(`loop${s}`);
+    const half = h("button", "", "½"), loop = h("button", "loop"), dbl = h("button", "", "×2");
+    const bind = (el, key) => {
+      let held = null;
+      bindPress(el, down => {
+        if (down) held = { d: deckOf(s), key };
+        if (!held) return;
+        loopAction(held.d, held.key, down);
+        if (!down) held = null;
+      });
+    };
+    bind(half, "loop_halve"); bind(loop, "beatloop_activate"); bind(dbl, "loop_double");   // beatloop_activate toggles in Mixxx 2.6
+    box.replaceChildren(half, loop, dbl);
+    return { box, loop };
+  });
+}
+
+function loopAction(d, key, down) {
+  send("loop", d.n, key, down);
+  if (!live && down) {
+    if (key === "loop_halve") d.loopSize = Math.max(1 / 32, d.loopSize / 2);
+    else if (key === "loop_double") d.loopSize = Math.min(512, d.loopSize * 2);
+    else { d.loopOn = !d.loopOn; d.loopStart = d.pos; }
+  }
+  paintAll();
+}
+
+// =====================================================================================================
+// Painting
+// =====================================================================================================
+const fmtTime = s => { s = Math.max(0, s); return `-${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`; };
+const rgb = v => `#${v.toString(16).padStart(6, "0")}`;
+const fgFor = v => ((v >> 16 & 255) * .299 + (v >> 8 & 255) * .587 + (v & 255) * .114) / 255 > .55 ? "#111" : "#fff";
+
+function setPad(el, cls, html, color, fg) {
+  const key = `${cls}|${el.dataset.down || ""}|${color}|${fg}|${html}`;
+  if (el._key === key) return;
+  el._key = key;
+  el.className = "pad " + cls + (el.dataset.down ? " down" : "");
+  if (color) el.style.setProperty("--c", color); else el.style.removeProperty("--c");
+  if (fg) el.style.setProperty("--fg", fg); else el.style.removeProperty("--fg");
+  el.innerHTML = html;
+}
+
+function paintTempo(s) {
+  const u = ui.sides[s];
+  if (!u || !u.lane) return;
+  const d = u.laneDeck || deckOf(s);
+  const scale = Math.max(8, Math.ceil(Math.abs(d.tempo)));
+  const frac = d.tempo / scale * (S.fasterDown ? 1 : -1);   // +1 = bottom
+  const mark = u.lane.querySelector(".mark"), top_ = (50 + frac * 46).toFixed(2) + "%";
+  if (mark._top !== top_) { mark._top = top_; mark.style.top = top_; }
+  if (u.lane._scale !== scale) { u.lane._scale = scale; u.lane.style.setProperty("--tick", (100 / (2 * scale)) + "%"); }   // one line per 1 %
+  const top = S.fasterDown ? "−" : "+", bot = S.fasterDown ? "+" : "−";
+  setText(u.lane.querySelector(".end.t"), `${top}${scale}%`);
+  setText(u.lane.querySelector(".end.b"), `${bot}${scale}%`);
+  setText(u.tread, (d.tempo >= 0 ? "+" : "") + d.tempo.toFixed(2) + "%");
+  u.tread.classList.toggle("over", Math.abs(d.tempo) > 8);
+  u.ol.classList.toggle("on", d.ol);
+  setText(u.bpm, (d.bpm * (1 + d.tempo / 100)).toFixed(1));
+}
+
+const fmtBeats = b => b >= 1 ? String(+b.toFixed(2)) : `1/${Math.round(1 / b)}`;
+function paintLoop(s) {
+  const l = ui.loops?.[s], d = deckOf(s);
+  if (!l) return;
+  l.box.classList.toggle("d34", d.n > 2);
+  l.loop.classList.toggle("on", d.loopOn);
+  setHTML(l.loop, `${fmtBeats(d.loopSize)}<small>LOOP ${d.n}</small>`);
+}
+
+function paintSide(s) {
+  paintLoop(s);
+  const u = ui.sides[s];
+  if (!u) return;
+  const d = deckOf(s);
+  u.el.classList.toggle("d34", d.n > 2);
+  if (page === "samples") { u.spads.forEach(({ el, i }) => paintSamplerPad(el, i)); return; }
+  setHTML(u.sw, `${d.n}<small>⇄${d.n > 2 ? d.n - 2 : d.n + 2}</small>`);
+  setHTML(u.title, `${d.title}<small>${d.artist}</small>`);
+  u.play.classList.toggle("on", d.playing);
+  u.cue.classList.toggle("on", !d.playing && Math.abs(d.pos - d.cuePoint) < .05);
+  u.sync.classList.toggle("tempo", d.syncMode === 1);
+  u.sync.classList.toggle("beat", d.syncMode === 2);
+  setHTML(u.sync, ["SYNC", "SYNC<small>TEMPO</small>", "SYNC<small>BEAT</small>"][d.syncMode]);
+  setHTML(u.key, `${d.key > 0 ? "+" : ""}${d.key}<small>KEY</small>`);
+  setText(u.strip.querySelector(".label"), `${S.revs} rev · ${stripSeconds().toFixed(1)} s`);
+  u.modes.forEach(b => b.classList.toggle("on", b.dataset.mode === d.mode));
+  u.shiftBtn.classList.toggle("idle", d.mode !== "cue" && d.mode !== "fx");
+  u.shiftBtn.classList.toggle("on", d.shift);
+  for (let k = 0; k < 8; k++) paintPad(s, k);
+  paintTempo(s);
+}
+
+function paintPad(s, k) {
+  const el = ui.sides[s].pads[k], d = deckOf(s);
+  switch (d.mode) {
+    case "cue": { const c = d.cues[k];
+      setPad(el, (c ? "lit" : "") + (d.shift && c ? " armed" : ""), `${k + 1}`, c && rgb(c.c), c && fgFor(c.c)); break; }
+    case "roll": setPad(el, d.rolls[k] ? "lit" : "tint", ["⅛", "¼", "½", "1", "2", "4", "8", "16"][k], "var(--roll)"); break;
+    case "stem": if (k >= 4) { setPad(el, "off", ""); break; }
+      if (live && !d.sc) { setPad(el, "off", `${STEMS[k].n}<small>no stems</small>`); break; }
+      setPad(el, d.stems[k] ? "lit" : "tint", `${STEMS[k].n}<small>${d.stems[k] ? "on" : "muted"}</small>`, STEMS[k].c, "#fff"); break;
+    case "smpl": paintSamplerPad(el, (d.n % 2 ? 0 : 8) + k); break;
+    case "jump": setPad(el, "tint", ["−1", "+1", "−2", "+2", "−4", "+4", "−8", "+8"][k], "var(--jump)"); break;
+    case "fx": {
+      const u = (d.n % 2 ? 1 : 2) + (d.shift ? 2 : 0);
+      const fxOn = j => live ? fxLive[u - 1][j] : (j < 3 ? d.fx[j] : d.fxRoute);
+      if (k < 3) setPad(el, fxOn(k) ? "lit" : "tint", `FX ${k + 1}<small>unit ${u}</small>`, "var(--fx)");
+      else if (k === 3) setPad(el, fxOn(3 + d.n - 1) ? "lit" : "tint", `→ ${d.n}<small>route ${u}</small>`, "var(--fx)");
+      else if (k < 7) setPad(el, "tint", `NEXT ${k - 3}<small>unit ${u}</small>`, "var(--fx)");
+      else setPad(el, "off", "");
+    }
+  }
+}
+
+function paintSamplerPad(el, i) {
+  const sm = samplers[i];
+  const cls = sm.state === 2 ? "lit" : sm.state === 1 ? "tint" : "";
+  setPad(el, cls, `<span class="n">${i + 1}</span>${sm.state ? `<small>${sm.name}</small>` : ""}`,
+    sm.state === 2 ? "var(--play)" : "var(--cue)", "#04200e");
+}
+
+function paintMixer() {
+  [0, 1].forEach(s => {
+    const c = ui.chans[s], d = deckOf(s);
+    if (!c) return;
+    c.el.classList.toggle("d34", d.n > 2);
+    ui.faders[s].classList.toggle("d34", d.n > 2);
+    c.knobs.forEach(k => k.paint());
+    c.pfl.classList.toggle("on", d.pfl);
+    c.mute.classList.toggle("on", d.muted);
+    ui.faders[s].classList.toggle("muted", d.muted);
+    ui.faders[s].paint();
+  });
+  if (ui.xf) ui.xf.paint();
+}
+
+function paintAll() { [0, 1].forEach(paintSide); paintMixer(); ui.top.forEach(k => k.paint()); }
+
+// =====================================================================================================
+// Pads and buttons (press = pointerdown for the lowest latency; release matters for held modes)
+// =====================================================================================================
+function bindPress(el, fn) {
+  drag(el, {
+    down: () => { el.dataset.down = "1"; el.classList.add("down"); fn(true); if (navigator.vibrate) navigator.vibrate(6); return {}; },
+    up: () => { delete el.dataset.down; el.classList.remove("down"); fn(false); },
+  });
+}
+
+// Live: pads use the pad page's MIDI notes (Inpulse 300 MK2 layout, see Tablet-Pads.script.js).
+const PAD_MODE = { cue: 0, roll: 2, stem: 3, jump: 4, fx: 5 };
+function padPress(s, k, down) {
+  const d = deckOf(s), beat = 60 / d.bpm;
+  if (live) {
+    if (d.mode === "smpl") return send("pad", 0, (d.n % 2 ? 0 : 8) + k, down);
+    if ((d.mode === "stem" && k >= 4) || (d.mode === "fx" && k === 7)) return;   // unmapped, like the Inpulse
+    let m = PAD_MODE[d.mode];
+    if (d.shift && d.mode === "cue") { m = 1; if (down) { d.shift = false; setTimeout(() => paintSide(s), 0); } }
+    if (d.shift && d.mode === "fx") m = 6;
+    return send("pad", d.n, m * 8 + k, down);
+  }
+  switch (d.mode) {
+    case "cue":
+      if (!down) break;
+      if (d.shift) { d.cues[k] = null; d.shift = false; }
+      else if (d.cues[k]) d.pos = d.cues[k].pos;
+      else d.cues[k] = { pos: d.pos, c: CUE_COLORS[k] };
+      break;
+    case "roll": d.rolls[k] = down ? 1 : 0; break;
+    case "stem": if (down && k < 4) d.stems[k] = d.stems[k] ? 0 : 1; break;
+    case "smpl": if (down) samplerTap((d.n % 2 ? 0 : 8) + k); break;
+    case "jump": if (down) d.pos = clamp(d.pos + [-1, 1, -2, 2, -4, 4, -8, 8][k] * beat, 0, d.dur); break;
+    case "fx": if (down) { if (k < 3) d.fx[k] = d.fx[k] ? 0 : 1; else if (k === 3) d.fxRoute = d.fxRoute ? 0 : 1; } break;
+  }
+  paintSide(s);
+}
+
+function otherBpm(s) { const o = decks[sides[1 - s]]; return o.bpm * (1 + o.tempo / 100); }
+function matchTempo(d, s) {
+  d.tempo = clamp(otherBpm(s) / d.bpm * 100 - 100, -90, 90);
+  if (Math.abs(d.tempo) > 8) d.ol = true;
+}
+// How close this deck's BPM is to the other side's (also at double/half time): 0 = far, 1 = matched.
+function closeness(s) {
+  const d = deckOf(s), mine = d.bpm * (1 + d.tempo / 100), o = otherBpm(s);
+  const diff = Math.min(Math.abs(mine - o), Math.abs(mine - o * 2), Math.abs(mine - o / 2));
+  const g = clamp(1 - diff / 2, 0, 1);                  // starts glowing within 2 BPM
+  return { glow: g * g, matched: diff < 0.01 };          // matched = same BPM to 2 decimals → green
+}
+
+function samplerTap(i) {
+  const sm = samplers[i];
+  if (!sm.state) { sm.state = 1; }
+  else { sm.state = 2; clearTimeout(sm.t); sm.t = setTimeout(() => { sm.state = 1; paintAll(); }, 1500); }
+  paintAll();
+}
+
+// =====================================================================================================
+// Animation: simulated playback + cursor (the record's sticker, sweeping left to right)
+// =====================================================================================================
+let last = performance.now();
+let frames = 0;
+function frame(now) {
+  const dt = Math.min(.1, (now - last) / 1000); last = now;
+  frames++;
+  decks.forEach(d => {
+    if (d.grabbed) return;
+    if (live) {
+      if (d.coast) {
+        // Inertia in Mixxx: keep the record "in hand" and feed it the decaying speed as scratch movement,
+        // then let go once it has reached the motor's speed.
+        const target = d.playing ? d.ratio : 0;
+        d.vel += (target - d.vel) * (1 - Math.exp(-dt * 1000 / Math.max(1, S.inertia)));
+        scratchBy(d, d.vel * dt);
+        d.pos = clamp(d.pos + d.vel * dt, 0, d.dur);
+        if (Math.abs(d.vel - target) < .005) { d.coast = false; mxSend({ scratch: [d.n - 1, 0, 0] }); d.ppT = 0; }
+      } else if (d.ppT) {
+        // Between Mixxx's ~30 position updates a second, advance at the current speed.
+        d.pos = clamp(d.ppos * d.dur + (d.playing ? (now - d.ppT) / 1000 * (d.ratio || 1) : 0), 0, d.dur);
+      }
+      return;
+    }
+    const target = d.playing || d.preview ? 1 + d.tempo / 100 : 0;   // playback speed the motor drives towards
+    if (d.coast) {
+      // Inertia: the flick's speed decays towards the motor's speed with the chosen time constant.
+      d.vel += (target - d.vel) * (1 - Math.exp(-dt * 1000 / Math.max(1, S.inertia)));
+      if (Math.abs(d.vel - target) < .005) { d.vel = target; d.coast = false; }
+    } else d.vel = target;
+    d.pos += d.vel * dt;
+    if (d.loopOn) { const len = d.loopSize * 60 / d.bpm; if (d.pos >= d.loopStart + len) d.pos = d.loopStart + (d.pos - d.loopStart) % len; }
+    if (d.pos >= d.dur) { d.pos = d.dur; d.playing = false; d.vel = 0; d.coast = false; }
+    if (d.pos < 0) { d.pos = 0; d.vel = 0; d.coast = false; }
+  });
+  if (page === "deck") [0, 1].forEach(s => {
+    const u = ui.sides[s], d = deckOf(s);
+    if (!u || !u.strip) return;
+    if (d.syncMode && !live) { const t = d.tempo; matchTempo(d, s); if (t !== d.tempo) paintTempo(s); }   // Mixxx syncs when live
+    const c = closeness(s), glow = d.syncMode ? "0" : c.glow.toFixed(2);
+    if (u.sync._glow !== glow) { u.sync._glow = glow; u.sync.style.setProperty("--glow", glow); }
+    u.sync.classList.toggle("matched", !d.syncMode && c.matched);
+    const w = cachedRect(u.strip).width, sec = stripSeconds();
+    drawStripWave(u, d, d.pos - sec / 2, sec);             // the cursor stays in the middle; the waveform rolls
+    setText(u.time, fmtTime((d.dur - d.pos) / (1 + d.tempo / 100)));
+  });
+  requestAnimationFrame(frame);
+}
+
+// =====================================================================================================
+// Waveform on the platter strip. d.wf = { rate, n, data: Uint8Array(n * 4) } with all/low/mid/high per point
+// (441 points per second of audio, from Mixxx's analysis; see pads/waveform.py). Drawn once per stretch of
+// record, so it only redraws when the cursor wraps (or the track, zoom or size changes).
+// =====================================================================================================
+const TILE = 1024;                       // device pixels per cached tile
+function renderTile(wf, k, pxPerSec, H) {
+  const c = document.createElement("canvas"); c.width = TILE; c.height = H;
+  const g = c.getContext("2d"), mid = H / 2, a = wf.data, perPx = wf.rate / pxPerSec, x0 = k * TILE;
+  for (let x = 0; x < TILE; x++) {
+    const i0 = Math.floor((x0 + x) * perPx), i1 = Math.max(i0 + 1, Math.floor((x0 + x + 1) * perPx));
+    if (i1 <= 0 || i0 >= wf.n) continue;
+    let all = 0, lo = 0, mi = 0, hi = 0;
+    for (let i = Math.max(0, i0); i < Math.min(wf.n, i1); i++) {
+      const j = i * 4;
+      if (a[j] > all) all = a[j];
+      if (a[j + 1] > lo) lo = a[j + 1];
+      if (a[j + 2] > mi) mi = a[j + 2];
+      if (a[j + 3] > hi) hi = a[j + 3];
+    }
+    const m = Math.max(lo, mi, hi, 1);                     // colour from the band balance, like Mixxx's RGB waveform
+    g.fillStyle = `rgb(${Math.round(255 * lo / m)},${Math.round(230 * mi / m)},${Math.round(255 * hi / m)})`;
+    const h = Math.max(1, all / 255 * mid * .95);
+    g.fillRect(x, mid - h, 1, h * 2);
+  }
+  return c;
+}
+
+// start: track time at the strip's left edge (may be negative before the track starts).
+function drawStripWave(u, d, start, sec) {
+  const r = cachedRect(u.strip), dpr = devicePixelRatio || 1;
+  const W = Math.round(r.width * dpr), H = Math.round(r.height * dpr), pxPerSec = W / sec;
+  const left = Math.round(start * pxPerSec);               // whole device pixels: crisp, and skip identical frames
+  const key = `${d.n}|${d.wfVer || 0}|${left}|${sec}|${W}|${H}`;
+  if (u.wfKey === key) return;
+  u.wfKey = key;
+  const c = u.wfCanvas;
+  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+  const g = c.getContext("2d");
+  g.clearRect(0, 0, W, H);
+  const wf = d.wf;
+  if (!wf) return;
+  // Tiles are cached per track and scale; rendering one costs a few ms, copying it each frame almost nothing.
+  const tkey = `${d.n}|${d.wfVer}|${sec}|${W}|${H}`;
+  if (u.tileKey !== tkey) { u.tileKey = tkey; u.tiles = new Map(); }
+  for (let k = Math.floor(left / TILE); k * TILE < left + W; k++) {
+    if (k < 0 || k * TILE / pxPerSec > wf.n / wf.rate) continue;
+    let t = u.tiles.get(k);
+    if (!t) {
+      t = renderTile(wf, k, pxPerSec, H);
+      u.tiles.set(k, t);
+      if (u.tiles.size > 8) u.tiles.delete(u.tiles.keys().next().value);   // keep the 8 most recent
+    }
+    g.drawImage(t, k * TILE - left, 0);
+  }
+  // Draw the tile coming up next while the tablet is idle, so playback never waits for one.
+  const next = Math.floor((left + W) / TILE) + 1;
+  if (!u.tiles.has(next) && next * TILE / pxPerSec < wf.n / wf.rate && u.prefetch !== `${tkey}|${next}`) {
+    u.prefetch = `${tkey}|${next}`;
+    const idle = window.requestIdleCallback || (f => setTimeout(f, 30));
+    idle(() => { if (u.tileKey === tkey && !u.tiles.has(next)) u.tiles.set(next, renderTile(wf, next, pxPerSec, H)); });
+  }
+}
+
+// Live: fetch the analysed waveform of the track on a deck (Mixxx may still be analysing a new track).
+async function loadWaveform(d, id) {
+  d.wfFor = id; d.wf = null; d.wfVer = (d.wfVer || 0) + 1;
+  if (!id) return;
+  for (let tries = 0; tries < 30 && d.wfFor === id; tries++) {
+    try {
+      const r = await fetch(`/waveform/${id}`);
+      if (r.ok) {
+        const buf = new Uint8Array(await r.arrayBuffer());
+        const dv = new DataView(buf.buffer);
+        if (d.wfFor !== id || String.fromCharCode(...buf.slice(0, 4)) !== "MXWF") return;
+        d.wf = { rate: dv.getFloat32(4, true), n: dv.getUint32(8, true), data: buf.subarray(12) };
+        d.wfVer++;
+        return;
+      }
+    } catch {}
+    await new Promise(res => setTimeout(res, 2000));
+  }
+}
+
+// Simulation: a made-up waveform for the demo decks (kicks on the beat, hats off the beat).
+function demoWave(d) {
+  const rate = 441, n = Math.ceil(d.dur * rate), data = new Uint8Array(n * 4), beat = 60 / d.bpm;
+  let seed = d.n * 9301;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < n; i++) {
+    const t = i / rate, ph = (t / beat) % 1, bar = Math.floor(t / beat / 16) % 4;
+    const kick = Math.exp(-ph * 9) * (bar === 3 && ph > .5 ? .3 : 1);
+    const hat = Math.exp(-((ph + .5) % 1) * 22) * .7;
+    const lo = 40 + 200 * kick, hi = 30 + 160 * hat + 30 * rnd(), mi = 60 + 70 * rnd() + 50 * Math.sin(t * 1.3) ** 2;
+    const k = i * 4;
+    data[k] = Math.min(255, Math.max(lo, mi, hi) * .9); data[k + 1] = Math.min(255, lo); data[k + 2] = Math.min(255, mi); data[k + 3] = Math.min(255, hi);
+  }
+  return { rate, n, data };
+}
+decks.forEach(d => { d.wf = demoWave(d); d.wfVer = 1; });
+
+// =====================================================================================================
+// Top bar, settings
+// =====================================================================================================
+document.querySelectorAll(".topbar .tab").forEach(b => b.addEventListener("click", () => { page = b.dataset.page; build(); }));
+document.getElementById("gear").addEventListener("click", () => { paintSettings(); paintFs(); document.getElementById("settings").classList.add("open"); });
+document.getElementById("s-close").addEventListener("click", () => document.getElementById("settings").classList.remove("open"));
+const closeSettings = () => document.getElementById("settings").classList.remove("open");
+document.getElementById("s-x").addEventListener("click", closeSettings);
+// Tapping the darkened area outside the panel closes it too.
+document.getElementById("settings").addEventListener("click", e => { if (e.target.id === "settings") closeSettings(); });
+const paintFs = () => { document.getElementById("s-fs").textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"; };
+document.addEventListener("fullscreenchange", paintFs);
+let fsPaused = false;                    // an explicit "Exit fullscreen" pauses auto-fullscreen until re-entered
+document.getElementById("s-fs").addEventListener("click", () => {
+  const d = document.documentElement;
+  fsPaused = !!document.fullscreenElement;
+  (document.fullscreenElement ? document.exitFullscreen() : d.requestFullscreen({ navigationUI: "hide" })).catch(() => {});
+  closeSettings();
+});
+document.getElementById("s-reset").addEventListener("click", () => { S = { ...DEFAULTS }; saveSettings(); applySettings(); paintSettings(); build(); });
+
+function seg(id, options, get, set) {
+  const box = document.getElementById(id);
+  box.innerHTML = "";
+  options.forEach(([v, label]) => {
+    const b = h("button", get() === v ? "on" : "", label);
+    b.addEventListener("click", () => { set(v); saveSettings(); paintSettings(); build(); });
+    box.appendChild(b);
+  });
+}
+function slider(id, key, fmt) {
+  const inp = document.getElementById(id);
+  inp.value = S[key];
+  document.getElementById(id + "-v").textContent = fmt(S[key]);
+  inp.oninput = () => { S[key] = +inp.value; saveSettings(); applySettings(); document.getElementById(id + "-v").textContent = fmt(S[key]); paintSettings(true); };
+  inp.onchange = () => build();
+}
+function paintSettings(soft) {
+  seg("s-revs", [[.5, "½ rev"], [1, "1 rev"], [2, "2 rev"]], () => S.revs, v => S.revs = v);
+  const stripMm = ui.sides[0]?.strip ? ui.sides[0].strip.clientWidth / S.pxmm : 70;
+  document.getElementById("s-revs-info").textContent =
+    `${stripSeconds().toFixed(1)} s of audio across ${stripMm.toFixed(0)} mm · ${(stripSeconds() * 1000 / stripMm).toFixed(0)} ms per mm`;
+  seg("s-dir", [[true, "Down = faster"], [false, "Up = faster"]], () => S.fasterDown, v => S.fasterDown = v);
+  seg("s-knob", [["spin", "Spin"], ["drag", "Drag (both)"], ["dragH", "Drag (left/right)"], ["dragV", "Drag (up/down)"]], () => S.knobMode, v => S.knobMode = v);
+  seg("s-fs-auto", [[true, "On"], [false, "Off"]], () => S.autoFs, v => S.autoFs = v);
+  seg("s-tele", [[true, "On"], [false, "Off"]], () => S.telemetry, v => S.telemetry = v);
+  if (soft) return;
+  slider("s-sens", "sens", v => `${v.toFixed(2)} % per mm · ±8 % over ${(8 / v).toFixed(0)} mm of drag · ${(v * 1.28).toFixed(2)} BPM per mm at 128`);
+  slider("s-bar", "bar", v => `${v} mm`);
+  slider("s-pxmm", "pxmm", v => `${v.toFixed(2)} px per mm`);
+  slider("s-palm", "palm", v => v ? `${v} mm` : "off");
+  slider("s-inertia", "inertia", v => v ? `${v} ms` : "off: the record snaps straight back to speed");
+  slider("s-knobsize", "knobSize", v => {
+    const c = ui.chans[0]?.el, m = document.getElementById("mixer");
+    if (!c) return `${v} mm`;
+    const over = c.scrollHeight - c.clientHeight;
+    const knobs = [...c.querySelectorAll(".knob svg")].map(x => x.getBoundingClientRect());
+    const gap = knobs.length > 1 ? (knobs[1].top - knobs[0].bottom) / S.pxmm : 0;
+    return `${v} mm · mixer ${(m.getBoundingClientRect().width / S.pxmm).toFixed(0)} mm wide · ` +
+      (over > 1 ? `doesn't fit: ${(over / S.pxmm).toFixed(0)} mm too tall` : `${gap.toFixed(1)} mm between knobs`);
+  });
+}
+
+// Browsers only allow fullscreen from a touch, so the first touch anywhere enters it (and locks landscape).
+addEventListener("pointerdown", () => {
+  if (!S.autoFs || fsPaused || document.fullscreenElement) return;
+  document.documentElement.requestFullscreen({ navigationUI: "hide" })
+    .then(() => screen.orientation?.lock?.("landscape").catch(() => {}))
+    .catch(() => {});
+}, true);
+
+// =====================================================================================================
+// Live: the real pad server connected to Mixxx (the no-MIDI test server keeps the simulation)
+// =====================================================================================================
+const TICKS_PER_REV = 3600;              // must match TabletPads.TICKS_PER_REV
+const fxLive = Array.from({ length: 4 }, () => new Array(7).fill(0));
+let mxWs = null;
+const mxSend = m => { if (mxWs && mxWs.readyState === 1) mxWs.send(typeof m === "string" ? m : JSON.stringify(m)); };
+const setCtl = (group, key, value, param) => mxSend({ set: [group, key, value, param ? 1 : 0] });
+
+// Ignore Mixxx's echo of a value we just set ourselves for a moment, so a held control doesn't jitter.
+const markLocal = (o, k) => { (o._t ??= {})[k] = performance.now(); };
+const isLocal = (o, k) => o._t && performance.now() - (o._t[k] || 0) < 400;
+
+function scratchBy(d, seconds) {
+  d.tickAcc = (d.tickAcc || 0) + seconds / REV_SECONDS * TICKS_PER_REV;
+  const n = Math.trunc(d.tickAcc);
+  if (n) { d.tickAcc -= n; mxSend({ scratch: [d.n - 1, 2, n] }); }
+}
+
+const ch = n => `[Channel${n}]`;
+const MIXER = {   // controller knob -> Mixxx control (all as 0..1 parameters)
+  gain: n => [ch(n), "pregain"], high: n => [`[EqualizerRack1_${ch(n)}_Effect1]`, "parameter3"],
+  mid: n => [`[EqualizerRack1_${ch(n)}_Effect1]`, "parameter2"], low: n => [`[EqualizerRack1_${ch(n)}_Effect1]`, "parameter1"],
+  filter: n => [`[QuickEffectRack1_${ch(n)}]`, "super1"], vol: n => [ch(n), "volume"],
+};
+const MAIN = { main: "gain", phones: "headGain", mix: "headMix", xf: "crossfader" };
+const MAIN_GROUP = "[Master]";            // Mixxx 2.6.0 keeps the main mix controls here ([Main] isn't there yet)
+
+function toMixxx(name, ...a) {
+  const d = typeof a[0] === "number" && a[0] >= 1 && a[0] <= 4 ? decks[a[0] - 1] : null;
+  switch (name) {
+    case "master": markLocal(master, "main"); return setCtl(MAIN_GROUP, "gain", a[0], true);
+    case "phones": markLocal(master, "phones"); return setCtl(MAIN_GROUP, "headGain", a[0], true);
+    case "headMix": markLocal(master, "mix"); return setCtl(MAIN_GROUP, "headMix", a[0], true);
+    case "crossfader": markLocal(master, "xf"); return setCtl(MAIN_GROUP, "crossfader", a[0], true);
+    case "gain": case "high": case "mid": case "low": case "filter":
+      markLocal(d, name); return setCtl(...MIXER[name](d.n), a[1], true);
+    case "volume": markLocal(d, "vol"); return setCtl(...MIXER.vol(d.n), a[1], true);
+    case "mute": return setCtl(ch(d.n), "mute", a[1] ? 1 : 0);
+    case "pfl": markLocal(d, "pfl"); return setCtl(ch(d.n), "pfl", a[1]);
+    case "play": return setCtl(ch(d.n), "play", a[1]);
+    case "cue": return setCtl(ch(d.n), "cue_default", a[1] ? 1 : 0);
+    case "key": markLocal(d, "key"); return setCtl(ch(d.n), "pitch_adjust", clamp(Math.round(d.key) + a[1], -6, 6));
+    case "sync": return mxSend({ sync: [d.n - 1, a[1]] });
+    case "tempo": markLocal(d, "tempo"); return mxSend({ tempo: [d.n - 1, d.ol ? 1 : 0, a[1]] });
+    case "scratchOn": d.tickAcc = 0; return mxSend({ scratch: [d.n - 1, 1, 0] });
+    case "scratch": return scratchBy(d, a[1] * stripSeconds());
+    case "scratchOff": if (!d.coast) mxSend({ scratch: [d.n - 1, 0, 0] }); d.ppT = 0; return;   // coasting: released later
+    case "loop": return setCtl(ch(d.n), a[1], a[2] ? 1 : 0);   // press and release, like a controller button
+    case "pad": return mxSend(`${a[2] ? "d" : "u"} ${a[0]} ${a[1]}`);
+  }
+}
+
+// Feedback from Mixxx repaints only the part of the screen it changed, once per frame.
+let paintPending = false;
+const dirty = { all: false, sides: new Set(), mixer: false, top: false };
+function markDirty(part, d) {
+  if (part === "all") dirty.all = true;
+  else if (part === "mixer") dirty.mixer = true;
+  else if (part === "top") dirty.top = true;
+  else [0, 1].forEach(s => { if (deckOf(s) === d) dirty.sides.add(s); });
+  if (!paintPending) { paintPending = true; requestAnimationFrame(flushPaint); }
+}
+function flushPaint() {
+  paintPending = false;
+  if (dirty.all) paintAll();
+  else {
+    dirty.sides.forEach(paintSide);
+    if (dirty.mixer) paintMixer();
+    if (dirty.top) { ui.top.forEach(k => k.paint()); if (ui.xf) ui.xf.paint(); }
+  }
+  dirty.all = dirty.mixer = dirty.top = false; dirty.sides.clear();
+}
+const schedulePaint = () => markDirty("all");
+
+function applyCv(name, v) {
+  const comma = name.indexOf(","), group = name.slice(0, comma), key = name.slice(comma + 1);
+  let m;
+  if ((m = /^\[Channel(\d)\]$/.exec(group))) {
+    const d = decks[m[1] - 1];
+    if (!d) return;
+    // Our own changes echoed back (isLocal) and repeats of the same value repaint nothing.
+    const upd = (k, val, part = "deck") => { if (d[k] !== val) { d[k] = val; markDirty(part, d); } };
+    switch (key) {
+      case "playposition": d.ppos = v; d.ppT = performance.now(); return;   // drawn by the animation loop
+      case "play": return upd("playing", v > 0);
+      case "track_loaded": return upd("loaded", v > 0);
+      case "duration": d.dur = v; return;                                   // shown by the animation loop
+      case "rate_ratio": d.ratio = v; if (!isLocal(d, "tempo") && ui.sides.every(u => u?.laneDeck !== d)) upd("tempo", (v - 1) * 100); return;
+      case "file_bpm": if (v > 0) upd("bpm", v); return;
+      case "pitch_adjust": if (!isLocal(d, "key")) upd("key", Math.round(v)); return;   // key shift only, without the tempo's effect
+      case "sync_enabled": return upd("syncMode", !v ? 0 : d.syncMode || 1);
+      case "pfl": if (!isLocal(d, "pfl")) upd("pfl", v > 0, "mixer"); return;
+      case "mute": return upd("muted", v > 0, "mixer");
+      case "loop_enabled": return upd("loopOn", v > 0);
+      case "beatloop_size": return upd("loopSize", v);
+      case "volume": if (!isLocal(d, "vol")) upd("vol", v, "mixer"); return;
+      case "pregain": if (!isLocal(d, "gain")) upd("gain", v, "mixer"); return;
+    }
+  } else if ((m = /^\[EqualizerRack1_\[Channel(\d)\]_Effect1\]$/.exec(group))) {
+    const d = decks[m[1] - 1], f = { parameter3: "high", parameter2: "mid", parameter1: "low" }[key];
+    if (!d || !f || isLocal(d, f) || d[f] === v) return;
+    d[f] = v; markDirty("mixer");
+  } else if ((m = /^\[QuickEffectRack1_\[Channel(\d)\]\]$/.exec(group))) {
+    const d = decks[m[1] - 1];
+    if (!d || isLocal(d, "filter") || d.filter === v) return;
+    d.filter = v; markDirty("mixer");
+  } else if (group === MAIN_GROUP) {
+    const f = Object.keys(MAIN).find(k => MAIN[k] === key);
+    if (!f || isLocal(master, f) || master[f] === v) return;
+    master[f] = v; markDirty("top");
+  }
+}
+
+function subscribeAll() {
+  const sub = [];
+  for (let n = 1; n <= 4; n++) {
+    for (const k of ["play", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch_adjust", "sync_enabled", "pfl", "mute", "loop_enabled", "beatloop_size"]) sub.push([ch(n), k, 0]);
+    sub.push([ch(n), "playposition", 1]);                  // polled ~30/s
+    for (const f of ["vol", "gain", "high", "mid", "low", "filter"]) sub.push([...MIXER[f](n), 2]);
+  }
+  for (const k of Object.values(MAIN)) sub.push([MAIN_GROUP, k, 2]);
+  mxSend({ sub });
+}
+
+function goLive(init) {
+  live = true;
+  document.querySelector(".topbar .note").textContent = "Live · Mixxx";
+  document.getElementById("s-status").textContent = "Live · Mixxx";
+  document.getElementById("gear").classList.add("live");
+  decks.forEach((d, i) => Object.assign(d, {
+    title: `Deck ${d.n}`, artist: "", bpm: 120, dur: 0, pos: 0, ppos: 0, ppT: 0, ratio: 1, playing: false, loaded: false,
+    tempo: 0, key: 0, loopOn: false, loopSize: 4, cues: new Array(8).fill(null), rolls: new Array(8).fill(0), stems: [1, 1, 1, 1], sc: 0,
+  }));
+  samplers.forEach((sm, i) => { sm.state = 0; sm.name = `Sample ${i + 1}`; });
+  init.decks.forEach((x, i) => {
+    const d = decks[i];
+    d.cues = x.cues.map(v => v ? { c: v - 1 } : null); d.rolls = x.rolls; d.stems = x.stems; d.sc = x.sc;
+    if (x.n) { d.title = x.n.t; d.artist = x.n.a; }
+    loadWaveform(d, x.n ? x.n.id : null);
+  });
+  init.s.slice(0, samplers.length).forEach((v, i) => { samplers[i].state = v; if (init.sn[i]) samplers[i].name = init.sn[i].t; });
+  init.fx.forEach((u, i) => fxLive[i] = u);
+  Object.entries(init.cv || {}).forEach(([k, v]) => applyCv(k, v));
+  subscribeAll();
+  build();
+}
+
+function onMixxx(m) {
+  if (m.init) { if (m.init.live) goLive(m.init); return; }
+  if (!live) return;
+  const d = m.d !== undefined ? decks[m.d] : null;
+  switch (m.t) {
+    case "cv": return applyCv(m.k, m.v);
+    case "s": if (m.i < samplers.length) samplers[m.i].state = m.v; break;
+    case "sn": if (m.i < samplers.length) samplers[m.i].name = m.n ? m.n.t : `Sample ${m.i + 1}`; break;
+    case "dn": d.title = m.n ? m.n.t : `Deck ${d.n}`; d.artist = m.n ? m.n.a : "";
+      if ((m.n ? m.n.id : null) !== d.wfFor) loadWaveform(d, m.n ? m.n.id : null);
+      return markDirty("deck", d);
+    case "sc": d.sc = m.v; return markDirty("deck", d);
+    case "cue": d.cues[m.k] = m.v ? { c: m.v - 1 } : null; return markDirty("deck", d);
+    case "roll": d.rolls[m.k] = m.v; return markDirty("deck", d);
+    case "stem": d.stems[m.k] = m.v; return markDirty("deck", d);
+    case "fx": fxLive[m.u][m.j] = m.v; break;
+    default: return;
+  }
+  schedulePaint();
+}
+
+function mxConnect() {
+  mxWs = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  mxWs.onmessage = ev => onMixxx(JSON.parse(ev.data));
+  mxWs.onclose = () => setTimeout(mxConnect, 1500);
+}
+mxConnect();
+
+let ctlWs = null;
+function ctlSend(msg) { if (ctlWs && ctlWs.readyState === 1) ctlWs.send(JSON.stringify(msg)); }
+function ctlConnect() {
+  ctlWs = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ctl?role=controller`);
+  ctlWs.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type !== "settings") return;
+    onProbe(m.settings.probe);
+    if (!Object.keys(m.settings).length) { ctlSend({ type: "settings", settings: S }); return; }   // Mac has none yet: seed it
+    applyingRemote = true;
+    S = { ...DEFAULTS, ...m.settings };
+    // Repaint only (no rebuild), so a finger holding a control keeps it while settings change.
+    saveSettings(); applySettings(); requestAnimationFrame(paintAll);
+    if (document.getElementById("settings").classList.contains("open")) paintSettings();
+    applyingRemote = false;
+  };
+  ctlWs.onclose = () => setTimeout(ctlConnect, 1500);
+}
+ctlConnect();
+
+// Telemetry for the Mac's debug view, 4 times a second.
+let moves = 0, lastTele = performance.now(), sentUpTo = 0;
+addEventListener("pointermove", () => moves++, true);
+setInterval(() => {
+  const now = performance.now(), secs = (now - lastTele) / 1000;
+  if (!S.telemetry) { frames = 0; moves = 0; lastTele = now; if (eventLog.length) sentUpTo = eventLog[eventLog.length - 1][0]; return; }
+  const events = eventLog.filter(e => e[0] > sentUpTo);
+  if (eventLog.length) sentUpTo = eventLog[eventLog.length - 1][0];
+  ctlSend({ type: "telemetry", t: Date.now(), fps: Math.round(frames / secs), moves: Math.round(moves / secs),
+    touches: active.size, page, fullscreen: !!document.fullscreenElement, viewport: [innerWidth, innerHeight],
+    dpr: devicePixelRatio, decks: [0, 1].map(s => { const d = deckOf(s); return { side: s ? "R" : "L", n: d.n,
+      pos: +d.pos.toFixed(3), vel: +(d.vel || 0).toFixed(3), playing: d.playing, grabbed: d.grabbed, coast: !!d.coast,
+      tempo: +d.tempo.toFixed(2), ol: d.ol, sync: d.syncMode, loop: d.loopOn ? d.loopSize : 0, vol: +d.vol.toFixed(2) }; }), events: events.slice(-60) });
+  frames = 0; moves = 0; lastTele = now;
+}, 250);
+
+// =====================================================================================================
+// Debug probes, started from the Mac (settings.probe = {id, kind, ...}); results go out as telemetry.
+//   reload: reload this page · bench: scripted knob + fader drags, timing every frame · trace: record real touches
+// =====================================================================================================
+let probeSeen;                            // the probe already present when the page loaded is not rerun
+function onProbe(p) {
+  if (probeSeen === undefined) { probeSeen = p ? p.id : null; return; }
+  if (!p || p.id === probeSeen) return;
+  probeSeen = p.id;
+  if (p.kind === "reload") location.reload();
+  else if (p.kind === "bench") runBench(p).catch(err => ctlSend({ type: "telemetry", probe: { kind: "bench", id: p.id, error: String(err) } }));
+  else if (p.kind === "trace") armTrace(p);
+}
+
+const pct = (a, q) => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y); return +b[Math.min(b.length - 1, Math.floor(q * b.length))].toFixed(2); };
+const stats = a => ({ n: a.length, avg: a.length ? +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(2) : 0, p50: pct(a, .5), p95: pct(a, .95), max: pct(a, 1) });
+
+async function runBench(p) {
+  const out = { kind: "bench", id: p.id, live, knobMode: S.knobMode, ua: navigator.userAgent, hz: p.hz || 120 };
+  if (page !== "deck") { page = "deck"; build(); await new Promise(r => setTimeout(r, 300)); }
+  const realPaint = paintAll, paints = [];
+  paintAll = () => { const a = performance.now(); realPaint(); paints.push(performance.now() - a); };
+  benchQuiet = true;
+  try {
+    for (const which of ["knob", "fader"]) {
+      const d = deckOf(0), el = which === "knob" ? ui.chans[0].knobs[0] : ui.faders[0];
+      const key = which === "knob" ? "gain" : "vol", orig = d[key];
+      const r = (which === "knob" ? el : el.querySelector(".cap")).getBoundingClientRect();
+      let x = r.left + r.width / 2, y = r.top + r.height / 2, t = 0;
+      const ev = type => new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 4242, pointerType: "touch",
+        clientX: x, clientY: y, width: 8, height: 8 });
+      const frames = [], moves = [], echoes = [];
+      paints.length = 0;
+      el.dispatchEvent(ev("pointerdown"));
+      await new Promise(done => {
+        let last = performance.now(); const t0 = last;
+        const step = now => {
+          frames.push(now - last); last = now;
+          // finger: back and forth at ~30 mm/s with 0.1 mm jitter, at the touch screen's sample rate
+          const n = Math.round(out.hz / 60);
+          for (let i = 0; i < n; i++) {
+            t += 1 / out.hz;
+            const base = Math.sin(t * Math.PI / 1.5) * mm(20);
+            if (which === "knob") { x = r.left + r.width / 2 + base + (Math.random() - .5) * mm(.2); y = r.top + r.height / 2 + (Math.random() - .5) * mm(.2); }
+            else { y = r.top + r.height / 2 - base / 2 + (Math.random() - .5) * mm(.2); }
+            const a = performance.now(); el.dispatchEvent(ev("pointermove")); moves.push(performance.now() - a);
+          }
+          // Mixxx echoes each change back ~once a frame; this is what a live drag costs on top of the touch handling
+          const a = performance.now();
+          applyCv(which === "knob" ? `[Channel${d.n}],pregain` : `[Channel${d.n}],volume`, d[key]);
+          echoes.push(performance.now() - a);
+          if (now - t0 < (p.ms || 3000)) requestAnimationFrame(step); else done();
+        };
+        requestAnimationFrame(step);
+      });
+      el.dispatchEvent(ev("pointerup"));
+      d[key] = orig; paintMixer();
+      out[which] = { frame: stats(frames.slice(1)), longFrames: frames.filter(f => f > 20).length,
+        move: stats(moves), echo: stats(echoes), paintAll: stats(paints) };
+      await new Promise(r => setTimeout(r, 300));
+    }
+  } finally { paintAll = realPaint; benchQuiet = false; }
+  ctlSend({ type: "telemetry", probe: out });
+}
+
+// Records the next few real drags (any control): every pointermove with its coalesced touch samples.
+function armTrace(p) {
+  let left = p.count || 4;
+  const traces = new Map();
+  const onDown = e => {
+    if (left <= 0 || !e.isTrusted) return;
+    const target = e.target.closest(".knob, .fader, #xf, .strip, .lane, .pad, button");
+    traces.set(e.pointerId, { target: target ? target.className || target.id : e.target.tagName, mode: S.knobMode,
+      t0: e.timeStamp, down: [e.clientX, e.clientY, e.width, e.height], moves: [] });
+  };
+  const onMove = e => {
+    const tr = traces.get(e.pointerId);
+    if (!tr || tr.moves.length > 3000) return;
+    const co = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    tr.moves.push([+(e.timeStamp - tr.t0).toFixed(2), +e.clientX.toFixed(2), +e.clientY.toFixed(2),
+      co.map(c => [+(c.timeStamp - tr.t0).toFixed(2), +c.clientX.toFixed(2), +c.clientY.toFixed(2)])]);
+  };
+  const onUp = e => {
+    const tr = traces.get(e.pointerId);
+    if (!tr) return;
+    traces.delete(e.pointerId);
+    if (tr.moves.length < 5) return;                      // a tap, not a drag
+    left--;
+    ctlSend({ type: "telemetry", probe: { kind: "trace", id: p.id, left, ...tr } });
+    if (left <= 0) { removeEventListener("pointerdown", onDown, true); removeEventListener("pointermove", onMove, true);
+      removeEventListener("pointerup", onUp, true); removeEventListener("pointercancel", onUp, true); }
+  };
+  addEventListener("pointerdown", onDown, true); addEventListener("pointermove", onMove, true);
+  addEventListener("pointerup", onUp, true); addEventListener("pointercancel", onUp, true);
+  ctlSend({ type: "telemetry", probe: { kind: "trace-armed", id: p.id, count: left } });
+}
+
+applySettings();
+build();
+requestAnimationFrame(frame);
+addEventListener("resize", () => { layoutEpoch++; requestAnimationFrame(paintAll); });
+</script>
+</body>
+</html>

@@ -8,6 +8,7 @@
 #include "controllers/controllermappinginfoenumerator.h"
 #include "controllers/defs_controllers.h"
 #include "controllers/legacycontrollermappingfilehandler.h"
+#include "controllers/zydek/zydekcontroller.h"
 #include "moc_controllermanager.cpp"
 #include "preferences/usersettings.h"
 #include "util/cmdlineargs.h"
@@ -182,6 +183,8 @@ void ControllerManager::slotInitialize() {
 #ifdef __HID__
         m_enumerators.push_back(std::make_unique<HidEnumerator>());
 #endif
+        // Zydek: the tablet controller page over WiFi (zydek/zydekhub.h)
+        m_enumerators.push_back(std::make_unique<ZydekEnumerator>(m_pConfig));
     } // Mutex locker released here
     emit initialized();
 }
