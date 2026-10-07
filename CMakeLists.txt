@@ -2463,12 +2463,47 @@ if(QT6)
       "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/${ANDROID_NDK_HOST_SYSTEM_NAME}/bin/clang++"
     )
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fPIC")
+    # Zydek: run on Android 9-13 as well (src/zydek/androidcompat.cpp). The compat library is always
+    # packaged; with patchelf available, Qt Core and libmixxx are made to load it.
+    add_library(zydekcompat SHARED src/zydek/androidcompat.cpp)
+    set_target_properties(
+      zydekcompat
+      PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/zydekcompat"
+    )
+    add_dependencies(mixxx zydekcompat)
     set_target_properties(
       mixxx
       PROPERTIES
         QT_ANDROID_EXTRA_LIBS
-          ${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/${ANDROID_NDK_HOST_SYSTEM_NAME}/lib/clang/18/lib/linux/aarch64/libomp.so
+          "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/${ANDROID_NDK_HOST_SYSTEM_NAME}/lib/clang/18/lib/linux/aarch64/libomp.so;${CMAKE_CURRENT_BINARY_DIR}/zydekcompat/libzydekcompat.so"
     )
+    find_program(ZYDEK_PATCHELF patchelf HINTS "$ENV{ZYDEK_TOOLS}")
+    if(ZYDEK_PATCHELF)
+      set(_zydek_add_needed
+          "${ZYDEK_PATCHELF} --print-needed \"$1\" | grep -qx libzydekcompat.so || ${ZYDEK_PATCHELF} --add-needed libzydekcompat.so \"$1\""
+      )
+      # Qt Core comes prebuilt from the dependency bundle: patch it there once.
+      set(_zydek_vcpkg "${MIXXX_VCPKG_ROOT}")
+      if(NOT _zydek_vcpkg)
+        set(_zydek_vcpkg "$ENV{MIXXX_VCPKG_ROOT}")
+      endif()
+      file(
+        GLOB _zydek_qtcore
+        "${_zydek_vcpkg}/installed/${VCPKG_TARGET_TRIPLET}/lib/libQt6Core_*.so"
+      )
+      foreach(_lib ${_zydek_qtcore})
+        execute_process(COMMAND sh -c "${_zydek_add_needed}" sh "${_lib}")
+      endforeach()
+      add_custom_command(
+        TARGET mixxx
+        POST_BUILD
+        COMMAND sh -c "${_zydek_add_needed}" sh "$<TARGET_FILE:mixxx>"
+        COMMENT "Zydek: libmixxx loads libzydekcompat.so (Android 9-13 support)"
+        VERBATIM
+      )
+    else()
+      message(STATUS "Zydek: patchelf not found; the APK needs Android 14+")
+    endif()
     add_custom_target(
       copy-resource-android
       COMMENT "Copy resources folder to Android build asset directory"
