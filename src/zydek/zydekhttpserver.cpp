@@ -143,7 +143,7 @@ void HttpServer::handleRequest(QTcpSocket* pSocket, Connection& conn) {
             return;
         }
         const QByteArray accept =
-                QCryptographicHash::hash(key + kWebSocketGuid, QCryptographicHash::Sha1).toBase64();
+                QCryptographicHash::hash(QByteArray(key + kWebSocketGuid), QCryptographicHash::Sha1).toBase64();
         pSocket->write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                        "Sec-WebSocket-Accept: " +
                 accept + "\r\n\r\n");

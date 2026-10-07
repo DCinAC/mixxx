@@ -58,7 +58,8 @@ double decodeValue(const QByteArray& bytes) {
 
 QList<int> encodeName(const QString& group, const QString& key) {
     QList<int> out;
-    for (const QChar c : group + QLatin1Char(',') + key) {
+    const QString name = group + QLatin1Char(',') + key;
+    for (const QChar c : name) {
         out.append(c.unicode() & 0x7F);
     }
     return out;
@@ -191,7 +192,9 @@ QByteArray Hub::waveform(int trackId) const {
         const WaveformData* pData = pWaveform->data();
         QByteArray out(12 + points * 4, Qt::Uninitialized);
         memcpy(out.data(), "MXWF", 4);
-        const float rate = static_cast<float>(pWaveform->getVisualSampleRate());
+        // Points per second of audio (441 for Mixxx's analysis; the rate itself isn't public).
+        const double duration = pTrack->getDuration();
+        const float rate = static_cast<float>(duration > 0 ? points / duration : 441.0);
         qToLittleEndian(rate, out.data() + 4);
         qToLittleEndian(static_cast<quint32>(points), out.data() + 8);
         auto* p = reinterpret_cast<unsigned char*>(out.data() + 12);
