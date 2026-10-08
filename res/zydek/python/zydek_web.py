@@ -21,9 +21,16 @@ import _zydekjs
 
 MUSIC_SUBDIR = "Zydek Web"
 SEARCH_RESULTS = 20
-# Mixxx on Android reads AAC (m4a) but not Opus in WebM: ask for AAC first (YouTube's itag 140, Bilibili's
-# audio is AAC anyway).
-AUDIO_FORMAT = "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio/best"
+# Mixxx on Android reads AAC (m4a) but not Opus in WebM, nor Dolby (E-AC-3): ask for AAC first (YouTube's
+# itag 140; Bilibili's normal audio).
+AUDIO_FORMAT = ("bestaudio[acodec^=mp4a]/bestaudio[ext=m4a][acodec!=ec-3][acodec!=flac]"
+                "/bestaudio[acodec!=ec-3][acodec!=flac]/bestaudio[acodec!=ec-3]")
+# Bilibili premium accounts get Hi-Res lossless: FLAC in an MP4 container, which Mixxx's FFmpeg reads.
+HIRES_FORMAT = "bestaudio[acodec=flac]/" + AUDIO_FORMAT
+# Bilibili sessions: written by the app's login (MainActivity.java), read (and refreshed) by yt-dlp.
+COOKIE_FILE = "bilibili-cookies.txt"
+PREFS_FILE = "zydek-web.json"
+DEFAULT_PREFS = {"biliHiRes": True}
 QUICKJS_STACK = 24 * 1024 * 1024
 THREAD_STACK = 64 * 1024 * 1024
 
@@ -150,6 +157,19 @@ def _friendly(e):
     return msg.strip()[:300] or e.__class__.__name__
 
 
+def _prefs():
+    try:
+        with open(os.path.join(_dirs["data"], PREFS_FILE)) as f:
+            return {**DEFAULT_PREFS, **json.load(f)}
+    except (OSError, ValueError):
+        return dict(DEFAULT_PREFS)
+
+
+def _cookies():
+    path = os.path.join(_dirs["data"], COOKIE_FILE)
+    return path if os.path.exists(path) else None
+
+
 def _ydl(extra=None):
     import yt_dlp
     opts = {
@@ -161,6 +181,8 @@ def _ydl(extra=None):
         "fixup": "never",          # no ffmpeg on the phone; Mixxx reads DASH m4a as it is
         "socket_timeout": 20,
     }
+    if _cookies():
+        opts["cookiefile"] = _cookies()
     opts.update(extra or {})
     return yt_dlp.YoutubeDL(opts)
 
@@ -194,7 +216,8 @@ def _entry(e, site_hint=""):
         "views": e.get("view_count"),
         "thumbnail": thumb,
         "url": url,
-        "site": "bilibili" if "bili" in site or "bilibili" in url else "youtube" if "youtube" in site else site,
+        "site": ("bilibili-intl" if "intl" in site or "bilibili.tv" in url else "bilibili") if "bili" in site or "bilibili" in url
+                else "youtube" if "youtube" in site else site,
     }
 
 
@@ -265,8 +288,9 @@ def _download(url, title, client=None):
                 job["message"] = "Downloading"
 
         job["message"] = "Finding the audio"
+        bili = "bilibili" in url or "b23.tv" in url or "bili2233" in url
         with _ydl({
-            "format": AUDIO_FORMAT,
+            "format": HIRES_FORMAT if bili and _prefs()["biliHiRes"] else AUDIO_FORMAT,
             "noplaylist": True,
             "outtmpl": os.path.join(_dirs["music"], "%(title).120B [%(id)s].%(ext)s"),
             "progress_hooks": [hook],
@@ -288,10 +312,38 @@ def _download(url, title, client=None):
             if not os.path.exists(nice):
                 os.replace(path, nice)
                 path = nice
+        fmt = (info.get("requested_downloads") or [{}])[0]
         return {"path": path, "artist": artist, "title": track, "duration": info.get("duration"),
+                "codec": fmt.get("acodec") or info.get("acodec"), "kbps": round(fmt.get("tbr") or info.get("tbr") or 0),
                 "playable": ext in (".m4a", ".mp4", ".mp3", ".ogg", ".opus", ".flac", ".wav")}
 
     return _job("download", title or url, run)
+
+
+# ---- Bilibili accounts ----------------------------------------------------------------------------
+
+def _account():
+    """Who's logged in where (a job: it asks Bilibili)."""
+    def run(job):
+        import http.cookiejar
+        jar = http.cookiejar.MozillaCookieJar()
+        if _cookies():
+            jar.load(_cookies(), ignore_discard=True, ignore_expires=True)
+        has = {d: any(c.name == "SESSDATA" and c.value and c.domain.endswith(d) for c in jar)
+               for d in ("bilibili.com", "bilibili.tv")}
+        out = {"cn": {"login": False}, "intl": {"login": has["bilibili.tv"]}, "hiRes": _prefs()["biliHiRes"]}
+        if has["bilibili.com"]:
+            opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+            req = urllib.request.Request("https://api.bilibili.com/x/web-interface/nav", headers={
+                "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
+                "Referer": "https://www.bilibili.com/"})
+            data = json.load(opener.open(req, timeout=15)).get("data") or {}
+            vip = (data.get("vip") or {}).get("label", {}).get("text") or ""
+            out["cn"] = {"login": bool(data.get("isLogin")), "name": data.get("uname") or "",
+                         "premium": data.get("vipStatus") == 1, "vip": vip,
+                         "expired": not data.get("isLogin")}   # cookie there, but Bilibili no longer accepts it
+        return out
+    return _job("account", "Bilibili", run)
 
 
 # ---- API (/api/web/<name>) ------------------------------------------------------------------------
@@ -320,6 +372,15 @@ def api(name, args_json):
             with _lock:
                 jobs = [_public(j) for j in sorted(_jobs.values(), key=lambda j: -j["started"]) if j["kind"] == "download"]
             return json.dumps({"ok": True, "jobs": jobs})
+        if name == "account":
+            return json.dumps({"ok": True, "job": _account()["id"]})
+        if name == "prefs":   # ?biliHiRes=0|1 to change, nothing to read
+            prefs = _prefs()
+            if "biliHiRes" in args:
+                prefs["biliHiRes"] = args["biliHiRes"] not in ("0", "false", "")
+                with open(os.path.join(_dirs["data"], PREFS_FILE), "w") as f:
+                    json.dump(prefs, f)
+            return json.dumps({"ok": True, **prefs})
         if name == "status":
             js = _zydekjs.run("console.log([6 * 7, typeof BigInt, /\\p{L}+/u.test('音楽')].join())").strip()
             import yt_dlp.version

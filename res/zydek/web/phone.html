@@ -131,6 +131,19 @@
   .wj .bar2 i { display: block; height: 100%; background: var(--deck34); width: 0; transition: width .3s; }
   .wj.err .t { color: var(--err); } .wj .m { color: var(--dim); font-size: 12px; margin-top: 2px; }
 
+  /* settings: Bilibili accounts */
+  .acct { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid #222; }
+  .acct .who { flex: 1; min-width: 0; font-size: 13px; color: var(--text); }
+  .acct .who small { display: block; color: var(--dim); font-size: 11px; }
+  .acct .st { font-size: 12px; color: var(--dim); margin-top: 3px; }
+  .acct .st.on { color: var(--play); }
+  .acct button { min-height: 38px; padding: 0 12px; }
+  .chk { display: flex !important; gap: 8px; align-items: center; color: var(--text) !important; font-size: 13px !important; margin-top: 12px !important; }
+  #bili details { margin-top: 10px; font-size: 13px; color: var(--dim); }
+  #bili details > * { margin-top: 8px; }
+  #bili textarea { width: 100%; box-sizing: border-box; border-radius: 10px; border: 1px solid #333; background: #181818; color: var(--text); padding: 8px; font: 12px monospace; }
+  .badge.bilitv { color: #00a1d6; }
+
   /* settings */
   .card { margin: 12px; padding: 12px 14px; border: 1px solid var(--edge); border-radius: 12px; background: #121212; }
   .card h3 { margin: 0 0 10px; font-size: 15px; color: var(--text); }
@@ -210,6 +223,21 @@
   </section>
 
   <section class="page" id="p-set">
+    <div class="card" id="bili">
+      <h3>Bilibili accounts</h3>
+      <div class="acct" data-site="cn"><div class="who"><b>Bilibili</b><small>bilibili.com links and BV codes</small>
+        <div class="st">…</div></div><button class="in">Log in</button><button class="out">Log out</button></div>
+      <div class="acct" data-site="intl"><div class="who"><b>Bilibili International</b><small>bilibili.tv links</small>
+        <div class="st">…</div></div><button class="in">Log in</button><button class="out">Log out</button></div>
+      <label class="chk"><input type="checkbox" id="b-hires"> Hi-Res lossless (FLAC) when the account has it</label>
+      <details><summary>Paste cookies instead</summary>
+        <select id="b-site"><option value="cn">Bilibili (bilibili.com)</option><option value="intl">Bilibili International (bilibili.tv)</option></select>
+        <textarea id="b-cookies" rows="3" placeholder="SESSDATA=…; bili_jct=…   (or a cookies.txt)"></textarea>
+        <button id="b-paste">Save</button></details>
+      <div class="hint">You log in on Bilibili's own page; Zydek keeps only the session cookie, privately on this phone, and
+        uses it for downloads (no more blocks, and Hi-Res audio with premium). Sessions run out after a while: log in again then.
+        Dolby audio is skipped: Mixxx here can't decode it.</div>
+    </div>
     <div class="card">
       <h3>Audio output</h3>
       <label for="a-main">Main mix</label><select id="a-main"></select>
@@ -268,7 +296,7 @@ function showPage(p) {
   document.querySelectorAll(".page").forEach(e => e.classList.toggle("on", e.id === "p-" + p));
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.page === p));
   if (p === "fold") loadFolders();
-  if (p === "set") loadAudio();
+  if (p === "set") { loadAudio(); loadBili(); }
   if (p === "web") webJobs();
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
@@ -609,9 +637,9 @@ async function webSearch() {
     $("#wnote").textContent = list.length ? "" : "Nothing found.";
     list.forEach(r => {
       const li = h("li", "wr");
+      const badge = { bilibili: ["bili", "BILIBILI"], "bilibili-intl": ["bilitv", "BILIBILI.TV"] }[r.site] || ["yt", "YOUTUBE"];
       li.innerHTML = `<img loading="lazy" referrerpolicy="no-referrer" alt="">` +
-        `<div><div class="t">${esc(r.title)}</div><div class="a"><span class="badge ${r.site === "bilibili" ? "bili" : "yt"}">` +
-        `${r.site === "bilibili" ? "BILIBILI" : "YOUTUBE"}</span>${esc(r.channel)}${r.duration ? " · " + fmtTime(r.duration) : ""}` +
+        `<div><div class="t">${esc(r.title)}</div><div class="a"><span class="badge ${badge[0]}">${badge[1]}</span>${esc(r.channel)}${r.duration ? " · " + fmtTime(r.duration) : ""}` +
         `${r.views ? " · " + fmtViews(r.views) : ""}</div></div>`;
       if (r.thumbnail) li.querySelector("img").src = r.thumbnail;
       li.addEventListener("click", () => openWebSheet(r));
@@ -648,7 +676,8 @@ async function webDownload(r, target) {
       j => show(j.progress, j.message ? `${j.message}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}` : null));
     show(1, "Adding to the library");
     const added = await api(`/api/library/add?${qs({ path: res.path })}`);
-    show(1, `Saved: ${res.path.split("/").pop()}`);
+    const q = res.codec === "flac" ? "Hi-Res FLAC" : res.kbps ? `${res.kbps} kbps` : "";
+    show(1, `Saved${q ? " (" + q + ")" : ""}: ${res.path.split("/").pop()}`);
     if (target) await load({ id: added.id }, target); else toast(`Downloaded ${res.title}`, "ok");
     setTimeout(() => li.remove(), 8000);
   } catch (e) {
@@ -656,6 +685,40 @@ async function webDownload(r, target) {
   }
 }
 function webJobs() {}   // (downloads started on this page show above; nothing to restore yet)
+
+// Settings: Bilibili accounts. Logging in and the cookies are the app's (window.ZydekAndroid, MainActivity.java);
+// who's logged in and the Hi-Res choice come from zydek_web.py.
+const bridge = window.ZydekAndroid;
+async function loadBili() {
+  const local = bridge && bridge.bilibiliState ? JSON.parse(bridge.bilibiliState()) : null;
+  document.querySelectorAll("#bili .acct").forEach(a => {
+    const site = a.dataset.site, has = local && local[site];
+    a.querySelector(".in").style.display = local && !has ? "" : "none";
+    a.querySelector(".out").style.display = has ? "" : "none";
+    const st = a.querySelector(".st");
+    st.className = "st" + (has ? " on" : "");
+    st.textContent = !local ? "Log in from the Zydek app on the phone" : has ? "Logged in" : "Not logged in";
+  });
+  try {
+    const acc = await webJob("/api/web/account");
+    $("#b-hires").checked = acc.hiRes;
+    const cn = document.querySelector('#bili .acct[data-site="cn"] .st');
+    if (acc.cn.login) { cn.textContent = `Logged in as ${acc.cn.name}${acc.cn.premium ? ` · ${acc.cn.vip || "premium"}: Hi-Res` : " · no premium: standard audio"}`; cn.className = "st on"; }
+    else if (local && local.cn) { cn.textContent = "Session ran out: log in again"; cn.className = "st"; }
+  } catch {}
+}
+window.zydekBilibili = (site, ok) => { toast(ok ? "Logged in to Bilibili" : "Logged out", ok ? "ok" : ""); loadBili(); };
+document.querySelectorAll("#bili .acct").forEach(a => {
+  a.querySelector(".in").addEventListener("click", () => bridge.bilibiliLogin(a.dataset.site));
+  a.querySelector(".out").addEventListener("click", () => bridge.bilibiliLogout(a.dataset.site));
+});
+$("#b-hires").addEventListener("change", () => webApi(`/api/web/prefs?${qs({ biliHiRes: $("#b-hires").checked ? 1 : 0 })}`).catch(() => {}));
+$("#b-paste").addEventListener("click", () => {
+  if (!bridge) return toast("Only in the Zydek app on the phone", "bad");
+  const err = bridge.bilibiliPaste($("#b-site").value, $("#b-cookies").value);
+  if (err) return toast(err, "bad");
+  $("#b-cookies").value = ""; toast("Saved the Bilibili login", "ok"); loadBili();
+});
 
 // Settings: audio outputs (Mixxx's sound hardware, the main mix and the headphones).
 async function loadAudio() {
