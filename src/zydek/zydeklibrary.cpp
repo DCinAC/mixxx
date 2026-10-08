@@ -46,6 +46,17 @@ QString orderFor(const QString& sort) {
     if (sort == QLatin1String("bpm")) {
         return QStringLiteral("l.bpm, l.artist COLLATE NOCASE");
     }
+    if (sort == QLatin1String("key")) {
+        // Camelot wheel order (1A 1B 2A 2B ... 12B), so harmonically close keys sit together; Mixxx's key_id
+        // is its ChromaticKey (1-12 C..B major, 13-24 C..B minor). Unknown keys last.
+        return QStringLiteral(
+                "CASE l.key_id "
+                "WHEN 21 THEN 1 WHEN 12 THEN 2 WHEN 16 THEN 3 WHEN 7 THEN 4 WHEN 23 THEN 5 WHEN 2 THEN 6 "
+                "WHEN 18 THEN 7 WHEN 9 THEN 8 WHEN 13 THEN 9 WHEN 4 THEN 10 WHEN 20 THEN 11 WHEN 11 THEN 12 "
+                "WHEN 15 THEN 13 WHEN 6 THEN 14 WHEN 22 THEN 15 WHEN 1 THEN 16 WHEN 17 THEN 17 WHEN 8 THEN 18 "
+                "WHEN 24 THEN 19 WHEN 3 THEN 20 WHEN 19 THEN 21 WHEN 10 THEN 22 WHEN 14 THEN 23 WHEN 5 THEN 24 "
+                "ELSE 99 END, l.bpm, l.artist COLLATE NOCASE");
+    }
     if (sort == QLatin1String("played")) {
         return QStringLiteral("l.timesplayed DESC, l.datetime_added DESC");
     }
@@ -206,8 +217,9 @@ QJsonArray Library::tracks(const QString& search, const QString& view, const QSt
     const QStringList words = search.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     for (const QString& word : words) {
         where.append(QStringLiteral(
-                "(l.artist LIKE ? OR l.title LIKE ? OR l.album LIKE ? OR l.genre LIKE ? OR l.album_artist LIKE ?)"));
-        for (int i = 0; i < 5; ++i) {
+                "(l.artist LIKE ? OR l.title LIKE ? OR l.album LIKE ? OR l.genre LIKE ? OR l.album_artist LIKE ? "
+                "OR l.key LIKE ?)"));
+        for (int i = 0; i < 6; ++i) {
             args.append(QString(QStringLiteral("%") + word + QStringLiteral("%")));
         }
     }

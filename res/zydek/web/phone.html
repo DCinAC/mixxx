@@ -49,7 +49,8 @@
   /* ---- pages ---- */
   main { padding-bottom: calc(var(--tabbar) + var(--safe-b) + 64px); }
   .page { display: none; } .page.on { display: block; }
-  .bar { padding: 8px 10px 6px; display: grid; gap: 8px; }
+  .bar { padding: 8px 10px 6px; display: grid; gap: 8px; position: sticky; top: var(--decks-h, 0px); z-index: 4;
+    background: rgba(11,11,11,.96); border-bottom: 1px solid var(--edge); }
   .search { display: flex; gap: 8px; }
   .search input { flex: 1; min-width: 0; height: 42px; border-radius: 12px; border: 1px solid #333; background: #181818; padding: 0 14px; outline: none; }
   .search select { height: 42px; border-radius: 12px; border: 1px solid #333; background: #181818; padding: 0 8px; }
@@ -153,7 +154,7 @@
     <div class="bar">
       <div class="search"><input id="q" type="search" placeholder="Search library" autocomplete="off" enterkeyhint="search">
         <select id="sort" aria-label="Sort"><option value="added">Newest</option><option value="artist">Artist</option>
-          <option value="title">Title</option><option value="bpm">BPM</option><option value="played">Most played</option></select></div>
+          <option value="title">Title</option><option value="bpm">BPM</option><option value="key">Key</option><option value="played">Most played</option></select></div>
       <div class="chips" id="views"></div>
     </div>
     <ul class="list" id="tracks"></ul>
@@ -517,7 +518,10 @@ async function loadTracks(more = false) {
 }
 new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) loadTracks(true); }, { rootMargin: "600px" }).observe($("#libnote"));
 let qT;
-$("#q").addEventListener("input", () => { clearTimeout(qT); qT = setTimeout(loadTracks, 180); });
+$("#q").value = store.get("q", "");
+$("#q").addEventListener("input", () => { store.set("q", $("#q").value); clearTimeout(qT); qT = setTimeout(loadTracks, 180); });
+// The search bar sticks just under the deck panels, whose height changes with 4 Decks.
+new ResizeObserver(() => document.documentElement.style.setProperty("--decks-h", $("#decks").offsetHeight + "px")).observe($("#decks"));
 $("#sort").addEventListener("change", () => { store.set("sort", $("#sort").value); loadTracks(); });
 
 // Settings: audio outputs (Mixxx's sound hardware, the main mix and the headphones).

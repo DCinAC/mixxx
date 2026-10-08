@@ -36,7 +36,7 @@
 //                                             2 = parameter on change); Mixxx answers with 58 messages
 //   F0 7D 52 deck op <t3> F7                  scratch: op 1 = grab (scratchEnable), 2 = ticks, 0 = release
 //   F0 7D 53 deck overlimit <v5> F7           tempo in % (widens rateRange past the base range if allowed)
-//   F0 7D 54 deck mode F7                     sync: 0 off (tempo kept), 1 tempo, 2 tempo + beat
+//   F0 7D 54 deck mode F7                     sync: 0 off (tempo kept), 1 on (tempo + beat), 3 on as the master
 //   F0 7D 5E <seq 3x7 bits> F7                latency ping: sent straight back, unchanged
 //   out: F0 7D 58 <"group,key"> 00 <v5> F7    control value · F0 7D 5F F7 = "mapping (re)started"
 //   v5 = round(value * 1e5) + 2^34 as 5 x 7 bits, LSB first; t3 = signed ticks + 2^20 as 3 x 7 bits.
@@ -220,17 +220,19 @@ TabletPads.setTempo = function (d, overlimit, percent) {
     engine.setValue(g, "rate", t / (range * engine.getValue(g, "rate_dir")));
 };
 
+// Pioneer-style sync. mode 0: off (the tempo stays where sync put it) · 1: on, tempo and beats locked to the
+// master · 3: on, and this deck becomes the master (others follow its tempo). Mixxx makes it its "soft"
+// leader: like a CDJ's master, it passes to another synced deck if it stops.
 TabletPads.setSync = function (d, mode) {
     var g = TabletPads.deck(d);
     if (mode === 0) {
-        engine.setValue(g, "sync_enabled", 0);          // leaves the tempo where sync put it
-    } else {
-        engine.setValue(g, "sync_enabled", 1);
-        if (mode === 2) {
-            // Line the beats up now; sync keeps them there. Quantize stays the controller's own setting
-            // (with it on, hot cues pressed mid-play keep the beat's phase and can't be stuttered).
-            engine.setValue(g, "beatsync_phase", 1);
-        }
+        engine.setValue(g, "sync_enabled", 0);
+        return;
+    }
+    engine.setValue(g, "sync_enabled", 1);
+    engine.setValue(g, "beatsync_phase", 1);
+    if (mode === 3) {
+        engine.setValue(g, "sync_leader", 1);
     }
 };
 

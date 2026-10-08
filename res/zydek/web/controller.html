@@ -123,6 +123,9 @@
       repeating-linear-gradient(0deg, transparent 0 calc(var(--tick) - 1px), #262626 calc(var(--tick) - 1px) var(--tick)), #121212;
     --tick: 6.25%; overflow: hidden; }
   .lane.held { border-color: var(--acc); }
+  .lane.locked { opacity: .45; }
+  .lane .lock { position: absolute; left: 0; right: 0; top: 50%; margin-top: calc(var(--mm) * 2); text-align: center;
+    font-size: calc(var(--mm) * 1.5); color: var(--acc); letter-spacing: .05em; }
   .lane .zero { position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; background: #4a4a4a; }
   .lane .mark { position: absolute; left: 12%; right: 12%; height: calc(var(--mm) * 2.2); margin-top: calc(var(--mm) * -1.1); top: 50%;
     border-radius: 3px; background: var(--acc); will-change: top; }
@@ -156,6 +159,13 @@
   #strip1 .strip { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .nudge.held { border-color: var(--acc); color: var(--acc); }
   .nudge.loopmove { color: var(--play); }
+  .flags { --acc: var(--deck12); display: flex; gap: calc(var(--mm) * 1); flex: 1; }
+  .flags.d34 { --acc: var(--deck34); }
+  .flags button { flex: 1; height: calc(var(--mm) * 7.5); font-size: calc(var(--mm) * 1.7); letter-spacing: .03em; }
+  .flags button.on { border-color: var(--acc); color: var(--acc); background: color-mix(in srgb, var(--acc) 14%, #1c1c1c); }
+  .loopbox button small { display: block; font-size: calc(var(--mm) * 1.3); color: var(--dim); }
+  .loopbox button.adj { background: var(--play); border-color: var(--play); color: #04200e; }
+  .loopbox button.adj small { color: #04200e; }
   #sideL, #sideR { display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
   #sideR .topbar { justify-content: flex-end; }
   #strip0, #strip1 { display: grid; min-width: 0; min-height: 0; }
@@ -274,8 +284,6 @@
   <h2>Settings<small id="s-status">UI test · simulated Mixxx</small></h2>
   <div class="row"><div>Platter strip<small>How much of the record one full strip covers</small></div>
     <div><div class="seg" id="s-revs"></div><small id="s-revs-info"></small></div></div>
-  <div class="row"><div>Quantize<small>Hot cues, loops and beat jumps snap to the beat grid (all decks). Off: hot cues retrigger the instant you hit them, so they can be stuttered</small></div>
-    <div class="seg" id="s-quant"></div></div>
   <div class="row"><div>Layout<small>Strips on top: both platter strips stacked across the top like Mixxx's waveforms (about twice as long), the top-bar buttons beside them</small></div>
     <div class="seg" id="s-layout"></div></div>
   <div class="row"><div>Slipmat grip<small>After you let go, the slipmat pulls the record to the platter's speed at a steady rate, from however fast you flicked it. Set as the time from a standstill to full speed</small></div>
@@ -305,7 +313,7 @@
 // =====================================================================================================
 // Settings (persisted per device)
 // =====================================================================================================
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, catchup: 180, layout: "stacked", quantize: false, telemetry: true, pingHz: 10 };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, catchup: 180, layout: "stacked", telemetry: true, pingHz: 10 };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 let S = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("ctl-settings") || "{}") }; } catch { return { ...DEFAULTS }; } })();
 let applyingRemote = false;
@@ -360,6 +368,10 @@ const lat = { seq: 0, sent: new Map(), rtt: [], up: [], down: [], js: [], spikes
   input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0, offsets: [], trace: [], t0: performance.now() };
 const send = (...args) => {
   if (!live && args[0] === "loopMove") { const d = decks[args[1] - 1]; d.loopStart += args[2] * 60 / d.bpm; }
+  if (!live && args[0] === "loopPoint") {
+    const d = decks[args[1] - 1], end = d.loopStart + d.loopSize * 60 / d.bpm;
+    if (args[2] === "in") d.loopStart = args[3]; d.loopSize = ((args[2] === "out" ? args[3] : end) - d.loopStart) * d.bpm / 60;
+  }
   eventLog.push([Math.round(performance.now()), ...args]);
   if (eventLog.length > 400) eventLog.splice(0, 200);
   if (live && !benchQuiet) { lat.sends++; toMixxx(...args); }
@@ -606,14 +618,15 @@ function buildSide(s) {
   u.ol.addEventListener("click", () => { const d = deckOf(s); d.ol = !d.ol;
     if (!d.ol && Math.abs(d.tempo) > 8) { d.tempo = clamp(d.tempo, -8, 8); send("tempo", d.n, d.tempo); }
     paintSide(s); });
-  u.lane = h("div", "lane", `<div class="end t"></div><div class="zero"></div><div class="mark"></div><div class="end b"></div>`);
+  u.lane = h("div", "lane", `<div class="end t"></div><div class="zero"></div><div class="mark"></div><div class="lock"></div><div class="end b"></div>`);
   u.tread = h("div", "tread");
   u.shiftBtn = h("button", "shift", "SHIFT");
   u.shiftBtn.addEventListener("click", () => { const d = deckOf(s); d.shift = !d.shift; paintSide(s); });
   tempo.append(u.ol, u.lane, u.tread, u.shiftBtn);
   drag(u.lane, {
     // Touchpad: only the change in finger position counts, wherever you touch.
-    down: e => { u.lane.classList.add("held"); u.laneDeck = deckOf(s); return { y: e.clientY, deck: u.laneDeck, t: u.laneDeck.tempo }; },
+    down: e => { if (synced(deckOf(s))) return false;   // a synced deck follows the master's tempo
+      u.lane.classList.add("held"); u.laneDeck = deckOf(s); return { y: e.clientY, deck: u.laneDeck, t: u.laneDeck.tempo }; },
     move: (e, st) => {
       const dmm = (e.clientY - st.y) / S.pxmm;
       const lim = st.deck.ol ? 90 : 8;
@@ -642,10 +655,15 @@ function buildSide(s) {
   bindPress(u.play, down => { if (down) { const d = deckOf(s);
     if (live) { send("play", d.n, d.playing ? 0 : 1); return; }
     d.playing = !d.playing; d.preview = false; paintSide(s); } });
-  // 1st tap: match tempo · 2nd: also lock the beat · 3rd: off, keeping the current tempo
-  bindPress(u.sync, down => { if (down) { const d = deckOf(s); d.syncMode = (d.syncMode + 1) % 3;
-    if (live) send("sync", d.n, d.syncMode); else if (d.syncMode) matchTempo(d, s);
-    paintSide(s); } });
+  // Like a Pioneer deck: tap = sync on (tempo and beats locked to the master) / off (keeping the tempo).
+  // SHIFT + tap = make this deck the master: the synced decks follow its tempo.
+  bindPress(u.sync, down => { if (!down) return;
+    const d = deckOf(s), master = d.shift;
+    if (master) { d.shift = false; d.syncMode = 2; if (!live) decks.forEach(o => o.leader = o === d); }
+    else d.syncMode = d.syncMode ? 0 : 2;
+    if (live) send("sync", d.n, master ? 3 : d.syncMode ? 1 : 0);
+    else if (d.syncMode && !d.leader) matchTempo(d, s);
+    paintAll(); });
   bindPress(kd, down => { if (down) { const d = deckOf(s); if (live) send("key", d.n, -1); d.key = clamp(d.key - 1, -6, 6); paintSide(s); } });
   bindPress(ku, down => { if (down) { const d = deckOf(s); if (live) send("key", d.n, 1); d.key = clamp(d.key + 1, -6, 6); paintSide(s); } });
 
@@ -668,6 +686,9 @@ function buildSide(s) {
   ui.sides[s] = u;
   return el;
 }
+
+// A synced deck that isn't the master: its tempo comes from the master.
+const synced = d => !!d.syncMode && !d.leader;
 
 // Deck header (switch, title, BPM, time) and platter strip for side s.
 function buildStrip(s, u) {
@@ -741,15 +762,22 @@ function buildNudge(s, u) {
   let off = 0;
   drag(u.nudge, {
     down: e => {
-      const d = deckOf(s), loopMove = d.shift && d.loopOn;
-      u.nudge.classList.add("held"); u.nudge.classList.toggle("loopmove", loopMove);
-      if (loopMove) setHTML(u.nudge, "◀ EARLIER · MOVE LOOP · LATER ▶");
-      return { x: e.clientX, d, loopMove, acc: 0, samples: [{ t: performance.now(), x: e.clientX }] };
+      const d = deckOf(s), adjust = d.adjust && loopRange(d) ? d.adjust : null, loopMove = !adjust && d.shift && d.loopOn;
+      u.nudge.classList.add("held"); u.nudge.classList.toggle("loopmove", !!(adjust || loopMove));
+      if (adjust) setHTML(u.nudge, `◀ EARLIER · LOOP ${adjust.toUpperCase()} · LATER ▶`);
+      else if (loopMove) setHTML(u.nudge, "◀ EARLIER · MOVE LOOP · LATER ▶");
+      return { x: e.clientX, d, adjust, loopMove, acc: 0, samples: [{ t: performance.now(), x: e.clientX }] };
     },
     move: (e, st) => {
       const now = performance.now(), dx = e.clientX - st.x;
       st.x = e.clientX;
       off += dx; u.nudge.style.setProperty("--off", `${off.toFixed(1)}px`);   // the ridges follow the finger
+      if (st.adjust) {   // the loop point follows the finger at the strip's scale
+        const lr = loopRange(st.d), sec = dx / cachedRect(u.nudge).width * stripSeconds();
+        if (st.adjust === "in") send("loopPoint", st.d.n, "in", clamp(lr[0] + sec, 0, lr[1] - .01));
+        else send("loopPoint", st.d.n, "out", clamp(lr[1] + sec, lr[0] + .01, st.d.dur));
+        return;
+      }
       if (st.loopMove) {
         st.acc += dx / S.pxmm;
         const q = Math.trunc(st.acc / 2.5);
@@ -786,8 +814,8 @@ function placeChrome() {
     return;
   }
   const row = (...els) => { const r = h("div", "topbar"); r.append(...els.filter(Boolean)); return r; };
-  $("sideL").replaceChildren(row(...tabs, $("gear")), row($("loop0")), row(ui.sides[0]?.sw, ui.chans[0]?.gain));
-  $("sideR").replaceChildren(row($("topknobs")), row($("loop1")), row(ui.sides[1]?.sw, ui.chans[1]?.gain));
+  $("sideL").replaceChildren(row(...tabs, $("gear")), row(ui.loops[0].flags), row($("loop0")), row(ui.sides[0]?.sw, ui.chans[0]?.gain));
+  $("sideR").replaceChildren(row($("topknobs")), row(ui.loops[1].flags), row($("loop1")), row(ui.sides[1]?.sw, ui.chans[1]?.gain));
 }
 
 function buildMixer() {
@@ -845,9 +873,26 @@ function buildLoops() {
         if (!down) held = null;
       });
     };
-    bind(half, "loop_halve"); bind(loop, "beatloop_activate"); bind(dbl, "loop_double");   // beatloop_activate toggles in Mixxx 2.6
+    // SHIFT + ½ / ×2: adjust the loop's in / out point with the nudge bar (tap again to finish)
+    const adjust = (el, key, which) => {
+      bindPress(el, down => {
+        const d = deckOf(s);
+        if (down && (d.shift || d.adjust === which)) {
+          d.adjust = d.adjust === which ? null : which; d.shift = false; paintAll(); return;
+        }
+        if (d.adjust && down) return;
+        loopAction(d, key, down);
+      });
+    };
+    adjust(half, "loop_halve", "in"); adjust(dbl, "loop_double", "out");
+    bind(loop, "beatloop_activate");   // beatloop_activate toggles in Mixxx 2.6
     box.replaceChildren(half, loop, dbl);
-    return { box, loop };
+    // KEY LOCK and QUANTIZE for the deck on this side (strips on top: the row above the loop)
+    const flags = h("div", "flags"), kl = h("button", "", "KEY LOCK"), qz = h("button", "", "QUANTIZE");
+    bindPress(kl, down => { if (!down) return; const d = deckOf(s); d.keylock = !d.keylock; send("keylock", d.n, d.keylock ? 1 : 0); paintLoop(s); });
+    bindPress(qz, down => { if (!down) return; const d = deckOf(s); d.quantize = !d.quantize; send("quantize", d.n, d.quantize ? 1 : 0); paintLoop(s); });
+    flags.append(kl, qz);
+    return { box, loop, half, dbl, flags, kl, qz };
   });
 }
 
@@ -903,6 +948,11 @@ function paintLoop(s) {
   l.box.classList.toggle("d34", d.n > 2);
   l.loop.classList.toggle("on", d.loopOn);
   setHTML(l.loop, `${fmtBeats(d.loopSize)}<small>LOOP ${d.n}</small>`);
+  const sh = d.shift || d.adjust;
+  setHTML(l.half, sh ? "IN<small>adjust</small>" : "½"); setHTML(l.dbl, sh ? "OUT<small>adjust</small>" : "×2");
+  l.half.classList.toggle("adj", d.adjust === "in"); l.dbl.classList.toggle("adj", d.adjust === "out");
+  l.flags.classList.toggle("d34", d.n > 2);
+  l.kl.classList.toggle("on", !!d.keylock); l.qz.classList.toggle("on", !!d.quantize);
 }
 
 function paintSide(s) {
@@ -920,12 +970,14 @@ function paintSide(s) {
   if (page === "samples") { u.spads.forEach(({ el, i }) => paintSamplerPad(el, i)); return; }
   u.play.classList.toggle("on", d.playing);
   u.cue.classList.toggle("on", !d.playing && Math.abs(d.pos - d.cuePoint) < .05);
-  u.sync.classList.toggle("tempo", d.syncMode === 1);
-  u.sync.classList.toggle("beat", d.syncMode === 2);
-  setHTML(u.sync, ["SYNC", "SYNC<small>TEMPO</small>", "SYNC<small>BEAT</small>"][d.syncMode]);
+  u.sync.classList.toggle("beat", !!d.syncMode);
+  setHTML(u.sync, d.syncMode ? (d.leader ? "SYNC<small>MASTER</small>" : "SYNC<small>ON</small>") : d.shift ? "SYNC<small>MASTER?</small>" : "SYNC");
+  const locked = synced(d);
+  u.lane.classList.toggle("locked", locked);
+  setText(u.lane.querySelector(".lock"), locked ? "SYNCED" : "");
   setHTML(u.key, `${d.key > 0 ? "+" : ""}${d.key}<small>KEY</small>`);
   u.modes.forEach(b => b.classList.toggle("on", b.dataset.mode === d.mode));
-  u.shiftBtn.classList.toggle("idle", d.mode !== "cue" && d.mode !== "fx" && !(stacked() && d.loopOn));   // SHIFT + nudge bar moves a loop
+  u.shiftBtn.classList.toggle("idle", false);   // SHIFT: hot cue delete, FX units 3-4, sync master, loop in/out adjust, loop move
   u.shiftBtn.classList.toggle("on", d.shift);
   for (let k = 0; k < 8; k++) paintPad(s, k);
   paintTempo(s);
@@ -1116,7 +1168,7 @@ function frame(now) {
     const u = ui.sides[s], d = deckOf(s);
     if (!u || !u.strip) return;
     if (u.sync) {   // deck page (with the strips on top, the samples page has strips but no transport)
-      if (d.syncMode && !live) { const t = d.tempo; matchTempo(d, s); if (t !== d.tempo) paintTempo(s); }   // Mixxx syncs when live
+      if (synced(d) && !live) { const t = d.tempo; matchTempo(d, s); if (t !== d.tempo) paintTempo(s); }   // Mixxx syncs when live
       const c = closeness(s), glow = d.syncMode ? "0" : c.glow.toFixed(2);
       if (u.sync._glow !== glow) { u.sync._glow = glow; u.sync.style.setProperty("--glow", glow); }
       u.sync.classList.toggle("matched", !d.syncMode && c.matched);
@@ -1324,7 +1376,6 @@ function slider(id, key, fmt) {
 }
 function paintSettings(soft) {
   seg("s-revs", [[.5, "½ rev"], [1, "1 rev"], [2, "2 rev"]], () => S.revs, v => S.revs = v);
-  seg("s-quant", [[false, "Off"], [true, "On"]], () => S.quantize, v => { S.quantize = v; applyQuantize(); });
   seg("s-layout", [["stacked", "Strips on top"], ["side", "Side by side"]], () => S.layout, v => S.layout = v);
   const stripMm = ui.sides[0]?.strip ? ui.sides[0].strip.clientWidth / S.pxmm : 70;
   document.getElementById("s-revs-info").textContent =
@@ -1405,6 +1456,13 @@ function toMixxx(name, ...a) {
     case "tempo": markLocal(d, "tempo"); return mxSend({ tempo: [d.n - 1, d.ol ? 1 : 0, a[1]] });
     case "nudge": return setCtl(ch(d.n), "wheel", a[1]);
     case "loopMove": return setCtl(ch(d.n), "loop_move", a[1]);
+    case "loopPoint": {   // seconds -> Mixxx's sample positions; shown right away, Mixxx's echo follows
+      const smp = Math.round(a[2] / d.dur * d.trackSamples / 2) * 2;
+      if (a[1] === "in") d.loopIn = smp; else d.loopOut = smp;
+      return setCtl(ch(d.n), a[1] === "in" ? "loop_start_position" : "loop_end_position", smp);
+    }
+    case "keylock": markLocal(d, "keylock"); return setCtl(ch(d.n), "keylock", a[1]);
+    case "quantize": markLocal(d, "quantize"); return setCtl(ch(d.n), "quantize", a[1]);
     case "scratchOn": d.tickAcc = 0; return mxSend({ scratch: [d.n - 1, 1, 0] });
     case "scratch": return scratchBy(d, a[1] * stripSeconds());
     case "scratchOff": if (!d.coast) { mxSend({ scratch: [d.n - 1, 0, 0] }); posSeed(d, d.pos, d.playing ? d.ratio : 0, performance.now()); } return;   // coasting: released later
@@ -1451,7 +1509,10 @@ function applyCv(name, v) {
       case "rate_ratio": d.ratio = v; if (!isLocal(d, "tempo") && ui.sides.every(u => u?.laneDeck !== d)) upd("tempo", (v - 1) * 100); return;
       case "file_bpm": if (v > 0) upd("bpm", v); return;
       case "pitch_adjust": if (!isLocal(d, "key")) upd("key", Math.round(v)); return;   // key shift only, without the tempo's effect
-      case "sync_enabled": return upd("syncMode", !v ? 0 : d.syncMode || 1);
+      case "sync_enabled": return upd("syncMode", v ? 2 : 0);
+      case "sync_mode": return upd("leader", v >= 2);                     // 2/3: soft/explicit leader
+      case "keylock": return upd("keylock", v > 0);
+      case "quantize": return upd("quantize", v > 0);
       case "pfl": if (!isLocal(d, "pfl")) upd("pfl", v > 0, "mixer"); return;
       case "mute": return upd("muted", v > 0, "mixer");
       case "loop_enabled": return upd("loopOn", v > 0);
@@ -1477,13 +1538,11 @@ function applyCv(name, v) {
   }
 }
 
-// Mixxx's quantize for all four decks follows the controller's setting.
-function applyQuantize() { if (live) for (let n = 1; n <= 4; n++) setCtl(ch(n), "quantize", S.quantize ? 1 : 0); }
-
 function subscribeAll() {
   const sub = [];
   for (let n = 1; n <= 4; n++) {
-    for (const k of ["play", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch_adjust", "sync_enabled", "pfl", "mute", "loop_enabled", "beatloop_size",
+    for (const k of ["play", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch_adjust", "sync_enabled", "sync_mode", "keylock", "quantize",
+      "pfl", "mute", "loop_enabled", "beatloop_size",
       "loop_start_position", "loop_end_position", "track_samples"]) sub.push([ch(n), k, 0]);
     sub.push([ch(n), "playposition", 1]);                  // polled ~30/s
     for (const f of ["vol", "gain", "high", "mid", "low", "filter"]) sub.push([...MIXER[f](n), 2]);
@@ -1512,7 +1571,6 @@ function goLive(init) {
   init.fx.forEach((u, i) => fxLive[i] = u);
   Object.entries(init.cv || {}).forEach(([k, v]) => applyCv(k, v));
   subscribeAll();
-  applyQuantize();
   build();
 }
 
