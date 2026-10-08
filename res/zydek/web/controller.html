@@ -1328,7 +1328,7 @@ const latStats = a => {
 function latPing() {
   const hz = +S.pingHz || 0;
   setTimeout(latPing, hz > 0 ? 1000 / hz : 1000);
-  if (hz <= 0 || !mxWs || mxWs.readyState !== 1) return;
+  if (hz <= 0 || document.hidden || !mxWs || mxWs.readyState !== 1) return;   // background tabs stay out of the log
   const now = performance.now();
   for (const [seq, t] of lat.sent) if (now - t > 1000) { lat.sent.delete(seq); lat.lost++; }
   lat.bufMax = Math.max(lat.bufMax, mxWs.bufferedAmount);
@@ -1356,11 +1356,11 @@ addEventListener("pointermove", latInput, { capture: true, passive: true });
 let latLoopT = performance.now();
 setInterval(() => { const now = performance.now(); lat.loopMax = Math.max(lat.loopMax, now - latLoopT - 50); latLoopT = now; }, 50);
 setInterval(() => {
-  if (!(+S.pingHz > 0)) return;
+  if (!(+S.pingHz > 0) || document.hidden) return;
   ctlSend({ type: "latency", n: lat.rtt.length, rtt: latStats(lat.rtt), up: latStats(lat.up), down: latStats(lat.down),
     js: latStats(lat.js), lost: lat.lost, direct: lat.direct, input: latStats(lat.input), frameMax: Math.round(lat.frameMax),
     loopMax: Math.round(lat.loopMax), bufMax: lat.bufMax, sends: lat.sends, touches: active.size, page, live,
-    hidden: document.hidden, spikes: lat.spikes });
+    spikes: lat.spikes });
   Object.assign(lat, { rtt: [], up: [], down: [], js: [], spikes: [], lost: 0, direct: 0, input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0 });
 }, 1000);
 
