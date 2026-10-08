@@ -227,7 +227,8 @@ TabletPads.setSync = function (d, mode) {
     } else {
         engine.setValue(g, "sync_enabled", 1);
         if (mode === 2) {
-            engine.setValue(g, "quantize", 1);
+            // Line the beats up now; sync keeps them there. Quantize stays the controller's own setting
+            // (with it on, hot cues pressed mid-play keep the beat's phase and can't be stuttered).
             engine.setValue(g, "beatsync_phase", 1);
         }
     }

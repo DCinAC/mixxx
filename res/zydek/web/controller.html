@@ -137,10 +137,25 @@
   #stack { display: none; }
   #app.stacked { grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "top top top" "dl mix dr"; }
   #app.stacked #topL, #app.stacked #topR { display: none; }
-  #app.stacked #stack { grid-area: top; display: grid; gap: var(--gap); padding-top: calc(var(--mm) * 3 - var(--gap));
+  #app.stacked #stack { grid-area: top; display: grid; column-gap: var(--gap);
     grid-template-columns: calc(var(--mm) * 40) minmax(0, 1fr) calc(var(--mm) * 40);
-    grid-template-rows: calc(var(--mm) * 22) calc(var(--mm) * 22); grid-template-areas: "sl s0 sr" "sl s1 sr"; }
+    grid-template-rows: calc(var(--mm) * 7) calc(var(--mm) * 19) var(--gap) calc(var(--mm) * 19) calc(var(--mm) * 7);
+    grid-template-areas: "sl n0 sr" "sl s0 sr" "sl . sr" "sl s1 sr" "sl n1 sr"; }
   #sideL { grid-area: sl; } #sideR { grid-area: sr; } #strip0 { grid-area: s0; } #strip1 { grid-area: s1; }
+  #nudge0 { grid-area: n0; } #nudge1 { grid-area: n1; }
+  #nudge0, #nudge1 { display: grid; min-width: 0; }
+  /* nudge bar on the outer edge of each strip, like a jog wheel's edge: drag it to bend the tempo */
+  .nudge { --acc: var(--deck12); position: relative; overflow: hidden; border: 1px solid #333; background-color: #0f0f0f;
+    background-image: repeating-linear-gradient(90deg, #2c2c2c 0 1px, transparent 1px calc(var(--mm) * 2));
+    background-position: var(--off, 0px) 0; display: flex; align-items: center; justify-content: center;
+    color: #4a4a4a; font-size: calc(var(--mm) * 1.6); letter-spacing: .08em; white-space: nowrap; }
+  .nudge.d34, .strip.d34 { --acc: var(--deck34); }
+  #nudge0 .nudge { border-radius: calc(var(--mm) * 1.5) calc(var(--mm) * 1.5) 0 0; border-bottom-color: #222; }
+  #nudge1 .nudge { border-radius: 0 0 calc(var(--mm) * 1.5) calc(var(--mm) * 1.5); border-top-color: #222; }
+  #strip0 .strip { border-top-left-radius: 0; border-top-right-radius: 0; }
+  #strip1 .strip { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .nudge.held { border-color: var(--acc); color: var(--acc); }
+  .nudge.loopmove { color: var(--play); }
   #sideL, #sideR { display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
   #sideR .topbar { justify-content: flex-end; }
   #strip0, #strip1 { display: grid; min-width: 0; min-height: 0; }
@@ -252,13 +267,15 @@
   </div>
   <div id="dl"></div>
   <div id="dr"></div>
-  <div id="stack"><div id="sideL"></div><div id="strip0"></div><div id="strip1"></div><div id="sideR"></div></div>
+  <div id="stack"><div id="sideL"></div><div id="nudge0"></div><div id="strip0"></div><div id="strip1"></div><div id="nudge1"></div><div id="sideR"></div></div>
 </div>
 <div id="settings"><div class="panel">
   <button class="x" id="s-x" aria-label="Close">✕</button>
   <h2>Settings<small id="s-status">UI test · simulated Mixxx</small></h2>
   <div class="row"><div>Platter strip<small>How much of the record one full strip covers</small></div>
     <div><div class="seg" id="s-revs"></div><small id="s-revs-info"></small></div></div>
+  <div class="row"><div>Quantize<small>Hot cues, loops and beat jumps snap to the beat grid (all decks). Off: hot cues retrigger the instant you hit them, so they can be stuttered</small></div>
+    <div class="seg" id="s-quant"></div></div>
   <div class="row"><div>Layout<small>Strips on top: both platter strips stacked across the top like Mixxx's waveforms (about twice as long), the top-bar buttons beside them</small></div>
     <div class="seg" id="s-layout"></div></div>
   <div class="row"><div>Slipmat grip<small>After you let go, the slipmat pulls the record to the platter's speed at a steady rate, from however fast you flicked it. Set as the time from a standstill to full speed</small></div>
@@ -288,7 +305,7 @@
 // =====================================================================================================
 // Settings (persisted per device)
 // =====================================================================================================
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, catchup: 180, layout: "stacked", telemetry: true, pingHz: 10 };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, catchup: 180, layout: "stacked", quantize: false, telemetry: true, pingHz: 10 };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 let S = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("ctl-settings") || "{}") }; } catch { return { ...DEFAULTS }; } })();
 let applyingRemote = false;
@@ -342,6 +359,7 @@ const eventLog = [];
 const lat = { seq: 0, sent: new Map(), rtt: [], up: [], down: [], js: [], spikes: [], lost: 0, direct: 0,
   input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0, offsets: [], trace: [], t0: performance.now() };
 const send = (...args) => {
+  if (!live && args[0] === "loopMove") { const d = decks[args[1] - 1]; d.loopStart += args[2] * 60 / d.bpm; }
   eventLog.push([Math.round(performance.now()), ...args]);
   if (eventLog.length > 400) eventLog.splice(0, 200);
   if (live && !benchQuiet) { lat.sends++; toMixxx(...args); }
@@ -584,7 +602,7 @@ function buildSide(s) {
 
   // tempo lane (outer edge)
   const tempo = h("div", "tempo");
-  u.ol = h("button", "ol", "OVER<br>LIMIT");
+  u.ol = h("button", "ol", "TEMPO<br>BOOST");
   u.ol.addEventListener("click", () => { const d = deckOf(s); d.ol = !d.ol;
     if (!d.ol && Math.abs(d.tempo) > 8) { d.tempo = clamp(d.tempo, -8, 8); send("tempo", d.n, d.tempo); }
     paintSide(s); });
@@ -705,11 +723,57 @@ function placeStrip(s, u) {
   info.append(u.title, u.bpm, u.time);
   u.strip.appendChild(info);
   document.getElementById(`strip${s}`).replaceChildren(u.strip);
+  document.getElementById(`nudge${s}`).replaceChildren(buildNudge(s, u));
+}
+
+// Nudge bar (strips on top): like the edge of a jog wheel. Dragging bends the tempo by the finger's speed,
+// left = faster as on the strip (the music moves the way you push it); still or lifted = no bend. With
+// SHIFT on and a loop playing, dragging moves the loop instead, a quarter beat per 2.5 mm (right = later).
+const NUDGE_PER_MM_S = .0016;            // 50 mm/s of finger speed = +8 % playback speed
+function setNudge(d, v) {
+  if (v !== 0 && Math.abs(v - (d.nudge || 0)) < .004) return;
+  if (v === 0 && !d.nudge) return;
+  d.nudge = v;
+  send("nudge", d.n, +v.toFixed(4));
+}
+function buildNudge(s, u) {
+  u.nudge = h("div", "nudge", "◀ FASTER · NUDGE · SLOWER ▶");
+  let off = 0;
+  drag(u.nudge, {
+    down: e => {
+      const d = deckOf(s), loopMove = d.shift && d.loopOn;
+      u.nudge.classList.add("held"); u.nudge.classList.toggle("loopmove", loopMove);
+      if (loopMove) setHTML(u.nudge, "◀ EARLIER · MOVE LOOP · LATER ▶");
+      return { x: e.clientX, d, loopMove, acc: 0, samples: [{ t: performance.now(), x: e.clientX }] };
+    },
+    move: (e, st) => {
+      const now = performance.now(), dx = e.clientX - st.x;
+      st.x = e.clientX;
+      off += dx; u.nudge.style.setProperty("--off", `${off.toFixed(1)}px`);   // the ridges follow the finger
+      if (st.loopMove) {
+        st.acc += dx / S.pxmm;
+        const q = Math.trunc(st.acc / 2.5);
+        if (q) { st.acc -= q * 2.5; send("loopMove", st.d.n, q / 4); }
+        return;
+      }
+      st.samples.push({ t: now, x: e.clientX });
+      while (st.samples.length > 2 && now - st.samples[0].t > 50) st.samples.shift();
+      const a = st.samples[0], b = st.samples[st.samples.length - 1];
+      const mmPerS = b.t > a.t ? (b.x - a.x) / S.pxmm / ((b.t - a.t) / 1000) : 0;
+      setNudge(st.d, clamp(-mmPerS * NUDGE_PER_MM_S, -.5, .5));
+      clearTimeout(st.still); st.still = setTimeout(() => setNudge(st.d, 0), 70);   // finger stopped
+    },
+    up: (e, st) => {
+      clearTimeout(st.still); setNudge(st.d, 0);
+      u.nudge.classList.remove("held", "loopmove");
+      setHTML(u.nudge, "◀ FASTER · NUDGE · SLOWER ▶");
+    },
+  });
+  return u.nudge;
 }
 
 // The top-bar controls: in the top bars beside the mixer, or with the strips on top, in the side columns
-// (left: pages, settings, the left deck's loop, its switch and GAIN; right: master knobs, the right deck's
-// GAIN and switch, its loop next to its strip).
+// in the same order on both sides: pages and settings / master knobs, then the deck's loop, then its switch and GAIN.
 const topNote = document.querySelector(".topbar .note");
 function placeChrome() {
   const $ = id => document.getElementById(id), st = stacked();
@@ -718,12 +782,12 @@ function placeChrome() {
   if (!st) {
     $("topL").replaceChildren(...tabs, $("gear"), topNote, $("loop0"));
     $("topR").replaceChildren($("loop1"), $("topknobs"));
-    $("sideL").replaceChildren(); $("sideR").replaceChildren(); $("strip0").replaceChildren(); $("strip1").replaceChildren();
+    ["sideL", "sideR", "strip0", "strip1", "nudge0", "nudge1"].forEach(id => $(id).replaceChildren());
     return;
   }
   const row = (...els) => { const r = h("div", "topbar"); r.append(...els.filter(Boolean)); return r; };
   $("sideL").replaceChildren(row(...tabs, $("gear")), row($("loop0")), row(ui.sides[0]?.sw, ui.chans[0]?.gain));
-  $("sideR").replaceChildren(row($("topknobs")), row(ui.chans[1]?.gain, ui.sides[1]?.sw), row($("loop1")));
+  $("sideR").replaceChildren(row($("topknobs")), row($("loop1")), row(ui.sides[1]?.sw, ui.chans[1]?.gain));
 }
 
 function buildMixer() {
@@ -847,6 +911,7 @@ function paintSide(s) {
   if (!u) return;
   const d = deckOf(s);
   u.el.classList.toggle("d34", d.n > 2);
+  u.strip?.classList.toggle("d34", d.n > 2); u.nudge?.classList.toggle("d34", d.n > 2);
   if (u.sw) {
     setHTML(u.sw, `${d.n}<small>⇄${d.n > 2 ? d.n - 2 : d.n + 2}</small>`);
     setHTML(u.title, `${d.title}<small>${d.artist}</small>`);
@@ -860,7 +925,7 @@ function paintSide(s) {
   setHTML(u.sync, ["SYNC", "SYNC<small>TEMPO</small>", "SYNC<small>BEAT</small>"][d.syncMode]);
   setHTML(u.key, `${d.key > 0 ? "+" : ""}${d.key}<small>KEY</small>`);
   u.modes.forEach(b => b.classList.toggle("on", b.dataset.mode === d.mode));
-  u.shiftBtn.classList.toggle("idle", d.mode !== "cue" && d.mode !== "fx");
+  u.shiftBtn.classList.toggle("idle", d.mode !== "cue" && d.mode !== "fx" && !(stacked() && d.loopOn));   // SHIFT + nudge bar moves a loop
   u.shiftBtn.classList.toggle("on", d.shift);
   for (let k = 0; k < 8; k++) paintPad(s, k);
   paintTempo(s);
@@ -973,6 +1038,26 @@ function samplerTap(i) {
 // =====================================================================================================
 // Animation: simulated playback + cursor (the record's sticker, sweeping left to right)
 // =====================================================================================================
+// Play position between Mixxx's updates (about 30 a second, and only when it changed). Extrapolate at the
+// speed the updates themselves show, so scratches, nudges and spin-ups move right rather than at the tempo;
+// never more than 70 ms past the last update (none means it stopped); and when an update disagrees with
+// what was drawn, glide to it over ~60 ms instead of jumping.
+function posSeed(d, p, v, now) { Object.assign(d, { pp: p, pt: now, pv: v, perr: 0 }); }
+function posAt(d, now) {
+  if (d.pt === undefined) return d.pos || 0;
+  const dt = (now - d.pt) / 1000;
+  return d.pp + d.pv * Math.min(dt, .07) + d.perr * Math.exp(-dt / .06);
+}
+function posUpdate(d, p, now) {   // p in seconds
+  const seed = d.playing ? d.ratio || 1 : 0;
+  if (d.pt === undefined || Math.abs(p - posAt(d, now)) > .5) return posSeed(d, p, seed, now);   // a jump: follow it
+  const dt = (now - d.pt) / 1000;
+  if (dt > .1) d.pv = seed;                                  // it was standing still: restart from the tempo
+  else if (dt > .005) d.pv += ((p - d.pp) / dt - d.pv) * .4;
+  d.perr = posAt(d, now) - p;
+  d.pp = p; d.pt = now;
+}
+
 // Turntable physics after the hand lets go. The platter is a heavy, servo-driven flywheel: holding the
 // record barely slows it (the motor's torque beats the slipmat's drag), so it keeps the motor's speed and
 // the mat slips under the record. Sliding friction is about constant, so the record's speed changes at a
@@ -1012,14 +1097,13 @@ function frame(now) {
         slip(d, target, dt);
         scratchBy(d, d.vel * dt);
         d.pos = clamp(d.pos + d.vel * dt, 0, d.dur);
-        if (d.vel === target) { d.coast = false; mxSend({ scratch: [d.n - 1, 0, 0] }); d.ppT = 0; }
-      } else if (d.ppT) {
-        // Between Mixxx's ~30 position updates a second, advance at the current speed.
-        d.pos = clamp(d.ppos * d.dur + (d.playing ? (now - d.ppT) / 1000 * (d.ratio || 1) : 0), 0, d.dur);
+        if (d.vel === target) { d.coast = false; mxSend({ scratch: [d.n - 1, 0, 0] }); posSeed(d, d.pos, target, now); }
+      } else if (d.pt !== undefined) {
+        d.pos = clamp(posAt(d, now), 0, d.dur);
       }
       return;
     }
-    const target = d.playing || d.preview ? 1 + d.tempo / 100 : 0;   // playback speed the motor drives towards
+    const target = d.playing || d.preview ? 1 + d.tempo / 100 + (d.nudge || 0) : 0;   // playback speed the motor drives towards
     if (d.coast) {
       if (slip(d, target, dt) === target) d.coast = false;
     } else d.vel = target;
@@ -1077,7 +1161,8 @@ function drawStripWave(u, d, start, sec) {
   const r = cachedRect(u.strip), dpr = devicePixelRatio || 1;
   const W = Math.round(r.width * dpr), H = Math.round(r.height * dpr), pxPerSec = W / sec;
   const left = Math.round(start * pxPerSec);               // whole device pixels: crisp, and skip identical frames
-  const key = `${d.n}|${d.wfVer || 0}|${left}|${sec}|${W}|${H}`;
+  const lr = loopRange(d);
+  const key = `${d.n}|${d.wfVer || 0}|${d.beatsVer || 0}|${lr ? lr.join() + d.loopOn : ""}|${left}|${sec}|${W}|${H}`;
   if (u.wfKey === key) return;
   u.wfKey = key;
   const c = u.wfCanvas;
@@ -1085,7 +1170,7 @@ function drawStripWave(u, d, start, sec) {
   const g = c.getContext("2d");
   g.clearRect(0, 0, W, H);
   const wf = d.wf;
-  if (!wf) return;
+  if (!wf) { drawOverlays(g, d, start, sec, pxPerSec, left, W, H); return; }
   // Tiles are cached per track and scale; rendering one costs a few ms, copying it each frame almost nothing.
   const tkey = `${d.n}|${d.wfVer}|${sec}|${W}|${H}`;
   if (u.tileKey !== tkey) { u.tileKey = tkey; u.tiles = new Map(); }
@@ -1099,12 +1184,64 @@ function drawStripWave(u, d, start, sec) {
     }
     g.drawImage(t, k * TILE - left, 0);
   }
+  drawOverlays(g, d, start, sec, pxPerSec, left, W, H);
   // Draw the tile coming up next while the tablet is idle, so playback never waits for one.
   const next = Math.floor((left + W) / TILE) + 1;
   if (!u.tiles.has(next) && next * TILE / pxPerSec < wf.n / wf.rate && u.prefetch !== `${tkey}|${next}`) {
     u.prefetch = `${tkey}|${next}`;
     const idle = window.requestIdleCallback || (f => setTimeout(f, 30));
     idle(() => { if (u.tileKey === tkey && !u.tiles.has(next)) u.tiles.set(next, renderTile(wf, next, pxPerSec, H)); });
+  }
+}
+
+// Live: the track's beats (Mixxx's beat grid), fetched with its waveform.
+async function loadBeats(d, id) {
+  d.beatsFor = id; d.beats = null; d.beatsVer = (d.beatsVer || 0) + 1;
+  if (!id) return;
+  for (let tries = 0; tries < 30 && d.beatsFor === id; tries++) {
+    try {
+      const r = await fetch(`/beats/${id}`);
+      if (r.ok) {
+        const j = await r.json();
+        if (d.beatsFor !== id) return;
+        d.beats = Float64Array.from(j.beats); d.bar = j.bar; d.beatsVer++;
+        return;
+      }
+    } catch {}
+    await new Promise(res => setTimeout(res, 2000));
+  }
+}
+
+// The loop on a deck in seconds, [in, out], or null.
+function loopRange(d) {
+  if (!live) return d.loopOn ? [d.loopStart, d.loopStart + d.loopSize * 60 / d.bpm] : null;
+  if (!(d.loopIn >= 0 && d.loopOut > d.loopIn && d.trackSamples > 0)) return null;
+  const k = d.dur / d.trackSamples;
+  return [d.loopIn * k, d.loopOut * k];
+}
+
+// Beat grid (bar lines across the strip, ticks top and bottom for the other beats) and the loop (green while
+// it plays, grey once it's off) over the strip's waveform.
+function drawOverlays(g, d, start, sec, pxPerSec, left, W, H) {
+  const dpr = devicePixelRatio || 1, lr = loopRange(d);
+  if (lr) {
+    const x0 = Math.round(lr[0] * pxPerSec) - left, x1 = Math.round(lr[1] * pxPerSec) - left;
+    if (x1 > 0 && x0 < W) {
+      g.fillStyle = d.loopOn ? "rgba(61,220,132,.2)" : "rgba(255,255,255,.06)";
+      g.fillRect(x0, 0, x1 - x0, H);
+      g.fillStyle = d.loopOn ? "#3ddc84" : "#6a6a6a";
+      g.fillRect(x0 - dpr, 0, 2 * dpr, H); g.fillRect(x1 - dpr, 0, 2 * dpr, H);
+    }
+  }
+  const b = d.beats;
+  if (!b || !b.length) return;
+  let lo = 0, hi = b.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (b[m] < start) lo = m + 1; else hi = m; }
+  const tick = Math.round(H * .2);
+  for (let i = lo; i < b.length && b[i] <= start + sec; i++) {
+    const x = Math.round(b[i] * pxPerSec) - left;
+    if ((i + d.bar) % 4 === 0) { g.fillStyle = "rgba(255,255,255,.55)"; g.fillRect(x - dpr, 0, 2 * dpr, H); }
+    else { g.fillStyle = "rgba(255,255,255,.5)"; g.fillRect(x, 0, dpr, tick); g.fillRect(x, H - tick, dpr, tick); }
   }
 }
 
@@ -1143,7 +1280,10 @@ function demoWave(d) {
   }
   return { rate, n, data };
 }
-decks.forEach(d => { d.wf = demoWave(d); d.wfVer = 1; });
+decks.forEach(d => {
+  d.wf = demoWave(d); d.wfVer = 1;
+  d.beats = Float64Array.from({ length: Math.floor(d.dur * d.bpm / 60) }, (_, i) => i * 60 / d.bpm); d.bar = 0; d.beatsVer = 1;
+});
 
 // =====================================================================================================
 // Top bar, settings
@@ -1184,6 +1324,7 @@ function slider(id, key, fmt) {
 }
 function paintSettings(soft) {
   seg("s-revs", [[.5, "½ rev"], [1, "1 rev"], [2, "2 rev"]], () => S.revs, v => S.revs = v);
+  seg("s-quant", [[false, "Off"], [true, "On"]], () => S.quantize, v => { S.quantize = v; applyQuantize(); });
   seg("s-layout", [["stacked", "Strips on top"], ["side", "Side by side"]], () => S.layout, v => S.layout = v);
   const stripMm = ui.sides[0]?.strip ? ui.sides[0].strip.clientWidth / S.pxmm : 70;
   document.getElementById("s-revs-info").textContent =
@@ -1262,9 +1403,11 @@ function toMixxx(name, ...a) {
     case "key": markLocal(d, "key"); return setCtl(ch(d.n), "pitch_adjust", clamp(Math.round(d.key) + a[1], -6, 6));
     case "sync": return mxSend({ sync: [d.n - 1, a[1]] });
     case "tempo": markLocal(d, "tempo"); return mxSend({ tempo: [d.n - 1, d.ol ? 1 : 0, a[1]] });
+    case "nudge": return setCtl(ch(d.n), "wheel", a[1]);
+    case "loopMove": return setCtl(ch(d.n), "loop_move", a[1]);
     case "scratchOn": d.tickAcc = 0; return mxSend({ scratch: [d.n - 1, 1, 0] });
     case "scratch": return scratchBy(d, a[1] * stripSeconds());
-    case "scratchOff": if (!d.coast) mxSend({ scratch: [d.n - 1, 0, 0] }); d.ppT = 0; return;   // coasting: released later
+    case "scratchOff": if (!d.coast) { mxSend({ scratch: [d.n - 1, 0, 0] }); posSeed(d, d.pos, d.playing ? d.ratio : 0, performance.now()); } return;   // coasting: released later
     case "loop": return setCtl(ch(d.n), a[1], a[2] ? 1 : 0);   // press and release, like a controller button
     case "pad": return mxSend(`${a[2] ? "d" : "u"} ${a[0]} ${a[1]}`);
   }
@@ -1301,7 +1444,7 @@ function applyCv(name, v) {
     // Our own changes echoed back (isLocal) and repeats of the same value repaint nothing.
     const upd = (k, val, part = "deck") => { if (d[k] !== val) { d[k] = val; markDirty(part, d); } };
     switch (key) {
-      case "playposition": d.ppos = v; d.ppT = performance.now(); return;   // drawn by the animation loop
+      case "playposition": posUpdate(d, v * d.dur, performance.now()); return;   // drawn by the animation loop
       case "play": return upd("playing", v > 0);
       case "track_loaded": return upd("loaded", v > 0);
       case "duration": d.dur = v; return;                                   // shown by the animation loop
@@ -1313,6 +1456,9 @@ function applyCv(name, v) {
       case "mute": return upd("muted", v > 0, "mixer");
       case "loop_enabled": return upd("loopOn", v > 0);
       case "beatloop_size": return upd("loopSize", v);
+      case "loop_start_position": d.loopIn = v; return;                     // in samples; drawn on the strip
+      case "loop_end_position": d.loopOut = v; return;
+      case "track_samples": d.trackSamples = v; return;
       case "volume": if (!isLocal(d, "vol")) upd("vol", v, "mixer"); return;
       case "pregain": if (!isLocal(d, "gain")) upd("gain", v, "mixer"); return;
     }
@@ -1331,10 +1477,14 @@ function applyCv(name, v) {
   }
 }
 
+// Mixxx's quantize for all four decks follows the controller's setting.
+function applyQuantize() { if (live) for (let n = 1; n <= 4; n++) setCtl(ch(n), "quantize", S.quantize ? 1 : 0); }
+
 function subscribeAll() {
   const sub = [];
   for (let n = 1; n <= 4; n++) {
-    for (const k of ["play", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch_adjust", "sync_enabled", "pfl", "mute", "loop_enabled", "beatloop_size"]) sub.push([ch(n), k, 0]);
+    for (const k of ["play", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch_adjust", "sync_enabled", "pfl", "mute", "loop_enabled", "beatloop_size",
+      "loop_start_position", "loop_end_position", "track_samples"]) sub.push([ch(n), k, 0]);
     sub.push([ch(n), "playposition", 1]);                  // polled ~30/s
     for (const f of ["vol", "gain", "high", "mid", "low", "filter"]) sub.push([...MIXER[f](n), 2]);
   }
@@ -1348,7 +1498,7 @@ function goLive(init) {
   document.getElementById("s-status").textContent = "Live · Mixxx";
   document.getElementById("gear").classList.add("live");
   decks.forEach((d, i) => Object.assign(d, {
-    title: `Deck ${d.n}`, artist: "", bpm: 120, dur: 0, pos: 0, ppos: 0, ppT: 0, ratio: 1, playing: false, loaded: false,
+    title: `Deck ${d.n}`, artist: "", bpm: 120, dur: 0, pos: 0, pt: undefined, ratio: 1, playing: false, loaded: false,
     tempo: 0, key: 0, loopOn: false, loopSize: 4, cues: new Array(8).fill(null), rolls: new Array(8).fill(0), stems: [1, 1, 1, 1], sc: 0,
   }));
   samplers.forEach((sm, i) => { sm.state = 0; sm.name = `Sample ${i + 1}`; });
@@ -1356,12 +1506,13 @@ function goLive(init) {
     const d = decks[i];
     d.cues = x.cues.map(v => v ? { c: v - 1 } : null); d.rolls = x.rolls; d.stems = x.stems; d.sc = x.sc;
     if (x.n) { d.title = x.n.t; d.artist = x.n.a; }
-    loadWaveform(d, x.n ? x.n.id : null);
+    loadWaveform(d, x.n ? x.n.id : null); loadBeats(d, x.n ? x.n.id : null);
   });
   init.s.slice(0, samplers.length).forEach((v, i) => { samplers[i].state = v; if (init.sn[i]) samplers[i].name = init.sn[i].t; });
   init.fx.forEach((u, i) => fxLive[i] = u);
   Object.entries(init.cv || {}).forEach(([k, v]) => applyCv(k, v));
   subscribeAll();
+  applyQuantize();
   build();
 }
 
@@ -1374,7 +1525,7 @@ function onMixxx(m) {
     case "s": if (m.i < samplers.length) samplers[m.i].state = m.v; break;
     case "sn": if (m.i < samplers.length) samplers[m.i].name = m.n ? m.n.t : `Sample ${m.i + 1}`; break;
     case "dn": d.title = m.n ? m.n.t : `Deck ${d.n}`; d.artist = m.n ? m.n.a : "";
-      if ((m.n ? m.n.id : null) !== d.wfFor) loadWaveform(d, m.n ? m.n.id : null);
+      if ((m.n ? m.n.id : null) !== d.wfFor) { loadWaveform(d, m.n ? m.n.id : null); loadBeats(d, m.n ? m.n.id : null); }
       return markDirty("deck", d);
     case "sc": d.sc = m.v; return markDirty("deck", d);
     case "cue": d.cues[m.k] = m.v ? { c: m.v - 1 } : null; return markDirty("deck", d);

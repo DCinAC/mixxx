@@ -164,6 +164,10 @@ class QmlSoundManagerProxy : public QObject {
     static void registerManager(std::shared_ptr<SoundManager> pManager) {
         s_pSoundManager = std::move(pManager);
     }
+    /// Zydek: for the phone page's audio settings (zydek/zydekhub.cpp).
+    static std::shared_ptr<SoundManager> registeredManager() {
+        return s_pSoundManager;
+    }
 
   signals:
     void committed(const QString& error = {});

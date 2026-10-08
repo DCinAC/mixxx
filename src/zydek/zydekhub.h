@@ -62,6 +62,10 @@ class Hub : public QObject {
     HttpServer::Response handleApi(const QString& path, const HttpServer::Query& query);
     HttpServer::Response staticFile(const QString& name) const;
     QByteArray waveform(int trackId) const;
+    QByteArray beats(int trackId) const;
+    // audio outputs (the phone page's settings)
+    QJsonObject audioStatus() const;
+    QJsonObject setAudio(const HttpServer::Query& query);
     QString lanUrl() const;
 
     void onWsOpened(QTcpSocket* pClient, const QString& path, const HttpServer::Query& query);

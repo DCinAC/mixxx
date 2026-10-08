@@ -19,6 +19,12 @@
 #include "controllers/zydek/zydekcontroller.h"
 #include "mixer/playerinfo.h"
 #include "moc_zydekhub.cpp"
+#include "qml/qmlsoundmanagerproxy.h"
+#include "soundio/sounddevice.h"
+#include "soundio/soundmanager.h"
+#include "soundio/soundmanagerconfig.h"
+#include "soundio/soundmanagerutil.h"
+#include "track/beats.h"
 #include "track/track.h"
 #include "waveform/waveform.h"
 
@@ -210,6 +216,24 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     }
     if (path == QLatin1String("/api/latency-log")) {
         return latencyLog(query);
+    }
+    if (path.startsWith(QLatin1String("/beats/"))) {
+        const QByteArray data = beats(path.mid(7).toInt());
+        if (data.isEmpty()) {
+            return {404, "text/plain", "no beats yet\n", {}};
+        }
+        return {200, "application/json", data, {}};
+    }
+    if (path == QLatin1String("/api/audio")) {
+        return json(audioStatus());
+    }
+    if (path == QLatin1String("/api/audio/set")) {   // ?main=<output name>&headphones=<output name, or empty>
+        const QJsonObject result = setAudio(query);
+        HttpServer::Response r = json(result);
+        if (!result.value(QStringLiteral("ok")).toBool()) {
+            r.status = 409;
+        }
+        return r;
     }
     if (path.startsWith(QLatin1String("/api/"))) {
         return handleApi(path, query);
@@ -424,6 +448,133 @@ void Hub::saveSettings() const {
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         f.write(QJsonDocument(m_ctlSettings).toJson());
     }
+}
+
+/// The track's beats, {"beats": [seconds...], "bar": k}: beat i starts a bar when (i + k) % 4 == 0 (Mixxx
+/// counts 4/4 bars from the first beat marker). Empty while the track hasn't been analysed.
+QByteArray Hub::beats(int trackId) const {
+    const auto tracks = PlayerInfo::instance().getLoadedTracks();
+    for (const TrackPointer& pTrack : tracks) {
+        if (!pTrack || pTrack->getId().toVariant().toInt() != trackId) {
+            continue;
+        }
+        const mixxx::BeatsPointer pBeats = pTrack->getBeats();
+        const double rate = pTrack->getSampleRate().toDouble();
+        if (!pBeats || rate <= 0) {
+            return {};
+        }
+        const double endFrame = pTrack->getDuration() * rate;
+        auto it = pBeats->iteratorFrom(mixxx::audio::kStartFramePos);
+        const int firstIndex = static_cast<int>(it - pBeats->cfirstmarker());
+        QJsonArray times;
+        for (int n = 0; n < 20000 && it->value() < endFrame; ++n, ++it) {
+            times.append(std::round(it->value() / rate * 10000.0) / 10000.0);
+        }
+        return QJsonDocument(QJsonObject{{"beats", times}, {"bar", ((firstIndex % 4) + 4) % 4}})
+                .toJson(QJsonDocument::Compact);
+    }
+    return {};
+}
+
+// ---- audio outputs ---------------------------------------------------------------------------------
+// Mixxx's SoundManager belongs to the main thread: these wait for it there (both are quick).
+
+QJsonObject Hub::audioStatus() const {
+    const std::shared_ptr<SoundManager> pManager = mixxx::qml::QmlSoundManagerProxy::registeredManager();
+    if (!pManager) {
+        return {{"ok", false}, {"error", "Mixxx isn't ready"}};
+    }
+    QJsonObject out;
+    QMetaObject::invokeMethod(
+            pManager.get(),
+            [&out, &pManager] {
+                const SoundManagerConfig config = pManager->getConfig();
+                const QList<SoundDevicePointer> devices = pManager->getDeviceList(config.getAPI(), true, false);
+                QJsonArray list;
+                QString main, headphones;
+                for (const SoundDevicePointer& pDevice : devices) {
+                    list.append(QJsonObject{{"name", pDevice->getDisplayName()},
+                            {"channels", static_cast<int>(pDevice->getNumOutputChannels())}});
+                }
+                const auto outputs = config.getOutputs();
+                for (auto it = outputs.cbegin(); it != outputs.cend(); ++it) {
+                    for (const SoundDevicePointer& pDevice : devices) {
+                        if (pDevice->getDeviceId() != it.key()) {
+                            continue;
+                        }
+                        if (it.value().getType() == AudioPathType::Main) {
+                            main = pDevice->getDisplayName();
+                        } else if (it.value().getType() == AudioPathType::Headphones) {
+                            headphones = pDevice->getDisplayName();
+                        }
+                    }
+                }
+                out = {{"ok", true},
+                        {"api", config.getAPI()},
+                        {"devices", list},
+                        {"main", main},
+                        {"headphones", headphones}};
+            },
+            Qt::BlockingQueuedConnection);
+    out.insert(QStringLiteral("latencyMs"),
+            ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms"))));
+    return out;
+}
+
+QJsonObject Hub::setAudio(const HttpServer::Query& query) {
+    const std::shared_ptr<SoundManager> pManager = mixxx::qml::QmlSoundManagerProxy::registeredManager();
+    if (!pManager) {
+        return {{"ok", false}, {"error", "Mixxx isn't ready"}};
+    }
+    const QString mainName = query.value(QStringLiteral("main"));
+    const QString headphonesName = query.value(QStringLiteral("headphones"));
+    QJsonObject out;
+    QMetaObject::invokeMethod(
+            pManager.get(),
+            [&] {
+                SoundManagerConfig config = pManager->getConfig();
+                const QList<SoundDevicePointer> devices = pManager->getDeviceList(config.getAPI(), true, false);
+                const auto find = [&devices](const QString& name) {
+                    for (const SoundDevicePointer& pDevice : devices) {
+                        if (pDevice->getDisplayName() == name) {
+                            return pDevice;
+                        }
+                    }
+                    return SoundDevicePointer();
+                };
+                const SoundDevicePointer pMain = find(mainName);
+                const SoundDevicePointer pHeadphones = headphonesName.isEmpty() ? SoundDevicePointer() : find(headphonesName);
+                if (!pMain || (!headphonesName.isEmpty() && !pHeadphones)) {
+                    out = {{"ok", false}, {"error", QStringLiteral("That output isn't connected any more")}};
+                    return;
+                }
+                // Both on one device: the headphones take its outputs 3-4.
+                if (pHeadphones == pMain && pMain->getNumOutputChannels() < 4) {
+                    out = {{"ok", false},
+                            {"error", QStringLiteral("Main and headphones on one output need a device with 4 outputs")}};
+                    return;
+                }
+                QMultiHash<SoundDeviceId, AudioOutput>& outputs = config.getOutputsRef();
+                for (auto it = outputs.begin(); it != outputs.end();) {
+                    const AudioPathType type = it.value().getType();
+                    it = type == AudioPathType::Main || type == AudioPathType::Headphones ? outputs.erase(it) : std::next(it);
+                }
+                config.addOutput(pMain->getDeviceId(),
+                        AudioOutput(AudioPathType::Main, 0, mixxx::audio::ChannelCount::stereo(), 0));
+                if (pHeadphones) {
+                    config.addOutput(pHeadphones->getDeviceId(),
+                            AudioOutput(AudioPathType::Headphones,
+                                    pHeadphones == pMain ? 2 : 0,
+                                    mixxx::audio::ChannelCount::stereo(),
+                                    0));
+                }
+                const SoundDeviceStatus status = pManager->setConfig(config);
+                out = status == SoundDeviceStatus::Ok
+                        ? QJsonObject{{"ok", true}}
+                        : QJsonObject{{"ok", false}, {"error", pManager->getLastErrorMessage(status)}};
+            },
+            Qt::BlockingQueuedConnection);
+    return out;
 }
 
 // ---- latency log ---------------------------------------------------------------------------------
