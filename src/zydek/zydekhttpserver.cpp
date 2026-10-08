@@ -111,7 +111,13 @@ void HttpServer::handleRequest(QTcpSocket* pSocket, Connection& conn) {
             headers.insert(lines[i].left(colon).trimmed().toLower(), lines[i].mid(colon + 1).trimmed());
         }
     }
-    const QUrl url(QString::fromUtf8(requestLine.value(1)));
+    // "+" in a query is a space (form encoding); a real plus arrives as %2B
+    QByteArray target = requestLine.value(1);
+    const qsizetype queryStart = target.indexOf('?');
+    if (queryStart >= 0) {
+        target = target.left(queryStart) + target.mid(queryStart).replace('+', "%20");
+    }
+    const QUrl url(QString::fromUtf8(target));
     const QString path = url.path();
     Query query;
     for (const auto& item : QUrlQuery(url).queryItems(QUrl::FullyDecoded)) {

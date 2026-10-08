@@ -61,7 +61,8 @@ class _Log:
         pass
 
     def info(self, msg):
-        pass
+        if "JS challenge" in msg:   # shows when YouTube needed QuickJS
+            _zydekjs.log("yt-dlp: " + msg)
 
     def warning(self, msg):
         _zydekjs.log("yt-dlp warning: " + msg)
@@ -77,10 +78,25 @@ def start(data_dir, cache_dir, music_dir):
     threading.stack_size(THREAD_STACK)  # QuickJS needs a deep stack for YouTube's player code
     import certifi
     os.environ["SSL_CERT_FILE"] = certifi.where()
-    _dirs.update(data=data_dir, cache=cache_dir, music=os.path.join(music_dir, MUSIC_SUBDIR))
+    _dirs.update(data=data_dir, cache=cache_dir, music=_music_folder(music_dir))
     _patch_quickjs()
     # Import yt-dlp (slow the first time: Python compiles it) while nobody waits for it yet.
     threading.Thread(target=lambda: __import__("yt_dlp"), daemon=True).start()
+
+
+def _music_folder(app_music):
+    """The phone's shared Music folder when Zydek may write there (all files access), else the app's own."""
+    for base in ("/storage/emulated/0/Music", app_music):
+        folder = os.path.join(base, MUSIC_SUBDIR)
+        try:
+            os.makedirs(folder, exist_ok=True)
+            probe = os.path.join(folder, ".zydek-write-test")
+            open(probe, "w").close()
+            os.remove(probe)
+            return folder
+        except OSError:
+            continue
+    return os.path.join(app_music, MUSIC_SUBDIR)
 
 
 def _patch_quickjs():
@@ -303,7 +319,10 @@ def api(name, args_json):
                 jobs = [_public(j) for j in sorted(_jobs.values(), key=lambda j: -j["started"]) if j["kind"] == "download"]
             return json.dumps({"ok": True, "jobs": jobs})
         if name == "status":
-            return json.dumps({"ok": True, "python": sys.version.split()[0], "folder": _dirs.get("music")})
+            js = _zydekjs.run("console.log([6 * 7, typeof BigInt, /\\p{L}+/u.test('音楽')].join())").strip()
+            import yt_dlp.version
+            return json.dumps({"ok": True, "python": sys.version.split()[0], "ytdlp": yt_dlp.version.__version__,
+                               "quickjs": js, "folder": _dirs.get("music")})
         return json.dumps({"ok": False, "error": f"Unknown request: {name}"})
     except Exception as e:
         return json.dumps({"ok": False, "error": _friendly(e)})
