@@ -1269,6 +1269,7 @@ add_library(
   src/zydek/zydekhttpserver.cpp
   src/zydek/zydekhub.cpp
   src/zydek/zydeklibrary.cpp
+  src/zydek/zydekpython.cpp
   src/controllers/midi/midienumerator.cpp
   src/controllers/midi/midimessage.cpp
   src/controllers/midi/midioutputhandler.cpp
@@ -2491,6 +2492,47 @@ if(QT6)
       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     )
     add_dependencies(mixxx copy-resource-android)
+    # Zydek: the phone page's Web tab runs yt-dlp in an embedded Python (python.org's Android build) with
+    # QuickJS-NG for YouTube. The Zydek build PC provides ZYDEK_PYTHON_PREFIX (that build's prefix/) and
+    # ZYDEK_PYTHON_BUNDLE (the Python library folder to package, see its python-bundle.sh). Without them the
+    # tab says this build has none.
+    foreach(var ZYDEK_PYTHON_PREFIX ZYDEK_PYTHON_BUNDLE)
+      if(NOT ${var} AND DEFINED ENV{${var}})
+        set(${var} "$ENV{${var}}" CACHE PATH "Zydek Web tab, see the Zydek build PC's python-bundle.sh" FORCE)
+      endif()
+    endforeach()
+    if(ZYDEK_PYTHON_PREFIX AND ZYDEK_PYTHON_BUNDLE AND EXISTS "${ZYDEK_PYTHON_PREFIX}/lib/libpython3.14.so")
+      message(STATUS "Zydek Web tab: Python from ${ZYDEK_PYTHON_PREFIX}")
+      add_library(
+        zydek-quickjs
+        STATIC
+        lib/quickjs-ng/quickjs.c
+        lib/quickjs-ng/libregexp.c
+        lib/quickjs-ng/libunicode.c
+        lib/quickjs-ng/dtoa.c
+        src/zydek/zydekjs.c
+      )
+      target_include_directories(zydek-quickjs PRIVATE lib/quickjs-ng)
+      target_compile_definitions(zydek-quickjs PRIVATE _GNU_SOURCE)
+      target_compile_options(zydek-quickjs PRIVATE -w -O2)
+      set_target_properties(zydek-quickjs PROPERTIES C_STANDARD 11 POSITION_INDEPENDENT_CODE ON)
+      target_include_directories(mixxx-lib PRIVATE "${ZYDEK_PYTHON_PREFIX}/include/python3.14")
+      target_compile_definitions(mixxx-lib PRIVATE ZYDEK_WEB)
+      target_link_libraries(mixxx-lib PRIVATE zydek-quickjs "${ZYDEK_PYTHON_PREFIX}/lib/libpython3.14.so")
+      add_custom_command(
+        TARGET copy-resource-android
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_BINARY_DIR}/android-build/assets/zydek-python
+        COMMAND
+          ${CMAKE_COMMAND} -E copy_directory "${ZYDEK_PYTHON_BUNDLE}"
+          ${CMAKE_CURRENT_BINARY_DIR}/android-build/assets/zydek-python
+      )
+      get_target_property(ZYDEK_EXTRA_LIBS mixxx QT_ANDROID_EXTRA_LIBS)
+      foreach(lib libpython3.14.so libssl_python.so libcrypto_python.so libsqlite3_python.so)
+        list(APPEND ZYDEK_EXTRA_LIBS "${ZYDEK_PYTHON_PREFIX}/lib/${lib}")
+      endforeach()
+      set_target_properties(mixxx PROPERTIES QT_ANDROID_EXTRA_LIBS "${ZYDEK_EXTRA_LIBS}")
+    endif()
     target_link_libraries(mixxx PUBLIC omp)
   else()
     qt_add_executable(mixxx WIN32 src/main.cpp MANUAL_FINALIZATION)

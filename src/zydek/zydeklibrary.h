@@ -38,6 +38,8 @@ class Library {
     QJsonObject createCrate(const QString& name);
     QJsonObject setCrateTrack(int crateId, int trackId, bool member);
     QJsonArray cratesOf(int trackId);
+    /// Adds a file to Mixxx's library (a Web tab download), returning its track id.
+    QJsonObject addTrack(const QString& path);
     QJsonObject listDirectory(const QString& path) const;
     void startScan();
     bool scanning() const;

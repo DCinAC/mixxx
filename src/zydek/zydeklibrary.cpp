@@ -18,6 +18,7 @@
 #include "qml/qmllibraryproxy.h"
 #include "qml/qmlplayermanagerproxy.h"
 #include "track/track.h"
+#include "track/trackref.h"
 #include "util/fileinfo.h"
 
 namespace zydek {
@@ -418,6 +419,31 @@ QJsonArray Library::cratesOf(int trackId) {
         }
     }
     return out;
+}
+
+QJsonObject Library::addTrack(const QString& path) {
+    if (!QFileInfo(path).isFile()) {
+        return error(QStringLiteral("File not found"));
+    }
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (!pLibrary) {
+        return error(QStringLiteral("Mixxx isn't ready"));
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    int id = -1;
+    QMetaObject::invokeMethod(
+            pCollection,
+            [pCollection, path, &id] {
+                const TrackPointer pTrack = pCollection->getOrAddTrack(TrackRef::fromFilePath(path));
+                if (pTrack) {
+                    id = pTrack->getId().toVariant().toInt();
+                }
+            },
+            Qt::BlockingQueuedConnection);
+    if (id < 0) {
+        return error(QStringLiteral("Mixxx couldn't add the file"));
+    }
+    return {{"ok", true}, {"id", id}};
 }
 
 QJsonObject Library::addFolder(const QString& path) {

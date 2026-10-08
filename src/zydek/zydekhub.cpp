@@ -25,6 +25,7 @@
 #include "soundio/soundmanagerconfig.h"
 #include "soundio/soundmanagerutil.h"
 #include "track/beats.h"
+#include "zydek/zydekpython.h"
 #include "track/track.h"
 #include "waveform/waveform.h"
 
@@ -224,6 +225,15 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         }
         return {200, "application/json", data, {}};
     }
+    if (path.startsWith(QLatin1String("/api/web/"))) {   // the phone page's Web tab: res/zydek/python/zydek_web.py
+        QJsonObject args;
+        for (auto it = query.cbegin(); it != query.cend(); ++it) {
+            args.insert(it.key(), it.value());
+        }
+        const QByteArray body = python::call(path.mid(9), QJsonDocument(args).toJson(QJsonDocument::Compact));
+        const bool ok = QJsonDocument::fromJson(body).object().value(QStringLiteral("ok")).toBool(true);
+        return {ok ? 200 : 409, "application/json", body, {}};
+    }
     if (path == QLatin1String("/api/audio")) {
         return json(audioStatus());
     }
@@ -286,6 +296,9 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     }
     if (path == QLatin1String("/api/folders/add")) {
         return result(m_library.addFolder(arg("path")));
+    }
+    if (path == QLatin1String("/api/library/add")) {   // ?path=  (a Web tab download)
+        return result(m_library.addTrack(arg("path")));
     }
     if (path == QLatin1String("/api/crates/create")) {   // ?name=
         return result(m_library.createCrate(arg("name")));
