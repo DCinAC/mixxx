@@ -229,11 +229,13 @@ TabletPads.setSync = function (d, mode) {
         engine.setValue(g, "sync_enabled", 0);
         return;
     }
+    if (mode === 3) {
+        // Straight to leader: turning plain sync on first would pull this deck to another deck's tempo.
+        engine.setValue(g, "sync_leader", 1);
+        return;
+    }
     engine.setValue(g, "sync_enabled", 1);
     engine.setValue(g, "beatsync_phase", 1);
-    if (mode === 3) {
-        engine.setValue(g, "sync_leader", 1);
-    }
 };
 
 TabletPads.incomingData = function (data, length) {
