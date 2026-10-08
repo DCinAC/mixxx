@@ -58,6 +58,18 @@
   .chips::-webkit-scrollbar { display: none; }
   .chip { flex: none; min-height: 32px; border-radius: 16px; padding: 0 12px; font-size: 13px; background: #181818; color: #cfcfcf; }
   .chip small { color: var(--dim); margin-left: 4px; }
+  .chip.add { color: var(--deck34); border-color: #1f4a63; }
+  /* crate sheet */
+  #sheet .crates { display: grid; gap: 6px; margin-top: 12px; }
+  #sheet .crates button { min-height: 46px; text-align: left; padding: 0 14px; display: flex; align-items: center; gap: 10px; }
+  #sheet .crates button .box { width: 20px; height: 20px; border-radius: 5px; border: 2px solid #555; flex: none;
+    display: grid; place-content: center; font-size: 13px; line-height: 1; }
+  #sheet .crates button.on .box { background: var(--deck34); border-color: var(--deck34); color: #071820; }
+  #sheet .crates button small { margin-left: auto; color: var(--dim); }
+  #sheet .newcrate { display: flex; gap: 8px; margin-top: 12px; }
+  #sheet .newcrate input { flex: 1; min-width: 0; height: 44px; border-radius: 10px; border: 1px solid #333; background: #181818;
+    padding: 0 12px; color: var(--text); outline: none; }
+  .tr.pressing { background: #1c1c1c; }
   .chip.on { background: var(--text); color: #111; border-color: var(--text); }
   .chip.on small { color: #444; }
   .note { color: var(--dim); font-size: 13px; padding: 14px 16px; }
@@ -487,6 +499,10 @@ async function loadViews() {
     b.addEventListener("click", () => { view = id; store.set("view", id); box.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c === b)); loadTracks(); });
     box.appendChild(b);
   });
+  const add = h("button", "chip add", "+ Crate");
+  add.addEventListener("click", () => openCrateSheet(null));
+  box.appendChild(add);
+  crateList = v.crates;
 }
 // The list loads 300 tracks at a time; scrolling to its end loads the next 300.
 const PAGE = 300;
@@ -510,7 +526,8 @@ async function loadTracks(more = false) {
     li.appendChild(h("div", "meta", `<div class="t">${esc(t.title)}</div><div class="a">${t.stems ? '<span class="badge stem">STEMS</span>' : ""}` +
       `${t.missing ? '<span class="badge miss">MISSING</span>' : ""}${esc(t.artist || "Unknown artist")}</div>`));
     li.appendChild(h("div", "num", `<div class="bpm">${t.bpm ? t.bpm.toFixed(t.bpm % 1 ? 1 : 0) : "—"}</div><div>${esc(t.key || "")} ${fmtTime(t.duration)}</div>`));
-    li.addEventListener("click", () => openSheet(t));
+    li.addEventListener("click", () => { if (!li._long) openSheet(t); li._long = false; });
+    onLongPress(li, () => { li._long = true; openCrateSheet(t); });
     ul.appendChild(li);
   });
   $("#libnote").textContent = libShown ? (libMore ? "Loading more…" : `${libShown} tracks`) :
@@ -567,6 +584,57 @@ function openSheet(t) {
   s.querySelector(".smp").addEventListener("click", () => load(t, "sampler"));
   $("#scrim").classList.add("on"); s.classList.add("on");
 }
+// Long press (450 ms without moving): fn(). A long press doesn't also count as a tap.
+function onLongPress(el, fn) {
+  let t = null, x = 0, y = 0;
+  const cancel = () => { clearTimeout(t); t = null; el.classList.remove("pressing"); };
+  el.addEventListener("pointerdown", e => {
+    x = e.clientX; y = e.clientY; el.classList.add("pressing");
+    t = setTimeout(() => { cancel(); if (navigator.vibrate) navigator.vibrate(12); fn(); }, 450);
+  });
+  el.addEventListener("pointermove", e => { if (t && Math.hypot(e.clientX - x, e.clientY - y) > 10) cancel(); });
+  ["pointerup", "pointercancel", "pointerleave"].forEach(k => el.addEventListener(k, cancel));
+  el.addEventListener("contextmenu", e => e.preventDefault());
+}
+
+// Crates: long press a track to put it in crates (or take it out); "+ Crate" makes a new one.
+let crateList = [];
+async function openCrateSheet(t) {
+  const s = $("#sheet");
+  let member = [];
+  if (t) { try { member = await api(`/api/crates/of?${qs({ track: t.id })}`); } catch {} }
+  s.innerHTML = `<div class="grip"></div><div class="t">${t ? esc(t.title) : "New crate"}</div>` +
+    (t ? `<div class="a">${esc(t.artist || "Unknown artist")} · tap a crate to add or remove</div><div class="crates"></div>` : "") +
+    `<div class="newcrate"><input placeholder="New crate name" enterkeyhint="done"><button>Make crate</button></div>`;
+  const box = s.querySelector(".crates");
+  if (box) crateList.forEach(c => {
+    const on = member.includes(c.id);
+    const b = h("button", on ? "on" : "", `<span class="box">${on ? "✓" : ""}</span>${esc(c.name)}<small>${c.count}</small>`);
+    b.addEventListener("click", async () => {
+      const add = !b.classList.contains("on");
+      try {
+        await api(`/api/crates/set?${qs({ crate: c.id, track: t.id, on: add ? 1 : 0 })}`);
+        b.classList.toggle("on", add); b.querySelector(".box").textContent = add ? "✓" : "";
+        c.count += add ? 1 : -1; b.querySelector("small").textContent = c.count;
+        toast(`${add ? "Added to" : "Removed from"} ${c.name}`, "ok");
+      } catch (e) { toast(e.message, "bad"); }
+    });
+    box.appendChild(b);
+  });
+  const inp = s.querySelector(".newcrate input"), make = async () => {
+    try {
+      const r = await api(`/api/crates/create?${qs({ name: inp.value })}`);
+      if (t) await api(`/api/crates/set?${qs({ crate: r.id, track: t.id, on: 1 })}`);
+      toast(t ? `Made ${inp.value.trim()} and added the track` : `Made ${inp.value.trim()}`, "ok");
+      closeSheet(); loadViews();
+    } catch (e) { toast(e.message, "bad"); }
+  };
+  s.querySelector(".newcrate button").addEventListener("click", make);
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") make(); });
+  $("#scrim").classList.add("on"); s.classList.add("on");
+  if (!t) setTimeout(() => inp.focus(), 250);
+}
+
 function closeSheet() { $("#scrim").classList.remove("on"); $("#sheet").classList.remove("on"); sheetTrack = null; }
 $("#scrim").addEventListener("click", closeSheet);
 (() => {   // swipe the sheet down to close it

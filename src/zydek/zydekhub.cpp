@@ -287,6 +287,15 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/folders/add")) {
         return result(m_library.addFolder(arg("path")));
     }
+    if (path == QLatin1String("/api/crates/create")) {   // ?name=
+        return result(m_library.createCrate(arg("name")));
+    }
+    if (path == QLatin1String("/api/crates/set")) {   // ?crate=&track=&on=1|0
+        return result(m_library.setCrateTrack(arg("crate").toInt(), arg("track").toInt(), arg("on") != QLatin1String("0")));
+    }
+    if (path == QLatin1String("/api/crates/of")) {   // ?track=  -> crate ids holding the track
+        return json(m_library.cratesOf(arg("track").toInt()));
+    }
     if (path == QLatin1String("/api/fs")) {
         return json(m_library.listDirectory(arg("path")));
     }

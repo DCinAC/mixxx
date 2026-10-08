@@ -34,6 +34,10 @@ class Library {
 
     QJsonArray folders();
     QJsonObject addFolder(const QString& path);
+    // crates (changes go through Mixxx, so its own views update too)
+    QJsonObject createCrate(const QString& name);
+    QJsonObject setCrateTrack(int crateId, int trackId, bool member);
+    QJsonArray cratesOf(int trackId);
     QJsonObject listDirectory(const QString& path) const;
     void startScan();
     bool scanning() const;

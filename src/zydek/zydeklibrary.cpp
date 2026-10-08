@@ -10,6 +10,8 @@
 
 #include "control/controlobject.h"
 #include "library/library.h"
+#include "library/trackcollection.h"
+#include "library/trackset/crate/crate.h"
 #include "library/trackcollectionmanager.h"
 #include "mixer/playerinfo.h"
 #include "mixer/playermanager.h"
@@ -350,6 +352,70 @@ QJsonArray Library::folders() {
     while (q.next()) {
         const QString dir = q.value(0).toString();
         out.append(QJsonObject{{"path", dir}, {"available", QFileInfo(dir).isDir()}});
+    }
+    return out;
+}
+
+QJsonObject Library::createCrate(const QString& name) {
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) {
+        return error(QStringLiteral("Give the crate a name"));
+    }
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (!pLibrary) {
+        return error(QStringLiteral("Mixxx isn't ready"));
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    bool ok = false;
+    CrateId id;
+    QMetaObject::invokeMethod(
+            pCollection,
+            [pCollection, trimmed, &ok, &id] {
+                Crate crate;
+                crate.setName(trimmed);
+                ok = pCollection->internalCollection()->insertCrate(crate, &id);
+            },
+            Qt::BlockingQueuedConnection);
+    if (!ok) {
+        return error(QStringLiteral("Couldn't make the crate: is there one with that name already?"));
+    }
+    return {{"ok", true}, {"id", id.toVariant().toInt()}};
+}
+
+QJsonObject Library::setCrateTrack(int crateId, int trackId, bool member) {
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (!pLibrary) {
+        return error(QStringLiteral("Mixxx isn't ready"));
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    bool ok = false;
+    QMetaObject::invokeMethod(
+            pCollection,
+            [pCollection, crateId, trackId, member, &ok] {
+                TrackCollection* pTracks = pCollection->internalCollection();
+                const CrateId crate{QVariant(crateId)};
+                const QList<TrackId> tracks{TrackId(QVariant(trackId))};
+                ok = member ? pTracks->addCrateTracks(crate, tracks) : pTracks->removeCrateTracks(crate, tracks);
+            },
+            Qt::BlockingQueuedConnection);
+    if (!ok) {
+        return error(QStringLiteral("Couldn't change the crate"));
+    }
+    return {{"ok", true}};
+}
+
+QJsonArray Library::cratesOf(int trackId) {
+    QJsonArray out;
+    if (!open()) {
+        return out;
+    }
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT crate_id FROM crate_tracks WHERE track_id = ?"));
+    q.addBindValue(trackId);
+    if (q.exec()) {
+        while (q.next()) {
+            out.append(q.value(0).toInt());
+        }
     }
     return out;
 }
