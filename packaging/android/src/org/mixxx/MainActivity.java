@@ -109,12 +109,14 @@ public class MainActivity extends QtActivityBase {
     // blocks, and premium accounts get Hi-Res (FLAC) audio. The user logs in on Bilibili's own page in a
     // WebView; Zydek keeps only the cookies, in its private files, as the cookies.txt yt-dlp reads.
     private static final String COOKIE_FILE = "bilibili-cookies.txt";
+    private static final String DESKTOP_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
     private static final long COOKIE_LIFETIME_S = 180L * 24 * 3600;   // the WebView doesn't say; yt-dlp needs one
 
     /// {site id, cookie domain, a page the cookies are sent to, login page, name}
     private static final String[][] SITES = {
             {"cn", ".bilibili.com", "https://www.bilibili.com/",
-                    "https://passport.bilibili.com/h5-app/passport/login?gourl=https%3A%2F%2Fm.bilibili.com%2F",
+                    "https://passport.bilibili.com/login",
                     "Bilibili"},
             {"intl", ".bilibili.tv", "https://www.bilibili.tv/", "https://www.bilibili.tv/en/", "Bilibili International"},
     };
@@ -263,9 +265,22 @@ public class MainActivity extends QtActivityBase {
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        // The desktop sites: the mobile ones keep handing over to Bilibili's app (bstar://, bilibili://).
+        // Fitted to the screen, with pinch zoom.
+        settings.setUserAgentString(DESKTOP_USER_AGENT);
+        settings.setUseWideViewPort(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setBuiltInZoomControls(true);
+        settings.setDisplayZoomControls(false);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
-        web.setWebViewClient(new WebViewClient());
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String scheme = request.getUrl().getScheme();
+                return !"https".equals(scheme) && !"http".equals(scheme);   // app links: stay on the page
+            }
+        });
         m_loginView.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         addContentView(m_loginView, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         m_loginView.bringToFront();
