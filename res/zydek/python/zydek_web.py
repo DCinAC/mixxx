@@ -253,7 +253,7 @@ def _tag(path, info, artist, title):
         _zydekjs.log(f"couldn't tag {path}: {e}")
 
 
-def _download(url, title):
+def _download(url, title, client=None):
     def run(job):
         os.makedirs(_dirs["music"], exist_ok=True)
 
@@ -272,6 +272,8 @@ def _download(url, title):
             "progress_hooks": [hook],
             "overwrites": False,
             "restrictfilenames": False,
+            # client=web forces YouTube's web player, which always needs the JS challenge (to test QuickJS)
+            **({"extractor_args": {"youtube": {"player_client": [client]}}} if client else {}),
         }) as ydl:
             info = ydl.extract_info(url, download=True)
             if info.get("entries"):
@@ -308,7 +310,7 @@ def api(name, args_json):
         if name == "download":
             if not args.get("url"):
                 return json.dumps({"ok": False, "error": "No link to download"})
-            return json.dumps({"ok": True, "job": _download(args["url"], args.get("title", ""))["id"]})
+            return json.dumps({"ok": True, "job": _download(args["url"], args.get("title", ""), args.get("client"))["id"]})
         if name == "job":
             job = _jobs.get(args.get("id", ""))
             if not job:
