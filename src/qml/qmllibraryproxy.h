@@ -190,6 +190,10 @@ class QmlLibraryProxy : public QObject {
     Q_INVOKABLE void createPlaylist();
     Q_INVOKABLE void exportLibrary();
     Q_INVOKABLE void rescanLibrary();
+    /// Zydek: Android's "All files access" (needed to read music folders by path); always true elsewhere.
+    Q_INVOKABLE bool hasAllFilesAccess() const;
+    /// Zydek: open Android's switch to grant it.
+    Q_INVOKABLE void requestAllFilesAccess() const;
     Q_INVOKABLE void searchInCurrentView();
     Q_INVOKABLE void searchInTracksLibrary();
     Q_INVOKABLE void showAutoDJ();

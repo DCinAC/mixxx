@@ -67,6 +67,21 @@ Category {
         }
         sourceListView.model = rootDirs;
     }
+    // Zydek: the folder picker gives file:// URLs on desktop but storage-framework URIs on Android
+    // (content://com.android.externalstorage.documents/tree/primary%3AMusic); Mixxx needs a path.
+    function folderPath(url) {
+        const text = url.toString();
+        const tree = "content://com.android.externalstorage.documents/tree/";
+        if (text.startsWith(tree)) {
+            const id = decodeURIComponent(text.substring(tree.length).split("/")[0]);   // "primary:Music/Sub"
+            const colon = id.indexOf(":");
+            const volume = colon < 0 ? id : id.substring(0, colon);
+            const rel = colon < 0 ? "" : id.substring(colon + 1);
+            const base = volume === "primary" ? "/storage/emulated/0" : "/storage/" + volume;
+            return rel ? base + "/" + rel : base;
+        }
+        return decodeURIComponent(text.replace(/^file:\/{2,3}/, "/").replace(/^\/([A-Za-z]:)/, "$1"));
+    }
     function reset() {
     }
     function save() {
@@ -224,13 +239,31 @@ Category {
 
                                     onAccepted: {
                                         let model = sourceListView.model;
-                                        let path = addDialog.selectedFolder.toString();
-                                        path = path.replace(/^file:\/{2,3}/, ""); // FIXME does this work on Windows ?
                                         model.push({
-                                            path: decodeURIComponent(path)
+                                            path: root.folderPath(addDialog.selectedFolder)
                                         });
                                         root.dirty = true;
                                         sourceListView.model = model;
+                                    }
+                                }
+                                SettingComponents.FormButton {
+                                    id: grantAccessButton
+
+                                    // Zydek: Mixxx reads music folders by path, which on Android needs "All files access".
+                                    property bool granted: Mixxx.Library.hasAllFilesAccess()
+
+                                    activeColor: "#999999"
+                                    backgroundColor: "#a0522d"
+                                    text: qsTr("Grant file access")
+                                    visible: !granted
+
+                                    onPressed: Mixxx.Library.requestAllFilesAccess()
+
+                                    Timer {   // notice when it's granted in Android's settings
+                                        interval: 2000
+                                        repeat: true
+                                        running: !grantAccessButton.granted
+                                        onTriggered: grantAccessButton.granted = Mixxx.Library.hasAllFilesAccess()
                                     }
                                 }
                                 SettingComponents.FormButton {
@@ -244,6 +277,13 @@ Category {
                             }
                             ListView {
                                 id: sourceListView
+
+                                // Zydek: the delegates below can't reach `root` (ReferenceError), so they ask here.
+                                signal dirtyRequested
+                                function pathOf(url) {
+                                    return root.folderPath(url);
+                                }
+                                onDirtyRequested: root.dirty = true
 
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 240
@@ -315,9 +355,8 @@ Category {
 
                                                 onAccepted: {
                                                     let model = sourceListView.model;
-                                                    let path = selectedFolder.toString().replace(/^(file:\/\/)/, ""); // FIXME does this work on Windows ?
-                                                    model[mouse.index].relink = decodeURIComponent(path);
-                                                    root.dirty = true;
+                                                    model[mouse.index].relink = sourceListView.pathOf(selectedFolder);
+                                                    sourceListView.dirtyRequested();
                                                     sourceListView.model = model;
                                                 }
                                             }
@@ -363,7 +402,7 @@ Category {
                                                         if (modelData.trackCount == 0) {
                                                             let model = sourceListView.model;
                                                             model[mouse.index].deleting = Mixxx.Library.PurgeTracks;
-                                                            root.dirty = true;
+                                                            sourceListView.dirtyRequested();
                                                             sourceListView.model = model;
                                                         } else {
                                                             removeButton.confirming = !removeButton.confirming;
@@ -396,7 +435,7 @@ Category {
                                                             console.warn(`unknown value deletion mode ${selected}. Ignoring.`);
                                                             return;
                                                         }
-                                                        root.dirty = true;
+                                                        sourceListView.dirtyRequested();
                                                         sourceListView.model = model;
                                                     }
                                                 }

@@ -1,12 +1,19 @@
 package org.mixxx;
 
+import android.content.Context;
+import android.content.Intent;
 import android.content.res.Configuration;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Environment;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -24,6 +31,42 @@ public class MainActivity extends QtActivityBase {
     private static final String PHONE_PAGE = "http://127.0.0.1:8766/phone";
     private WebView m_phoneView;
     private final Handler m_handler = new Handler(Looper.getMainLooper());
+
+    /// Zydek: Mixxx reads music folders by path, which on Android 11+ needs "All files access".
+    public static boolean hasAllFilesAccess() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager();
+    }
+
+    /// Opens Android's "All files access" switch for this app (one tap to grant).
+    public static void openAllFilesAccess(Context context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return;
+        }
+        Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:" + context.getPackageName()));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            context.startActivity(intent);
+        } catch (Exception e) {
+            // Some devices only have the list of all apps
+            Intent all = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+            all.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(all);
+        }
+    }
+
+    /// What the library page can ask Android for (window.ZydekAndroid in its JavaScript).
+    private class PageBridge {
+        @JavascriptInterface
+        public boolean hasAllFilesAccess() {
+            return MainActivity.hasAllFilesAccess();
+        }
+
+        @JavascriptInterface
+        public void openAllFilesAccess() {
+            MainActivity.openAllFilesAccess(MainActivity.this);
+        }
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -67,6 +110,7 @@ public class MainActivity extends QtActivityBase {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
+        m_phoneView.addJavascriptInterface(new PageBridge(), "ZydekAndroid");
         m_phoneView.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {

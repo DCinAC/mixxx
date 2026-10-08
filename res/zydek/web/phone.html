@@ -81,6 +81,10 @@
   #browser .dirs li { padding: 10px 6px; border-bottom: 1px solid #191919; }
   #browser .dirs li:active { background: #1a1a1a; }
   #browser .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  #perm { display: none; margin: 10px 12px 0; padding: 10px 12px; border: 1px solid #a0522d; border-radius: 10px; background: #2a1a12;
+    font-size: 13px; gap: 10px; align-items: center; }
+  #perm.on { display: flex; }
+  #perm span { flex: 1; }
   #scanline { padding: 10px 12px; color: var(--dim); font-size: 13px; display: flex; gap: 8px; align-items: center; }
   #scanline span { flex: 1; }
 
@@ -142,6 +146,7 @@
   </section>
 
   <section class="page" id="p-fold">
+    <div id="perm"><span>Zydek can't read your music yet: allow <b>All files access</b>.</span><button id="grant">Grant</button></div>
     <div id="scanline"><span id="scanmsg">Music folders Zydek scans for tracks.</span><button id="rescan">Rescan</button></div>
     <div id="folders"></div>
     <div style="padding: 10px 12px"><button id="addfolder">Add a folder…</button></div>
@@ -151,7 +156,6 @@
       <ul class="dirs" id="dirs"></ul>
       <div class="row"><button id="up">⬑ Up</button><button id="usehere">Add this folder</button><button id="closebr">Cancel</button></div>
     </div>
-    <div class="note">Zydek needs Android's <b>All files access</b> to read your music (Settings › Apps › Mixxx › Permissions).</div>
   </section>
 </main>
 
@@ -476,7 +480,14 @@ $("#pvstop").addEventListener("click", async () => { await api("/api/preview/sto
 // ---------------------------------------------------------------------------------------------------
 // Music folders
 // ---------------------------------------------------------------------------------------------------
+// "All files access": Mixxx reads music folders by path. The app's page has a bridge to Android for it.
+function checkPermission() {
+  const bridge = window.ZydekAndroid;
+  $("#perm").classList.toggle("on", !!bridge && !bridge.hasAllFilesAccess());
+}
+$("#grant").addEventListener("click", () => window.ZydekAndroid && window.ZydekAndroid.openAllFilesAccess());
 async function loadFolders() {
+  checkPermission();
   let list;
   try { list = await api("/api/folders"); } catch (e) { $("#folders").innerHTML = `<div class="note err">${esc(e.message)}</div>`; return; }
   const box = $("#folders"); box.innerHTML = "";
@@ -535,7 +546,7 @@ showPage(page);
 connect();
 loadViews().then(loadTracks);
 requestAnimationFrame(frame);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadViews(); loadTracks(); } });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { checkPermission(); loadViews(); loadTracks(); } });
 </script>
 </body>
 </html>

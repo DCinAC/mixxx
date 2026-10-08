@@ -18,6 +18,10 @@
 #include "library/export/libraryexporter.h"
 #endif
 #include "moc_qmllibraryproxy.cpp"
+#ifdef __ANDROID__
+#include <QJniObject>
+#include <QtCore/qnativeinterface.h>
+#endif
 #include "preferences/colorpalettesettings.h"
 #include "qml/qmlconfigproxy.h"
 #include "qml/qmllibrarytracklistmodel.h"
@@ -639,6 +643,24 @@ QmlLibrarySource* QmlLibraryProxy::sources_at(
 // Static
 void QmlLibraryProxy::sources_clear(QQmlListProperty<QmlLibrarySource>*) {
     DEBUG_ASSERT(!"unsupported operation");
+}
+
+bool QmlLibraryProxy::hasAllFilesAccess() const {
+#ifdef __ANDROID__
+    return QJniObject::callStaticMethod<jboolean>("org/mixxx/MainActivity", "hasAllFilesAccess", "()Z");
+#else
+    return true;
+#endif
+}
+
+void QmlLibraryProxy::requestAllFilesAccess() const {
+#ifdef __ANDROID__
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
+    QJniObject::callStaticMethod<void>("org/mixxx/MainActivity",
+            "openAllFilesAccess",
+            "(Landroid/content/Context;)V",
+            context.object());
+#endif
 }
 
 } // namespace qml
