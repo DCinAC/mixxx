@@ -57,13 +57,13 @@
 </section>
 <script>
 // Must match DEFAULTS in controller.html.
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, catchup: 180, telemetry: true, pingHz: 10 };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, telemetry: true, pingHz: 10 };
 const FIELDS = [
   { k: "revs", label: "Platter strip", seg: [[.5, "½ rev"], [1, "1 rev"], [2, "2 rev"]] },
   { k: "catchup", label: "Slipmat grip (stop to full speed)", min: 0, max: 800, step: 10, fmt: v => v ? `${v} ms` : "off" },
   { k: "sens", label: "Tempo sensitivity", min: .04, max: .4, step: .01, fmt: v => `${v.toFixed(2)} % per mm` },
   { k: "fasterDown", label: "Tempo direction", seg: [[true, "Down = faster"], [false, "Up = faster"]] },
-  { k: "knobMode", label: "Knob gesture", seg: [["spin", "Spin"], ["drag", "Drag (both)"], ["dragH", "Drag (left/right)"], ["dragV", "Drag (up/down)"]] },
+  { k: "knobMode", label: "Knob gesture", seg: [["drag", "Drag"], ["spin", "Spin"]] },
   { k: "knobSize", label: "Mixer knob size", min: 9, max: 18, step: .5, fmt: v => `${v} mm` },
   { k: "bar", label: "Top bar height", min: 12, max: 28, step: 1, fmt: v => `${v} mm` },
   { k: "pxmm", label: "Screen scale", min: 3.5, max: 8.5, step: .01, fmt: v => `${v.toFixed(2)} px per mm` },

@@ -291,7 +291,7 @@
   <div class="row"><div>Tempo sensitivity<small>Tempo change per mm of drag</small></div>
     <div><input type="range" id="s-sens" min="0.04" max="0.4" step="0.01"><small><span class="val" id="s-sens-v"></span></small></div></div>
   <div class="row"><div>Tempo direction</div><div class="seg" id="s-dir"></div></div>
-  <div class="row"><div>Knob gesture<small>Spin: circle the knob; the farther out you circle, the finer it gets. Drag (both): distance moved, up or right = turn up. Left/right or up/down: only that axis counts</small></div>
+  <div class="row"><div>Knob gesture<small>Drag: the distance you move, up or right = turn up. Spin: circle the knob; the farther out you circle, the finer it gets</small></div>
     <div class="seg" id="s-knob"></div></div>
   <div class="row"><div>Mixer knob size<small>Knob diameter; the mixer widens to fit</small></div>
     <div><input type="range" id="s-knobsize" min="9" max="18" step="0.5"><small><span class="val" id="s-knobsize-v"></span></small></div></div>
@@ -313,9 +313,17 @@
 // =====================================================================================================
 // Settings (persisted per device)
 // =====================================================================================================
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, catchup: 180, layout: "stacked", telemetry: true, pingHz: 10 };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", telemetry: true, pingHz: 10 };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 let S = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("ctl-settings") || "{}") }; } catch { return { ...DEFAULTS }; } })();
+// Older settings: knobs became Drag by default (the one-axis drags are gone). True if it changed something.
+function migrateSettings(o) {
+  const before = o.knobMode;
+  if (!o.knobV2) { o.knobMode = "drag"; o.knobV2 = 1; }
+  if (o.knobMode !== "spin") o.knobMode = "drag";
+  return before !== o.knobMode || !o.knobV2;
+}
+migrateSettings(S);
 let applyingRemote = false;
 const saveSettings = () => {
   try { localStorage.setItem("ctl-settings", JSON.stringify(S)); } catch {}
@@ -530,7 +538,7 @@ function knob(label, get, set, def, bipolar, target = () => null) {
         const ddx = e.clientX - st.x, ddy = e.clientY - st.y;
         st.x = e.clientX; st.y = e.clientY;
         // dragH: only left/right movement counts · dragV: only up/down movement counts
-        const delta = S.knobMode === "dragH" ? ddx : S.knobMode === "dragV" ? -ddy : strokeDelta(st, ddx, ddy);
+        const delta = strokeDelta(st, ddx, ddy);
         st.v = clamp(st.v + delta / mm(40), 0, 1);
       }
       set(st.v, st.ctx); el.paint();
@@ -762,9 +770,9 @@ function buildNudge(s, u) {
   let off = 0;
   drag(u.nudge, {
     down: e => {
-      const d = deckOf(s), adjust = d.adjust && loopRange(d) ? d.adjust : null, loopMove = !adjust && d.shift && d.loopOn;
+      const d = deckOf(s), adjust = d.adjust || null, loopMove = !adjust && d.shift && d.loopOn;
       u.nudge.classList.add("held"); u.nudge.classList.toggle("loopmove", !!(adjust || loopMove));
-      if (adjust) setHTML(u.nudge, `◀ EARLIER · LOOP ${adjust.toUpperCase()} · LATER ▶`);
+      if (adjust) setHTML(u.nudge, loopRange(d) ? `◀ EARLIER · LOOP ${adjust.toUpperCase()} · LATER ▶` : "NO LOOP TO ADJUST");
       else if (loopMove) setHTML(u.nudge, "◀ EARLIER · MOVE LOOP · LATER ▶");
       return { x: e.clientX, d, adjust, loopMove, acc: 0, samples: [{ t: performance.now(), x: e.clientX }] };
     },
@@ -772,8 +780,9 @@ function buildNudge(s, u) {
       const now = performance.now(), dx = e.clientX - st.x;
       st.x = e.clientX;
       off += dx; u.nudge.style.setProperty("--off", `${off.toFixed(1)}px`);   // the ridges follow the finger
-      if (st.adjust) {   // the loop point follows the finger at the strip's scale
+      if (st.adjust) {   // the loop point follows the finger at the strip's scale; never a tempo bend here
         const lr = loopRange(st.d), sec = dx / cachedRect(u.nudge).width * stripSeconds();
+        if (!lr) return;
         if (st.adjust === "in") send("loopPoint", st.d.n, "in", clamp(lr[0] + sec, 0, lr[1] - .01));
         else send("loopPoint", st.d.n, "out", clamp(lr[1] + sec, lr[0] + .01, st.d.dur));
         return;
@@ -815,7 +824,7 @@ function placeChrome() {
   }
   const row = (...els) => { const r = h("div", "topbar"); r.append(...els.filter(Boolean)); return r; };
   $("sideL").replaceChildren(row(...tabs, $("gear")), row(ui.loops[0].flags), row($("loop0")), row(ui.sides[0]?.sw, ui.chans[0]?.gain));
-  $("sideR").replaceChildren(row($("topknobs")), row(ui.loops[1].flags), row($("loop1")), row(ui.sides[1]?.sw, ui.chans[1]?.gain));
+  $("sideR").replaceChildren(row($("topknobs")), row(ui.loops[1].flags), row($("loop1")), row(ui.chans[1]?.gain, ui.sides[1]?.sw));
 }
 
 function buildMixer() {
@@ -1272,17 +1281,23 @@ function loopRange(d) {
   return [d.loopIn * k, d.loopOut * k];
 }
 
-// Beat grid (bar lines across the strip, ticks top and bottom for the other beats) and the loop (green while
-// it plays, grey once it's off) over the strip's waveform.
+// Beat grid (bar lines across the strip, ticks top and bottom for the other beats) and the loop (as Mixxx draws
+// it: filled green while it plays, white once it's off) over the strip's waveform.
 function drawOverlays(g, d, start, sec, pxPerSec, left, W, H) {
   const dpr = devicePixelRatio || 1, lr = loopRange(d);
-  if (lr) {
+  if (lr) {   // like Mixxx's waveforms: the loop filled #00b400 at 30 % (white once it's off), in/out lines
     const x0 = Math.round(lr[0] * pxPerSec) - left, x1 = Math.round(lr[1] * pxPerSec) - left;
     if (x1 > 0 && x0 < W) {
-      g.fillStyle = d.loopOn ? "rgba(61,220,132,.2)" : "rgba(255,255,255,.06)";
+      g.fillStyle = d.loopOn ? "rgba(0,180,0,.3)" : "rgba(255,255,255,.3)";
       g.fillRect(x0, 0, x1 - x0, H);
-      g.fillStyle = d.loopOn ? "#3ddc84" : "#6a6a6a";
+      g.fillStyle = d.loopOn ? "#00b400" : "#bbbbbb";
       g.fillRect(x0 - dpr, 0, 2 * dpr, H); g.fillRect(x1 - dpr, 0, 2 * dpr, H);
+      // ↻ tag on the loop's start, at the top (Mixxx's loop-in mark)
+      const tag = Math.round(H * .16);
+      g.fillRect(x0 + dpr, 0, tag, tag);
+      g.fillStyle = "#fff";
+      g.font = `bold ${Math.round(tag * .85)}px sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText("↻", x0 + dpr + tag / 2, tag / 2 + dpr);
     }
   }
   const b = d.beats;
@@ -1381,7 +1396,7 @@ function paintSettings(soft) {
   document.getElementById("s-revs-info").textContent =
     `${stripSeconds().toFixed(1)} s of audio across ${stripMm.toFixed(0)} mm · ${(stripSeconds() * 1000 / stripMm).toFixed(0)} ms per mm`;
   seg("s-dir", [[true, "Down = faster"], [false, "Up = faster"]], () => S.fasterDown, v => S.fasterDown = v);
-  seg("s-knob", [["spin", "Spin"], ["drag", "Drag (both)"], ["dragH", "Drag (left/right)"], ["dragV", "Drag (up/down)"]], () => S.knobMode, v => S.knobMode = v);
+  seg("s-knob", [["drag", "Drag"], ["spin", "Spin"]], () => S.knobMode, v => S.knobMode = v);
   seg("s-fs-auto", [[true, "On"], [false, "Off"]], () => S.autoFs, v => S.autoFs = v);
   seg("s-tele", [[true, "On"], [false, "Off"]], () => S.telemetry, v => S.telemetry = v);
   if (soft) return;
@@ -1613,10 +1628,13 @@ function ctlConnect() {
     if (!Object.keys(m.settings).length) { ctlSend({ type: "settings", settings: S }); return; }   // Mac has none yet: seed it
     applyingRemote = true;
     S = { ...DEFAULTS, ...m.settings };
+    const migrated = m.settings.knobV2 !== 1;
+    migrateSettings(S);
     // Repaint only (no rebuild), so a finger holding a control keeps it while settings change.
     saveSettings(); applySettings(); requestAnimationFrame(paintAll);
     if (document.getElementById("settings").classList.contains("open")) paintSettings();
     applyingRemote = false;
+    if (migrated) saveSettings();   // tell the hub about the new knob default
   };
   ctlWs.onclose = () => setTimeout(ctlConnect, 1500);
 }
