@@ -1099,24 +1099,42 @@ function samplerTap(i) {
 // =====================================================================================================
 // Animation: simulated playback + cursor (the record's sticker, sweeping left to right)
 // =====================================================================================================
-// Play position between Mixxx's updates (about 30 a second, and only when it changed). Extrapolate at the
-// speed the updates themselves show, so scratches, nudges and spin-ups move right rather than at the tempo;
-// never more than 70 ms past the last update (none means it stopped); and when an update disagrees with
-// what was drawn, glide to it over ~60 ms instead of jumping.
-function posSeed(d, p, v, now) { Object.assign(d, { pp: p, pt: now, pv: v, perr: 0 }); }
-function posAt(d, now) {
-  if (d.pt === undefined) return d.pos || 0;
-  const dt = (now - d.pt) / 1000;
-  return d.pp + d.pv * Math.min(dt, .07) + d.perr * Math.exp(-dt / .06);
+// Play position between Mixxx's updates (about 30 a second, only when it changed). Each update carries the
+// hub's clock (ts, ms) from the moment Mixxx reported the position, so network delay doesn't jitter the
+// timing: hub time maps onto this page's clock through the fastest delivery seen in the last 5 s. Between
+// updates the position runs on at the speed the updates show, at most 120 ms past the last one (no update
+// means it stopped). What's drawn never steps back while the music runs forward: if the drawing got ahead it
+// waits; if it's behind it catches up over a few frames; a real jump (seek, scratch) goes straight there.
+const clockSync = { samples: [], off: null };
+function hubTime(ts, now) {   // ts on the hub's clock -> this page's clock
+  if (ts == null) return now;
+  clockSync.samples.push([now, now - ts]);
+  while (clockSync.samples.length > 1 && now - clockSync.samples[0][0] > 5000) clockSync.samples.shift();
+  clockSync.off = clockSync.samples.reduce((m, x) => Math.min(m, x[1]), Infinity);
+  return ts + clockSync.off;
 }
-function posUpdate(d, p, now) {   // p in seconds
+function posSeed(d, p, v, now) { Object.assign(d, { pp: p, pt: now, pv: v, shown: undefined }); }
+function posModel(d, now) {
+  return d.pt === undefined ? d.pos || 0 : d.pp + d.pv * Math.max(0, Math.min((now - d.pt) / 1000, .12));
+}
+function posAt(d, now) {   // what to draw now
+  const target = posModel(d, now);
+  let shown = d.shown;
+  const dir = d.pv > .05 ? 1 : d.pv < -.05 ? -1 : 0;
+  if (shown === undefined || Math.abs(target - shown) > .25 || !dir) shown = target;
+  else if ((target - shown) * dir < 0) { /* ahead of the music: hold until it catches up */ }
+  else shown += (target - shown) * .5;
+  d.shown = shown;
+  return shown;
+}
+function posUpdate(d, p, now, ts) {   // p in seconds
+  const t = Math.min(now, hubTime(ts, now));
   const seed = d.playing ? d.ratio || 1 : 0;
-  if (d.pt === undefined || Math.abs(p - posAt(d, now)) > .5) return posSeed(d, p, seed, now);   // a jump: follow it
-  const dt = (now - d.pt) / 1000;
-  if (dt > .1) d.pv = seed;                                  // it was standing still: restart from the tempo
-  else if (dt > .005) d.pv += ((p - d.pp) / dt - d.pv) * .4;
-  d.perr = posAt(d, now) - p;
-  d.pp = p; d.pt = now;
+  if (d.pt === undefined || Math.abs(p - posModel(d, t)) > .5) return posSeed(d, p, seed, t);   // a jump: follow it
+  const dt = (t - d.pt) / 1000;
+  if (dt > .15) d.pv = seed;                                  // it was standing still: restart from the tempo
+  else if (dt > .004) d.pv += ((p - d.pp) / dt - d.pv) * .5;
+  d.pp = p; d.pt = t;
 }
 
 // Turntable physics after the hand lets go. The platter is a heavy, servo-driven flywheel: holding the
@@ -1544,7 +1562,7 @@ function flushPaint() {
 }
 const schedulePaint = () => markDirty("all");
 
-function applyCv(name, v) {
+function applyCv(name, v, ts) {
   const comma = name.indexOf(","), group = name.slice(0, comma), key = name.slice(comma + 1);
   let m;
   if ((m = /^\[Channel(\d)\]$/.exec(group))) {
@@ -1555,8 +1573,10 @@ function applyCv(name, v) {
     const hc = /^hotcue_(\d+)_position$/.exec(key);
     if (hc) { (d.cuePos ??= [])[hc[1] - 1] = v; return; }
     switch (key) {
-      case "playposition": posUpdate(d, v * d.dur, performance.now()); return;   // drawn by the animation loop
-      case "play": return upd("playing", v > 0);
+      case "playposition": posUpdate(d, v * d.dur, performance.now(), ts); return;   // drawn by the animation loop
+      case "play":
+        if (!(v > 0) && d.pt !== undefined) posSeed(d, posModel(d, performance.now()), 0, performance.now());   // stopped: freeze here
+        return upd("playing", v > 0);
       case "track_loaded": return upd("loaded", v > 0);
       case "duration": d.dur = v; return;                                   // shown by the animation loop
       case "rate_ratio": d.ratio = v; if (!isLocal(d, "tempo") && ui.sides.every(u => u?.laneDeck !== d)) upd("tempo", (v - 1) * 100); return;
@@ -1634,7 +1654,7 @@ function onMixxx(m) {
   if (!live) return;
   const d = m.d !== undefined ? decks[m.d] : null;
   switch (m.t) {
-    case "cv": return applyCv(m.k, m.v);
+    case "cv": return applyCv(m.k, m.v, m.ts);
     case "s": if (m.i < samplers.length) samplers[m.i].state = m.v; break;
     case "sn": if (m.i < samplers.length) samplers[m.i].name = m.n ? m.n.t : `Sample ${m.i + 1}`; break;
     case "dn": d.title = m.n ? m.n.t : `Deck ${d.n}`; d.artist = m.n ? m.n.a : "";

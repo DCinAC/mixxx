@@ -806,7 +806,8 @@ void Hub::fromMixxx(const QByteArray& msg) {
         const QString name = QString::fromLatin1(msg.mid(3, end - 3));
         const double value = decodeValue(msg.mid(end + 1, kValueBytes));
         m_controlValues.insert(name, value);
-        emitJson({{"t", "cv"}, {"k", name}, {"v", value}});
+        // ts: the hub's clock (ms) when Mixxx reported it, so pages can time positions without network jitter
+        emitJson({{"t", "cv"}, {"k", name}, {"v", value}, {"ts", static_cast<double>(m_clock.elapsed())}});
         return;
     }
     if (msg.size() == 10 && byte(0) == 0xF0 && byte(1) == 0x7D) {

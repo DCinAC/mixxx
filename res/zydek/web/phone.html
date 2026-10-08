@@ -409,17 +409,17 @@ async function loadWaveform(d, id) {
     await new Promise(res => setTimeout(res, 2000));
   }
 }
-function applyCv(k, v) {
+function applyCv(k, v, ts) {
   const m = /^\[Channel(\d)\],(.*)$/.exec(k);
   if (!m) return;
   const d = decks[m[1] - 1];
   if (!d) return;
   switch (m[2]) {
-    case "play": d.playing = v > 0; break;
+    case "play": d.playing = v > 0; if (!d.playing && d.pt !== undefined) posSeed(d, posModel(d, performance.now()), 0, performance.now()); break;
     case "track_loaded": d.loaded = v > 0; break;
     case "duration": d.dur = v; break;
     case "rate_ratio": d.ratio = v || 1; break;
-    case "playposition": posUpdate(d, v * d.dur, performance.now()); break;
+    case "playposition": posUpdate(d, v * d.dur, performance.now(), ts); break;
     case "track_samples": d.trackSamples = v; break;
     case "cue_point": d.mainCue = v; break;
     default: { const hc = /^hotcue_(\d+)_position$/.exec(m[2]); if (hc && hc[1] <= 8) d.cuePos[hc[1] - 1] = v; }
@@ -443,7 +443,7 @@ function connect() {
       $("#link").textContent = live ? "Live · Mixxx" : "Zydek's controller is off (Preferences › Controllers)";
       return;
     }
-    if (m.t === "cv") applyCv(m.k, m.v);
+    if (m.t === "cv") applyCv(m.k, m.v, m.ts);
     else if (m.t === "cue" && decks[m.d] && m.k < 8) decks[m.d].cueColors[m.k] = m.v ? m.v - 1 : null;   // hot cue colour + 1
     else if (m.t === "dn" && decks[m.d]) onDeckName(decks[m.d], m.n);
   };
@@ -512,9 +512,18 @@ function drawOverview(p, d) {
     const hh = Math.max(1, all / 255 * H * .48);
     g.fillRect(x, H / 2 - hh, 1, hh * 2);
   }
-  // cue ticks over the whole track
-  const dpr = devicePixelRatio || 1;
-  for (const m of cueMarks(d)) { g.fillStyle = m.color; g.fillRect(Math.round(m.t / d.dur * W) - dpr, 0, 2 * dpr, H); }
+  // cue marks over the whole track: a line and a small tag with the number (CUE at the top)
+  const dpr = devicePixelRatio || 1, tag = Math.round(H * .42);
+  g.font = `bold ${Math.round(tag * .8)}px sans-serif`; g.textBaseline = "middle"; g.textAlign = "center";
+  for (const m of cueMarks(d)) {
+    const x = Math.round(m.t / d.dur * W), label = m.top ? "C" : m.label, w = tag;
+    g.fillStyle = m.color;
+    g.fillRect(x - dpr, 0, 2 * dpr, H);
+    const y = m.top ? 0 : H - tag;
+    g.fillRect(Math.min(x, W - w), y, w, tag);
+    g.fillStyle = inkOn(m.color);
+    g.fillText(label, Math.min(x, W - w) + w / 2, y + tag / 2 + dpr / 2);
+  }
 }
 // Cue marks as Mixxx draws them: the main cue red with "CUE" at the top, hot cues in their own colour
 // (#00d9ff when they have none) with their number at the bottom; dark text unless the colour is dark.
@@ -596,24 +605,42 @@ function drawBeats(g, d, start, sec, pxPerSec, left, H) {
     else { g.fillStyle = "rgba(255,255,255,.5)"; g.fillRect(x, 0, dpr, tick); g.fillRect(x, H - tick, dpr, tick); }
   }
 }
-// Play position between Mixxx's updates (about 30 a second, and only when it changed). Extrapolate at the
-// speed the updates themselves show, so scratches, nudges and spin-ups move right rather than at the tempo;
-// never more than 70 ms past the last update (none means it stopped); and when an update disagrees with
-// what was drawn, glide to it over ~60 ms instead of jumping.
-function posSeed(d, p, v, now) { Object.assign(d, { pp: p, pt: now, pv: v, perr: 0 }); }
-function posAt(d, now) {
-  if (d.pt === undefined) return d.pos || 0;
-  const dt = (now - d.pt) / 1000;
-  return d.pp + d.pv * Math.min(dt, .07) + d.perr * Math.exp(-dt / .06);
+// Play position between Mixxx's updates (about 30 a second, only when it changed). Each update carries the
+// hub's clock (ts, ms) from the moment Mixxx reported the position, so network delay doesn't jitter the
+// timing: hub time maps onto this page's clock through the fastest delivery seen in the last 5 s. Between
+// updates the position runs on at the speed the updates show, at most 120 ms past the last one (no update
+// means it stopped). What's drawn never steps back while the music runs forward: if the drawing got ahead it
+// waits; if it's behind it catches up over a few frames; a real jump (seek, scratch) goes straight there.
+const clockSync = { samples: [], off: null };
+function hubTime(ts, now) {   // ts on the hub's clock -> this page's clock
+  if (ts == null) return now;
+  clockSync.samples.push([now, now - ts]);
+  while (clockSync.samples.length > 1 && now - clockSync.samples[0][0] > 5000) clockSync.samples.shift();
+  clockSync.off = clockSync.samples.reduce((m, x) => Math.min(m, x[1]), Infinity);
+  return ts + clockSync.off;
 }
-function posUpdate(d, p, now) {   // p in seconds
+function posSeed(d, p, v, now) { Object.assign(d, { pp: p, pt: now, pv: v, shown: undefined }); }
+function posModel(d, now) {
+  return d.pt === undefined ? d.pos || 0 : d.pp + d.pv * Math.max(0, Math.min((now - d.pt) / 1000, .12));
+}
+function posAt(d, now) {   // what to draw now
+  const target = posModel(d, now);
+  let shown = d.shown;
+  const dir = d.pv > .05 ? 1 : d.pv < -.05 ? -1 : 0;
+  if (shown === undefined || Math.abs(target - shown) > .25 || !dir) shown = target;
+  else if ((target - shown) * dir < 0) { /* ahead of the music: hold until it catches up */ }
+  else shown += (target - shown) * .5;
+  d.shown = shown;
+  return shown;
+}
+function posUpdate(d, p, now, ts) {   // p in seconds
+  const t = Math.min(now, hubTime(ts, now));
   const seed = d.playing ? d.ratio || 1 : 0;
-  if (d.pt === undefined || Math.abs(p - posAt(d, now)) > .5) return posSeed(d, p, seed, now);   // a jump: follow it
-  const dt = (now - d.pt) / 1000;
-  if (dt > .1) d.pv = seed;                                  // it was standing still: restart from the tempo
-  else if (dt > .005) d.pv += ((p - d.pp) / dt - d.pv) * .4;
-  d.perr = posAt(d, now) - p;
-  d.pp = p; d.pt = now;
+  if (d.pt === undefined || Math.abs(p - posModel(d, t)) > .5) return posSeed(d, p, seed, t);   // a jump: follow it
+  const dt = (t - d.pt) / 1000;
+  if (dt > .15) d.pv = seed;                                  // it was standing still: restart from the tempo
+  else if (dt > .004) d.pv += ((p - d.pp) / dt - d.pv) * .5;
+  d.pp = p; d.pt = t;
 }
 
 function frame(now) {
