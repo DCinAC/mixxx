@@ -205,15 +205,16 @@ Item {
                     id: showPreferencesButton
 
                     activeColor: Theme.white
-                    checked: settingsPopup.opened
+                    checked: settingsLoader.item ? settingsLoader.item.opened : false
                     icon.height: 16
                     icon.source: "images/gear.svg"
                     icon.width: 16
                     implicitWidth: implicitHeight
 
                     onClicked: {
-                        if (!settingsPopup.opened) {
-                            settingsPopup.open();
+                        settingsLoader.active = true;
+                        if (!settingsLoader.item.opened) {
+                            settingsLoader.item.open();
                         }
                     }
                     onPressAndHold: {
@@ -741,33 +742,44 @@ Item {
             }
         }
     }
-    Skin.Settings {
-        id: settingsPopup
+    // Zydek: built when first opened rather than with the window. Its pages (audio routing especially)
+    // target sound-device objects that are rebuilt while devices are enumerated at startup, and building
+    // them then could crash (QQmlConnections::connectSignalsToMethods).
+    Loader {
+        id: settingsLoader
 
-        height: Math.min(840, parent.height)
-        modal: true
-        width: Math.min(1400, parent.width)
-        x: Math.round((parent.width - width) / 2)
-        y: Math.round((parent.height - height) / 2)
+        active: false
+        anchors.fill: parent   // the popup sizes itself from its parent
+        sourceComponent: Component {
+            Skin.Settings {
+                id: settingsPopup
 
-        Overlay.modal: Rectangle {
-            id: overlayModal
+                height: Math.min(840, parent.height)
+                modal: true
+                width: Math.min(1400, parent.width)
+                x: Math.round((parent.width - width) / 2)
+                y: Math.round((parent.height - height) / 2)
 
-            readonly property bool hasHardwareAcceleration: Mixxx.Config.useAcceleration
-            property real radius: 12
+                Overlay.modal: Rectangle {
+                    id: overlayModal
 
-            anchors.fill: parent
-            color: Qt.alpha('#00000010', hasHardwareAcceleration ? 1.0 : 0.6)
+                    readonly property bool hasHardwareAcceleration: Mixxx.Config.useAcceleration
+                    property real radius: 12
 
-            Repeater {
-                model: hasHardwareAcceleration ? 1 : 0
+                    anchors.fill: parent
+                    color: Qt.alpha('#00000010', hasHardwareAcceleration ? 1.0 : 0.6)
 
-                GaussianBlur {
-                    anchors.fill: overlayModal
-                    deviation: 4
-                    radius: Math.max(0, overlayModal.radius)
-                    samples: 16
-                    source: content
+                    Repeater {
+                        model: hasHardwareAcceleration ? 1 : 0
+
+                        GaussianBlur {
+                            anchors.fill: overlayModal
+                            deviation: 4
+                            radius: Math.max(0, overlayModal.radius)
+                            samples: 16
+                            source: content
+                        }
+                    }
                 }
             }
         }
