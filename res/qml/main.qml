@@ -43,7 +43,10 @@ ApplicationWindow {
 
         anchors.fill: parent
 
-        active: Mixxx.Core.ready
+        // Zydek: in portrait a phone shows the library page (a WebView over this window, see MainActivity.java),
+        // so Mixxx's own interface is only built in landscape. Its narrow layouts crash while being built
+        // (QQmlConnections during incubation), and nobody would see them anyway.
+        active: Mixxx.Core.ready && (!root.isMobile || root.width >= root.height)
         asynchronous: true
         onStatusChanged: {
             if (status === Loader.Error) {
