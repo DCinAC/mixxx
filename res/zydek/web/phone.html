@@ -369,7 +369,8 @@ document.querySelectorAll("nav button").forEach(b => b.addEventListener("click",
 // Decks: live state over /ws (like the tablet controller), waveforms from /waveform/<id>
 // ---------------------------------------------------------------------------------------------------
 const decks = [1, 2, 3, 4].map(n => ({ n, loaded: false, playing: false, dur: 0, pos: 0, pt: undefined, ratio: 1,
-  title: "", artist: "", id: null, wf: null, wfVer: 0, wfFor: null }));
+  title: "", artist: "", id: null, wf: null, wfVer: 0, wfFor: null,
+  trackSamples: 0, mainCue: -1, cuePos: new Array(8).fill(-1), cueColors: new Array(8).fill(null) }));
 let four = store.get("four", false);       // show decks 3 and 4 too (slimmer), like Mixxx's 4 Decks button
 let ws = null, live = false;
 const wsSend = m => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
@@ -419,6 +420,9 @@ function applyCv(k, v) {
     case "duration": d.dur = v; break;
     case "rate_ratio": d.ratio = v || 1; break;
     case "playposition": posUpdate(d, v * d.dur, performance.now()); break;
+    case "track_samples": d.trackSamples = v; break;
+    case "cue_point": d.mainCue = v; break;
+    default: { const hc = /^hotcue_(\d+)_position$/.exec(m[2]); if (hc && hc[1] <= 8) d.cuePos[hc[1] - 1] = v; }
   }
 }
 function connect() {
@@ -427,11 +431,12 @@ function connect() {
     const m = JSON.parse(ev.data);
     if (m.init) {
       live = !!m.init.live;
-      m.init.decks.forEach((x, i) => decks[i] && onDeckName(decks[i], x.n));
+      m.init.decks.forEach((x, i) => { if (!decks[i]) return; onDeckName(decks[i], x.n); decks[i].cueColors = x.cues.map(v => v ? v - 1 : null); });
       Object.entries(m.init.cv || {}).forEach(([k, v]) => applyCv(k, v));
       const sub = [];
       for (let n = 1; n <= 4; n++) {
-        for (const k of ["play", "track_loaded", "duration", "rate_ratio"]) sub.push([`[Channel${n}]`, k, 0]);
+        for (const k of ["play", "track_loaded", "duration", "rate_ratio", "track_samples", "cue_point",
+          ...[1, 2, 3, 4, 5, 6, 7, 8].map(k => `hotcue_${k}_position`)]) sub.push([`[Channel${n}]`, k, 0]);
         sub.push([`[Channel${n}]`, "playposition", 1]);
       }
       wsSend({ sub });
@@ -439,6 +444,7 @@ function connect() {
       return;
     }
     if (m.t === "cv") applyCv(m.k, m.v);
+    else if (m.t === "cue" && decks[m.d] && m.k < 8) decks[m.d].cueColors[m.k] = m.v ? m.v - 1 : null;   // hot cue colour + 1
     else if (m.t === "dn" && decks[m.d]) onDeckName(decks[m.d], m.n);
   };
   ws.onclose = () => { $("#link").textContent = "reconnecting…"; setTimeout(connect, 1500); };
@@ -490,7 +496,7 @@ function colorFor(a, i) {   // like Mixxx's RGB waveform: red lows, green mids, 
 }
 // Needle search: the whole track, drawn once per track and size.
 function drawOverview(p, d) {
-  const c = p.nCanvas, resized = sizeCanvas(c), key = `${d.n}|${d.wfVer}|${c.width}`;
+  const c = p.nCanvas, resized = sizeCanvas(c), key = `${d.n}|${d.wfVer}|${c.width}|${cueSig(d)}`;
   if (p.nKey === key && !resized) return;
   p.nKey = key;
   const g = c.getContext("2d"), W = c.width, H = c.height;
@@ -506,19 +512,52 @@ function drawOverview(p, d) {
     const hh = Math.max(1, all / 255 * H * .48);
     g.fillRect(x, H / 2 - hh, 1, hh * 2);
   }
+  // cue ticks over the whole track
+  const dpr = devicePixelRatio || 1;
+  for (const m of cueMarks(d)) { g.fillStyle = m.color; g.fillRect(Math.round(m.t / d.dur * W) - dpr, 0, 2 * dpr, H); }
 }
+// Cue marks as Mixxx draws them: the main cue red with "CUE" at the top, hot cues in their own colour
+// (#00d9ff when they have none) with their number at the bottom; dark text unless the colour is dark.
+const inkOn = hex => { const v = parseInt(hex.slice(1), 16); return ((v >> 16 & 255) * .299 + (v >> 8 & 255) * .587 + (v & 255) * .114) > 110 ? "#1a1a1a" : "#ffffff"; };
+const hexColor = v => "#" + (v & 0xffffff).toString(16).padStart(6, "0");
+function drawCueMarks(g, marks, pxPerSec, left, W, H) {
+  const dpr = devicePixelRatio || 1, tag = Math.max(Math.round(11 * dpr), Math.round(H * .17));
+  g.font = `bold ${Math.round(tag * .74)}px sans-serif`; g.textBaseline = "middle"; g.textAlign = "left";
+  for (const m of marks) {
+    const x = Math.round(m.t * pxPerSec) - left;
+    if (x < -tag * 4 || x > W + dpr) continue;
+    g.fillStyle = m.color;
+    g.fillRect(x - dpr, 0, 2 * dpr, H);
+    const w = Math.ceil(g.measureText(m.label).width + tag * .6), y = m.top ? 0 : H - tag;
+    g.fillRect(x, y, w, tag);
+    g.fillStyle = inkOn(m.color);
+    g.fillText(m.label, x + tag * .3, y + tag / 2 + dpr / 2);
+  }
+}
+function cueMarks(d) {
+  const sec = v => v >= 0 && d.trackSamples > 0 && d.dur > 0 ? v / d.trackSamples * d.dur : null;
+  const marks = [], main = sec(d.mainCue);
+  if (main != null) marks.push({ t: main, color: "#ff0000", label: "CUE", top: true });
+  for (let k = 0; k < 8; k++) {
+    const t = sec(d.cuePos[k]);
+    if (t != null) marks.push({ t, color: d.cueColors[k] != null ? hexColor(d.cueColors[k]) : "#00d9ff", label: String(k + 1) });
+  }
+  return marks;
+}
+const cueSig = d => cueMarks(d).map(m => m.t.toFixed(3) + m.color).join();
+
 // Zoomed waveform: rolls past a fixed cursor (tiles cached per track, copied each frame).
 const TILE = 1024, ZOOM_SECONDS = 4;
 function drawZoom(p, d) {
   const c = p.zCanvas;
   sizeCanvas(c);
   const W = c.width, H = c.height, wf = d.wf, pxPerSec = W / ZOOM_SECONDS;
-  const left = Math.round((d.pos - ZOOM_SECONDS / 2) * pxPerSec), key = `${d.n}|${d.wfVer}|${d.beatsVer || 0}|${left}|${W}|${H}`;
+  const left = Math.round((d.pos - ZOOM_SECONDS / 2) * pxPerSec), key = `${d.n}|${d.wfVer}|${d.beatsVer || 0}|${cueSig(d)}|${left}|${W}|${H}`;
   if (p.zKey === key) return;
   p.zKey = key;
   const g = c.getContext("2d");
   g.clearRect(0, 0, W, H);
-  if (!wf) { drawBeats(g, d, left / pxPerSec, ZOOM_SECONDS, pxPerSec, left, H); return; }
+  if (!wf) { drawBeats(g, d, left / pxPerSec, ZOOM_SECONDS, pxPerSec, left, H); drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H); return; }
   const tkey = `${d.n}|${d.wfVer}|${W}|${H}`;
   if (p.tileKey !== tkey) { p.tileKey = tkey; p.tiles = new Map(); }
   for (let t = Math.floor(left / TILE); t * TILE < left + W; t++) {
@@ -542,6 +581,7 @@ function drawZoom(p, d) {
     g.drawImage(tile, t * TILE - left, 0);
   }
   drawBeats(g, d, left / pxPerSec, ZOOM_SECONDS, pxPerSec, left, H);
+  drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H);
 }
 // Beat grid: bar lines across, the other beats as ticks top and bottom.
 function drawBeats(g, d, start, sec, pxPerSec, left, H) {

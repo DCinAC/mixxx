@@ -1223,7 +1223,8 @@ function drawStripWave(u, d, start, sec) {
   const W = Math.round(r.width * dpr), H = Math.round(r.height * dpr), pxPerSec = W / sec;
   const left = Math.round(start * pxPerSec);               // whole device pixels: crisp, and skip identical frames
   const lr = loopRange(d);
-  const key = `${d.n}|${d.wfVer || 0}|${d.beatsVer || 0}|${lr ? lr.join() + d.loopOn : ""}|${left}|${sec}|${W}|${H}`;
+  const cues = cueMarks(d).map(m => m.t.toFixed(3) + m.color).join();
+  const key = `${d.n}|${d.wfVer || 0}|${d.beatsVer || 0}|${lr ? lr.join() + d.loopOn : ""}|${cues}|${left}|${sec}|${W}|${H}`;
   if (u.wfKey === key) return;
   u.wfKey = key;
   const c = u.wfCanvas;
@@ -1231,7 +1232,7 @@ function drawStripWave(u, d, start, sec) {
   const g = c.getContext("2d");
   g.clearRect(0, 0, W, H);
   const wf = d.wf;
-  if (!wf) { drawOverlays(g, d, start, sec, pxPerSec, left, W, H); return; }
+  if (!wf) { drawStripMarks(g, d, start, sec, pxPerSec, left, W, H); return; }
   // Tiles are cached per track and scale; rendering one costs a few ms, copying it each frame almost nothing.
   const tkey = `${d.n}|${d.wfVer}|${sec}|${W}|${H}`;
   if (u.tileKey !== tkey) { u.tileKey = tkey; u.tiles = new Map(); }
@@ -1245,7 +1246,7 @@ function drawStripWave(u, d, start, sec) {
     }
     g.drawImage(t, k * TILE - left, 0);
   }
-  drawOverlays(g, d, start, sec, pxPerSec, left, W, H);
+  drawStripMarks(g, d, start, sec, pxPerSec, left, W, H);
   // Draw the tile coming up next while the tablet is idle, so playback never waits for one.
   const next = Math.floor((left + W) / TILE) + 1;
   if (!u.tiles.has(next) && next * TILE / pxPerSec < wf.n / wf.rate && u.prefetch !== `${tkey}|${next}`) {
@@ -1281,6 +1282,37 @@ function loopRange(d) {
   return [d.loopIn * k, d.loopOut * k];
 }
 
+// Cue marks as Mixxx draws them: the main cue red with "CUE" at the top, hot cues in their own colour
+// (#00d9ff when they have none) with their number at the bottom; dark text unless the colour is dark.
+const inkOn = hex => { const v = parseInt(hex.slice(1), 16); return ((v >> 16 & 255) * .299 + (v >> 8 & 255) * .587 + (v & 255) * .114) > 110 ? "#1a1a1a" : "#ffffff"; };
+const hexColor = v => "#" + (v & 0xffffff).toString(16).padStart(6, "0");
+function drawCueMarks(g, marks, pxPerSec, left, W, H) {
+  const dpr = devicePixelRatio || 1, tag = Math.max(Math.round(11 * dpr), Math.round(H * .17));
+  g.font = `bold ${Math.round(tag * .74)}px sans-serif`; g.textBaseline = "middle"; g.textAlign = "left";
+  for (const m of marks) {
+    const x = Math.round(m.t * pxPerSec) - left;
+    if (x < -tag * 4 || x > W + dpr) continue;
+    g.fillStyle = m.color;
+    g.fillRect(x - dpr, 0, 2 * dpr, H);
+    const w = Math.ceil(g.measureText(m.label).width + tag * .6), y = m.top ? 0 : H - tag;
+    g.fillRect(x, y, w, tag);
+    g.fillStyle = inkOn(m.color);
+    g.fillText(m.label, x + tag * .3, y + tag / 2 + dpr / 2);
+  }
+}
+// This deck's cue marks: [{t (seconds), color, label, top}]. Live, Mixxx gives the positions in samples
+// (-1 = none) and the hub the hot cue colours; the simulation keeps seconds.
+function cueMarks(d) {
+  const sec = v => v >= 0 && d.trackSamples > 0 && d.dur > 0 ? v / d.trackSamples * d.dur : null;
+  const marks = [], main = live ? sec(d.mainCue) : d.cuePoint;
+  if (main != null && (live || main > 0)) marks.push({ t: main, color: "#ff0000", label: "CUE", top: true });
+  for (let k = 0; k < 8; k++) {
+    const c = d.cues[k], t = live ? sec(d.cuePos?.[k]) : c && c.pos;
+    if (t != null) marks.push({ t, color: c ? hexColor(c.c) : "#00d9ff", label: String(k + 1) });
+  }
+  return marks;
+}
+
 // Beat grid (bar lines across the strip, ticks top and bottom for the other beats) and the loop (as Mixxx draws
 // it: filled green while it plays, white once it's off) over the strip's waveform.
 function drawOverlays(g, d, start, sec, pxPerSec, left, W, H) {
@@ -1310,6 +1342,10 @@ function drawOverlays(g, d, start, sec, pxPerSec, left, W, H) {
     if ((i + d.bar) % 4 === 0) { g.fillStyle = "rgba(255,255,255,.55)"; g.fillRect(x - dpr, 0, 2 * dpr, H); }
     else { g.fillStyle = "rgba(255,255,255,.5)"; g.fillRect(x, 0, dpr, tick); g.fillRect(x, H - tick, dpr, tick); }
   }
+}
+function drawStripMarks(g, d, start, sec, pxPerSec, left, W, H) {
+  drawOverlays(g, d, start, sec, pxPerSec, left, W, H);
+  drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H);
 }
 
 // Live: fetch the analysed waveform of the track on a deck (Mixxx may still be analysing a new track).
@@ -1516,6 +1552,8 @@ function applyCv(name, v) {
     if (!d) return;
     // Our own changes echoed back (isLocal) and repeats of the same value repaint nothing.
     const upd = (k, val, part = "deck") => { if (d[k] !== val) { d[k] = val; markDirty(part, d); } };
+    const hc = /^hotcue_(\d+)_position$/.exec(key);
+    if (hc) { (d.cuePos ??= [])[hc[1] - 1] = v; return; }
     switch (key) {
       case "playposition": posUpdate(d, v * d.dur, performance.now()); return;   // drawn by the animation loop
       case "play": return upd("playing", v > 0);
@@ -1535,6 +1573,7 @@ function applyCv(name, v) {
       case "loop_start_position": d.loopIn = v; return;                     // in samples; drawn on the strip
       case "loop_end_position": d.loopOut = v; return;
       case "track_samples": d.trackSamples = v; return;
+      case "cue_point": d.mainCue = v; return;                              // samples; drawn on the strip
       case "volume": if (!isLocal(d, "vol")) upd("vol", v, "mixer"); return;
       case "pregain": if (!isLocal(d, "gain")) upd("gain", v, "mixer"); return;
     }
@@ -1558,7 +1597,8 @@ function subscribeAll() {
   for (let n = 1; n <= 4; n++) {
     for (const k of ["play", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch_adjust", "sync_enabled", "sync_mode", "keylock", "quantize",
       "pfl", "mute", "loop_enabled", "beatloop_size",
-      "loop_start_position", "loop_end_position", "track_samples"]) sub.push([ch(n), k, 0]);
+      "loop_start_position", "loop_end_position", "track_samples", "cue_point",
+      ...[1, 2, 3, 4, 5, 6, 7, 8].map(k => `hotcue_${k}_position`)]) sub.push([ch(n), k, 0]);
     sub.push([ch(n), "playposition", 1]);                  // polled ~30/s
     for (const f of ["vol", "gain", "high", "mid", "low", "filter"]) sub.push([...MIXER[f](n), 2]);
   }
