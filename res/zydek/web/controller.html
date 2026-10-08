@@ -1115,7 +1115,7 @@ function hubTime(ts, now) {   // ts on the hub's clock -> this page's clock
 }
 function posSeed(d, p, v, now) { Object.assign(d, { pp: p, pt: now, pv: v, shown: undefined }); }
 function posModel(d, now) {
-  return d.pt === undefined ? d.pos || 0 : d.pp + d.pv * Math.max(0, Math.min((now - d.pt) / 1000, .12));
+  return d.pt === undefined ? d.pos || 0 : d.pp + d.pv * Math.max(0, Math.min((now - d.pt) / 1000, .25));
 }
 function posAt(d, now) {   // what to draw now
   const target = posModel(d, now);
@@ -1127,14 +1127,29 @@ function posAt(d, now) {   // what to draw now
   d.shown = shown;
   return shown;
 }
+// Mixxx moves the position once per audio buffer (~21 ms) and it's read every 33 ms, so single steps say
+// 0.6x or 1.3x in turn. The speed is the deck's tempo unless the last 300 ms clearly say otherwise
+// (scratching, nudging), and each reading moves the drawing only 15 % of the way to it.
 function posUpdate(d, p, now, ts) {   // p in seconds
   const t = Math.min(now, hubTime(ts, now));
-  const seed = d.playing ? d.ratio || 1 : 0;
-  if (d.pt === undefined || Math.abs(p - posModel(d, t)) > .5) return posSeed(d, p, seed, t);   // a jump: follow it
-  const dt = (t - d.pt) / 1000;
-  if (dt > .15) d.pv = seed;                                  // it was standing still: restart from the tempo
-  else if (dt > .004) d.pv += ((p - d.pp) / dt - d.pv) * .5;
-  d.pp = p; d.pt = t;
+  const nominal = d.playing ? d.ratio || 1 : 0;
+  if (d.pt === undefined || Math.abs(p - posModel(d, t)) > .3) {   // a jump: follow it
+    d.hist = [[t, p]];
+    return posSeed(d, p, nominal, t);
+  }
+  const hist = d.hist || (d.hist = []);
+  hist.push([t, p]);
+  while (hist.length > 2 && t - hist[0][0] > 300) hist.shift();
+  let v = nominal;
+  if (hist.length >= 4) {
+    const mt = hist.reduce((a, x) => a + x[0], 0) / hist.length, mp = hist.reduce((a, x) => a + x[1], 0) / hist.length;
+    let num = 0, den = 0;
+    for (const [ht, hp] of hist) { num += (ht - mt) * (hp - mp); den += (ht - mt) ** 2; }
+    const slope = den ? num / den * 1000 : nominal;
+    if (Math.abs(slope - nominal) > .08) v = slope;
+  }
+  const pred = posModel(d, t);
+  d.pp = pred + (p - pred) * .15; d.pt = t; d.pv = v;
 }
 
 // Turntable physics after the hand lets go. The platter is a heavy, servo-driven flywheel: holding the
