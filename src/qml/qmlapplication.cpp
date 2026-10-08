@@ -128,7 +128,11 @@ QmlApplication::QmlApplication(
 #endif
     QQuickStyle::setStyle("Basic");
 
-#if defined(Q_OS_ANDROID)
+// Zydek: upstream copies the QML to shared storage and live-reloads it from there once the app may write
+// to it (a convenience for editing the UI on a device). That reloads the interface while it's still being
+// built (QQmlConnections crash during incubation) and keeps using stale copies after updates, so Zydek
+// always loads its QML from the APK. Build with ZYDEK_QML_FROM_STORAGE to get the upstream behaviour.
+#if defined(Q_OS_ANDROID) && defined(ZYDEK_QML_FROM_STORAGE)
     if (canWriteToExternalStorage()) {
         const QString externalQmlDir = QStringLiteral("/storage/emulated/0/Mixxx/qml");
         copyAssetDir(QStringLiteral("assets:/qml"), externalQmlDir);
