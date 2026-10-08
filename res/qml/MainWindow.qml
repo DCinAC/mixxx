@@ -22,6 +22,9 @@ Item {
     readonly property int numSamplers: 16
     readonly property int waveformOverviewTypeRgb: 2
     readonly property bool show4decks: show4DecksButton.checked && show4DecksButton.visible
+    // Zydek's classic phone layout (landscape): decks 1 and 2 over-under next to the mixer, decks 3 and 4 as
+    // a second column on its other side, and the library as its own page (the Library button).
+    readonly property bool zydekClassic: Qt.platform.os === "android" || Qt.platform.os === "ios"
     property alias showEffects: showEffectsButton.checked
     property alias showSamplers: showSamplersButton.checked
 
@@ -121,7 +124,7 @@ Item {
                     activeColor: Theme.white
                     checkable: true
                     text: "4 Decks"
-                    visible: root.height > 515
+                    visible: root.height > 515 || root.zydekClassic
                 }
                 Skin.Button {
                     id: maximizeLibraryButton
@@ -381,7 +384,8 @@ Item {
 
                     editMode: root.editDeck
                     group: "[Channel1]"
-                    height: root.maximizeLibrary ? 80 : root.show4decks ? mixer.height / 2 : mixer.height
+                    height: root.maximizeLibrary ? 80 : (root.show4decks || root.zydekClassic) ? mixer.height / 2 : mixer.height
+                    visible: !(root.zydekClassic && root.maximizeLibrary)
                     minimized: root.maximizeLibrary
 
                     Behavior on height {
@@ -433,6 +437,21 @@ Item {
                         }
                     }
                     states: [
+                        State {
+                            when: root.zydekClassic && !root.show4decks && !root.maximizeLibrary
+                            AnchorChanges {
+                                anchors.horizontalCenter: undefined
+                                anchors.right: parent.right
+                                target: mixer
+                            }
+                        },
+                        State {
+                            when: root.zydekClassic && root.show4decks && !root.maximizeLibrary
+                            AnchorChanges {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                target: mixer
+                            }
+                        },
                         State {
                             when: root.focusedDeck === deck1 && root.width < 1400 && !root.maximizeLibrary
 
@@ -504,7 +523,8 @@ Item {
 
                     editMode: root.editDeck
                     group: "[Channel2]"
-                    height: root.maximizeLibrary ? 80 : root.show4decks ? mixer.height / 2 : mixer.height
+                    height: root.maximizeLibrary ? 80 : (root.show4decks || root.zydekClassic) ? mixer.height / 2 : mixer.height
+                    visible: !(root.zydekClassic && root.maximizeLibrary)
                     minimized: root.maximizeLibrary
 
                     Behavior on height {
@@ -518,8 +538,16 @@ Item {
                     }
                     states: [
                         State {
+                            when: root.zydekClassic
+                            AnchorChanges {
+                                anchors.left: parent.left
+                                anchors.right: mixer.left
+                                anchors.top: deck1.bottom
+                                target: deck2
+                            }
+                        },
+                        State {
                             when: root.maximizeLibrary
-
                             AnchorChanges {
                                 anchors.left: parent.horizontalCenter
                                 target: deck2
@@ -563,10 +591,19 @@ Item {
                             minimized: root.maximizeLibrary
                         }
                     }
+                    visible: !(root.zydekClassic && root.maximizeLibrary)
                     states: [
                         State {
+                            when: root.zydekClassic
+                            AnchorChanges {
+                                anchors.left: mixer.right
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                target: deck3
+                            }
+                        },
+                        State {
                             when: root.maximizeLibrary
-
                             AnchorChanges {
                                 anchors.right: parent.horizontalCenter
                                 target: deck3
@@ -606,10 +643,19 @@ Item {
                             minimized: root.maximizeLibrary
                         }
                     }
+                    visible: !(root.zydekClassic && root.maximizeLibrary)
                     states: [
                         State {
+                            when: root.zydekClassic
+                            AnchorChanges {
+                                anchors.left: mixer.right
+                                anchors.right: parent.right
+                                anchors.top: deck3.bottom
+                                target: deck4
+                            }
+                        },
+                        State {
                             when: root.maximizeLibrary
-
                             AnchorChanges {
                                 anchors.left: parent.horizontalCenter
                                 target: deck4
@@ -654,6 +700,13 @@ Item {
                         }
                     }
                     states: [
+                        State {
+                            when: root.zydekClassic && root.maximizeLibrary
+                            AnchorChanges {
+                                anchors.top: parent.top
+                                target: library
+                            }
+                        },
                         State {
                             when: root.maximizeLibrary && root.show4decks
 

@@ -2,6 +2,7 @@ package org.mixxx;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Build;
@@ -85,6 +86,32 @@ public class MainActivity extends QtActivityBase {
 
         createPhoneView();
         updateMode(getResources().getConfiguration().orientation);
+        applyOrientationExtra(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        applyOrientationExtra(intent);
+    }
+
+    /// For testing over adb without touching the device's rotation settings:
+    ///   adb shell am start -n org.mixxx/.MainActivity --es zydek_orientation landscape|portrait|auto
+    private void applyOrientationExtra(Intent intent) {
+        String orientation = intent == null ? null : intent.getStringExtra("zydek_orientation");
+        if (orientation == null) {
+            return;
+        }
+        switch (orientation) {
+            case "landscape":
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+                break;
+            case "portrait":
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
+                break;
+            default:
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+        }
     }
 
     @Override

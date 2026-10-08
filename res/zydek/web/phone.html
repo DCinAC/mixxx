@@ -438,7 +438,7 @@ function openSheet(t) {
     `<div class="a">${esc(t.artist || "Unknown artist")}${t.album ? " · " + esc(t.album) : ""}</div>` +
     `<div class="facts"><div><b>${t.bpm ? t.bpm.toFixed(1) : "—"}</b>BPM</div><div><b>${esc(t.key || "—")}</b>Key</div>` +
     `<div><b>${fmtTime(t.duration)}</b>Length</div><div><b>${t.played || 0}</b>Played</div></div>` +
-    `<div class="loads"></div><div class="more"><button class="pv">🎧 Preview</button><button class="smp">Load to sampler</button></div>`;
+    `<div class="loads"></div><div class="more"><button class="pv">Preview (headphones)</button><button class="smp">Load to sampler</button></div>`;
   [1, 2, 3, 4].forEach(n => {
     const d = decks[n - 1];
     const b = h("button", n > 2 ? "d34" : "d12", `Deck ${n}<small>${d.playing ? "playing" : d.loaded ? esc(d.title || "loaded") : "empty"}</small>`);
