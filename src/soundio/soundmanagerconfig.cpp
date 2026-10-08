@@ -2,6 +2,9 @@
 
 #include <QRegularExpression>
 #include <QtGlobal>
+#ifdef __ANDROID__
+#include <portaudio.h>
+#endif
 
 #include "audio/types.h"
 #include "soundio/sounddevice.h"
@@ -547,6 +550,14 @@ void SoundManagerConfig::loadDefaults(SoundManager* soundManager, unsigned int f
             } else {
                 m_api = SoundManagerConfig::kAPIDirectSound;
             }
+#endif
+#ifdef __ANDROID__
+            // Zydek: Android's low-latency audio, PortAudio's Oboe host API
+            const PaHostApiIndex oboe = Pa_HostApiTypeIdToHostApiIndex(paOboe);
+            const PaHostApiInfo* pOboe = oboe >= 0 ? Pa_GetHostApiInfo(oboe) : nullptr;
+            m_api = pOboe && apiList.contains(QString::fromUtf8(pOboe->name))
+                    ? QString::fromUtf8(pOboe->name)
+                    : apiList.first();
 #endif
 #ifdef Q_OS_IOS
             m_api = SoundManagerConfig::kAPIIosAudio;

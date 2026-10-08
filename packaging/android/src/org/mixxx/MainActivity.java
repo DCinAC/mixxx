@@ -110,7 +110,7 @@ public class MainActivity extends QtActivityBase {
                 setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
                 break;
             default:
-                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_USER);   // follows the rotation lock
         }
     }
 

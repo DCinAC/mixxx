@@ -541,7 +541,12 @@ SoundDeviceStatus SoundManager::setConfig(const SoundManagerConfig& config) {
 }
 
 void SoundManager::checkConfig() {
-    if (!m_config.checkAPI()) {
+    bool apiOk = m_config.checkAPI();
+#ifdef __ANDROID__
+    // Zydek: earlier versions had no Android default and saved "None" (silence): choose one now
+    apiOk = apiOk && m_config.getAPI() != SoundManagerConfig::kAPINone;
+#endif
+    if (!apiOk) {
         m_config.setAPI(SoundManagerConfig::kAPINone);
         m_config.loadDefaults(this, SoundManagerConfig::API | SoundManagerConfig::DEVICES);
     }
