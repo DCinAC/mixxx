@@ -265,8 +265,8 @@ Item {
             Item {
                 id: waveforms
 
-                SplitView.fillHeight: !library.active
-                SplitView.preferredHeight: library.active ? 120 : undefined
+                SplitView.fillHeight: !library.active && !root.zydekClassic
+                SplitView.preferredHeight: root.zydekClassic ? Math.round(root.height * 0.24) : library.active ? 120 : undefined
                 visible: !root.maximizeLibrary
 
                 FadeBehavior on visible {
@@ -375,8 +375,8 @@ Item {
                 }
             }
             Item {
-                SplitView.fillHeight: library.active
-                SplitView.maximumHeight: library.active ? undefined : mixer.height
+                SplitView.fillHeight: library.active || root.zydekClassic
+                SplitView.maximumHeight: (library.active || root.zydekClassic) ? undefined : mixer.height
                 SplitView.minimumHeight: mixer.height
 
                 Deck {
@@ -384,7 +384,7 @@ Item {
 
                     editMode: root.editDeck
                     group: "[Channel1]"
-                    height: root.maximizeLibrary ? 80 : (root.show4decks || root.zydekClassic) ? mixer.height / 2 : mixer.height
+                    height: root.maximizeLibrary ? 80 : root.zydekClassic ? parent.height / 2 : root.show4decks ? mixer.height / 2 : mixer.height
                     visible: !(root.zydekClassic && root.maximizeLibrary)
                     minimized: root.maximizeLibrary
 
@@ -523,7 +523,7 @@ Item {
 
                     editMode: root.editDeck
                     group: "[Channel2]"
-                    height: root.maximizeLibrary ? 80 : (root.show4decks || root.zydekClassic) ? mixer.height / 2 : mixer.height
+                    height: root.maximizeLibrary ? 80 : root.zydekClassic ? parent.height / 2 : root.show4decks ? mixer.height / 2 : mixer.height
                     visible: !(root.zydekClassic && root.maximizeLibrary)
                     minimized: root.maximizeLibrary
 
@@ -571,7 +571,7 @@ Item {
                     readonly property string group: "[Channel3]"
 
                     active: root.show4decks
-                    height: active ? (root.maximizeLibrary ? 80 : mixer.height / 2) : 0
+                    height: active ? (root.maximizeLibrary ? 80 : root.zydekClassic ? parent.height / 2 : mixer.height / 2) : 0
 
                     Behavior on height {
                         SpringAnimation {
@@ -623,7 +623,7 @@ Item {
                     readonly property string group: "[Channel4]"
 
                     active: root.show4decks
-                    height: active ? (root.maximizeLibrary ? 80 : mixer.height / 2) : 0
+                    height: active ? (root.maximizeLibrary ? 80 : root.zydekClassic ? parent.height / 2 : mixer.height / 2) : 0
 
                     Behavior on height {
                         SpringAnimation {
@@ -691,7 +691,7 @@ Item {
                 Loader {
                     id: library
 
-                    active: root.maximizeLibrary || root.height - mixer.height >= 400
+                    active: root.maximizeLibrary || (!root.zydekClassic && root.height - mixer.height >= 400)
                     width: parent.width
 
                     sourceComponent: Component {

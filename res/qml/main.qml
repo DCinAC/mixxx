@@ -14,17 +14,22 @@ ApplicationWindow {
     // Zydek: Mixxx's interface is shown in landscape only on phones and tablets (see the content Loader).
     property bool showMainWindow: !isMobile
 
-    onWidthChanged: orientationSettle.restart()
-    onHeightChanged: orientationSettle.restart()
+    property bool landscapeSeen: true
 
     Timer {
-        id: orientationSettle
-
+        // Rotations don't always change the window's size properties, so the screen is checked twice a
+        // second, and the interface follows once a new orientation has held for two checks.
         interval: 500
+        repeat: true
         running: root.isMobile
+        triggeredOnStart: true
         onTriggered: {
-            root.showMainWindow = !root.isMobile || root.width >= root.height;
-            console.log(`Zydek: window ${root.width}x${root.height}, screen ${Screen.width}x${Screen.height}: main window ${root.showMainWindow ? "on" : "off"}`);
+            const landscape = Screen.width >= Screen.height;
+            if (landscape === root.landscapeSeen && landscape !== root.showMainWindow) {
+                root.showMainWindow = landscape;
+                console.log(`Zydek: screen ${Screen.width}x${Screen.height}: main window ${landscape ? "on" : "off"}`);
+            }
+            root.landscapeSeen = landscape;
         }
     }
 
