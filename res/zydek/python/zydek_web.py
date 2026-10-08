@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -346,10 +347,119 @@ def _account():
     return _job("account", "Bilibili", run)
 
 
+# ---- Bilibili QR login -----------------------------------------------------------------------------
+# Zydek's own login screen (phone page): ask the site for a QR login, show the code (and its link, which
+# opens in the Bilibili app on this phone), wait for the confirmation, then keep the session cookies in the
+# cookies.txt yt-dlp reads, as the app's web login does (MainActivity.java).
+
+_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+_SITES = {
+    "cn": {"domain": "bilibili.com", "referer": "https://www.bilibili.com/"},
+    "intl": {"domain": "bilibili.tv", "referer": "https://www.bilibili.tv/"},
+}
+QR_LIFETIME = 170   # Bilibili's codes last 180 s
+SESSION_LIFETIME = 180 * 24 * 3600
+
+
+def _qr_login(site):
+    def run(job):
+        import http.cookiejar
+        import segno
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        headers = {"User-Agent": _UA, "Referer": _SITES[site]["referer"]}
+
+        def get(url):
+            return json.load(opener.open(urllib.request.Request(url, headers=headers), timeout=15))
+
+        def visit(url):   # a link that sets the session cookies
+            opener.open(urllib.request.Request(url, headers=headers), timeout=15).read()
+
+        if site == "cn":
+            g = get("https://passport.bilibili.com/x/passport-login/web/qrcode/generate?source=main-fe-header")
+            if g.get("code") != 0:
+                raise RuntimeError(f"Bilibili gave no login code ({g.get('message')})")
+            link, key = g["data"]["url"], g["data"]["qrcode_key"]
+        else:
+            base = "https://passport.bilibili.tv/x/intl/passport-login/qrcode/auth/"
+            g = get(base + "url?s_locale=en_US&platform=web")
+            if g.get("code") != 0:
+                raise RuntimeError(f"bilibili.tv gave no login code ({g.get('message')})")
+            link = g["data"]["qr_url"]
+            key = urllib.parse.parse_qs(urllib.parse.urlparse(link).query)["ticket"][0]
+        job["data"] = {"site": site, "link": link,
+                       "svg": segno.make(link, error="m").svg_inline(scale=6, border=2, dark="#000", light="#fff")}
+        job["message"] = "waiting"
+        deadline = time.time() + QR_LIFETIME
+        while time.time() < deadline:
+            time.sleep(2)
+            if job.get("cancel"):
+                job["message"] = "cancelled"
+                return None
+            if site == "cn":
+                p = get("https://passport.bilibili.com/x/passport-login/web/qrcode/poll?source=main-fe-header&qrcode_key=" + key)
+                code = (p.get("data") or {}).get("code", p.get("code"))
+                if code == 86090:
+                    job["message"] = "scanned"
+                elif code == 86038:
+                    break
+                elif code == 0:
+                    if p["data"].get("url"):
+                        visit(p["data"]["url"])
+                    return _keep_session(site, jar)
+            else:
+                p = get(base + "fetch?s_locale=en_US&platform=web&ticket=" + key)
+                if p.get("code") == 0:
+                    url = (p.get("data") or {}).get("redirect_url") or (p.get("data") or {}).get("url")
+                    if url:
+                        visit(url)
+                    return _keep_session(site, jar)
+                if p.get("code") == 10018100:
+                    break
+        job["message"] = "expired"
+        raise RuntimeError("The code ran out: tap it for a new one")
+
+    return _job("qrlogin", site, run)
+
+
+def _keep_session(site, jar):
+    import http.cookiejar
+    domain = _SITES[site]["domain"]
+    mine = [c for c in jar if c.domain.lstrip(".").endswith(domain)]
+    if not any(c.name == "SESSDATA" and c.value for c in mine):
+        raise RuntimeError("Bilibili confirmed the login but sent no session; try the login page instead")
+    path = os.path.join(_dirs["data"], COOKIE_FILE)
+    keep = http.cookiejar.MozillaCookieJar(path)
+    if os.path.exists(path):
+        keep.load(ignore_discard=True, ignore_expires=True)
+    for c in list(keep):
+        if c.domain.lstrip(".").endswith(domain):
+            keep.clear(c.domain, c.path, c.name)
+    for c in mine:
+        if c.expires is None:
+            c.expires, c.discard = int(time.time()) + SESSION_LIFETIME, False
+        keep.set_cookie(c)
+    keep.save(ignore_discard=True, ignore_expires=True)
+    return {"site": site}
+
+
+def _qr_save(job_id):
+    """The job's QR code as a picture in Pictures/Zydek, for the Bilibili app's scan-from-photos."""
+    import segno
+    job = _jobs.get(job_id)
+    if not job or not job.get("data"):
+        raise RuntimeError("No QR code to save")
+    folder = "/storage/emulated/0/Pictures/Zydek"
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f"bilibili-login-{job['data']['site']}.png")
+    segno.make(job["data"]["link"], error="m").save(path, kind="png", scale=12, border=4, dark="#000", light="#fff")
+    return path
+
+
 # ---- API (/api/web/<name>) ------------------------------------------------------------------------
 
 def _public(job):
-    return {k: job[k] for k in ("id", "kind", "title", "state", "progress", "message", "result", "error")}
+    return {k: job.get(k) for k in ("id", "kind", "title", "state", "progress", "message", "result", "error", "data")}
 
 
 def api(name, args_json):
@@ -372,6 +482,16 @@ def api(name, args_json):
             with _lock:
                 jobs = [_public(j) for j in sorted(_jobs.values(), key=lambda j: -j["started"]) if j["kind"] == "download"]
             return json.dumps({"ok": True, "jobs": jobs})
+        if name == "qrlogin":   # ?site=cn|intl
+            if args.get("site") not in _SITES:
+                return json.dumps({"ok": False, "error": "Unknown site"})
+            return json.dumps({"ok": True, "job": _qr_login(args["site"])["id"]})
+        if name == "qrsave":    # ?id=<qrlogin job>
+            return json.dumps({"ok": True, "path": _qr_save(args.get("id", ""))})
+        if name == "cancel":    # ?id=
+            if args.get("id") in _jobs:
+                _jobs[args["id"]]["cancel"] = True
+            return json.dumps({"ok": True})
         if name == "account":
             return json.dumps({"ok": True, "job": _account()["id"]})
         if name == "prefs":   # ?biliHiRes=0|1 to change, nothing to read

@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -98,6 +99,18 @@ public class MainActivity extends QtActivityBase {
         @JavascriptInterface
         public String bilibiliPaste(String site, String text) {
             return pasteBilibiliCookies(site, text);
+        }
+
+        /// Opens a QR login link in the Bilibili app for that site: "" or why it couldn't.
+        @JavascriptInterface
+        public String bilibiliOpenApp(String site, String link) {
+            return openInBilibiliApp(site, link);
+        }
+
+        /// Lets the gallery (and the Bilibili app's scan-from-photos) see a picture Zydek saved.
+        @JavascriptInterface
+        public void addToGallery(String path) {
+            MediaScannerConnection.scanFile(MainActivity.this, new String[] {path}, new String[] {"image/png"}, null);
         }
 
         /// {"cn": true/false, "intl": true/false}: whether Zydek has a session for each.
@@ -383,7 +396,8 @@ public class MainActivity extends QtActivityBase {
 
         @JavascriptInterface
         public void open(String link) {
-            runOnUiThread(() -> openInBilibiliApp(m_site, link));
+            String problem = openInBilibiliApp(m_site, link);
+            status(problem.isEmpty() ? "Confirm the login in the app, then come back here" : problem);
         }
 
         @JavascriptInterface
@@ -413,7 +427,8 @@ public class MainActivity extends QtActivityBase {
         m_loginWeb.evaluateJavascript(id.equals("intl") ? INTL_APP_LOGIN_JS : CN_APP_LOGIN_JS, null);
     }
 
-    private void openInBilibiliApp(String id, String link) {
+    /// "" when the app opened, otherwise what to tell the user.
+    private String openInBilibiliApp(String id, String link) {
         Intent intent;
         String app = null;
         if (id.equals("intl")) {
@@ -431,18 +446,17 @@ public class MainActivity extends QtActivityBase {
             }
         }
         if (app == null) {
-            m_loginStatus.setText(id.equals("intl")
-                    ? "The BiliBili app for bilibili.tv (com.bstar.intl) isn't installed: log in on the page instead"
-                    : "No Bilibili app is installed: log in on the page instead");
-            return;
+            return id.equals("intl")
+                    ? "The BiliBili app for bilibili.tv isn't installed. Save the QR code and scan it from another device, or log in on the page"
+                    : "No Bilibili app is installed. Save the QR code and scan it from another device, or log in on the page";
         }
         intent.setPackage(app);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             startActivity(intent);
-            m_loginStatus.setText("Confirm the login in the app, then come back here");
+            return "";
         } catch (ActivityNotFoundException e) {
-            m_loginStatus.setText("The app wouldn't open the login link: log in on the page instead");
+            return "The app wouldn't open the login link: log in on the page instead";
         }
     }
 

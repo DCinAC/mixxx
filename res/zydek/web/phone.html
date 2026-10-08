@@ -131,6 +131,36 @@
   .wj .bar2 i { display: block; height: 100%; background: var(--deck34); width: 0; transition: width .3s; }
   .wj.err .t { color: var(--err); } .wj .m { color: var(--dim); font-size: 12px; margin-top: 2px; }
 
+  /* Bilibili login screen: the QR code in the middle, actions at the bottom (after BILIBILIAS) */
+  #login { --acc: #fb7299; --acc-bg: #2b1820; --acc-fg: #ffb3c9; position: fixed; inset: 0; z-index: 11; background: var(--bg);
+    display: none; flex-direction: column; padding: calc(var(--safe-t) + 6px) 16px calc(var(--safe-b) + 16px); }
+  #login.on { display: flex; }
+  #login.intl { --acc: #00a1d6; --acc-bg: #10232c; --acc-fg: #8fdcf5; }
+  #login .top { display: flex; align-items: center; gap: 6px; min-height: 48px; }
+  #login .top button { border: none; background: none; font-size: 28px; line-height: 1; width: 44px; height: 44px; color: var(--text); }
+  #login .top span { font-size: 16px; color: var(--text); font-weight: 600; }
+  #login .sites { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 12px; background: #161616; }
+  #login .sites button { border: none; min-height: 38px; border-radius: 9px; background: none; color: var(--dim); font-size: 13px; }
+  #login .sites button.on { background: var(--acc-bg); color: var(--acc-fg); }
+  #login .mid { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 0; }
+  #login .icon { width: 72px; height: 72px; color: var(--acc); opacity: .8; }
+  #login .status { font-size: 17px; color: var(--text); font-weight: 600; text-align: center; }
+  #login .tab { font-size: 13px; color: var(--acc); padding-top: 6px; border-top: 3px solid var(--acc); }
+  #login .qr { width: 216px; height: 216px; border-radius: 16px; background: #fff; padding: 8px; box-sizing: border-box; position: relative;
+    display: grid; place-content: center; margin-top: 6px; }
+  #login .qr svg { width: 200px; height: 200px; display: block; }
+  #login .qr .wait { color: #555; font-size: 13px; text-align: center; padding: 0 16px; }
+  #login .qr.dead svg { opacity: .12; }
+  #login .qr .over { position: absolute; inset: 0; display: none; place-content: center; text-align: center; color: #222; font-size: 14px; font-weight: 600; padding: 20px; }
+  #login .qr.dead .over { display: grid; }
+  #login .state { font-size: 13px; color: var(--dim); text-align: center; min-height: 36px; max-width: 300px; line-height: 1.4; }
+  #login .state.good { color: var(--play); }
+  #login .acts { display: grid; gap: 10px; }
+  #login .acts button { min-height: 54px; border-radius: 14px; font-size: 15px; font-weight: 700; border: none; background: var(--acc-bg); color: var(--acc-fg); }
+  #login .acts button.primary { background: var(--acc); color: #160810; }
+  #login.intl .acts button.primary { color: #031820; }
+  #login .acts button.ghost { background: none; min-height: 40px; font-weight: 500; font-size: 13px; color: var(--dim); }
+
   /* settings: Bilibili accounts */
   .acct { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid #222; }
   .acct .who { flex: 1; min-width: 0; font-size: 13px; color: var(--text); }
@@ -250,6 +280,22 @@
   </section>
 </main>
 
+<div id="login">
+  <div class="top"><button id="lg-back" aria-label="Back">‹</button><span>Bilibili login</span></div>
+  <div class="sites"><button data-site="cn">Bilibili</button><button data-site="intl">Bilibili International</button></div>
+  <div class="mid">
+    <svg class="icon" id="lg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></svg>
+    <div class="status" id="lg-status"></div>
+    <div class="tab">Scan the QR code to log in</div>
+    <div class="qr" id="lg-qr"><div class="wait">Getting a code…</div></div>
+    <div class="state" id="lg-state"></div>
+  </div>
+  <div class="acts">
+    <button class="primary" id="lg-app">Open in the Bilibili app</button>
+    <button id="lg-save">Save QR code to Photos</button>
+    <button class="ghost" id="lg-page">Log in on Bilibili's page instead</button>
+  </div>
+</div>
 <div id="pv"><span></span><button id="pvstop">Stop preview</button></div>
 <nav>
   <button data-page="lib"><span class="i">♫</span>Library</button>
@@ -686,6 +732,91 @@ async function webDownload(r, target) {
 }
 function webJobs() {}   // (downloads started on this page show above; nothing to restore yet)
 
+// Bilibili login screen: Zydek asks the site for a QR login (zydek_web.py), shows the code, and waits for the
+// confirmation from the Bilibili app: scanned from another device, scanned from Photos (Save QR code), or
+// opened straight in the app on this phone. Bilibili's own login page stays as a fallback.
+let biliAcc = null;
+const lg = { site: "cn", job: null, link: null, seq: 0 };
+const LG_ICONS = {
+  out: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="9.5" r="3.2"/><path d="M6.5 18.5c1.3-2.3 3.2-3.5 5.5-3.5s4.2 1.2 5.5 3.5"/><path d="M4.9 4.9l14.2 14.2"/>',
+  in: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="9.5" r="3.2"/><path d="M6.5 18.5c1.3-2.3 3.2-3.5 5.5-3.5s4.2 1.2 5.5 3.5"/>',
+};
+function lgState(text, good) { $("#lg-state").textContent = text; $("#lg-state").classList.toggle("good", !!good); }
+function lgHeader() {
+  const intl = lg.site === "intl", local = bridge && bridge.bilibiliState ? JSON.parse(bridge.bilibiliState()) : {};
+  $("#login").classList.toggle("intl", intl);
+  document.querySelectorAll("#login .sites button").forEach(b => b.classList.toggle("on", b.dataset.site === lg.site));
+  $("#lg-app").textContent = intl ? "Open in the BiliBili app" : "Open in the Bilibili app";
+  const acc = biliAcc && biliAcc[lg.site];
+  const inNow = acc ? acc.login : local[lg.site];
+  $("#lg-icon").innerHTML = LG_ICONS[inNow ? "in" : "out"];
+  $("#lg-status").textContent = inNow ? (acc && acc.name ? `Logged in as ${acc.name}${acc.premium ? " · " + (acc.vip || "premium") : ""}` : "Logged in")
+    : intl ? "Not logged in to bilibili.tv" : "Not logged in to Bilibili";
+}
+function openLogin(site) { lg.site = site; $("#login").classList.add("on"); lgHeader(); lgStart(); }
+function closeLogin() { lgCancel(); $("#login").classList.remove("on"); loadBili(); }
+function lgCancel() { lg.seq++; if (lg.job) { webApi(`/api/web/cancel?${qs({ id: lg.job })}`).catch(() => {}); lg.job = null; } lg.link = null; }
+async function lgStart() {
+  lgCancel();
+  const seq = lg.seq, qr = $("#lg-qr");
+  qr.className = "qr"; qr.innerHTML = `<div class="wait">Getting a code…</div>`; lgState("");
+  try {
+    let r;
+    for (;;) {
+      r = await webApi(`/api/web/qrlogin?${qs({ site: lg.site })}`);
+      if (!r.starting) break;
+      qr.innerHTML = `<div class="wait">${esc(r.error)}</div>`;
+      await sleep(1500);
+      if (seq !== lg.seq) return;
+    }
+    lg.job = r.job;
+    for (;;) {
+      if (seq !== lg.seq) return;
+      const j = await webApi(`/api/web/job?${qs({ id: r.job })}`);
+      if (seq !== lg.seq) return;
+      if (j.data && j.data.link !== lg.link) {
+        lg.link = j.data.link;
+        qr.innerHTML = j.data.svg + `<div class="over">Tap for a new code</div>`;
+      }
+      if (j.state === "done") {
+        lgState("Logged in", true); toast("Logged in to Bilibili", "ok");
+        if (navigator.vibrate) navigator.vibrate(20);
+        await loadBili(); lgHeader();
+        setTimeout(() => { if (seq === lg.seq) closeLogin(); }, 1200);
+        return;
+      }
+      if (j.state === "error") { qr.classList.add("dead"); lgState(j.error); return; }
+      lgState(j.message === "scanned" ? "Scanned: now tap Confirm in the app"
+        : "Scan it with the Bilibili app on another device, or use the buttons below");
+      await sleep(900);
+    }
+  } catch (e) { if (seq === lg.seq) { qr.className = "qr dead"; qr.innerHTML = `<div class="over">Tap to try again</div>`; lgState(e.message); } }
+}
+$("#lg-qr").addEventListener("click", () => { if ($("#lg-qr").classList.contains("dead")) lgStart(); });
+$("#lg-back").addEventListener("click", closeLogin);
+document.querySelectorAll("#login .sites button").forEach(b => b.addEventListener("click", () => {
+  if (b.dataset.site === lg.site) return;
+  lg.site = b.dataset.site; lgHeader(); lgStart();
+}));
+$("#lg-app").addEventListener("click", () => {
+  if (!lg.link) return toast("Wait for the code first", "bad");
+  if (!bridge) return toast("Only in the Zydek app on the phone", "bad");
+  const problem = bridge.bilibiliOpenApp(lg.site, lg.link);
+  if (problem) toast(problem, "bad"); else lgState("Confirm the login in the app, then come back here");
+});
+$("#lg-save").addEventListener("click", async () => {
+  if (!lg.job) return toast("Wait for the code first", "bad");
+  try {
+    const r = await api(`/api/web/qrsave?${qs({ id: lg.job })}`);
+    if (bridge && bridge.addToGallery) bridge.addToGallery(r.path);
+    toast("Saved to Photos: in the app, tap Scan and pick it from your photos", "ok");
+  } catch (e) { toast(e.message, "bad"); }
+});
+$("#lg-page").addEventListener("click", () => {
+  if (!bridge) return toast("Only in the Zydek app on the phone", "bad");
+  const site = lg.site; closeLogin(); bridge.bilibiliLogin(site);
+});
+
 // Settings: Bilibili accounts. Logging in and the cookies are the app's (window.ZydekAndroid, MainActivity.java);
 // who's logged in and the Hi-Res choice come from zydek_web.py.
 const bridge = window.ZydekAndroid;
@@ -703,13 +834,17 @@ async function loadBili() {
     const acc = await webJob("/api/web/account");
     $("#b-hires").checked = acc.hiRes;
     const cn = document.querySelector('#bili .acct[data-site="cn"] .st');
+    biliAcc = acc;
     if (acc.cn.login) { cn.textContent = `Logged in as ${acc.cn.name}${acc.cn.premium ? ` · ${acc.cn.vip || "premium"}: Hi-Res` : " · no premium: standard audio"}`; cn.className = "st on"; }
     else if (local && local.cn) { cn.textContent = "Session ran out: log in again"; cn.className = "st"; }
   } catch {}
 }
-window.zydekBilibili = (site, ok) => { toast(ok ? "Logged in to Bilibili" : "Logged out", ok ? "ok" : ""); loadBili(); };
+window.zydekBilibili = (site, ok) => {
+  toast(ok ? "Logged in to Bilibili" : "Logged out", ok ? "ok" : "");
+  if (ok && $("#login").classList.contains("on")) closeLogin(); else loadBili();
+};
 document.querySelectorAll("#bili .acct").forEach(a => {
-  a.querySelector(".in").addEventListener("click", () => bridge.bilibiliLogin(a.dataset.site));
+  a.querySelector(".in").addEventListener("click", () => openLogin(a.dataset.site));
   a.querySelector(".out").addEventListener("click", () => bridge.bilibiliLogout(a.dataset.site));
 });
 $("#b-hires").addEventListener("change", () => webApi(`/api/web/prefs?${qs({ biliHiRes: $("#b-hires").checked ? 1 : 0 })}`).catch(() => {}));
