@@ -11,6 +11,19 @@ ApplicationWindow {
     readonly property bool isMobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
     readonly property int designWidth: 1792
     readonly property int designHeight: 1008
+    // Zydek: Mixxx's interface is shown in landscape only on phones and tablets (see the content Loader).
+    property bool showMainWindow: !isMobile
+
+    onWidthChanged: orientationSettle.restart()
+    onHeightChanged: orientationSettle.restart()
+
+    Timer {
+        id: orientationSettle
+
+        interval: 500
+        running: root.isMobile
+        onTriggered: root.showMainWindow = !root.isMobile || root.width >= root.height
+    }
 
     color: Theme.backgroundColor
     height: isMobile ? Screen.height : designHeight
@@ -46,8 +59,10 @@ ApplicationWindow {
         // Zydek: in portrait a phone shows the library page (a WebView over this window, see MainActivity.java),
         // so Mixxx's own interface is only built in landscape. Its narrow layouts crash while being built
         // (QQmlConnections during incubation), and nobody would see them anyway.
-        active: Mixxx.Core.ready && (!root.isMobile || root.width >= root.height)
-        asynchronous: true
+        // The orientation is only acted on once the window size has settled (it can flip while the app
+        // starts), and on mobile the interface is built synchronously: cancelling a half-built one crashes too.
+        active: Mixxx.Core.ready && root.showMainWindow
+        asynchronous: !root.isMobile
         onStatusChanged: {
             if (status === Loader.Error) {
                 console.error("Failed to load the Mixxx main window")
