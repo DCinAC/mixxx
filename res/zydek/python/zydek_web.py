@@ -388,7 +388,7 @@ def _qr_login(site):
             link = g["data"]["qr_url"]
             key = urllib.parse.parse_qs(urllib.parse.urlparse(link).query)["ticket"][0]
         job["data"] = {"site": site, "link": link,
-                       "svg": segno.make(link, error="m").svg_inline(scale=6, border=2, dark="#000", light="#fff")}
+                       "svg": segno.make(link, error="m").svg_inline(scale=6, border=2, dark="#000", light="#fff", omitsize=True)}
         job["message"] = "waiting"
         deadline = time.time() + QR_LIFETIME
         while time.time() < deadline:
