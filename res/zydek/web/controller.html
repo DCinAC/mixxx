@@ -254,7 +254,7 @@
 // =====================================================================================================
 // Settings (persisted per device)
 // =====================================================================================================
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, inertia: 400, telemetry: true };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, inertia: 400, telemetry: true, pingHz: 10 };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 let S = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("ctl-settings") || "{}") }; } catch { return { ...DEFAULTS }; } })();
 let applyingRemote = false;
@@ -304,10 +304,13 @@ let page = "deck";
 const deckOf = s => decks[sides[s]];
 // Wired to Mixxx later; for now every event is logged for the Mac's /settings debug view.
 const eventLog = [];
+// Latency log counters (see "Latency log" below)
+const lat = { seq: 0, sent: new Map(), rtt: [], up: [], down: [], js: [], spikes: [], lost: 0, direct: 0,
+  input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0, offsets: [] };
 const send = (...args) => {
   eventLog.push([Math.round(performance.now()), ...args]);
   if (eventLog.length > 400) eventLog.splice(0, 200);
-  if (live && !benchQuiet) toMixxx(...args);
+  if (live && !benchQuiet) { lat.sends++; toMixxx(...args); }
 };
 let benchQuiet = false;                   // a debug benchmark is driving the controls: don't send them to Mixxx
 let live = false;                         // true once the real pad server (connected to Mixxx) answers
@@ -896,6 +899,7 @@ function samplerTap(i) {
 let last = performance.now();
 let frames = 0;
 function frame(now) {
+  if (now - last < 1000) lat.frameMax = Math.max(lat.frameMax, now - last);
   const dt = Math.min(.1, (now - last) / 1000); last = now;
   frames++;
   decks.forEach(d => {
@@ -1283,7 +1287,7 @@ function onMixxx(m) {
 
 function mxConnect() {
   mxWs = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
-  mxWs.onmessage = ev => onMixxx(JSON.parse(ev.data));
+  mxWs.onmessage = ev => { const m = JSON.parse(ev.data); if (m.t === "pong") onPong(m); else onMixxx(m); };
   mxWs.onclose = () => setTimeout(mxConnect, 1500);
 }
 mxConnect();
@@ -1307,6 +1311,58 @@ function ctlConnect() {
   ctlWs.onclose = () => setTimeout(ctlConnect, 1500);
 }
 ctlConnect();
+
+// =====================================================================================================
+// Latency log, kept on the phone (GET /api/latency-log): S.pingHz times a second this page pings Mixxx
+// through /ws (the hub passes it through the mapping, like the controls), and every second it sends a
+// summary over /ctl with what the tablet adds itself: late timers, touch events handled late, long
+// frames, data queued in the socket. Times in ms as [min, median, 95th percentile, max].
+//   rtt: ping round trip · up/down: tablet->phone / phone->tablet, split with the clock offset of the
+//   fastest recent ping · js: time inside the hub + mapping · input: touch event -> handler
+// =====================================================================================================
+const latStats = a => {
+  if (!a.length) return null;
+  const s = [...a].sort((x, y) => x - y), q = p => +s[Math.min(s.length - 1, Math.floor(p * s.length))].toFixed(1);
+  return [q(0), q(.5), q(.95), q(1)];
+};
+function latPing() {
+  const hz = +S.pingHz || 0;
+  setTimeout(latPing, hz > 0 ? 1000 / hz : 1000);
+  if (hz <= 0 || !mxWs || mxWs.readyState !== 1) return;
+  const now = performance.now();
+  for (const [seq, t] of lat.sent) if (now - t > 1000) { lat.sent.delete(seq); lat.lost++; }
+  lat.bufMax = Math.max(lat.bufMax, mxWs.bufferedAmount);
+  const seq = lat.seq = (lat.seq + 1) & 0x1FFFFF;
+  lat.sent.set(seq, now);
+  mxWs.send(JSON.stringify({ ping: [seq, now] }));
+}
+function onPong(m) {
+  const now = performance.now();
+  if (!lat.sent.delete(m.s)) return;   // already counted as lost
+  const rtt = now - m.c, net = rtt - m.j;
+  // hub clock - page clock, from the pings that took the least time (their trips were the most even)
+  lat.offsets.push([net, m.h - (m.c + net / 2)]);
+  if (lat.offsets.length > 100) lat.offsets.shift();
+  const off = lat.offsets.reduce((b, x) => x[0] < b[0] ? x : b)[1];
+  const up = m.h - off - m.c, down = now - (m.h + m.j - off);
+  lat.rtt.push(rtt); lat.up.push(up); lat.down.push(down); lat.js.push(m.j);
+  if (!m.m) lat.direct++;
+  if (rtt > 40 && lat.spikes.length < 20) lat.spikes.push([Math.round(m.c), +rtt.toFixed(1), +up.toFixed(1), +down.toFixed(1)]);
+}
+latPing();
+const latInput = e => { if (lat.input.length < 500) lat.input.push(performance.now() - e.timeStamp); };
+addEventListener("pointerdown", latInput, { capture: true, passive: true });
+addEventListener("pointermove", latInput, { capture: true, passive: true });
+let latLoopT = performance.now();
+setInterval(() => { const now = performance.now(); lat.loopMax = Math.max(lat.loopMax, now - latLoopT - 50); latLoopT = now; }, 50);
+setInterval(() => {
+  if (!(+S.pingHz > 0)) return;
+  ctlSend({ type: "latency", n: lat.rtt.length, rtt: latStats(lat.rtt), up: latStats(lat.up), down: latStats(lat.down),
+    js: latStats(lat.js), lost: lat.lost, direct: lat.direct, input: latStats(lat.input), frameMax: Math.round(lat.frameMax),
+    loopMax: Math.round(lat.loopMax), bufMax: lat.bufMax, sends: lat.sends, touches: active.size, page, live,
+    hidden: document.hidden, spikes: lat.spikes });
+  Object.assign(lat, { rtt: [], up: [], down: [], js: [], spikes: [], lost: 0, direct: 0, input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0 });
+}, 1000);
 
 // Telemetry for the Mac's debug view, 4 times a second.
 let moves = 0, lastTele = performance.now(), sentUpTo = 0;

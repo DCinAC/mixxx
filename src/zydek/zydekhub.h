@@ -1,12 +1,14 @@
 #pragma once
 
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QMap>
 #include <QObject>
 #include <QString>
+#include <QTimer>
 
 #include "preferences/usersettings.h"
 #include "zydek/zydekhttpserver.h"
@@ -25,6 +27,9 @@ namespace zydek {
 ///         presses become the MIDI/SysEx the Zydek mapping understands; its MIDI/SysEx output becomes
 ///         JSON state for the page (sampler/deck/cue/roll/stem/FX state, subscribed control values)
 ///   /ctl  controller settings shared with the debug page, and telemetry relayed to it
+/// Latency log: the controller page pings through /ws (and through the mapping, when it runs) and sends a
+/// summary every second over /ctl; the hub adds its own numbers and appends it to zydek-latency.log in the
+/// settings folder (GET /api/latency-log?lines=N).
 /// Unlike the desktop bridge it knows exactly which track each deck and sampler holds, and can hand the
 /// page a track's analysed waveform (/waveform/<track id>).
 class Hub : public QObject {
@@ -63,6 +68,12 @@ class Hub : public QObject {
     void onWsText(QTcpSocket* pClient, const QString& path, const QByteArray& text);
     void onWsClosed(QTcpSocket* pClient, const QString& path);
 
+    // latency log
+    void ping(QTcpSocket* pClient, const QJsonArray& ping);
+    void pong(int seq, bool viaMapping);
+    void logLatency(const QJsonObject& summary);
+    HttpServer::Response latencyLog(const HttpServer::Query& query) const;
+
     // page -> Mixxx
     void handlePageMessage(const QByteArray& text);
     void sysex(const QList<int>& parts);
@@ -94,6 +105,20 @@ class Hub : public QObject {
 
     QJsonObject m_ctlSettings;
     QHash<QTcpSocket*, QString> m_ctlRoles;
+
+    struct Ping {
+        QTcpSocket* pClient;
+        double clientMs;
+        qint64 hubMs;
+    };
+    QElapsedTimer m_clock;
+    QHash<int, Ping> m_pings;   // sent through the mapping, waiting for its echo
+    // How late this (the controller) thread runs a 20 ms timer, and HTTP requests that took long: both
+    // delay the tablet's input, which is handled on the same thread.
+    QTimer m_lagTimer;
+    qint64 m_lagLastMs = 0;
+    qint64 m_lagMaxMs = 0;
+    QJsonArray m_slowRequests;
 };
 
 } // namespace zydek

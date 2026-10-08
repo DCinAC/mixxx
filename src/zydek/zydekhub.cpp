@@ -1,5 +1,6 @@
 #include "zydek/zydekhub.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -14,6 +15,7 @@
 #include <cmath>
 #include <cstring>
 
+#include "control/controlobject.h"
 #include "controllers/zydek/zydekcontroller.h"
 #include "mixer/playerinfo.h"
 #include "moc_zydekhub.cpp"
@@ -35,9 +37,12 @@ constexpr int kScratch = 0x52;
 constexpr int kTempo = 0x53;
 constexpr int kSync = 0x54;
 constexpr int kValue = 0x58;
+constexpr int kPing = 0x5E;   // F0 7D 5E <seq 3x7 bits> F7, echoed back unchanged by the mapping
 constexpr int kHello = 0x5F;
 
 const QString kSettingsFile = QStringLiteral("zydek-controller-settings.json");
+const QString kLatencyFile = QStringLiteral("zydek-latency.log");
+constexpr qint64 kLatencyFileMax = 4 * 1024 * 1024;   // then it moves to .1, replacing the previous one
 
 /// round(v * 1e5) + 2^34 as five 7-bit bytes, LSB first (exact for +-171k in 1e-5 steps).
 QList<int> encodeValue(double v) {
@@ -126,9 +131,25 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
         : QObject(pParent),
           m_pConfig(pConfig),
           m_library(pConfig) {
+    m_clock.start();
     m_server.setHandler([this](const QString& path, const HttpServer::Query& query) {
-        return handleHttp(path, query);
+        const qint64 start = m_clock.elapsed();
+        HttpServer::Response r = handleHttp(path, query);
+        const qint64 took = m_clock.elapsed() - start;
+        if (took >= 15 && m_slowRequests.size() < 20) {
+            m_slowRequests.append(QJsonArray{path, took});
+        }
+        return r;
     });
+    m_lagTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_lagTimer, &QTimer::timeout, this, [this] {
+        const qint64 now = m_clock.elapsed();
+        if (m_lagLastMs) {
+            m_lagMaxMs = std::max(m_lagMaxMs, now - m_lagLastMs - 20);
+        }
+        m_lagLastMs = now;
+    });
+    m_lagTimer.start(20);
     connect(&m_server, &HttpServer::wsOpened, this, &Hub::onWsOpened);
     connect(&m_server, &HttpServer::wsText, this, &Hub::onWsText);
     connect(&m_server, &HttpServer::wsClosed, this, &Hub::onWsClosed);
@@ -186,6 +207,9 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
             return {404, "text/plain", "not analysed yet\n", {}};
         }
         return {200, "application/octet-stream", data, {{"Cache-Control", "max-age=3600"}}};
+    }
+    if (path == QLatin1String("/api/latency-log")) {
+        return latencyLog(query);
     }
     if (path.startsWith(QLatin1String("/api/"))) {
         return handleApi(path, query);
@@ -334,6 +358,9 @@ void Hub::onWsOpened(QTcpSocket* pClient, const QString& path, const HttpServer:
 }
 
 void Hub::onWsClosed(QTcpSocket* pClient, const QString& path) {
+    for (auto it = m_pings.begin(); it != m_pings.end();) {
+        it = it->pClient == pClient ? m_pings.erase(it) : std::next(it);
+    }
     if (path == QLatin1String("/ctl")) {
         m_ctlRoles.remove(pClient);
         broadcastPresence();
@@ -342,6 +369,10 @@ void Hub::onWsClosed(QTcpSocket* pClient, const QString& path) {
 
 void Hub::onWsText(QTcpSocket* pClient, const QString& path, const QByteArray& text) {
     if (path == QLatin1String("/ws")) {
+        if (text.startsWith("{\"ping\"")) {
+            ping(pClient, QJsonDocument::fromJson(text).object().value(QStringLiteral("ping")).toArray());
+            return;
+        }
         handlePageMessage(text);
         return;
     }
@@ -361,6 +392,8 @@ void Hub::onWsText(QTcpSocket* pClient, const QString& path, const QByteArray& t
                 sendCtl(it.key(), {{"type", "settings"}, {"settings", m_ctlSettings}});
             }
         }
+    } else if (type == QLatin1String("latency")) {
+        logLatency(m);
     } else if (type == QLatin1String("telemetry")) {
         for (auto it = m_ctlRoles.cbegin(); it != m_ctlRoles.cend(); ++it) {
             if (it.value() == QLatin1String("debug")) {
@@ -391,6 +424,85 @@ void Hub::saveSettings() const {
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         f.write(QJsonDocument(m_ctlSettings).toJson());
     }
+}
+
+// ---- latency log ---------------------------------------------------------------------------------
+
+void Hub::ping(QTcpSocket* pClient, const QJsonArray& ping) {   // [seq, page's performance.now()]
+    const int seq = ping.at(0).toInt() & 0x1FFFFF;
+    m_pings.insert(seq, Ping{pClient, ping.at(1).toDouble(), m_clock.elapsed()});
+    if (!m_pController) {
+        pong(seq, false);
+        return;
+    }
+    // Through the mapping, the way the page's controls go (it answers synchronously, on this thread)
+    sysex({kPing, seq & 0x7F, (seq >> 7) & 0x7F, (seq >> 14) & 0x7F});
+    if (m_pings.contains(seq)) {   // the mapping didn't echo (an older mapping): answer directly
+        pong(seq, false);
+    }
+}
+
+void Hub::pong(int seq, bool viaMapping) {
+    const auto it = m_pings.constFind(seq);
+    if (it == m_pings.constEnd()) {
+        return;
+    }
+    // c: the page's send time · h: hub clock when it arrived (ms) · j: time in the mapping (ms)
+    const qint64 now = m_clock.elapsed();
+    m_server.sendText(it->pClient,
+            QJsonDocument(QJsonObject{{"t", "pong"},
+                                  {"s", seq},
+                                  {"c", it->clientMs},
+                                  {"h", static_cast<double>(it->hubMs)},
+                                  {"j", static_cast<double>(now - it->hubMs)},
+                                  {"m", viaMapping}})
+                    .toJson(QJsonDocument::Compact));
+    m_pings.erase(it);
+}
+
+void Hub::logLatency(const QJsonObject& summary) {
+    QJsonObject line = summary;
+    line.remove(QStringLiteral("type"));
+    line.insert(QStringLiteral("at"), QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss.zzz")));
+    line.insert(QStringLiteral("hub"),
+            QJsonObject{{"lagMax", static_cast<double>(m_lagMaxMs)},
+                    {"slow", m_slowRequests},
+                    {"pending", m_pings.size()},
+                    {"audioMs", ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms")))},
+                    {"audioLoad", ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("audio_latency_usage")))},
+                    {"xruns", ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("audio_latency_overload_count")))}});
+    m_lagMaxMs = 0;
+    m_slowRequests = QJsonArray();
+
+    const QString path = QDir(m_pConfig->getSettingsPath()).filePath(kLatencyFile);
+    if (QFileInfo(path).size() > kLatencyFileMax) {
+        QFile::remove(path + QStringLiteral(".1"));
+        QFile::rename(path, path + QStringLiteral(".1"));
+    }
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Append)) {
+        f.write(QJsonDocument(line).toJson(QJsonDocument::Compact) + '\n');
+    }
+}
+
+HttpServer::Response Hub::latencyLog(const HttpServer::Query& query) const {
+    const QString path = QDir(m_pConfig->getSettingsPath()).filePath(kLatencyFile);
+    if (query.contains(QStringLiteral("clear"))) {
+        QFile::remove(path);
+        QFile::remove(path + QStringLiteral(".1"));
+        return {200, "text/plain", "cleared\n", {}};
+    }
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        return {200, "text/plain", "", {}};
+    }
+    const int lines = query.value(QStringLiteral("lines"), QStringLiteral("300")).toInt();
+    QList<QByteArray> all = f.readAll().split('\n');
+    if (!all.isEmpty() && all.last().isEmpty()) {
+        all.removeLast();
+    }
+    const QList<QByteArray> tail = all.mid(std::max<qsizetype>(0, all.size() - lines));
+    return {200, "application/x-ndjson", tail.join('\n') + '\n', {}};
 }
 
 // ---- page -> Mixxx --------------------------------------------------------------------------------
@@ -463,6 +575,10 @@ void Hub::press(int channel, int note, bool down) {
 
 void Hub::fromMixxx(const QByteArray& msg) {
     auto byte = [&msg](int i) { return static_cast<unsigned char>(msg[i]); };
+    if (msg.size() == 7 && byte(0) == 0xF0 && byte(1) == 0x7D && byte(2) == kPing) {
+        pong(byte(3) | byte(4) << 7 | byte(5) << 14, true);
+        return;
+    }
     if (msg.size() >= 4 && byte(0) == 0xF0 && byte(1) == 0x7D &&
             (byte(2) == kValue || byte(2) == kHello)) {
         if (byte(2) == kHello) {   // the mapping (re)started: subscriptions must be made again

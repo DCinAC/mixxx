@@ -37,6 +37,7 @@
 //   F0 7D 52 deck op <t3> F7                  scratch: op 1 = grab (scratchEnable), 2 = ticks, 0 = release
 //   F0 7D 53 deck overlimit <v5> F7           tempo in % (widens rateRange past the base range if allowed)
 //   F0 7D 54 deck mode F7                     sync: 0 off (tempo kept), 1 tempo, 2 tempo + beat
+//   F0 7D 5E <seq 3x7 bits> F7                latency ping: sent straight back, unchanged
 //   out: F0 7D 58 <"group,key"> 00 <v5> F7    control value · F0 7D 5F F7 = "mapping (re)started"
 //   v5 = round(value * 1e5) + 2^34 as 5 x 7 bits, LSB first; t3 = signed ticks + 2^20 as 3 x 7 bits.
 
@@ -256,6 +257,8 @@ TabletPads.incomingData = function (data, length) {
         TabletPads.setTempo(b[3], b[4] === 1, TabletPads.decodeValue(b, 5));
     } else if (type === 0x54) {
         TabletPads.setSync(b[3], b[4]);
+    } else if (type === 0x5E && b.length === 7) {
+        midi.sendSysexMsg([0xF0, 0x7D, 0x5E, b[3], b[4], b[5], 0xF7], 7);
     }
 };
 
