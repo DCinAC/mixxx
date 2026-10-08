@@ -39,6 +39,12 @@
   #deckbar { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--dim); }
   #deckbar button { min-height: 28px; padding: 0 10px; font-size: 12px; border-radius: 8px; }
   #deckbar span { flex: 1; }
+  #deckbar button.on { color: var(--text); border-color: var(--deck34); background: #1d2a33; }
+  /* 4 Decks (like Mixxx's button): all four decks, each slimmer, stacked 3 · 1 · 2 · 4 as in Mixxx */
+  #decks.four .dk { margin-bottom: 4px; }
+  #decks.four .dk .row { font-size: 11px; margin-bottom: 2px; }
+  #decks.four .needle { height: 16px; }
+  #decks.four .zoom { height: 24px; margin-top: 2px; }
 
   /* ---- pages ---- */
   main { padding-bottom: calc(var(--tabbar) + var(--safe-b) + 64px); }
@@ -129,8 +135,8 @@
 </head>
 <body>
 <header id="decks">
-  <div id="dkA"></div><div id="dkB"></div>
-  <div id="deckbar"><span id="link">connecting…</span><button id="swap">Decks 3·4</button></div>
+  <div id="dk2"></div><div id="dk0"></div><div id="dk1"></div><div id="dk3"></div>
+  <div id="deckbar"><span id="link">connecting…</span><button id="four">4 Decks</button></div>
 </header>
 
 <main>
@@ -211,7 +217,7 @@ document.querySelectorAll("nav button").forEach(b => b.addEventListener("click",
 // ---------------------------------------------------------------------------------------------------
 const decks = [1, 2, 3, 4].map(n => ({ n, loaded: false, playing: false, dur: 0, pos: 0, ppos: 0, ppT: 0, ratio: 1,
   title: "", artist: "", id: null, wf: null, wfVer: 0, wfFor: null }));
-let pair = store.get("pair", 0);            // 0: decks 1 and 2, 1: decks 3 and 4
+let four = store.get("four", false);       // show decks 3 and 4 too (slimmer), like Mixxx's 4 Decks button
 let ws = null, live = false;
 const wsSend = m => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
 
@@ -273,13 +279,13 @@ function connect() {
   ws.onclose = () => { $("#link").textContent = "reconnecting…"; setTimeout(connect, 1500); };
 }
 
-// Two deck panels (needle search + zoomed waveform), built once; painted every frame.
-const panels = ["#dkA", "#dkB"].map((sel, k) => {
-  const el = $(sel);
+// Four deck panels (needle search + zoomed waveform), built once; the shown ones are painted every frame.
+const panels = [0, 1, 2, 3].map(k => {
+  const el = $(`#dk${k}`);
   el.innerHTML = `<div class="dk"><div class="row"><b></b><span class="t"></span><span class="tm"></span></div>` +
     `<div class="needle"><canvas></canvas><div class="ph"></div></div>` +
     `<div class="zoom"><canvas></canvas><div class="played"></div><div class="cur"></div></div></div>`;
-  const p = { k, root: el.firstChild, num: el.querySelector("b"), title: el.querySelector(".t"), time: el.querySelector(".tm"),
+  const p = { k, el, root: el.firstChild, num: el.querySelector("b"), title: el.querySelector(".t"), time: el.querySelector(".tm"),
     needle: el.querySelector(".needle"), nCanvas: el.querySelector(".needle canvas"), ph: el.querySelector(".ph"),
     zCanvas: el.querySelector(".zoom canvas"), tiles: new Map() };
   // Needle search: touch anywhere on the bar to jump there; drag to keep seeking.
@@ -298,9 +304,15 @@ const panels = ["#dkA", "#dkB"].map((sel, k) => {
   p.needle.addEventListener("pointercancel", () => { seeking = false; });
   return p;
 });
-const deckFor = p => decks[p.k + pair * 2];
-$("#swap").addEventListener("click", () => { pair = 1 - pair; store.set("pair", pair); $("#swap").textContent = pair ? "Decks 1·2" : "Decks 3·4"; });
-$("#swap").textContent = pair ? "Decks 1·2" : "Decks 3·4";
+const deckFor = p => decks[p.k];
+const shown = p => four || p.k < 2;
+function applyFour() {
+  $("#four").classList.toggle("on", four);
+  $("#decks").classList.toggle("four", four);
+  panels.forEach(p => { p.el.hidden = !shown(p); });
+}
+$("#four").addEventListener("click", () => { four = !four; store.set("four", four); applyFour(); });
+applyFour();
 
 function sizeCanvas(c) {
   const dpr = devicePixelRatio || 1, W = Math.round(c.clientWidth * dpr), H = Math.round(c.clientHeight * dpr);
@@ -367,6 +379,7 @@ function drawZoom(p, d) {
 }
 function frame(now) {
   for (const p of panels) {
+    if (!shown(p)) continue;
     const d = deckFor(p);
     // Between Mixxx's ~30 position updates a second, advance at the deck's speed.
     d.pos = d.ppT ? d.ppos * d.dur + (d.playing ? (now - d.ppT) / 1000 * d.ratio : 0) : 0;
