@@ -1,6 +1,7 @@
 package org.mixxx;
 
 import android.content.Context;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
@@ -42,6 +43,8 @@ public class MainActivity extends QtActivityBase {
     private static final String PHONE_PAGE = "http://127.0.0.1:8766/phone";
     private WebView m_phoneView;
     private LinearLayout m_loginView;   // Bilibili login (see "Bilibili accounts" below)
+    private WebView m_loginWeb;
+    private TextView m_loginStatus;
     private Runnable m_loginPoll;
     private final Handler m_handler = new Handler(Looper.getMainLooper());
 
@@ -256,11 +259,20 @@ public class MainActivity extends QtActivityBase {
         title.setText("Log in to " + s[4] + ": Zydek keeps only the session, for downloads");
         title.setTextColor(0xFFE8E8E8);
         bar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        Button app = new Button(this);
+        app.setText(id.equals("intl") ? "Use the BiliBili app" : "Use the Bilibili app");
+        app.setOnClickListener(v -> startAppLogin(id));
+        bar.addView(app);
         Button cancel = new Button(this);
         cancel.setText("Close");
         cancel.setOnClickListener(v -> closeBilibiliLogin());
         bar.addView(cancel);
         m_loginView.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        m_loginStatus = new TextView(this);
+        m_loginStatus.setPadding(24, 0, 24, 12);
+        m_loginStatus.setTextColor(0xFF9A9A9A);
+        m_loginStatus.setText("Log in on the page, or with the app on this phone: \"" + app.getText() + "\" opens it to confirm.");
+        m_loginView.addView(m_loginStatus, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         WebView web = new WebView(this);
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -281,6 +293,8 @@ public class MainActivity extends QtActivityBase {
                 return !"https".equals(scheme) && !"http".equals(scheme);   // app links: stay on the page
             }
         });
+        web.addJavascriptInterface(new LoginBridge(id), "ZydekLogin");
+        m_loginWeb = web;
         m_loginView.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         addContentView(m_loginView, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         m_loginView.bringToFront();
@@ -311,6 +325,124 @@ public class MainActivity extends QtActivityBase {
         if (m_loginView != null) {
             ((ViewGroup) m_loginView.getParent()).removeView(m_loginView);
             m_loginView = null;
+            m_loginWeb.destroy();
+            m_loginWeb = null;
+        }
+    }
+
+    // Logging in with the app on the same phone, instead of scanning the page's QR code with another device:
+    // the login page asks the site for a QR login itself, the link inside it opens in the app, and the page
+    // waits for the confirmation there. The site then sets its session cookies in the WebView, as after a
+    // scan (openBilibiliLogin's poll picks them up).
+    //   bilibili.com: the Bilibili app (Google Play's com.bilibili.app.in, or the mainland tv.danmaku.bili)
+    //                 opens the link in its own browser: bilibili://browser?url=...
+    //   bilibili.tv:  the BiliBili app (com.bstar.intl) opens the www.biliintl.com link; accounts there are
+    //                 separate from bilibili.com's, so only that app can confirm.
+    private static final String[] CN_APPS = {"com.bilibili.app.in", "tv.danmaku.bili", "com.bilibili.app.blue"};
+    private static final String INTL_APP = "com.bstar.intl";
+
+    private static final String CN_APP_LOGIN_JS =
+            "(async () => {"
+            + " const get = u => fetch(u, {credentials: 'include'}).then(r => r.json());"
+            + " const g = await get('https://passport.bilibili.com/x/passport-login/web/qrcode/generate?source=main-fe-header');"
+            + " if (g.code !== 0) return ZydekLogin.status('Bilibili gave no login code: ' + g.message);"
+            + " ZydekLogin.open(g.data.url);"
+            + " for (let i = 0; i < 90; i++) {"
+            + "  await new Promise(r => setTimeout(r, 2000));"
+            + "  const p = await get('https://passport.bilibili.com/x/passport-login/web/qrcode/poll?source=main-fe-header&qrcode_key=' + g.data.qrcode_key);"
+            + "  const c = p.data ? p.data.code : p.code;"
+            + "  if (c === 0) { ZydekLogin.status('Confirmed: finishing the login…'); if (p.data.url) location.href = p.data.url; return; }"
+            + "  if (c === 86090) ZydekLogin.status('Now tap Confirm in the Bilibili app, then come back');"
+            + "  if (c === 86038) return ZydekLogin.status('The login code ran out: tap the button again');"
+            + " }"
+            + "})().catch(e => ZydekLogin.status('Login failed: ' + e));";
+
+    private static final String INTL_APP_LOGIN_JS =
+            "(async () => {"
+            + " const base = 'https://passport.bilibili.tv/x/intl/passport-login/qrcode/auth/';"
+            + " const get = u => fetch(u, {credentials: 'include'}).then(r => r.json());"
+            + " const g = await get(base + 'url?s_locale=en_US&platform=web');"
+            + " if (g.code !== 0) return ZydekLogin.status('bilibili.tv gave no login code: ' + g.message);"
+            + " const ticket = new URL(g.data.qr_url).searchParams.get('ticket');"
+            + " ZydekLogin.open(g.data.qr_url);"
+            + " for (let i = 0; i < 90; i++) {"
+            + "  await new Promise(r => setTimeout(r, 2000));"
+            + "  const p = await get(base + 'fetch?s_locale=en_US&platform=web&ticket=' + ticket);"
+            + "  if (p.code === 0) { ZydekLogin.status('Confirmed: finishing the login…');"
+            + "   const u = p.data && (p.data.redirect_url || p.data.url); if (u) location.href = u; else location.reload(); return; }"
+            + "  if (p.code === 10018100) return ZydekLogin.status('The login code ran out: tap the button again');"
+            + " }"
+            + "})().catch(e => ZydekLogin.status('Login failed: ' + e));";
+
+    private class LoginBridge {
+        private final String m_site;
+
+        LoginBridge(String site) {
+            m_site = site;
+        }
+
+        @JavascriptInterface
+        public void open(String link) {
+            runOnUiThread(() -> openInBilibiliApp(m_site, link));
+        }
+
+        @JavascriptInterface
+        public void status(String message) {
+            runOnUiThread(() -> {
+                if (m_loginStatus != null) {
+                    m_loginStatus.setText(message);
+                }
+            });
+        }
+    }
+
+    private boolean installed(String pkg) {
+        try {
+            getPackageManager().getPackageInfo(pkg, 0);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void startAppLogin(String id) {
+        if (m_loginWeb == null) {
+            return;
+        }
+        m_loginStatus.setText("Asking for a login code…");
+        m_loginWeb.evaluateJavascript(id.equals("intl") ? INTL_APP_LOGIN_JS : CN_APP_LOGIN_JS, null);
+    }
+
+    private void openInBilibiliApp(String id, String link) {
+        Intent intent;
+        String app = null;
+        if (id.equals("intl")) {
+            intent = new Intent(Intent.ACTION_VIEW, Uri.parse(link));
+            if (installed(INTL_APP)) {
+                app = INTL_APP;
+            }
+        } else {
+            intent = new Intent(Intent.ACTION_VIEW, Uri.parse("bilibili://browser?url=" + Uri.encode(link)));
+            for (String pkg : CN_APPS) {
+                if (installed(pkg)) {
+                    app = pkg;
+                    break;
+                }
+            }
+        }
+        if (app == null) {
+            m_loginStatus.setText(id.equals("intl")
+                    ? "The BiliBili app for bilibili.tv (com.bstar.intl) isn't installed: log in on the page instead"
+                    : "No Bilibili app is installed: log in on the page instead");
+            return;
+        }
+        intent.setPackage(app);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(intent);
+            m_loginStatus.setText("Confirm the login in the app, then come back here");
+        } catch (ActivityNotFoundException e) {
+            m_loginStatus.setText("The app wouldn't open the login link: log in on the page instead");
         }
     }
 

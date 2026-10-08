@@ -19,6 +19,13 @@
         android:largeScreens="true"
         android:normalScreens="true"
         android:smallScreens="true" />
+    <!-- Zydek: the Bilibili apps that can confirm a login on the same phone (MainActivity.openInBilibiliApp) -->
+    <queries>
+        <package android:name="com.bilibili.app.in" />
+        <package android:name="tv.danmaku.bili" />
+        <package android:name="com.bilibili.app.blue" />
+        <package android:name="com.bstar.intl" />
+    </queries>
     <application
         android:name="org.qtproject.qt.android.bindings.QtApplication"
         android:hardwareAccelerated="true"
