@@ -131,6 +131,37 @@
   .tread { flex: 0 0 calc(var(--mm) * 6); text-align: center; color: var(--text); font-size: calc(var(--mm) * 1.9); font-variant-numeric: tabular-nums; }
   .tread.over { color: var(--err); }
 
+  /* ---- strips on top (S.layout "stacked"): both platter strips across the top, as Mixxx stacks its
+     waveforms, and the top-bar controls in the side columns. 3 mm of screen stay above the top strip, so a
+     finger sliding off its top edge is still on the glass (and lifting there counts as off the strip). ---- */
+  #stack { display: none; }
+  #app.stacked { grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "top top top" "dl mix dr"; }
+  #app.stacked #topL, #app.stacked #topR { display: none; }
+  #app.stacked #stack { grid-area: top; display: grid; gap: var(--gap); padding-top: calc(var(--mm) * 3 - var(--gap));
+    grid-template-columns: calc(var(--mm) * 40) minmax(0, 1fr) calc(var(--mm) * 40);
+    grid-template-rows: calc(var(--mm) * 22) calc(var(--mm) * 22); grid-template-areas: "sl s0 sr" "sl s1 sr"; }
+  #sideL { grid-area: sl; } #sideR { grid-area: sr; } #strip0 { grid-area: s0; } #strip1 { grid-area: s1; }
+  #sideL, #sideR { display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
+  #sideR .topbar { justify-content: flex-end; }
+  #strip0, #strip1 { display: grid; min-width: 0; min-height: 0; }
+  #app.stacked .topbar .tab { width: calc(var(--mm) * 12); height: calc(var(--mm) * 10.5); font-size: calc(var(--mm) * 2.2); }
+  #app.stacked #gear { width: calc(var(--mm) * 10); height: calc(var(--mm) * 10.5); }
+  #app.stacked .loopbox button { height: calc(var(--mm) * 10.5); }
+  #app.stacked .topbar .knob { width: calc(var(--mm) * 12); }
+  #app.stacked .topbar .switch { height: calc(var(--mm) * 10.5); flex: 1; }
+  #app.stacked .side.left { grid-template-columns: calc(var(--mm) * 13) minmax(0, 1fr); }
+  /* shorter mixer: the EQ columns run the full height, the crossfader sits under the two channel faders */
+  #app.stacked #mixer > :nth-child(1) { grid-area: 1 / 1 / 3 / 2; }
+  #app.stacked #mixer > :nth-child(2) { grid-area: 1 / 2 / 2 / 3; }
+  #app.stacked #mixer > :nth-child(3) { grid-area: 1 / 3 / 2 / 4; }
+  #app.stacked #mixer > :nth-child(4) { grid-area: 1 / 4 / 3 / 5; }
+  #app.stacked #xf { grid-area: 2 / 2 / 3 / 4; }
+  #app.stacked #xf .rail { left: calc(var(--mm) * 3); right: calc(var(--mm) * 3); }
+  .strip .info { position: absolute; left: calc(var(--mm) * 1.2); right: calc(var(--mm) * 1.2); top: calc(var(--mm) * .5);
+    display: flex; gap: calc(var(--mm) * 1.5); align-items: baseline; pointer-events: none; text-shadow: 0 0 3px #000, 0 0 2px #000; }
+  .strip .info .title { font-size: calc(var(--mm) * 2); }
+  .strip .info .num { font-size: calc(var(--mm) * 2); }
+
   /* ---- mixer ---- */
   #mixer { display: grid; grid-template-columns: var(--kcol) minmax(0, 1fr) minmax(0, 1fr) var(--kcol);
     grid-template-rows: minmax(0, 1fr) calc(var(--mm) * 15); gap: var(--gap); padding: var(--gap); border-radius: calc(var(--mm) * 2);
@@ -221,12 +252,15 @@
   </div>
   <div id="dl"></div>
   <div id="dr"></div>
+  <div id="stack"><div id="sideL"></div><div id="strip0"></div><div id="strip1"></div><div id="sideR"></div></div>
 </div>
 <div id="settings"><div class="panel">
   <button class="x" id="s-x" aria-label="Close">✕</button>
   <h2>Settings<small id="s-status">UI test · simulated Mixxx</small></h2>
   <div class="row"><div>Platter strip<small>How much of the record one full strip covers</small></div>
     <div><div class="seg" id="s-revs"></div><small id="s-revs-info"></small></div></div>
+  <div class="row"><div>Layout<small>Strips on top: both platter strips stacked across the top like Mixxx's waveforms (about twice as long), the top-bar buttons beside them</small></div>
+    <div class="seg" id="s-layout"></div></div>
   <div class="row"><div>Slipmat grip<small>After you let go, the slipmat pulls the record to the platter's speed at a steady rate, from however fast you flicked it. Set as the time from a standstill to full speed</small></div>
     <div><input type="range" id="s-catchup" min="0" max="800" step="10"><small><span class="val" id="s-catchup-v"></span></small></div></div>
   <div class="row"><div>Tempo sensitivity<small>Tempo change per mm of drag</small></div>
@@ -254,7 +288,7 @@
 // =====================================================================================================
 // Settings (persisted per device)
 // =====================================================================================================
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, catchup: 180, telemetry: true, pingHz: 10 };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, catchup: 180, layout: "stacked", telemetry: true, pingHz: 10 };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 let S = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("ctl-settings") || "{}") }; } catch { return { ...DEFAULTS }; } })();
 let applyingRemote = false;
@@ -527,7 +561,7 @@ function buildTop() {
     knob("CUE MIX", () => master.mix, v => { master.mix = v; send("headMix", v); }, .5, true),
   ];
   ui.top.forEach(k => { box.appendChild(k); k.paint(); });
-  document.querySelectorAll(".topbar .tab").forEach(b => b.classList.toggle("on", b.dataset.page === page));
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.page === page));
 }
 
 function buildSide(s) {
@@ -543,6 +577,7 @@ function buildSide(s) {
       pads.appendChild(p); u.spads[k] = { el: p, i };
     }
     el.appendChild(pads);
+    if (stacked()) { buildStrip(s, u); placeStrip(s, u); }
     ui.sides[s] = u;
     return el;
   }
@@ -572,46 +607,7 @@ function buildSide(s) {
   });
 
   const deck = h("div", "deck");
-  // header
-  const head = h("div", "head");
-  u.sw = h("button", "switch");
-  u.sw.addEventListener("click", () => { sides[s] = sides[s] === s ? s + 2 : s; paintAll(); });
-  u.title = h("div", "title"); u.bpm = h("div", "num"); u.time = h("div", "num dim");
-  head.append(u.sw, u.title, u.bpm, u.time);
-
-  // platter strip
-  u.strip = h("div", "strip", `<canvas class="wf"></canvas><div class="played"></div><div class="cursor"></div><div class="label"></div>`);
-  u.cursor = u.strip.querySelector(".cursor");
-  u.wfCanvas = u.strip.querySelector("canvas.wf"); u.played = u.strip.querySelector(".played");
-  drag(u.strip, {
-    // Grab like vinyl: touching holds the record and the waveform under the finger follows it 1:1
-    // (the waveform rolls past a fixed cursor, so moving the finger left plays forward).
-    down: e => { const d = deckOf(s); d.grabbed = true; d.coast = false; d.vel = 0; u.strip.classList.add("held"); send("scratchOn", d.n);
-      latTrace("d", s, Math.round(Math.max(e.width || 0, e.height || 0) / S.pxmm * 10) / 10);
-      return { x: e.clientX, deck: d, w: u.strip.clientWidth, samples: [{ t: performance.now(), p: d.pos }] }; },
-    move: (e, st) => {
-      const dx = e.clientX - st.x; st.x = e.clientX;
-      st.deck.pos = clamp(st.deck.pos - dx / st.w * stripSeconds(), 0, st.deck.dur);
-      const now = performance.now();
-      st.samples.push({ t: now, p: st.deck.pos });
-      while (st.samples.length > 2 && now - st.samples[0].t > 80) st.samples.shift();
-      send("scratch", st.deck.n, -dx / st.w);
-      latTrace("m", s, Math.round(dx * 10) / 10);
-    },
-    up: (e, st) => {
-      // The record leaves the hand at the finger's speed: the slope of a straight line through its
-      // positions over the last 60 ms (a finger held still before lifting gives ~0).
-      const now = performance.now(), d = st.deck;
-      st.samples.push({ t: now, p: d.pos });
-      d.vel = clamp(releaseSpeed(st.samples.filter(x => now - x.t <= 60)), -8, 8);
-      // Lifting off outside the strip cancels the flick: the record starts from a standstill.
-      const sr = u.strip.getBoundingClientRect();
-      if (e.clientX < sr.left || e.clientX > sr.right || e.clientY < sr.top || e.clientY > sr.bottom) d.vel = 0;
-      latTrace(e.type === "pointercancel" ? "c" : "u", s, Math.round(d.vel * 100) / 100);
-      d.coast = S.catchup > 0;
-      d.grabbed = false; u.strip.classList.remove("held"); send("scratchOff", d.n, +d.vel.toFixed(2));
-    },
-  });
+  const head = buildStrip(s, u);
 
   // transport
   const tr = h("div", "transport");
@@ -649,10 +645,85 @@ function buildSide(s) {
     bindPress(p, down => padPress(s, k, down));
     pads.appendChild(p); u.pads[k] = p;
   }
-  deck.append(head, u.strip, tr, modes, pads);
+  if (stacked()) { deck.append(tr, modes, pads); placeStrip(s, u); } else deck.append(head, u.strip, tr, modes, pads);
   if (s === 0) el.append(tempo, deck); else el.append(deck, tempo);
   ui.sides[s] = u;
   return el;
+}
+
+// Deck header (switch, title, BPM, time) and platter strip for side s.
+function buildStrip(s, u) {
+  // header
+  const head = h("div", "head");
+  u.sw = h("button", "switch");
+  u.sw.addEventListener("click", () => { sides[s] = sides[s] === s ? s + 2 : s; paintAll(); });
+  u.title = h("div", "title"); u.bpm = h("div", "num"); u.time = h("div", "num dim");
+  head.append(u.sw, u.title, u.bpm, u.time);
+
+  // platter strip
+  u.strip = h("div", "strip", `<canvas class="wf"></canvas><div class="played"></div><div class="cursor"></div><div class="label"></div>`);
+  u.cursor = u.strip.querySelector(".cursor");
+  u.wfCanvas = u.strip.querySelector("canvas.wf"); u.played = u.strip.querySelector(".played");
+  drag(u.strip, {
+    // Grab like vinyl: touching holds the record and the waveform under the finger follows it 1:1
+    // (the waveform rolls past a fixed cursor, so moving the finger left plays forward).
+    down: e => { const d = deckOf(s); d.grabbed = true; d.coast = false; d.vel = 0; d.easeMs = 0; d.slipStep = undefined; u.strip.classList.add("held"); send("scratchOn", d.n);
+      latTrace("d", s, Math.round(Math.max(e.width || 0, e.height || 0) / S.pxmm * 10) / 10);
+      return { x: e.clientX, deck: d, w: u.strip.clientWidth, samples: [{ t: performance.now(), p: d.pos }] }; },
+    move: (e, st) => {
+      const dx = e.clientX - st.x; st.x = e.clientX;
+      st.deck.pos = clamp(st.deck.pos - dx / st.w * stripSeconds(), 0, st.deck.dur);
+      const now = performance.now();
+      st.samples.push({ t: now, p: st.deck.pos });
+      while (st.samples.length > 2 && now - st.samples[0].t > 80) st.samples.shift();
+      send("scratch", st.deck.n, -dx / st.w);
+      latTrace("m", s, Math.round(dx * 10) / 10);
+    },
+    up: (e, st) => {
+      // The record leaves the hand at the finger's speed: the slope of a straight line through its
+      // positions over the last 60 ms (a finger held still before lifting gives ~0).
+      const now = performance.now(), d = st.deck;
+      st.samples.push({ t: now, p: d.pos });
+      d.vel = clamp(releaseSpeed(st.samples.filter(x => now - x.t <= 60)), -8, 8);
+      // Lifting off outside the strip lets go of the flick: the record eases from the finger's speed to the
+      // platter's in a fixed 150 ms instead of slipping.
+      const sr = u.strip.getBoundingClientRect();
+      if (e.clientX < sr.left || e.clientX > sr.right || e.clientY < sr.top || e.clientY > sr.bottom) d.easeMs = 150;
+      latTrace(e.type === "pointercancel" ? "c" : "u", s, Math.round(d.vel * 100) / 100);
+      d.coast = S.catchup > 0 || d.easeMs > 0;
+      d.grabbed = false; u.strip.classList.remove("held"); send("scratchOff", d.n, +d.vel.toFixed(2));
+    },
+  });
+  return head;
+}
+
+// Strips on top (S.layout "stacked"): each strip gets its row of the top band, with the track info riding on
+// it; the deck switch moves to the side column (placeChrome).
+const stacked = () => S.layout === "stacked";
+function placeStrip(s, u) {
+  const info = h("div", "info");
+  info.append(u.title, u.bpm, u.time);
+  u.strip.appendChild(info);
+  document.getElementById(`strip${s}`).replaceChildren(u.strip);
+}
+
+// The top-bar controls: in the top bars beside the mixer, or with the strips on top, in the side columns
+// (left: pages, settings, the left deck's loop, its switch and GAIN; right: master knobs, the right deck's
+// GAIN and switch, its loop next to its strip).
+const topNote = document.querySelector(".topbar .note");
+function placeChrome() {
+  const $ = id => document.getElementById(id), st = stacked();
+  $("app").classList.toggle("stacked", st);
+  const tabs = [...document.querySelectorAll(".tab")];
+  if (!st) {
+    $("topL").replaceChildren(...tabs, $("gear"), topNote, $("loop0"));
+    $("topR").replaceChildren($("loop1"), $("topknobs"));
+    $("sideL").replaceChildren(); $("sideR").replaceChildren(); $("strip0").replaceChildren(); $("strip1").replaceChildren();
+    return;
+  }
+  const row = (...els) => { const r = h("div", "topbar"); r.append(...els.filter(Boolean)); return r; };
+  $("sideL").replaceChildren(row(...tabs, $("gear")), row($("loop0")), row(ui.sides[0]?.sw, ui.chans[0]?.gain));
+  $("sideR").replaceChildren(row($("topknobs")), row(ui.chans[1]?.gain, ui.sides[1]?.sw), row($("loop1")));
 }
 
 function buildMixer() {
@@ -670,8 +741,9 @@ function buildMixer() {
     const mute = h("button", "mute", "MUTE<small>hold</small>");
     let muteDeck = null;                             // held mute stays on the deck it started on
     bindPress(mute, down => { if (down) muteDeck = deckOf(s); muteDeck.muted = down; send("mute", muteDeck.n, down); paintMixer(); });
-    knobs.forEach(x => c.appendChild(x)); c.append(pfl, mute);
-    ui.chans[s] = { el: c, knobs, pfl, mute };
+    knobs.forEach((x, i) => { if (i || !stacked()) c.appendChild(x); });   // strips on top: GAIN sits by the strips
+    c.append(pfl, mute);
+    ui.chans[s] = { el: c, knobs, pfl, mute, gain: knobs[0] };
     return c;
   };
   const vf = s => {
@@ -691,6 +763,7 @@ function build() {
   ui.xf = fader(() => master.xf, v => { master.xf = v; send("crossfader", v); }, null, true);
   buildTop();
   buildLoops();
+  placeChrome();
   requestAnimationFrame(paintAll);
 }
 
@@ -774,16 +847,18 @@ function paintSide(s) {
   if (!u) return;
   const d = deckOf(s);
   u.el.classList.toggle("d34", d.n > 2);
+  if (u.sw) {
+    setHTML(u.sw, `${d.n}<small>⇄${d.n > 2 ? d.n - 2 : d.n + 2}</small>`);
+    setHTML(u.title, `${d.title}<small>${d.artist}</small>`);
+    setText(u.strip.querySelector(".label"), `${S.revs} rev · ${stripSeconds().toFixed(1)} s`);
+  }
   if (page === "samples") { u.spads.forEach(({ el, i }) => paintSamplerPad(el, i)); return; }
-  setHTML(u.sw, `${d.n}<small>⇄${d.n > 2 ? d.n - 2 : d.n + 2}</small>`);
-  setHTML(u.title, `${d.title}<small>${d.artist}</small>`);
   u.play.classList.toggle("on", d.playing);
   u.cue.classList.toggle("on", !d.playing && Math.abs(d.pos - d.cuePoint) < .05);
   u.sync.classList.toggle("tempo", d.syncMode === 1);
   u.sync.classList.toggle("beat", d.syncMode === 2);
   setHTML(u.sync, ["SYNC", "SYNC<small>TEMPO</small>", "SYNC<small>BEAT</small>"][d.syncMode]);
   setHTML(u.key, `${d.key > 0 ? "+" : ""}${d.key}<small>KEY</small>`);
-  setText(u.strip.querySelector(".label"), `${S.revs} rev · ${stripSeconds().toFixed(1)} s`);
   u.modes.forEach(b => b.classList.toggle("on", b.dataset.mode === d.mode));
   u.shiftBtn.classList.toggle("idle", d.mode !== "cue" && d.mode !== "fx");
   u.shiftBtn.classList.toggle("on", d.shift);
@@ -903,10 +978,14 @@ function samplerTap(i) {
 // the mat slips under the record. Sliding friction is about constant, so the record's speed changes at a
 // steady rate (S.catchup ms per 1x of speed) until it matches the platter's, then the two lock together.
 // With the motor stopped the platter is braked, and the record slows to a stop the same way.
-function slip(v, target, dt) {
-  if (!(S.catchup > 0)) return target;
-  const step = dt * 1000 / S.catchup;
-  return Math.abs(target - v) <= step ? target : v + Math.sign(target - v) * step;
+// d.easeMs (lifted off outside the strip): reach the platter's speed in that time instead.
+function slip(d, target, dt) {
+  if (d.easeMs) d.slipStep ??= Math.abs(target - d.vel) / d.easeMs;
+  const perMs = d.easeMs ? d.slipStep : S.catchup > 0 ? 1 / S.catchup : Infinity;
+  const step = dt * 1000 * perMs;
+  d.vel = Math.abs(target - d.vel) <= step ? target : d.vel + Math.sign(target - d.vel) * step;
+  if (d.vel === target) { d.easeMs = 0; d.slipStep = undefined; }
+  return d.vel;
 }
 // Least-squares slope of {t (ms), p (s)} samples, in seconds of track per second.
 function releaseSpeed(xs) {
@@ -930,7 +1009,7 @@ function frame(now) {
         // Slipmat in Mixxx: keep the record "in hand" and feed it the slipping record's speed as scratch
         // movement, then let go once it runs at the platter's speed.
         const target = d.playing ? d.ratio : 0;
-        d.vel = slip(d.vel, target, dt);
+        slip(d, target, dt);
         scratchBy(d, d.vel * dt);
         d.pos = clamp(d.pos + d.vel * dt, 0, d.dur);
         if (d.vel === target) { d.coast = false; mxSend({ scratch: [d.n - 1, 0, 0] }); d.ppT = 0; }
@@ -942,21 +1021,22 @@ function frame(now) {
     }
     const target = d.playing || d.preview ? 1 + d.tempo / 100 : 0;   // playback speed the motor drives towards
     if (d.coast) {
-      d.vel = slip(d.vel, target, dt);
-      if (d.vel === target) d.coast = false;
+      if (slip(d, target, dt) === target) d.coast = false;
     } else d.vel = target;
     d.pos += d.vel * dt;
     if (d.loopOn) { const len = d.loopSize * 60 / d.bpm; if (d.pos >= d.loopStart + len) d.pos = d.loopStart + (d.pos - d.loopStart) % len; }
     if (d.pos >= d.dur) { d.pos = d.dur; d.playing = false; d.vel = 0; d.coast = false; }
     if (d.pos < 0) { d.pos = 0; d.vel = 0; d.coast = false; }
   });
-  if (page === "deck") [0, 1].forEach(s => {
+  [0, 1].forEach(s => {
     const u = ui.sides[s], d = deckOf(s);
     if (!u || !u.strip) return;
-    if (d.syncMode && !live) { const t = d.tempo; matchTempo(d, s); if (t !== d.tempo) paintTempo(s); }   // Mixxx syncs when live
-    const c = closeness(s), glow = d.syncMode ? "0" : c.glow.toFixed(2);
-    if (u.sync._glow !== glow) { u.sync._glow = glow; u.sync.style.setProperty("--glow", glow); }
-    u.sync.classList.toggle("matched", !d.syncMode && c.matched);
+    if (u.sync) {   // deck page (with the strips on top, the samples page has strips but no transport)
+      if (d.syncMode && !live) { const t = d.tempo; matchTempo(d, s); if (t !== d.tempo) paintTempo(s); }   // Mixxx syncs when live
+      const c = closeness(s), glow = d.syncMode ? "0" : c.glow.toFixed(2);
+      if (u.sync._glow !== glow) { u.sync._glow = glow; u.sync.style.setProperty("--glow", glow); }
+      u.sync.classList.toggle("matched", !d.syncMode && c.matched);
+    }
     const w = cachedRect(u.strip).width, sec = stripSeconds();
     drawStripWave(u, d, d.pos - sec / 2, sec);             // the cursor stays in the middle; the waveform rolls
     setText(u.time, fmtTime((d.dur - d.pos) / (1 + d.tempo / 100)));
@@ -1104,6 +1184,7 @@ function slider(id, key, fmt) {
 }
 function paintSettings(soft) {
   seg("s-revs", [[.5, "½ rev"], [1, "1 rev"], [2, "2 rev"]], () => S.revs, v => S.revs = v);
+  seg("s-layout", [["stacked", "Strips on top"], ["side", "Side by side"]], () => S.layout, v => S.layout = v);
   const stripMm = ui.sides[0]?.strip ? ui.sides[0].strip.clientWidth / S.pxmm : 70;
   document.getElementById("s-revs-info").textContent =
     `${stripSeconds().toFixed(1)} s of audio across ${stripMm.toFixed(0)} mm · ${(stripSeconds() * 1000 / stripMm).toFixed(0)} ms per mm`;
