@@ -6,6 +6,7 @@
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QNetworkInterface>
+#include <QRegularExpression>
 #include <QTcpSocket>
 #include <QTimer>
 #include <QtEndian>
@@ -131,6 +132,19 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
     connect(&m_server, &HttpServer::wsOpened, this, &Hub::onWsOpened);
     connect(&m_server, &HttpServer::wsText, this, &Hub::onWsText);
     connect(&m_server, &HttpServer::wsClosed, this, &Hub::onWsClosed);
+    // Names for the pages straight from Mixxx whenever a deck or sampler gets a track (PlayerInfo lives on
+    // the main thread; the lambda runs here, on the hub's thread).
+    connect(&PlayerInfo::instance(),
+            &PlayerInfo::trackChanged,
+            this,
+            [this](const QString& group, TrackPointer, TrackPointer) {
+                const int n = QStringView(group).mid(group.indexOf(QRegularExpression(QStringLiteral("\\d")))).chopped(1).toInt();
+                if (group.startsWith(QLatin1String("[Channel")) && n >= 1 && n <= kNumDecks) {
+                    updateName(false, n - 1);
+                } else if (group.startsWith(QLatin1String("[Sampler")) && n >= 1 && n <= kNumSamplers) {
+                    updateName(true, n - 1);
+                }
+            });
 
     QFile f(QDir(m_pConfig->getSettingsPath()).filePath(kSettingsFile));
     if (f.open(QIODevice::ReadOnly)) {
