@@ -22,7 +22,10 @@ ApplicationWindow {
 
         interval: 500
         running: root.isMobile
-        onTriggered: root.showMainWindow = !root.isMobile || root.width >= root.height
+        onTriggered: {
+            root.showMainWindow = !root.isMobile || root.width >= root.height;
+            console.log(`Zydek: window ${root.width}x${root.height}, screen ${Screen.width}x${Screen.height}: main window ${root.showMainWindow ? "on" : "off"}`);
+        }
     }
 
     color: Theme.backgroundColor
