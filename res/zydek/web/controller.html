@@ -227,8 +227,8 @@
   <h2>Settings<small id="s-status">UI test · simulated Mixxx</small></h2>
   <div class="row"><div>Platter strip<small>How much of the record one full strip covers</small></div>
     <div><div class="seg" id="s-revs"></div><small id="s-revs-info"></small></div></div>
-  <div class="row"><div>Strip inertia<small>After a flick, how long the record takes to settle back to playing speed (or a stop)</small></div>
-    <div><input type="range" id="s-inertia" min="0" max="1500" step="50"><small><span class="val" id="s-inertia-v"></span></small></div></div>
+  <div class="row"><div>Slipmat grip<small>After you let go, the slipmat pulls the record to the platter's speed at a steady rate, from however fast you flicked it. Set as the time from a standstill to full speed</small></div>
+    <div><input type="range" id="s-catchup" min="0" max="800" step="10"><small><span class="val" id="s-catchup-v"></span></small></div></div>
   <div class="row"><div>Tempo sensitivity<small>Tempo change per mm of drag</small></div>
     <div><input type="range" id="s-sens" min="0.04" max="0.4" step="0.01"><small><span class="val" id="s-sens-v"></span></small></div></div>
   <div class="row"><div>Tempo direction</div><div class="seg" id="s-dir"></div></div>
@@ -254,7 +254,7 @@
 // =====================================================================================================
 // Settings (persisted per device)
 // =====================================================================================================
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, inertia: 400, telemetry: true, pingHz: 10 };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "spin", knobSize: 10.5, catchup: 180, telemetry: true, pingHz: 10 };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 let S = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("ctl-settings") || "{}") }; } catch { return { ...DEFAULTS }; } })();
 let applyingRemote = false;
@@ -306,7 +306,7 @@ const deckOf = s => decks[sides[s]];
 const eventLog = [];
 // Latency log counters (see "Latency log" below)
 const lat = { seq: 0, sent: new Map(), rtt: [], up: [], down: [], js: [], spikes: [], lost: 0, direct: 0,
-  input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0, offsets: [] };
+  input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0, offsets: [], trace: [], t0: performance.now() };
 const send = (...args) => {
   eventLog.push([Math.round(performance.now()), ...args]);
   if (eventLog.length > 400) eventLog.splice(0, 200);
@@ -587,6 +587,7 @@ function buildSide(s) {
     // Grab like vinyl: touching holds the record and the waveform under the finger follows it 1:1
     // (the waveform rolls past a fixed cursor, so moving the finger left plays forward).
     down: e => { const d = deckOf(s); d.grabbed = true; d.coast = false; d.vel = 0; u.strip.classList.add("held"); send("scratchOn", d.n);
+      latTrace("d", s, Math.round(Math.max(e.width || 0, e.height || 0) / S.pxmm * 10) / 10);
       return { x: e.clientX, deck: d, w: u.strip.clientWidth, samples: [{ t: performance.now(), p: d.pos }] }; },
     move: (e, st) => {
       const dx = e.clientX - st.x; st.x = e.clientX;
@@ -595,18 +596,19 @@ function buildSide(s) {
       st.samples.push({ t: now, p: st.deck.pos });
       while (st.samples.length > 2 && now - st.samples[0].t > 80) st.samples.shift();
       send("scratch", st.deck.n, -dx / st.w);
+      latTrace("m", s, Math.round(dx * 10) / 10);
     },
     up: (e, st) => {
-      // Release speed over the last ~80 ms (a finger held still before lifting gives ~0: no flick).
+      // The record leaves the hand at the finger's speed: the slope of a straight line through its
+      // positions over the last 60 ms (a finger held still before lifting gives ~0).
       const now = performance.now(), d = st.deck;
       st.samples.push({ t: now, p: d.pos });
-      const recent = st.samples.filter(x => now - x.t <= 80);
-      const a = recent[0], b = recent[recent.length - 1];
-      d.vel = recent.length > 1 && b.t > a.t ? clamp((b.p - a.p) / ((b.t - a.t) / 1000), -8, 8) : 0;
-      // Lifting off outside the strip cancels the flick: the record goes straight back to the motor's speed.
+      d.vel = clamp(releaseSpeed(st.samples.filter(x => now - x.t <= 60)), -8, 8);
+      // Lifting off outside the strip cancels the flick: the record starts from a standstill.
       const sr = u.strip.getBoundingClientRect();
       if (e.clientX < sr.left || e.clientX > sr.right || e.clientY < sr.top || e.clientY > sr.bottom) d.vel = 0;
-      d.coast = S.inertia > 0 && d.vel !== 0;
+      latTrace(e.type === "pointercancel" ? "c" : "u", s, Math.round(d.vel * 100) / 100);
+      d.coast = S.catchup > 0;
       d.grabbed = false; u.strip.classList.remove("held"); send("scratchOff", d.n, +d.vel.toFixed(2));
     },
   });
@@ -896,6 +898,25 @@ function samplerTap(i) {
 // =====================================================================================================
 // Animation: simulated playback + cursor (the record's sticker, sweeping left to right)
 // =====================================================================================================
+// Turntable physics after the hand lets go. The platter is a heavy, servo-driven flywheel: holding the
+// record barely slows it (the motor's torque beats the slipmat's drag), so it keeps the motor's speed and
+// the mat slips under the record. Sliding friction is about constant, so the record's speed changes at a
+// steady rate (S.catchup ms per 1x of speed) until it matches the platter's, then the two lock together.
+// With the motor stopped the platter is braked, and the record slows to a stop the same way.
+function slip(v, target, dt) {
+  if (!(S.catchup > 0)) return target;
+  const step = dt * 1000 / S.catchup;
+  return Math.abs(target - v) <= step ? target : v + Math.sign(target - v) * step;
+}
+// Least-squares slope of {t (ms), p (s)} samples, in seconds of track per second.
+function releaseSpeed(xs) {
+  if (xs.length < 2 || xs[xs.length - 1].t - xs[0].t < 8) return 0;
+  const n = xs.length, mt = xs.reduce((a, x) => a + x.t, 0) / n, mp = xs.reduce((a, x) => a + x.p, 0) / n;
+  let num = 0, den = 0;
+  for (const x of xs) { num += (x.t - mt) * (x.p - mp); den += (x.t - mt) ** 2; }
+  return den ? num / den * 1000 : 0;
+}
+
 let last = performance.now();
 let frames = 0;
 function frame(now) {
@@ -906,13 +927,13 @@ function frame(now) {
     if (d.grabbed) return;
     if (live) {
       if (d.coast) {
-        // Inertia in Mixxx: keep the record "in hand" and feed it the decaying speed as scratch movement,
-        // then let go once it has reached the motor's speed.
+        // Slipmat in Mixxx: keep the record "in hand" and feed it the slipping record's speed as scratch
+        // movement, then let go once it runs at the platter's speed.
         const target = d.playing ? d.ratio : 0;
-        d.vel += (target - d.vel) * (1 - Math.exp(-dt * 1000 / Math.max(1, S.inertia)));
+        d.vel = slip(d.vel, target, dt);
         scratchBy(d, d.vel * dt);
         d.pos = clamp(d.pos + d.vel * dt, 0, d.dur);
-        if (Math.abs(d.vel - target) < .005) { d.coast = false; mxSend({ scratch: [d.n - 1, 0, 0] }); d.ppT = 0; }
+        if (d.vel === target) { d.coast = false; mxSend({ scratch: [d.n - 1, 0, 0] }); d.ppT = 0; }
       } else if (d.ppT) {
         // Between Mixxx's ~30 position updates a second, advance at the current speed.
         d.pos = clamp(d.ppos * d.dur + (d.playing ? (now - d.ppT) / 1000 * (d.ratio || 1) : 0), 0, d.dur);
@@ -921,9 +942,8 @@ function frame(now) {
     }
     const target = d.playing || d.preview ? 1 + d.tempo / 100 : 0;   // playback speed the motor drives towards
     if (d.coast) {
-      // Inertia: the flick's speed decays towards the motor's speed with the chosen time constant.
-      d.vel += (target - d.vel) * (1 - Math.exp(-dt * 1000 / Math.max(1, S.inertia)));
-      if (Math.abs(d.vel - target) < .005) { d.vel = target; d.coast = false; }
+      d.vel = slip(d.vel, target, dt);
+      if (d.vel === target) d.coast = false;
     } else d.vel = target;
     d.pos += d.vel * dt;
     if (d.loopOn) { const len = d.loopSize * 60 / d.bpm; if (d.pos >= d.loopStart + len) d.pos = d.loopStart + (d.pos - d.loopStart) % len; }
@@ -1096,7 +1116,7 @@ function paintSettings(soft) {
   slider("s-bar", "bar", v => `${v} mm`);
   slider("s-pxmm", "pxmm", v => `${v.toFixed(2)} px per mm`);
   slider("s-palm", "palm", v => v ? `${v} mm` : "off");
-  slider("s-inertia", "inertia", v => v ? `${v} ms` : "off: the record snaps straight back to speed");
+  slider("s-catchup", "catchup", v => v ? `${v} ms from a stop to full speed` : "off: the record snaps straight back to speed");
   slider("s-knobsize", "knobSize", v => {
     const c = ui.chans[0]?.el, m = document.getElementById("mixer");
     if (!c) return `${v} mm`;
@@ -1320,6 +1340,16 @@ ctlConnect();
 //   rtt: ping round trip · up/down: tablet->phone / phone->tablet, split with the clock offset of the
 //   fastest recent ping · js: time inside the hub + mapping · input: touch event -> handler
 // =====================================================================================================
+// Strip touches for the log: [ms into the second, kind, side, value]. d = down (contact size mm),
+// m = move (px), u/c = up/cancel (release speed), o = another touch while a strip is held (where), p = palm.
+function latTrace(kind, side, v) {
+  if (lat.trace.length < 400) lat.trace.push([Math.round(performance.now() - lat.t0), kind, side, v]);
+}
+addEventListener("pointerdown", e => {
+  if (![0, 1].some(s => deckOf(s).grabbed)) return;
+  const where = e.target.closest?.(".pad,.strip,.lane,.knob,button,.fader");
+  latTrace(isPalm(e) ? "p" : "o", -1, where ? where.className.split(" ")[0] + (where.textContent ? ":" + where.textContent.trim().slice(0, 6) : "") : e.target.tagName);
+}, { capture: true, passive: true });
 const latStats = a => {
   if (!a.length) return null;
   const s = [...a].sort((x, y) => x - y), q = p => +s[Math.min(s.length - 1, Math.floor(p * s.length))].toFixed(1);
@@ -1360,8 +1390,8 @@ setInterval(() => {
   ctlSend({ type: "latency", n: lat.rtt.length, rtt: latStats(lat.rtt), up: latStats(lat.up), down: latStats(lat.down),
     js: latStats(lat.js), lost: lat.lost, direct: lat.direct, input: latStats(lat.input), frameMax: Math.round(lat.frameMax),
     loopMax: Math.round(lat.loopMax), bufMax: lat.bufMax, sends: lat.sends, touches: active.size, page, live,
-    spikes: lat.spikes });
-  Object.assign(lat, { rtt: [], up: [], down: [], js: [], spikes: [], lost: 0, direct: 0, input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0 });
+    spikes: lat.spikes, ...(lat.trace.length ? { strip: lat.trace } : {}) });
+  Object.assign(lat, { trace: [], t0: performance.now(), rtt: [], up: [], down: [], js: [], spikes: [], lost: 0, direct: 0, input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0 });
 }, 1000);
 
 // Telemetry for the Mac's debug view, 4 times a second.

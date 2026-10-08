@@ -162,6 +162,16 @@ void PortAudioEnumerator::initialize() {
                         "(I)[Landroid/media/AudioDeviceInfo;",
                         GET_DEVICES_OUTPUTS);
         qDebug() << "audioManager outputDevices:" << outputDevices.size();
+        // Zydek: first an output that follows Android's routing (Bluetooth or USB when connected, the
+        // speaker otherwise): AAudio's "unspecified" device id 0. It's the default for new setups.
+        auto result = PaOboe_RegisterDevice(tr("Android: follow the system").toStdString().c_str(),
+                0,
+                PaOboe_Direction::Output,
+                2,
+                48000);
+        if (result != paNoError) {
+            qWarning() << "Error registering the system output to PortAudio:" << Pa_GetErrorText(result);
+        }
         parse(PaOboe_Direction::Output, outputDevices);
 
         QJniObject PROPERTY_OUTPUT_FRAMES_PER_BUFFER =
