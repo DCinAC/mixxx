@@ -67,6 +67,8 @@ class Hub : public QObject {
     QJsonObject audioStatus() const;
     QJsonObject setAudio(const HttpServer::Query& query);
     QString lanUrl() const;
+    /// The phone's addresses a tablet can reach: [{label: "Wi-Fi" | "Hotspot", url}], Wi-Fi first.
+    QJsonArray lanUrls() const;
 
     void onWsOpened(QTcpSocket* pClient, const QString& path, const HttpServer::Query& query);
     void onWsText(QTcpSocket* pClient, const QString& path, const QByteArray& text);

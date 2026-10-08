@@ -161,6 +161,16 @@
   #login.intl .acts button.primary { color: #031820; }
   #login .acts button.ghost { background: none; min-height: 40px; font-weight: 500; font-size: 13px; color: var(--dim); }
 
+  /* settings: tablet controller QR */
+  #tabctl .nets { display: flex; gap: 6px; flex-wrap: wrap; }
+  #tabctl .nets button { min-height: 34px; padding: 0 12px; border-radius: 17px; font-size: 13px; }
+  #tabctl .nets button.on { border-color: var(--deck34); color: var(--deck34); }
+  #tabctl .qr2 { width: 200px; height: 200px; margin: 12px auto 6px; background: #fff; border-radius: 14px; padding: 8px;
+    box-sizing: border-box; display: grid; place-content: center; }
+  #tabctl .qr2 svg { width: 184px; height: 184px; display: block; }
+  #tabctl .qr2 .wait { color: #555; font-size: 13px; text-align: center; padding: 0 12px; }
+  #tabctl .addr { text-align: center; font: 600 15px ui-monospace, monospace; color: var(--text); user-select: all; -webkit-user-select: all; }
+
   /* settings: Bilibili accounts */
   .acct { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid #222; }
   .acct .who { flex: 1; min-width: 0; font-size: 13px; color: var(--text); }
@@ -253,6 +263,14 @@
   </section>
 
   <section class="page" id="p-set">
+    <div class="card" id="tabctl">
+      <h3>Connect a tablet controller</h3>
+      <div class="nets" id="tc-nets"></div>
+      <div class="qr2" id="tc-qr"><div class="wait">…</div></div>
+      <div class="addr" id="tc-addr"></div>
+      <div class="hint">Scan the code with the tablet's camera, or type the address in its browser. The tablet has to be on
+        the same Wi-Fi as this phone, or on this phone's hotspot.</div>
+    </div>
     <div class="card" id="bili">
       <h3>Bilibili accounts</h3>
       <div class="acct" data-site="cn"><div class="who"><b>Bilibili</b><small>bilibili.com links and BV codes</small>
@@ -342,7 +360,7 @@ function showPage(p) {
   document.querySelectorAll(".page").forEach(e => e.classList.toggle("on", e.id === "p-" + p));
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.page === p));
   if (p === "fold") loadFolders();
-  if (p === "set") { loadAudio(); loadBili(); }
+  if (p === "set") { loadTablet(); loadAudio(); loadBili(); }
   if (p === "web") webJobs();
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
@@ -816,6 +834,31 @@ $("#lg-page").addEventListener("click", () => {
   if (!bridge) return toast("Only in the Zydek app on the phone", "bad");
   const site = lg.site; closeLogin(); bridge.bilibiliLogin(site);
 });
+
+// Settings: connect a tablet controller. One QR code per address of this phone (its Wi-Fi, its hotspot).
+let tcUrl = store.get("tcUrl", null);
+async function loadTablet() {
+  let urls = [];
+  try { urls = await api("/lan-urls"); } catch {}
+  const nets = $("#tc-nets"); nets.innerHTML = "";
+  if (!urls.length) { $("#tc-qr").innerHTML = `<div class="wait">Not on Wi-Fi: join one, or turn on the hotspot</div>`; $("#tc-addr").textContent = ""; return; }
+  if (!urls.some(u => u.url === tcUrl)) tcUrl = urls[0].url;
+  urls.forEach(u => {
+    const b = h("button", u.url === tcUrl ? "on" : "", `${esc(u.label)} · ${esc(u.url.replace(/^http:\/\//, "").replace(/:\d+$/, ""))}`);
+    b.addEventListener("click", () => { tcUrl = u.url; store.set("tcUrl", tcUrl); loadTablet(); });
+    nets.appendChild(b);
+  });
+  if (urls.length < 2) nets.innerHTML = "";
+  const link = `${tcUrl}/controller`;
+  $("#tc-addr").textContent = link.replace(/^http:\/\//, "");
+  for (;;) {
+    const r = await webApi(`/api/web/qr?${qs({ text: link })}`).catch(e => ({ error: e.message }));
+    if (r.svg) { $("#tc-qr").innerHTML = r.svg; return; }
+    $("#tc-qr").innerHTML = `<div class="wait">${esc(r.error || "…")}</div>`;
+    if (!r.starting) return;
+    await sleep(1500);
+  }
+}
 
 // Settings: Bilibili accounts. Logging in and the cookies are the app's (window.ZydekAndroid, MainActivity.java);
 // who's logged in and the Hi-Res choice come from zydek_web.py.

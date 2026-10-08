@@ -251,6 +251,9 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     if (path == QLatin1String("/lan-url")) {
         return json(QJsonObject{{"url", lanUrl()}});
     }
+    if (path == QLatin1String("/lan-urls")) {
+        return json(lanUrls());
+    }
     if (path == QLatin1String("/status")) {
         return json(QJsonObject{{"live", m_pController != nullptr}});
     }
@@ -389,6 +392,37 @@ QString Hub::lanUrl() const {
         }
     }
     return fallback.isEmpty() ? QStringLiteral("http://127.0.0.1:%1").arg(kPort) : fallback;
+}
+
+QJsonArray Hub::lanUrls() const {
+    // Android names the Wi-Fi it joins wlan0; its own hotspot gets another wlan, ap or swlan interface.
+    QJsonArray wifi, hotspot;
+    const auto interfaces = QNetworkInterface::allInterfaces();
+    for (const QNetworkInterface& iface : interfaces) {
+        if (!(iface.flags() & QNetworkInterface::IsUp) || (iface.flags() & QNetworkInterface::IsLoopBack)) {
+            continue;
+        }
+        const QString name = iface.name();
+        const bool isWifi = name == QLatin1String("wlan0");
+        const bool isHotspot = !isWifi &&
+                (name.startsWith(QLatin1String("wlan")) || name.startsWith(QLatin1String("ap")) ||
+                        name.startsWith(QLatin1String("swlan")));
+        if (!isWifi && !isHotspot) {
+            continue;
+        }
+        for (const QNetworkAddressEntry& entry : iface.addressEntries()) {
+            if (entry.ip().protocol() != QAbstractSocket::IPv4Protocol) {
+                continue;
+            }
+            const QJsonObject item{{"label", isWifi ? "Wi-Fi" : "Hotspot"},
+                    {"url", QStringLiteral("http://%1:%2").arg(entry.ip().toString()).arg(kPort)}};
+            (isWifi ? wifi : hotspot).append(item);
+        }
+    }
+    for (const QJsonValue& v : std::as_const(hotspot)) {
+        wifi.append(v);
+    }
+    return wifi;
 }
 
 // ---- WebSockets -----------------------------------------------------------------------------------

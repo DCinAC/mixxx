@@ -482,6 +482,10 @@ def api(name, args_json):
             with _lock:
                 jobs = [_public(j) for j in sorted(_jobs.values(), key=lambda j: -j["started"]) if j["kind"] == "download"]
             return json.dumps({"ok": True, "jobs": jobs})
+        if name == "qr":        # ?text=  -> {svg}: any QR code the page wants to show
+            import segno
+            svg = segno.make(args.get("text", ""), error="m").svg_inline(scale=6, border=2, dark="#000", light="#fff", omitsize=True)
+            return json.dumps({"ok": True, "svg": svg})
         if name == "qrlogin":   # ?site=cn|intl
             if args.get("site") not in _SITES:
                 return json.dumps({"ok": False, "error": "Unknown site"})
