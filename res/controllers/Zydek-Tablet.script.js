@@ -31,15 +31,15 @@
 //   Scripts can't read titles, so the pad server looks lengths up in the Mixxx library to show names.
 //
 // Controller page (SysEx in both directions, handled by incomingData):
-//   F0 7D 50 mode <"group,key"> 00 <v5> F7    set a control (mode 0 = value, 1 = parameter 0..1)
+//   F0 7D 50 mode <"group,key"> 00 <v7> F7    set a control (mode 0 = value, 1 = parameter 0..1)
 //   F0 7D 51 kind <"group,key"> F7            subscribe (kind 0 = value on change, 1 = value polled ~30/s,
 //                                             2 = parameter on change); Mixxx answers with 58 messages
 //   F0 7D 52 deck op <t3> F7                  scratch: op 1 = grab (scratchEnable), 2 = ticks, 0 = release
-//   F0 7D 53 deck overlimit <v5> F7           tempo in % (widens rateRange past the base range if allowed)
+//   F0 7D 53 deck overlimit <v7> F7           tempo in % (widens rateRange past the base range if allowed)
 //   F0 7D 54 deck mode F7                     sync: 0 off (tempo kept), 1 on (tempo + beat), 3 on as the master
 //   F0 7D 5E <seq 3x7 bits> F7                latency ping: sent straight back, unchanged
-//   out: F0 7D 58 <"group,key"> 00 <v5> F7    control value · F0 7D 5F F7 = "mapping (re)started"
-//   v5 = round(value * 1e5) + 2^34 as 5 x 7 bits, LSB first; t3 = signed ticks + 2^20 as 3 x 7 bits.
+//   out: F0 7D 58 <"group,key"> 00 <v7> F7    control value · F0 7D 5F F7 = "mapping (re)started"
+//   v7 = round(value * 1e5) + 2^48 as 7 x 7 bits, LSB first (sample positions fit); t3 = signed ticks + 2^20 as 3 x 7 bits.
 
 var TabletPads = {};
 
@@ -153,15 +153,16 @@ TabletPads._subs = {};
 TabletPads._poll = [];
 TabletPads._baseRange = {};
 
+// v7: 7 bytes, so sample positions (tens of millions) fit; 2^48 = 281474976710656, exact in JavaScript.
 TabletPads.encodeValue = function (v) {
-    var n = Math.round(v * 1e5) + 17179869184, out = [];
-    for (var i = 0; i < 5; i++) { out.push(n % 128); n = Math.floor(n / 128); }
+    var n = Math.round(v * 1e5) + 281474976710656, out = [];
+    for (var i = 0; i < 7; i++) { out.push(n % 128); n = Math.floor(n / 128); }
     return out;
 };
 TabletPads.decodeValue = function (b, at) {
     var n = 0;
-    for (var i = 4; i >= 0; i--) { n = n * 128 + b[at + i]; }
-    return (n - 17179869184) / 1e5;
+    for (var i = 6; i >= 0; i--) { n = n * 128 + b[at + i]; }
+    return (n - 281474976710656) / 1e5;
 };
 TabletPads.readName = function (b, at) {      // ASCII "group,key" up to a 0x00 terminator
     var str = "";

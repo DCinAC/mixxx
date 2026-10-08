@@ -52,10 +52,13 @@ const QString kLatencyFile = QStringLiteral("zydek-latency.log");
 constexpr qint64 kLatencyFileMax = 4 * 1024 * 1024;   // then it moves to .1, replacing the previous one
 
 /// round(v * 1e5) + 2^34 as five 7-bit bytes, LSB first (exact for +-171k in 1e-5 steps).
+// Control values: round(v * 1e5) + 2^48 as 7 x 7 bits, LSB first (sample positions need the range).
+constexpr int kValueBytes = 7;
+
 QList<int> encodeValue(double v) {
-    const qint64 n = std::llround(v * 1e5) + (qint64(1) << 34);
+    const qint64 n = std::llround(v * 1e5) + (qint64(1) << 48);
     QList<int> out;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < kValueBytes; ++i) {
         out.append(static_cast<int>((n >> (7 * i)) & 0x7F));
     }
     return out;
@@ -63,10 +66,10 @@ QList<int> encodeValue(double v) {
 
 double decodeValue(const QByteArray& bytes) {
     qint64 n = 0;
-    for (int i = 0; i < 5 && i < bytes.size(); ++i) {
+    for (int i = 0; i < kValueBytes && i < bytes.size(); ++i) {
         n |= qint64(static_cast<unsigned char>(bytes[i]) & 0x7F) << (7 * i);
     }
-    return static_cast<double>(n - (qint64(1) << 34)) / 1e5;
+    return static_cast<double>(n - (qint64(1) << 48)) / 1e5;
 }
 
 QList<int> encodeName(const QString& group, const QString& key) {
@@ -801,7 +804,7 @@ void Hub::fromMixxx(const QByteArray& msg) {
             return;
         }
         const QString name = QString::fromLatin1(msg.mid(3, end - 3));
-        const double value = decodeValue(msg.mid(end + 1, 5));
+        const double value = decodeValue(msg.mid(end + 1, kValueBytes));
         m_controlValues.insert(name, value);
         emitJson({{"t", "cv"}, {"k", name}, {"v", value}});
         return;
