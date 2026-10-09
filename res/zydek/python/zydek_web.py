@@ -222,15 +222,65 @@ def _entry(e, site_hint=""):
     }
 
 
+def _bili_parts(url):
+    """A bilibili.com video and its parts (P1, P2, ...) from Bilibili's video info API, or None.
+
+    yt-dlp's quick listing gives multi-part videos as bare links (no titles), so ask Bilibili directly."""
+    m = _BV.search(url)
+    if not m or "bilibili.com" not in url and "b23.tv" not in url:
+        return None
+    import http.cookiejar
+    jar = http.cookiejar.MozillaCookieJar()
+    if _cookies():
+        jar.load(_cookies(), ignore_discard=True, ignore_expires=True)
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    req = urllib.request.Request(f"https://api.bilibili.com/x/web-interface/view?bvid={m.group(1)}",
+                                 headers={"User-Agent": _UA, "Referer": "https://www.bilibili.com/"})
+    data = json.load(opener.open(req, timeout=15))
+    if data.get("code") != 0:
+        return None
+    v = data["data"]
+    pages = v.get("pages") or []
+    owner = (v.get("owner") or {}).get("name", "")
+    only = urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("p", [None])[0]
+    base = f"https://www.bilibili.com/video/{v['bvid']}"
+    if len(pages) <= 1:
+        return [{"id": v["bvid"], "title": v.get("title", ""), "channel": owner, "duration": v.get("duration"),
+                 "views": (v.get("stat") or {}).get("view"), "thumbnail": v.get("pic", ""), "url": base, "site": "bilibili"}]
+    out = []
+    for pg in pages:
+        if only and str(pg.get("page")) != only:
+            continue
+        part = pg.get("part") or f"Part {pg.get('page')}"
+        out.append({"id": f"{v['bvid']}_p{pg.get('page')}", "title": f"P{pg.get('page')} · {part}",
+                    "channel": f"{owner} · {v.get('title', '')}", "duration": pg.get("duration"),
+                    "views": None, "thumbnail": pg.get("first_frame") or v.get("pic", ""),
+                    "url": f"{base}?p={pg.get('page')}", "site": "bilibili"})
+    return out
+
+
 def _search(query):
     target, kind = _target(query)
 
     def run(job):
+        if kind == "link":
+            try:
+                parts = _bili_parts(target)
+                if parts:
+                    return parts
+            except Exception as e:
+                _zydekjs.log(f"Bilibili video info failed, using yt-dlp: {e}")
         with _ydl({"extract_flat": "in_playlist", "skip_download": True}) as ydl:
             info = ydl.extract_info(target, download=False)
         entries = info.get("entries") if info.get("entries") is not None else [info]
         hint = info.get("extractor_key") or ""
-        return [_entry(e, hint) for e in entries if e and (e.get("url") or e.get("webpage_url") or e.get("id"))]
+        out = [_entry(e, hint) for e in entries if e and (e.get("url") or e.get("webpage_url") or e.get("id"))]
+        for i, e in enumerate(out):   # bare links (a playlist's parts): at least say which part
+            if not e["title"]:
+                p = urllib.parse.parse_qs(urllib.parse.urlparse(e["url"]).query).get("p", [None])[0]
+                e["title"] = f"{info.get('title') or 'Part'} · P{p or i + 1}"
+                e["channel"] = e["channel"] or info.get("uploader") or ""
+        return out
 
     return _job("search", query, run)
 
