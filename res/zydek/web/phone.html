@@ -197,6 +197,7 @@
   #stemsrv .st { font-size: 12px; color: var(--dim); margin-top: 8px; }
   #stemsrv .st.on { color: var(--play); }
   #sheet .more .wide { grid-column: 1 / -1; }
+  #sheet .more button small { display: block; font-size: 11px; color: var(--dim); margin-top: 2px; }
 
   /* track sheet */
   #scrim { position: fixed; inset: 0; z-index: 8; background: rgba(0,0,0,.6); opacity: 0; pointer-events: none; transition: opacity .18s; }
@@ -296,7 +297,9 @@
       <div class="row2"><input id="ss-addr" placeholder="192.168.0.100:8770" inputmode="url" autocomplete="off"
         autocapitalize="off" spellcheck="false"><button id="ss-save">Connect</button></div>
       <div class="st" id="ss-st"></div>
-      <div class="hint">A PC running Zydek's stem server splits tracks into vocals, drums, bass and other; they come back as
+      <label for="ss-model">Separation model</label><select id="ss-model">
+        <option value="best">Best — BS-RoFormer SW (large)</option><option value="fast">Fast — HTDemucs FT</option></select>
+      <div class="hint">Long press a track and choose "Make stems on the PC". A PC running Zydek's stem server splits tracks into vocals, drums, bass and other; they come back as
         .stem.mp4 files in Music/Zydek Web. Type its address and port (8770 if you leave it out).</div>
     </div>
     <div class="card">
@@ -855,7 +858,9 @@ async function webDownload(r, target, stems) {
 }
 // Stems from the PC (Settings > Stem server): the phone sends the track's file, the PC separates it, the
 // .stem.mp4 comes back into Music/Zydek Web and the library. Progress shows at the top of the Web tab.
-let stemServer = store.get("stemServer", "");   // kept here too, so showing the buttons doesn't start Python
+let stemServer = store.get("stemServer", "");
+let stemPreset = store.get("stemPreset", "best");
+const STEM_MODELS = { best: "Best — BS-RoFormer SW", fast: "Fast — HTDemucs FT" };   // kept here too, so showing the buttons doesn't start Python
 async function makeStems(t) {
   try {
     const info = await api(`/api/library/track/${t.id}`);
@@ -884,6 +889,10 @@ async function checkStemServer(server) {
   try {
     const h = await webJob(`/api/web/stemcheck?${qs({ server })}`);
     st.className = "st on";
+    const sel = $("#ss-model");   // the models this server offers
+    sel.innerHTML = Object.entries(h.presets).map(([k, label]) => `<option value="${esc(k)}">${esc(label)}</option>`).join("");
+    Object.assign(STEM_MODELS, h.presets);
+    sel.value = stemPreset;
     st.textContent = `Connected · ${h.gpu}${h.busy ? " · separating" : ""}${h.queued ? ` · ${h.queued} queued` : ""}`;
   } catch (e) { st.textContent = e.message; }
 }
@@ -892,6 +901,7 @@ async function loadStemServer() {
     const p = await webApi("/api/web/prefs");
     if (p.starting) return;
     stemServer = p.stemServer || ""; store.set("stemServer", stemServer);
+    stemPreset = p.stemPreset || "best"; store.set("stemPreset", stemPreset); $("#ss-model").value = stemPreset;
     if (document.activeElement !== $("#ss-addr")) $("#ss-addr").value = stemServer;
     checkStemServer(stemServer);
   } catch {}
@@ -902,6 +912,13 @@ $("#ss-save").addEventListener("click", async () => {
     await webApi(`/api/web/prefs?${qs({ stemServer: server })}`);
     stemServer = server; store.set("stemServer", server);
     checkStemServer(server);
+  } catch (e) { toast(e.message, "bad"); }
+});
+$("#ss-model").addEventListener("change", async () => {
+  try {
+    await webApi(`/api/web/prefs?${qs({ stemPreset: $("#ss-model").value })}`);
+    stemPreset = $("#ss-model").value; store.set("stemPreset", stemPreset);
+    toast(`Stems with ${STEM_MODELS[stemPreset] || stemPreset}`, "ok");
   } catch (e) { toast(e.message, "bad"); }
 });
 $("#ss-addr").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#ss-addr").blur(); $("#ss-save").click(); } });
@@ -1097,11 +1114,6 @@ function openSheet(t) {
   s.querySelector(".pv").addEventListener("click", () => preview(t));
   s.querySelector(".smp").disabled = t.missing;
   s.querySelector(".smp").addEventListener("click", () => load(t, "sampler"));
-  if (stemServer && !t.stems && !t.missing) {
-    const b = h("button", "wide", "Make stems on the PC");
-    b.addEventListener("click", () => { closeSheet(); makeStems(t); });
-    s.querySelector(".more").appendChild(b);
-  }
   $("#scrim").classList.add("on"); s.classList.add("on");
 }
 // Long press (450 ms without moving): fn(). A long press doesn't also count as a tap.
@@ -1124,8 +1136,11 @@ async function openCrateSheet(t) {
   let member = [];
   if (t) { try { member = await api(`/api/crates/of?${qs({ track: t.id })}`); } catch {} }
   s.innerHTML = `<div class="grip"></div><div class="t">${t ? esc(t.title) : "New crate"}</div>` +
-    (t ? `<div class="a">${esc(t.artist || "Unknown artist")} · tap a crate to add or remove</div><div class="crates"></div>` : "") +
+    (t ? `<div class="a">${esc(t.artist || "Unknown artist")} · tap a crate to add or remove</div>` +
+      (stemServer && !t.stems && !t.missing ? `<div class="more"><button class="wide mkstems">Make stems on the PC<small>${esc(STEM_MODELS[stemPreset] || stemPreset)}</small></button></div>` : "") +
+      `<div class="crates"></div>` : "") +
     `<div class="newcrate"><input placeholder="New crate name" enterkeyhint="done"><button>Make crate</button></div>`;
+  s.querySelector(".mkstems")?.addEventListener("click", () => { closeSheet(); makeStems(t); });
   const box = s.querySelector(".crates");
   if (box) crateList.forEach(c => {
     const on = member.includes(c.id);

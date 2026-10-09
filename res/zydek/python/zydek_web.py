@@ -33,7 +33,7 @@ HIRES_FORMAT = "bestaudio[acodec=flac]/" + AUDIO_FORMAT
 # Bilibili sessions: written by the app's login (MainActivity.java), read (and refreshed) by yt-dlp.
 COOKIE_FILE = "bilibili-cookies.txt"
 PREFS_FILE = "zydek-web.json"
-DEFAULT_PREFS = {"biliHiRes": True, "stemServer": ""}
+DEFAULT_PREFS = {"biliHiRes": True, "stemServer": "", "stemPreset": "best"}
 QUICKJS_STACK = 24 * 1024 * 1024
 THREAD_STACK = 64 * 1024 * 1024
 
@@ -654,18 +654,20 @@ def api(name, args_json):
             if args.get("id") in _jobs:
                 _jobs[args["id"]]["cancel"] = True
             return json.dumps({"ok": True})
-        if name == "stems":     # ?path=&preset=best|fast
+        if name == "stems":     # ?path=  (with the model chosen in Settings, or ?preset=)
             if not args.get("path"):
                 return json.dumps({"ok": False, "error": "No track"})
             _stem_url()   # no server set: say so now
-            return json.dumps({"ok": True, "job": _stems(args["path"], args.get("preset") or "best")["id"]})
+            return json.dumps({"ok": True, "job": _stems(args["path"], args.get("preset") or _prefs()["stemPreset"])["id"]})
         if name == "stemcheck":   # ?server=  (what's typed in Settings; empty = the saved one)
             return json.dumps({"ok": True, "job": _stem_check(args.get("server"))["id"]})
         if name == "account":
             return json.dumps({"ok": True, "job": _account()["id"]})
-        if name == "prefs":   # ?biliHiRes=0|1, ?stemServer=host:port to change, nothing to read
+        if name == "prefs":   # ?biliHiRes=0|1, ?stemServer=host:port, ?stemPreset= to change, nothing to read
             prefs = _prefs()
-            if "biliHiRes" in args or "stemServer" in args:
+            if args.keys() & {"biliHiRes", "stemServer", "stemPreset"}:
+                if "stemPreset" in args:
+                    prefs["stemPreset"] = args["stemPreset"]
                 if "biliHiRes" in args:
                     prefs["biliHiRes"] = args["biliHiRes"] not in ("0", "false", "")
                 if "stemServer" in args:
