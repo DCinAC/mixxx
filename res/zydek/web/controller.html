@@ -93,6 +93,7 @@
   .keybox { display: grid; grid-template-columns: 1fr auto 1fr; gap: calc(var(--mm) * .6); align-items: stretch; }
   .keybox button { font-size: calc(var(--mm) * 3.6); }
   .keybox span { align-self: center; text-align: center; min-width: calc(var(--mm) * 6); color: var(--text); font-size: calc(var(--mm) * 2); }
+  .keybox span.shifted { color: var(--acc); }   /* key shifted */
   .keybox span small { display: block; color: var(--dim); font-size: calc(var(--mm) * 1.5); }
 
   .modes { flex: 0 0 calc(var(--mm) * 17); display: flex; gap: calc(var(--mm) * .8); }
@@ -293,6 +294,8 @@
   <div class="row"><div>Tempo direction</div><div class="seg" id="s-dir"></div></div>
   <div class="row"><div>Knob gesture<small>Drag: the distance you move, up or right = turn up. Spin: circle the knob; the farther out you circle, the finer it gets</small></div>
     <div class="seg" id="s-knob"></div></div>
+  <div class="row"><div>Key notation<small>How the deck shows its current key (after key shift, and tempo when key lock is off)</small></div>
+    <div class="seg" id="s-keyfmt"></div></div>
   <div class="row"><div>Mixer knob size<small>Knob diameter; the mixer widens to fit</small></div>
     <div><input type="range" id="s-knobsize" min="9" max="18" step="0.5"><small><span class="val" id="s-knobsize-v"></span></small></div></div>
   <div class="row"><div>Telemetry<small>Send debug data (touch rate, deck state, events) to the Mac's settings page</small></div>
@@ -313,7 +316,7 @@
 // =====================================================================================================
 // Settings (persisted per device)
 // =====================================================================================================
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", telemetry: true, pingHz: 10 };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10 };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 let S = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("ctl-settings") || "{}") }; } catch { return { ...DEFAULTS }; } })();
 // Older settings: knobs became Drag by default (the one-axis drags are gone). True if it changed something.
@@ -331,6 +334,23 @@ const saveSettings = () => {
 };
 const mm = n => n * S.pxmm;
 const stripSeconds = () => REV_SECONDS * S.revs;
+// The strip is a stretch of real time, like a record turning at 33 1/3 rpm: playing faster packs more of the
+// track (and more beats) into it. Track seconds across the strip for deck d:
+const deckRate = d => Math.max(.05, 1 + d.tempo / 100);
+const deckSpan = d => stripSeconds() * deckRate(d);
+
+// Keys as Mixxx numbers them: 1-12 = C..B major, 13-24 = C..B minor, 0 = none.
+const MAJOR_NAMES = ["C", "D♭", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
+const MINOR_NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"];
+function keyName(k) {
+  k = Math.round(k);
+  if (!(k >= 1 && k <= 24)) return "—";
+  const minor = k > 12, p = (k - 1) % 12, open = ((minor ? p + 3 : p) * 7) % 12 + 1;   // circle of fifths
+  if (S.keyNotation === "open") return `${open}${minor ? "m" : "d"}`;
+  if (S.keyNotation === "musical") return minor ? `${MINOR_NAMES[p]}m` : MAJOR_NAMES[p];
+  return `${(open + 6) % 12 + 1}${minor ? "A" : "B"}`;   // Camelot: C major = 8B, A minor = 8A
+}
+const keyShift = (k, n) => k >= 1 && k <= 24 ? (k > 12 ? 13 : 1) + (((k - 1) % 12 + n) % 12 + 12) % 12 : k;
 // Element sizes are measured once per layout (reading them while painting forces the browser to lay out the
 // page again, which is slow on the tablet). Anything that changes the layout bumps layoutEpoch.
 let layoutEpoch = 0;
@@ -359,7 +379,7 @@ const DEMO = [["Demo track one", "Artist A", 128, 245], ["Second demo", "Artist 
               ["Third demo", "Artist C", 124, 280], ["Fourth demo", "Artist D", 130, 198]];
 const decks = DEMO.map(([title, artist, bpm, dur], i) => ({
   n: i + 1, title, artist, bpm, dur, pos: 20 + i * 7, playing: false, grabbed: false,
-  tempo: 0, ol: false, key: 0, syncMode: 0, cuePoint: 0, muted: false, loopOn: false, loopSize: 4, loopStart: 0,
+  tempo: 0, ol: false, key: 0, curKey: [22, 8, 17, 6][i], syncMode: 0, cuePoint: 0, muted: false, loopOn: false, loopSize: 4, loopStart: 0,
   cues: i === 0 ? [{ pos: 4, c: CUE_COLORS[0] }, { pos: 34, c: CUE_COLORS[1] }, null, { pos: 64, c: CUE_COLORS[3] }, null, null, null, null] : new Array(8).fill(null),
   mode: "cue", shift: false, rolls: new Array(8).fill(0), stems: [1, 1, 1, 1], fx: [0, 0, 0], fxRoute: 0,
   gain: .5, high: .5, mid: .5, low: .5, filter: .5, vol: 1, pfl: false,
@@ -672,8 +692,12 @@ function buildSide(s) {
     if (live) send("sync", d.n, master ? 3 : d.syncMode ? 1 : 0);
     else if (d.syncMode && !d.leader) matchTempo(d, s);
     paintAll(); });
-  bindPress(kd, down => { if (down) { const d = deckOf(s); if (live) send("key", d.n, -1); d.key = clamp(d.key - 1, -6, 6); paintSide(s); } });
-  bindPress(ku, down => { if (down) { const d = deckOf(s); if (live) send("key", d.n, 1); d.key = clamp(d.key + 1, -6, 6); paintSide(s); } });
+  const shiftKey = n => { const d = deckOf(s), k = clamp(d.key + n, -6, 6);
+    if (live) send("key", d.n, n);
+    if (k !== d.key) { d.curKey = keyShift(d.curKey, k - d.key); d.key = k; markLocal(d, "curKey"); }
+    paintSide(s); };
+  bindPress(kd, down => { if (down) shiftKey(-1); });
+  bindPress(ku, down => { if (down) shiftKey(1); });
 
   // pad modes + pads
   const modes = h("div", "modes");
@@ -719,7 +743,7 @@ function buildStrip(s, u) {
       return { x: e.clientX, deck: d, w: u.strip.clientWidth, samples: [{ t: performance.now(), p: d.pos }] }; },
     move: (e, st) => {
       const dx = e.clientX - st.x; st.x = e.clientX;
-      st.deck.pos = clamp(st.deck.pos - dx / st.w * stripSeconds(), 0, st.deck.dur);
+      st.deck.pos = clamp(st.deck.pos - dx / st.w * deckSpan(st.deck), 0, st.deck.dur);
       const now = performance.now();
       st.samples.push({ t: now, p: st.deck.pos });
       while (st.samples.length > 2 && now - st.samples[0].t > 80) st.samples.shift();
@@ -781,7 +805,7 @@ function buildNudge(s, u) {
       st.x = e.clientX;
       off += dx; u.nudge.style.setProperty("--off", `${off.toFixed(1)}px`);   // the ridges follow the finger
       if (st.adjust) {   // the loop point follows the finger at the strip's scale; never a tempo bend here
-        const lr = loopRange(st.d), sec = dx / cachedRect(u.nudge).width * stripSeconds();
+        const lr = loopRange(st.d), sec = dx / cachedRect(u.nudge).width * deckSpan(st.d);
         if (!lr) return;
         if (st.adjust === "in") send("loopPoint", st.d.n, "in", clamp(lr[0] + sec, 0, lr[1] - .01));
         else send("loopPoint", st.d.n, "out", clamp(lr[1] + sec, lr[0] + .01, st.d.dur));
@@ -984,7 +1008,8 @@ function paintSide(s) {
   const locked = synced(d);
   u.lane.classList.toggle("locked", locked);
   setText(u.lane.querySelector(".lock"), locked ? "SYNCED" : "");
-  setHTML(u.key, `${d.key > 0 ? "+" : ""}${d.key}<small>KEY</small>`);
+  setHTML(u.key, `${keyName(d.curKey)}<small>KEY</small>`);
+  u.key.classList.toggle("shifted", !!d.key);
   u.modes.forEach(b => b.classList.toggle("on", b.dataset.mode === d.mode));
   u.shiftBtn.classList.toggle("idle", false);   // SHIFT: hot cue delete, FX units 3-4, sync master, loop in/out adjust, loop move
   u.shiftBtn.classList.toggle("on", d.shift);
@@ -1215,7 +1240,7 @@ function frame(now) {
       if (u.sync._glow !== glow) { u.sync._glow = glow; u.sync.style.setProperty("--glow", glow); }
       u.sync.classList.toggle("matched", !d.syncMode && c.matched);
     }
-    const w = cachedRect(u.strip).width, sec = stripSeconds();
+    const sec = deckSpan(d);
     drawStripWave(u, d, d.pos - sec / 2, sec);             // the cursor stays in the middle; the waveform rolls
     setText(u.time, fmtTime((d.dur - d.pos) / (1 + d.tempo / 100)));
   });
@@ -1266,26 +1291,31 @@ function drawStripWave(u, d, start, sec) {
   g.clearRect(0, 0, W, H);
   const wf = d.wf;
   if (!wf) { drawStripMarks(g, d, start, sec, pxPerSec, left, W, H); return; }
-  // Tiles are cached per track and scale; rendering one costs a few ms, copying it each frame almost nothing.
-  const tkey = `${d.n}|${d.wfVer}|${sec}|${W}|${H}`;
+  // Tiles are cached per track at the strip's scale for normal speed (rendering one costs a few ms, copying
+  // it each frame almost nothing) and squeezed or stretched to the tempo as they're copied, so moving the
+  // tempo never re-renders them. Tile edges are rounded to whole pixels on both sides: no seams.
+  const basePx = W / stripSeconds(), f = pxPerSec / basePx;
+  const tkey = `${d.n}|${d.wfVer}|${stripSeconds()}|${W}|${H}`;
   if (u.tileKey !== tkey) { u.tileKey = tkey; u.tiles = new Map(); }
-  for (let k = Math.floor(left / TILE); k * TILE < left + W; k++) {
-    if (k < 0 || k * TILE / pxPerSec > wf.n / wf.rate) continue;
+  const edge = k => Math.round(k * TILE * f) - left;
+  for (let k = Math.floor(left / f / TILE); edge(k) < W; k++) {
+    if (k < 0 || k * TILE / basePx > wf.n / wf.rate) continue;
     let t = u.tiles.get(k);
     if (!t) {
-      t = renderTile(wf, k, pxPerSec, H);
+      t = renderTile(wf, k, basePx, H);
       u.tiles.set(k, t);
-      if (u.tiles.size > 8) u.tiles.delete(u.tiles.keys().next().value);   // keep the 8 most recent
+      if (u.tiles.size > 12) u.tiles.delete(u.tiles.keys().next().value);   // keep the 12 most recent
     }
-    g.drawImage(t, k * TILE - left, 0);
+    const x = edge(k);
+    if (f === 1) g.drawImage(t, x, 0); else g.drawImage(t, x, 0, edge(k + 1) - x, H);
   }
   drawStripMarks(g, d, start, sec, pxPerSec, left, W, H);
   // Draw the tile coming up next while the tablet is idle, so playback never waits for one.
-  const next = Math.floor((left + W) / TILE) + 1;
-  if (!u.tiles.has(next) && next * TILE / pxPerSec < wf.n / wf.rate && u.prefetch !== `${tkey}|${next}`) {
+  const next = Math.floor((left + W) / f / TILE) + 1;
+  if (!u.tiles.has(next) && next * TILE / basePx < wf.n / wf.rate && u.prefetch !== `${tkey}|${next}`) {
     u.prefetch = `${tkey}|${next}`;
     const idle = window.requestIdleCallback || (f => setTimeout(f, 30));
-    idle(() => { if (u.tileKey === tkey && !u.tiles.has(next)) u.tiles.set(next, renderTile(wf, next, pxPerSec, H)); });
+    idle(() => { if (u.tileKey === tkey && !u.tiles.has(next)) u.tiles.set(next, renderTile(wf, next, basePx, H)); });
   }
 }
 
@@ -1466,6 +1496,7 @@ function paintSettings(soft) {
     `${stripSeconds().toFixed(1)} s of audio across ${stripMm.toFixed(0)} mm · ${(stripSeconds() * 1000 / stripMm).toFixed(0)} ms per mm`;
   seg("s-dir", [[true, "Down = faster"], [false, "Up = faster"]], () => S.fasterDown, v => S.fasterDown = v);
   seg("s-knob", [["drag", "Drag"], ["spin", "Spin"]], () => S.knobMode, v => S.knobMode = v);
+  seg("s-keyfmt", [["camelot", "Camelot 8A"], ["open", "Open Key 1m"], ["musical", "Musical Am"]], () => S.keyNotation, v => S.keyNotation = v);
   seg("s-fs-auto", [[true, "On"], [false, "Off"]], () => S.autoFs, v => S.autoFs = v);
   seg("s-tele", [[true, "On"], [false, "Off"]], () => S.telemetry, v => S.telemetry = v);
   if (soft) return;
@@ -1548,7 +1579,7 @@ function toMixxx(name, ...a) {
     case "keylock": markLocal(d, "keylock"); return setCtl(ch(d.n), "keylock", a[1]);
     case "quantize": markLocal(d, "quantize"); return setCtl(ch(d.n), "quantize", a[1]);
     case "scratchOn": d.tickAcc = 0; return mxSend({ scratch: [d.n - 1, 1, 0] });
-    case "scratch": return scratchBy(d, a[1] * stripSeconds());
+    case "scratch": return scratchBy(d, a[1] * deckSpan(d));
     case "scratchOff": if (!d.coast) { mxSend({ scratch: [d.n - 1, 0, 0] }); posSeed(d, d.pos, d.playing ? d.ratio : 0, performance.now()); } return;   // coasting: released later
     case "loop": return setCtl(ch(d.n), a[1], a[2] ? 1 : 0);   // press and release, like a controller button
     case "pad": return mxSend(`${a[2] ? "d" : "u"} ${a[0]} ${a[1]}`);
@@ -1597,6 +1628,7 @@ function applyCv(name, v, ts) {
       case "rate_ratio": d.ratio = v; if (!isLocal(d, "tempo") && ui.sides.every(u => u?.laneDeck !== d)) upd("tempo", (v - 1) * 100); return;
       case "file_bpm": if (v > 0) upd("bpm", v); return;
       case "pitch_adjust": if (!isLocal(d, "key")) upd("key", Math.round(v)); return;   // key shift only, without the tempo's effect
+      case "key": if (!isLocal(d, "curKey")) upd("curKey", v); return;      // the key you hear: file key + shift (+ tempo without key lock)
       case "sync_enabled": return upd("syncMode", v ? 2 : 0);
       case "sync_mode": return upd("leader", v >= 2);                     // 2/3: soft/explicit leader
       case "keylock": return upd("keylock", v > 0);
@@ -1630,7 +1662,7 @@ function applyCv(name, v, ts) {
 function subscribeAll() {
   const sub = [];
   for (let n = 1; n <= 4; n++) {
-    for (const k of ["play", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch_adjust", "sync_enabled", "sync_mode", "keylock", "quantize",
+    for (const k of ["play", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch_adjust", "key", "sync_enabled", "sync_mode", "keylock", "quantize",
       "pfl", "mute", "loop_enabled", "beatloop_size",
       "loop_start_position", "loop_end_position", "track_samples", "cue_point",
       ...[1, 2, 3, 4, 5, 6, 7, 8].map(k => `hotcue_${k}_position`)]) sub.push([ch(n), k, 0]);
@@ -1648,7 +1680,7 @@ function goLive(init) {
   document.getElementById("gear").classList.add("live");
   decks.forEach((d, i) => Object.assign(d, {
     title: `Deck ${d.n}`, artist: "", bpm: 120, dur: 0, pos: 0, pt: undefined, ratio: 1, playing: false, loaded: false,
-    tempo: 0, key: 0, loopOn: false, loopSize: 4, cues: new Array(8).fill(null), rolls: new Array(8).fill(0), stems: [1, 1, 1, 1], sc: 0,
+    tempo: 0, key: 0, curKey: 0, loopOn: false, loopSize: 4, cues: new Array(8).fill(null), rolls: new Array(8).fill(0), stems: [1, 1, 1, 1], sc: 0,
   }));
   samplers.forEach((sm, i) => { sm.state = 0; sm.name = `Sample ${i + 1}`; });
   init.decks.forEach((x, i) => {
