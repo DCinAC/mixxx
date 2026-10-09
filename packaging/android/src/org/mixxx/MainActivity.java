@@ -30,6 +30,7 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
+import android.util.DisplayMetrics;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import androidx.core.view.ViewCompat;
@@ -39,9 +40,23 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import org.qtproject.qt.android.QtActivityBase;
 
 public class MainActivity extends QtActivityBase {
-    // Zydek: in portrait the phone shows the library page (served by Zydek itself on port 8766, see
-    // src/zydek/zydekhub.cpp) on top of Mixxx; in landscape it hides, leaving Mixxx's own interface.
-    private static final String PHONE_PAGE = "http://127.0.0.1:8766/phone";
+    // Zydek: the phone page (served by Zydek itself on port 8766, see src/zydek/zydekhub.cpp) covers Mixxx's
+    // own interface: the library in portrait, the decks in landscape (res/zydek/web/phone.html).
+    private static final String PHONE_ORIGIN = "http://127.0.0.1:8766";
+    private static final String PHONE_PAGE = PHONE_ORIGIN + "/phone";
+    // Shown until Zydek's server answers (Mixxx takes a few seconds to start); the phone page opens with the
+    // same picture, so it carries on seamlessly.
+    private static final String BOOT_PAGE = "<!doctype html><html><head><meta name=viewport content='width=device-width'>"
+            + "<style>html,body{margin:0;height:100%;background:#0b0b0b}"
+            + "body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;font-family:system-ui,sans-serif}"
+            + ".rec{width:128px;height:128px;border-radius:50%;display:grid;place-items:center;animation:s 1.8s linear infinite;"
+            + "background:repeating-radial-gradient(circle,#141414 0 1.5px,#1e1e1e 1.5px 3px);box-shadow:0 0 0 1px #2a2a2a}"
+            + ".rec b{width:44px;height:44px;border-radius:50%;background:#ff8a1e;color:#1b0f02;display:grid;place-items:center;font:800 22px system-ui}"
+            + ".w{font:700 20px system-ui;letter-spacing:.35em;text-indent:.35em;color:#ececec}.st{font-size:13px;color:#8a8a8a}"
+            + "@keyframes s{to{transform:rotate(360deg)}}</style></head><body>"
+            + "<div class=rec><b>Z</b></div><div class=w>ZYDEK</div><div class=st>Starting Mixxx…</div><script>"
+            + "(function t(){fetch('/phone',{cache:'no-store'}).then(function(r){if(r.ok)location.replace('/phone');"
+            + "else setTimeout(t,400)}).catch(function(){setTimeout(t,400)})})()</script></body></html>";
     private WebView m_phoneView;
     private LinearLayout m_loginView;   // Bilibili login (see "Bilibili accounts" below)
     private WebView m_loginWeb;
@@ -111,6 +126,13 @@ public class MainActivity extends QtActivityBase {
         @JavascriptInterface
         public void addToGallery(String path) {
             MediaScannerConnection.scanFile(MainActivity.this, new String[] {path}, new String[] {"image/png"}, null);
+        }
+
+        /// CSS pixels per millimetre of this screen (the deck view sizes its controls in mm).
+        @JavascriptInterface
+        public double screenPxPerMm() {
+            DisplayMetrics m = getResources().getDisplayMetrics();
+            return (m.xdpi + m.ydpi) / 2 / 25.4 / m.density;
         }
 
         /// {"cn": true/false, "intl": true/false}: whether Zydek has a session for each.
@@ -542,26 +564,37 @@ public class MainActivity extends QtActivityBase {
         m_phoneView.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                // Zydek's server starts a few seconds after the app: keep trying until it answers.
+                // Zydek's server isn't up (yet, or any more): the start-up page waits for it.
                 if (request.isForMainFrame()) {
-                    m_handler.postDelayed(() -> view.loadUrl(PHONE_PAGE), 1000);
+                    showBootPage();
                 }
             }
         });
         addContentView(m_phoneView, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        m_phoneView.loadUrl(PHONE_PAGE);
+        showBootPage();
+    }
+
+    private void showBootPage() {
+        // On the server's origin, so the page can ask it whether it's up.
+        m_phoneView.loadDataWithBaseURL(PHONE_ORIGIN + "/", BOOT_PAGE, "text/html", "utf-8", null);
     }
 
     private void updateMode(int orientation) {
         if (m_phoneView == null) {
             return;
         }
+        // Always on top: the page itself switches between the library (portrait) and the decks (landscape),
+        // which it keeps loaded, so turning the phone is instant. The decks get the whole screen.
         boolean portrait = orientation == Configuration.ORIENTATION_PORTRAIT;
-        m_phoneView.setVisibility(portrait ? View.VISIBLE : View.GONE);
+        WindowInsetsControllerCompat bars = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
         if (portrait) {
-            m_phoneView.bringToFront();
-            m_phoneView.requestFocus();
+            bars.show(WindowInsetsCompat.Type.statusBars());
+        } else {
+            bars.hide(WindowInsetsCompat.Type.statusBars());
         }
+        m_phoneView.setVisibility(View.VISIBLE);
+        m_phoneView.bringToFront();
+        m_phoneView.requestFocus();
     }
 }

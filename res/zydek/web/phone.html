@@ -225,9 +225,29 @@
     font-size: 14px; pointer-events: none; }
   #toast.on { opacity: 1; transform: translate(-50%, 0); }
   #toast.ok { border-color: var(--play); } #toast.bad { border-color: var(--err); }
+
+  /* Landscape: the deck view (the controller's phone layout), loaded with the page and kept running, so
+     turning the phone switches instantly. Portrait: the library. */
+  #deckview { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 50; background: var(--bg); visibility: hidden; }
+  @media (orientation: landscape) {
+    #deckview { visibility: visible; }
+    body > header, body > main, body > nav, #toast { visibility: hidden; }
+  }
+  /* Starting up: a record at 33 1/3 rpm until the library and the decks are ready */
+  #boot { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 18px; transition: opacity .4s; }
+  #boot.done { opacity: 0; pointer-events: none; }
+  #boot .rec { width: 128px; height: 128px; border-radius: 50%; display: grid; place-items: center; animation: zspin 1.8s linear infinite;
+    background: repeating-radial-gradient(circle, #141414 0 1.5px, #1e1e1e 1.5px 3px); box-shadow: 0 0 0 1px #2a2a2a; }
+  #boot .rec b { width: 44px; height: 44px; border-radius: 50%; background: var(--deck12); color: #1b0f02; display: grid; place-items: center;
+    font: 800 22px system-ui, sans-serif; }
+  #boot .word { font: 700 20px system-ui, sans-serif; letter-spacing: .35em; text-indent: .35em; color: var(--text); }
+  #boot .st { font-size: 13px; color: var(--dim); min-height: 1.2em; }
+  @keyframes zspin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
+<div id="boot"><div class="rec"><b>Z</b></div><div class="word">ZYDEK</div><div class="st" id="boot-st">Starting Mixxx…</div></div>
 <header id="decks">
   <div id="dk2"></div><div id="dk0"></div><div id="dk1"></div><div id="dk3"></div>
   <div id="deckbar"><span id="link">connecting…</span><button id="four">4 Decks</button></div>
@@ -331,6 +351,7 @@
   </div>
 </div>
 <div id="pv"><span></span><button id="pvstop">Stop preview</button></div>
+<iframe id="deckview" src="/controller?phone=1" title="Decks"></iframe>
 <nav>
   <button data-page="lib"><span class="i">♫</span>Library</button>
   <button data-page="web"><span class="i">◎</span>Web</button>
@@ -675,6 +696,7 @@ function posUpdate(d, p, now, ts) {   // p in seconds
 }
 
 function frame(now) {
+  if (innerWidth > innerHeight) { requestAnimationFrame(frame); return; }   // landscape: the deck view is on top
   for (const p of panels) {
     if (!shown(p)) continue;
     const d = deckFor(p);
@@ -1260,9 +1282,21 @@ function watchScan() {
 }
 
 // ---------------------------------------------------------------------------------------------------
+// Start-up screen: stays until the library has loaded and the deck view is live (or 20 s have passed).
+const boot = { library: false, decks: false };
+function bootStep(k, msg) {
+  if (k) boot[k] = true;
+  if (msg) $("#boot-st").textContent = msg;
+  if (boot.library && boot.decks) $("#boot").classList.add("done");
+  else if (boot.library) $("#boot-st").textContent = "Connecting the decks…";
+  else if (boot.decks) $("#boot-st").textContent = "Loading the library…";
+}
+addEventListener("message", e => { if (e.origin === location.origin && e.data?.zydek === "deck-live") bootStep("decks"); });
+setTimeout(() => $("#boot").classList.add("done"), 20000);
+bootStep(null, "Loading the library…");
 showPage(page);
 connect();
-loadViews().then(loadTracks);
+loadViews().then(loadTracks).finally(() => bootStep("library"));
 requestAnimationFrame(frame);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { checkPermission(); loadViews(); loadTracks(); } });
 </script>

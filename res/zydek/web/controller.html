@@ -258,6 +258,38 @@
     height: calc(var(--mm) * 10); font-size: calc(var(--mm) * 4); line-height: 1; }
   #settings .close { height: calc(var(--mm) * 9); padding: 0 calc(var(--mm) * 5); margin-top: calc(var(--mm) * 3); }
 
+  /* ---- phone (?phone=1): one phone held sideways, inside the phone page (portrait there is the library) ----
+     tempo lanes on the outer edges (full height), both strips across the top, under them deck | mixer | deck. */
+  #app.phone { --gap: calc(var(--mm) * 1); padding: calc(var(--mm) * .8); gap: var(--gap); grid-template-areas: none;
+    grid-template-columns: calc(var(--mm) * 9) minmax(0, 1fr) calc(var(--mm) * 9); grid-template-rows: minmax(0, 1fr); }
+  #app.phone .pcol { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; }
+  #app.phone .pcol .lane { flex: 1; }
+  #app.phone .pcol button { flex: 0 0 calc(var(--mm) * 7); width: 100%; height: auto; font-size: calc(var(--mm) * 1.5); }
+  #app.phone #gear { font-size: calc(var(--mm) * 3.2); }
+  #app.phone .lane .tread { position: absolute; left: 0; right: 0; bottom: 16%; font-size: calc(var(--mm) * 1.5); }
+  #app.phone .pmid { display: grid; min-width: 0; min-height: 0; gap: var(--gap);
+    grid-template-rows: calc(var(--mm) * 2) calc(var(--mm) * 10) calc(var(--mm) * 10) minmax(0, 1fr); }
+  #app.phone .pmid > .strip { height: auto; min-height: 0; }
+  #app.phone .strip .info { left: calc(var(--mm) * 8.5); top: calc(var(--mm) * .3); }
+  #app.phone .strip .info .title, #app.phone .strip .info .num { font-size: calc(var(--mm) * 1.8); }
+  #app.phone .strip .label { display: none; }
+  #app.phone .psw { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--mm) * 7.5); z-index: 2; border: 0;
+    border-right: 1px solid #333; border-radius: 0; background: rgba(0,0,0,.6); color: var(--acc); font-size: calc(var(--mm) * 2.8);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+  #app.phone .psw small { font-size: calc(var(--mm) * 1.4); color: var(--dim); margin-top: 2px; }
+  #app.phone .lower { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: calc(var(--mm) * 1.2); min-height: 0; }
+  #app.phone .pdeck { --acc: var(--deck12); display: grid; grid-template-rows: 9fr 13fr 6.5fr 9fr; gap: var(--gap); min-width: 0; min-height: 0; }
+  #app.phone .pdeck.d34 { --acc: var(--deck34); }
+  #app.phone .prow { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); min-height: 0; flex: none; }
+  #app.phone .prow button { font-size: calc(var(--mm) * 2.3); }
+  #app.phone .prow.modes button { font-size: calc(var(--mm) * 1.8); }
+  #app.phone .pdeck .pads { grid-template-rows: minmax(0, 1fr); }
+  #app.phone .pdeck .shift.on { background: var(--err); border-color: var(--err); color: #fff; }
+  #app.phone #mixer { grid-template-columns: calc(var(--mm) * 10) calc(var(--mm) * 8) calc(var(--mm) * 8) calc(var(--mm) * 10);
+    grid-template-rows: minmax(0, 1fr) calc(var(--mm) * 6.5); padding: calc(var(--mm) * .4) calc(var(--mm) * .8); gap: calc(var(--mm) * .8); }
+  #app.phone .chan .pfl { flex-basis: calc(var(--mm) * 7); }
+  #app.phone .knob span { font-size: calc(var(--mm) * 1.4); }
+
   #rotate { position: fixed; inset: 0; background: var(--bg); color: var(--text); display: none; align-items: center; justify-content: center;
     font-size: 22px; text-align: center; z-index: 20; padding: 24px; }
   @media (orientation: portrait) { #rotate { display: flex; } }
@@ -316,9 +348,20 @@
 // =====================================================================================================
 // Settings (persisted per device)
 // =====================================================================================================
+// ?phone=1: the phone page's landscape deck view (see "Phone" below).
+const PHONE = new URLSearchParams(location.search).has("phone");
 const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10 };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
-let S = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("ctl-settings") || "{}") }; } catch { return { ...DEFAULTS }; } })();
+// The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
+// Android, which knows the screen's real pixel density.
+const SETTINGS_KEY = PHONE ? "ctl-settings-phone" : "ctl-settings";
+if (PHONE) {
+  let pxmm = 5.74;
+  try { const v = +parent.ZydekAndroid?.screenPxPerMm?.(); if (v > 2 && v < 12) pxmm = v; } catch {}
+  Object.assign(DEFAULTS, { pxmm, layout: "phone", autoFs: false, knobSize: 8.5, telemetry: false, pingHz: 0 });
+}
+let S = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") }; } catch { return { ...DEFAULTS }; } })();
+if (PHONE) S.layout = "phone";
 // Older settings: knobs became Drag by default (the one-axis drags are gone). True if it changed something.
 function migrateSettings(o) {
   const before = o.knobMode;
@@ -329,7 +372,7 @@ function migrateSettings(o) {
 migrateSettings(S);
 let applyingRemote = false;
 const saveSettings = () => {
-  try { localStorage.setItem("ctl-settings", JSON.stringify(S)); } catch {}
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(S)); } catch {}
   if (!applyingRemote) ctlSend({ type: "settings", settings: S });   // keep the Mac's /settings page in sync
 };
 const mm = n => n * S.pxmm;
@@ -642,15 +685,50 @@ function buildSide(s) {
 
   // tempo lane (outer edge)
   const tempo = h("div", "tempo");
-  u.ol = h("button", "ol", "TEMPO<br>BOOST");
+  tempoControls(s, u, "TEMPO<br>BOOST");
+  tempo.append(u.ol, u.lane, u.tread, u.shiftBtn);
+
+  const deck = h("div", "deck");
+  const head = buildStrip(s, u);
+
+  // transport
+  const tr = h("div", "transport");
+  transportControls(s, u);
+  const kb = h("div", "keybox");
+  const kd = h("button", "", "−"), ku = h("button", "", "+"); u.key = h("span");
+  kb.append(kd, u.key, ku);
+  tr.append(u.cue, u.play, u.sync, kb);
+  const shiftKey = n => { const d = deckOf(s), k = clamp(d.key + n, -6, 6);
+    if (live) send("key", d.n, n);
+    if (k !== d.key) { d.curKey = keyShift(d.curKey, k - d.key); d.key = k; markLocal(d, "curKey"); }
+    paintSide(s); };
+  bindPress(kd, down => { if (down) shiftKey(-1); });
+  bindPress(ku, down => { if (down) shiftKey(1); });
+
+  // pad modes + pads
+  const modes = h("div", "modes");
+  u.modes = ["cue", "roll", "stem", "smpl", "jump", "fx"].map(m => {
+    const b = h("button", "", m.toUpperCase()); b.dataset.mode = m;
+    b.addEventListener("click", () => { const d = deckOf(s); d.mode = m; d.shift = false; paintSide(s); });
+    modes.appendChild(b); return b;
+  });
+  const pads = buildPads(s, u, 8);
+  if (stacked()) { deck.append(tr, modes, pads); placeStrip(s, u); } else deck.append(head, u.strip, tr, modes, pads);
+  if (s === 0) el.append(tempo, deck); else el.append(deck, tempo);
+  ui.sides[s] = u;
+  return el;
+}
+
+// Tempo lane, TEMPO BOOST and SHIFT for side s (both layouts).
+function tempoControls(s, u, olLabel) {
+  u.ol = h("button", "ol", olLabel);
   u.ol.addEventListener("click", () => { const d = deckOf(s); d.ol = !d.ol;
     if (!d.ol && Math.abs(d.tempo) > 8) { d.tempo = clamp(d.tempo, -8, 8); send("tempo", d.n, d.tempo); }
     paintSide(s); });
   u.lane = h("div", "lane", `<div class="end t"></div><div class="zero"></div><div class="mark"></div><div class="lock"></div><div class="end b"></div>`);
   u.tread = h("div", "tread");
   u.shiftBtn = h("button", "shift", "SHIFT");
-  u.shiftBtn.addEventListener("click", () => { const d = deckOf(s); d.shift = !d.shift; paintSide(s); });
-  tempo.append(u.ol, u.lane, u.tread, u.shiftBtn);
+  u.shiftBtn.addEventListener("click", () => { const d = deckOf(s); d.shift = !d.shift; paintSide(s); if (PHONE) paintMixer(); });
   drag(u.lane, {
     // Touchpad: only the change in finger position counts, wherever you touch.
     down: e => { if (synced(deckOf(s))) return false;   // a synced deck follows the master's tempo
@@ -664,17 +742,11 @@ function buildSide(s) {
     },
     up: () => { u.lane.classList.remove("held"); u.laneDeck = null; paintTempo(s); },
   });
+}
 
-  const deck = h("div", "deck");
-  const head = buildStrip(s, u);
-
-  // transport
-  const tr = h("div", "transport");
+// CUE, PLAY and SYNC for side s (both layouts).
+function transportControls(s, u) {
   u.cue = h("button", "cuebtn", "CUE"); u.play = h("button", "play", "PLAY"); u.sync = h("button", "sync", "SYNC");
-  const kb = h("div", "keybox");
-  const kd = h("button", "", "−"), ku = h("button", "", "+"); u.key = h("span");
-  kb.append(kd, u.key, ku);
-  tr.append(u.cue, u.play, u.sync, kb);
   bindPress(u.cue, down => { const d = deckOf(s);
     if (live) { send("cue", d.n, down); return; }
     if (down) { if (d.playing) { d.playing = false; d.pos = d.cuePoint; } else if (Math.abs(d.pos - d.cuePoint) > .05) d.cuePoint = d.pos; else d.preview = true; }
@@ -692,31 +764,17 @@ function buildSide(s) {
     if (live) send("sync", d.n, master ? 3 : d.syncMode ? 1 : 0);
     else if (d.syncMode && !d.leader) matchTempo(d, s);
     paintAll(); });
-  const shiftKey = n => { const d = deckOf(s), k = clamp(d.key + n, -6, 6);
-    if (live) send("key", d.n, n);
-    if (k !== d.key) { d.curKey = keyShift(d.curKey, k - d.key); d.key = k; markLocal(d, "curKey"); }
-    paintSide(s); };
-  bindPress(kd, down => { if (down) shiftKey(-1); });
-  bindPress(ku, down => { if (down) shiftKey(1); });
+}
 
-  // pad modes + pads
-  const modes = h("div", "modes");
-  u.modes = ["cue", "roll", "stem", "smpl", "jump", "fx"].map(m => {
-    const b = h("button", "", m.toUpperCase()); b.dataset.mode = m;
-    b.addEventListener("click", () => { const d = deckOf(s); d.mode = m; d.shift = false; paintSide(s); });
-    modes.appendChild(b); return b;
-  });
+function buildPads(s, u, n) {
   const pads = h("div", "pads");
   u.pads = [];
-  for (let k = 0; k < 8; k++) {
+  for (let k = 0; k < n; k++) {
     const p = h("div", "pad");
     bindPress(p, down => padPress(s, k, down));
     pads.appendChild(p); u.pads[k] = p;
   }
-  if (stacked()) { deck.append(tr, modes, pads); placeStrip(s, u); } else deck.append(head, u.strip, tr, modes, pads);
-  if (s === 0) el.append(tempo, deck); else el.append(deck, tempo);
-  ui.sides[s] = u;
-  return el;
+  return pads;
 }
 
 // A synced deck that isn't the master: its tempo comes from the master.
@@ -858,11 +916,7 @@ function buildMixer() {
     const c = h("div", "chan");
     const k = key => knob(key.toUpperCase(), d => d[key], (v, d) => { d[key] = v; send(key, d.n, v); }, .5, true, () => deckOf(s));
     const knobs = ["gain", "high", "mid", "low", "filter"].map(k);
-    // Headphone cue (pre-fader listen). Drawn, because the tablet's font has no headphone character.
-    const pfl = h("button", "pfl", `<svg viewBox="0 0 24 24" style="width:calc(var(--mm)*4.6);height:calc(var(--mm)*4.6);vertical-align:middle">` +
-      `<path d="M4 15v-3a8 8 0 0 1 16 0v3" fill="none" stroke="currentColor" stroke-width="2.2"/>` +
-      `<rect x="2.5" y="13.5" width="5" height="8" rx="1.8" fill="currentColor"/><rect x="16.5" y="13.5" width="5" height="8" rx="1.8" fill="currentColor"/></svg>`);
-    bindPress(pfl, down => { if (down) { const d = deckOf(s); d.pfl = !d.pfl; send("pfl", d.n, d.pfl ? 1 : 0); paintMixer(); } });
+    const pfl = pflButton(s);
     const mute = h("button", "mute", "MUTE<small>hold</small>");
     let muteDeck = null;                             // held mute stays on the deck it started on
     bindPress(mute, down => { if (down) muteDeck = deckOf(s); muteDeck.muted = down; send("mute", muteDeck.n, down); paintMixer(); });
@@ -871,16 +925,97 @@ function buildMixer() {
     ui.chans[s] = { el: c, knobs, pfl, mute, gain: knobs[0] };
     return c;
   };
-  const vf = s => {
-    const f = fader(d => d.vol, (v, d) => { d.vol = v; send("volume", d.n, v); }, d => "CH " + d.n, false, () => deckOf(s));
-    ui.faders[s] = f; return f;
+  const xf = h("div"); xf.id = "xf";
+  m.append(chan(0), volumeFader(0), volumeFader(1), chan(1), xf);
+  return m;
+}
+
+// Headphone cue (pre-fader listen). Drawn, because the tablet's font has no headphone character.
+function pflButton(s) {
+  const pfl = h("button", "pfl", `<svg viewBox="0 0 24 24" style="width:calc(var(--mm)*4.6);height:calc(var(--mm)*4.6);vertical-align:middle">` +
+    `<path d="M4 15v-3a8 8 0 0 1 16 0v3" fill="none" stroke="currentColor" stroke-width="2.2"/>` +
+    `<rect x="2.5" y="13.5" width="5" height="8" rx="1.8" fill="currentColor"/><rect x="16.5" y="13.5" width="5" height="8" rx="1.8" fill="currentColor"/></svg>`);
+  bindPress(pfl, down => { if (down) { const d = deckOf(s); d.pfl = !d.pfl; send("pfl", d.n, d.pfl ? 1 : 0); paintMixer(); } });
+  return pfl;
+}
+const volumeFader = s => {
+  const f = fader(d => d.vol, (v, d) => { d.vol = v; send("volume", d.n, v); }, d => "CH " + d.n, false, () => deckOf(s));
+  ui.faders[s] = f; return f;
+};
+
+// =====================================================================================================
+// Phone: what mixing needs on one phone held sideways, like a small controller (Hercules Starlight).
+// Both strips across the top (waveform, scratch); tempo lanes on the outer edges, full height. Per deck:
+// CUE · PLAY, 4 pads, HOT CUE / LOOP (with SHIFT: FX / SAMPLER), SHIFT · SYNC. Mixer: BASS and FILTER per
+// deck (with that deck's SHIFT: MID and HIGH), headphone cue, volume faders, crossfader. Faders keep at
+// least 30 mm of travel on a 7" phone.
+// =====================================================================================================
+const PHONE_EQ = [["low", "mid"], ["filter", "high"]];   // knob: [normally, with SHIFT]
+const EQ_LABEL = { low: "BASS", mid: "MID", filter: "FILTER", high: "HIGH" };
+const LOOP_PADS = [.5, 1, 2, 4];
+function buildPhone() {
+  layoutEpoch++;
+  const app = document.getElementById("app");
+  app.className = "phone";
+  const row = (cls, ...els) => { const r = h("div", "prow " + cls); r.append(...els); return r; };
+  const strips = [], decksEl = [];
+  [0, 1].forEach(s => {
+    const u = { modes: [], key: h("span") };   // (no key display on the phone)
+    tempoControls(s, u, "BOOST");
+    u.lane.appendChild(u.tread);
+    buildStrip(s, u);
+    const info = h("div", "info");
+    info.append(u.title, u.bpm, u.time);
+    u.sw.className = "psw";
+    u.sw.addEventListener("pointerdown", e => e.stopPropagation());   // the deck switch, not a scratch
+    u.strip.append(info, u.sw);
+    strips[s] = u.strip;
+    transportControls(s, u);
+    u.mA = h("button"); u.mB = h("button");
+    const mode = (el, normal, shifted) => bindPress(el, down => { if (!down) return;
+      const d = deckOf(s); d.mode = d.shift ? shifted : normal; d.shift = false; paintSide(s); paintMixer(); });
+    mode(u.mA, "cue", "fx"); mode(u.mB, "loop", "smpl");
+    u.deck = u.el = h("div", "pdeck");
+    u.deck.append(row("transport", u.cue, u.play), buildPads(s, u, 4), row("modes", u.mA, u.mB),
+      s ? row("transport", u.sync, u.shiftBtn) : row("transport", u.shiftBtn, u.sync));   // SHIFT on the outside
+    u.col = h("div", "tempo pcol");
+    ui.sides[s] = u;
+    decksEl[s] = u.deck;
+  });
+  const [L, R] = ui.sides;
+  L.col.append(document.getElementById("gear"), L.lane, L.ol);
+  R.col.append(R.lane, R.ol);
+  const mid = h("div", "pmid"), lower = h("div", "lower");
+  lower.append(decksEl[0], buildPhoneMixer(), decksEl[1]);
+  mid.append(h("div"), strips[0], strips[1], lower);   // 2 mm of glass above the top strip
+  app.replaceChildren(L.col, mid, R.col);
+  ui.xf = fader(() => master.xf, v => { master.xf = v; send("crossfader", v); }, null, true);
+  ui.top = [];
+  requestAnimationFrame(paintAll);
+}
+function buildPhoneMixer() {
+  const m = h("div"); m.id = "mixer";
+  ui.chans = []; ui.faders = [];
+  const chan = s => {
+    const c = h("div", "chan");
+    const knobs = PHONE_EQ.map(([a, b]) => {
+      const key = d => d.shift ? b : a;
+      const k = knob(EQ_LABEL[a], d => d[key(d)], (v, d) => { const kk = key(d); d[kk] = v; send(kk, d.n, v); }, .5, true, () => deckOf(s));
+      k.label = d => EQ_LABEL[key(d)];
+      return k;
+    });
+    const pfl = pflButton(s);
+    c.append(...knobs, pfl);
+    ui.chans[s] = { el: c, knobs, pfl };
+    return c;
   };
   const xf = h("div"); xf.id = "xf";
-  m.append(chan(0), vf(0), vf(1), chan(1), xf);
+  m.append(chan(0), volumeFader(0), volumeFader(1), chan(1), xf);
   return m;
 }
 
 function build() {
+  if (PHONE) return buildPhone();
   layoutEpoch++;
   document.getElementById("dl").replaceChildren(buildSide(0));
   document.getElementById("mixwrap").replaceChildren(buildMixer());
@@ -1011,9 +1146,16 @@ function paintSide(s) {
   setHTML(u.key, `${keyName(d.curKey)}<small>KEY</small>`);
   u.key.classList.toggle("shifted", !!d.key);
   u.modes.forEach(b => b.classList.toggle("on", b.dataset.mode === d.mode));
+  if (u.mA) {   // phone: two mode buttons, SHIFT shows the other two
+    u.deck.classList.toggle("d34", d.n > 2);
+    setText(u.mA, d.shift || d.mode === "fx" ? "FX" : "HOT CUE");
+    setText(u.mB, d.shift || d.mode === "smpl" ? "SAMPLER" : "LOOP");
+    u.mA.classList.toggle("on", !d.shift && (d.mode === "cue" || d.mode === "fx"));
+    u.mB.classList.toggle("on", !d.shift && (d.mode === "loop" || d.mode === "smpl"));
+  }
   u.shiftBtn.classList.toggle("idle", false);   // SHIFT: hot cue delete, FX units 3-4, sync master, loop in/out adjust, loop move
   u.shiftBtn.classList.toggle("on", d.shift);
-  for (let k = 0; k < 8; k++) paintPad(s, k);
+  for (let k = 0; k < u.pads.length; k++) paintPad(s, k);
   paintTempo(s);
 }
 
@@ -1023,6 +1165,8 @@ function paintPad(s, k) {
     case "cue": { const c = d.cues[k];
       setPad(el, (c ? "lit" : "") + (d.shift && c ? " armed" : ""), `${k + 1}`, c && rgb(c.c), c && fgFor(c.c)); break; }
     case "roll": setPad(el, d.rolls[k] ? "lit" : "tint", ["⅛", "¼", "½", "1", "2", "4", "8", "16"][k], "var(--roll)"); break;
+    case "loop": setPad(el, d.loopOn && Math.abs(d.loopSize - LOOP_PADS[k]) < 1e-6 ? "lit" : "tint",
+      `${fmtBeats(LOOP_PADS[k])}<small>LOOP</small>`, "var(--play)", "#04200e"); break;
     case "stem": if (k >= 4) { setPad(el, "off", ""); break; }
       if (live && !d.sc) { setPad(el, "off", `${STEMS[k].n}<small>no stems</small>`); break; }
       setPad(el, d.stems[k] ? "lit" : "tint", `${STEMS[k].n}<small>${d.stems[k] ? "on" : "muted"}</small>`, STEMS[k].c, "#fff"); break;
@@ -1052,9 +1196,9 @@ function paintMixer() {
     if (!c) return;
     c.el.classList.toggle("d34", d.n > 2);
     ui.faders[s].classList.toggle("d34", d.n > 2);
-    c.knobs.forEach(k => k.paint());
+    c.knobs.forEach(k => { if (k.label) setText(k.querySelector("span"), k.label(d)); k.paint(); });
     c.pfl.classList.toggle("on", d.pfl);
-    c.mute.classList.toggle("on", d.muted);
+    c.mute?.classList.toggle("on", d.muted);
     ui.faders[s].classList.toggle("muted", d.muted);
     ui.faders[s].paint();
   });
@@ -1077,6 +1221,12 @@ function bindPress(el, fn) {
 const PAD_MODE = { cue: 0, roll: 2, stem: 3, jump: 4, fx: 5 };
 function padPress(s, k, down) {
   const d = deckOf(s), beat = 60 / d.bpm;
+  if (d.mode === "loop") {
+    const size = LOOP_PADS[k];
+    if (live) return send("loop", d.n, `beatloop_${size}_toggle`, down);
+    if (down) { const on = !(d.loopOn && d.loopSize === size); d.loopOn = on; d.loopSize = size; d.loopStart = d.pos; paintSide(s); }
+    return;
+  }
   if (live) {
     if (d.mode === "smpl") return send("pad", 0, (d.n % 2 ? 0 : 8) + k, down);
     if ((d.mode === "stem" && k >= 4) || (d.mode === "fx" && k === 7)) return;   // unmapped, like the Inpulse
@@ -1203,6 +1353,7 @@ function releaseSpeed(xs) {
 let last = performance.now();
 let frames = 0;
 function frame(now) {
+  if (PHONE && innerHeight > innerWidth) { last = now; requestAnimationFrame(frame); return; }   // portrait: the library is showing
   if (now - last < 1000) lat.frameMax = Math.max(lat.frameMax, now - last);
   const dt = Math.min(.1, (now - last) / 1000); last = now;
   frames++;
@@ -1675,7 +1826,8 @@ function subscribeAll() {
 
 function goLive(init) {
   live = true;
-  document.querySelector(".topbar .note").textContent = "Live · Mixxx";
+  topNote.textContent = "Live · Mixxx";
+  if (PHONE) try { parent.postMessage({ zydek: "deck-live" }, location.origin); } catch {}
   document.getElementById("s-status").textContent = "Live · Mixxx";
   document.getElementById("gear").classList.add("live");
   decks.forEach((d, i) => Object.assign(d, {
@@ -1745,7 +1897,7 @@ function ctlConnect() {
   };
   ctlWs.onclose = () => setTimeout(ctlConnect, 1500);
 }
-ctlConnect();
+if (!PHONE) ctlConnect();   // the phone's deck view keeps its own settings
 
 // =====================================================================================================
 // Latency log, kept on the phone (GET /api/latency-log): S.pingHz times a second this page pings Mixxx
@@ -1922,6 +2074,11 @@ function armTrace(p) {
   ctlSend({ type: "telemetry", probe: { kind: "trace-armed", id: p.id, count: left } });
 }
 
+if (PHONE) {   // the tablet's screen and debug settings don't apply here
+  document.getElementById("rotate").remove();
+  ["s-layout", "s-knobsize", "s-tele", "s-fs-auto", "s-bar", "s-palm"].forEach(id => document.getElementById(id).closest(".row").style.display = "none");
+  document.getElementById("s-fs").style.display = "none";
+}
 applySettings();
 build();
 requestAnimationFrame(frame);
