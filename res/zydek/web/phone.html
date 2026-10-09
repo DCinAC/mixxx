@@ -192,6 +192,11 @@
   .card .hint { font-size: 12px; color: var(--dim); margin-top: 10px; line-height: 1.4; }
   .card .row2 { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
   .card .row2 span { flex: 1; font-size: 12px; color: var(--dim); }
+  .card .row2 input { flex: 1; min-width: 0; height: 44px; box-sizing: border-box; border-radius: 10px; border: 1px solid #333;
+    background: #181818; padding: 0 10px; color: var(--text); font: 15px system-ui, sans-serif; }
+  #stemsrv .st { font-size: 12px; color: var(--dim); margin-top: 8px; }
+  #stemsrv .st.on { color: var(--play); }
+  #sheet .more .wide { grid-column: 1 / -1; }
 
   /* track sheet */
   #scrim { position: fixed; inset: 0; z-index: 8; background: rgba(0,0,0,.6); opacity: 0; pointer-events: none; transition: opacity .18s; }
@@ -286,6 +291,14 @@
         uses it for downloads (no more blocks, and Hi-Res audio with premium). Sessions run out after a while: log in again then.
         Dolby audio is skipped: Mixxx here can't decode it.</div>
     </div>
+    <div class="card" id="stemsrv">
+      <h3>Stem server (PC)</h3>
+      <div class="row2"><input id="ss-addr" placeholder="192.168.0.100:8770" inputmode="url" autocomplete="off"
+        autocapitalize="off" spellcheck="false"><button id="ss-save">Connect</button></div>
+      <div class="st" id="ss-st"></div>
+      <div class="hint">A PC running Zydek's stem server splits tracks into vocals, drums, bass and other; they come back as
+        .stem.mp4 files in Music/Zydek Web. Type its address and port (8770 if you leave it out).</div>
+    </div>
     <div class="card">
       <h3>Audio output</h3>
       <label for="a-main">Main mix</label><select id="a-main"></select>
@@ -360,7 +373,7 @@ function showPage(p) {
   document.querySelectorAll(".page").forEach(e => e.classList.toggle("on", e.id === "p-" + p));
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.page === p));
   if (p === "fold") loadFolders();
-  if (p === "set") { loadTablet(); loadAudio(); loadBili(); }
+  if (p === "set") { loadTablet(); loadAudio(); loadBili(); loadStemServer(); }
   if (p === "web") webJobs();
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
@@ -808,14 +821,23 @@ function openWebSheet(r) {
     s.querySelector(".loads").appendChild(b);
   });
   s.querySelector(".dl").addEventListener("click", () => { closeSheet(); webDownload(r, null); });
+  if (stemServer) {
+    const b = h("button", "", "Download + stems on the PC");
+    b.addEventListener("click", () => { closeSheet(); webDownload(r, null, true); });
+    s.querySelector(".more").appendChild(b);
+  }
   $("#scrim").classList.add("on"); s.classList.add("on");
 }
 
 // Downloads: each shows its progress at the top of the tab until it's done.
-async function webDownload(r, target) {
-  const li = h("li", "wj", `<div class="t">${esc(r.title)}</div><div class="bar2"><i></i></div><div class="m">Starting…</div>`);
+function jobRow(title) {
+  const li = h("li", "wj", `<div class="t">${esc(title)}</div><div class="bar2"><i></i></div><div class="m">Starting…</div>`);
   $("#wjobs").prepend(li);
   const show = (p, m) => { if (p != null) li.querySelector("i").style.width = `${Math.round(p * 100)}%`; if (m) li.querySelector(".m").textContent = m; };
+  return { li, show };
+}
+async function webDownload(r, target, stems) {
+  const { li, show } = jobRow(r.title);
   toast(target ? `Downloading for ${target.replace("deck", "deck ")}…` : "Downloading…");
   try {
     const res = await webJob(`/api/web/download?${qs({ url: r.url, title: r.title })}`,
@@ -824,12 +846,66 @@ async function webDownload(r, target) {
     const added = await api(`/api/library/add?${qs({ path: res.path })}`);
     const q = res.codec === "flac" ? "Hi-Res FLAC" : res.kbps ? `${res.kbps} kbps` : "";
     show(1, `Saved${q ? " (" + q + ")" : ""}: ${res.path.split("/").pop()}`);
-    if (target) await load({ id: added.id }, target); else toast(`Downloaded ${res.title}`, "ok");
+    if (target) await load({ id: added.id }, target); else if (!stems) toast(`Downloaded ${res.title}`, "ok");
     setTimeout(() => li.remove(), 8000);
+    if (stems) stemsFor(res.path, res.title);
   } catch (e) {
     li.classList.add("err"); show(null, e.message); toast(e.message, "bad");
   }
 }
+// Stems from the PC (Settings > Stem server): the phone sends the track's file, the PC separates it, the
+// .stem.mp4 comes back into Music/Zydek Web and the library. Progress shows at the top of the Web tab.
+let stemServer = store.get("stemServer", "");   // kept here too, so showing the buttons doesn't start Python
+async function makeStems(t) {
+  try {
+    const info = await api(`/api/library/track/${t.id}`);
+    stemsFor(info.location, t.title);
+  } catch (e) { toast(e.message, "bad"); }
+}
+async function stemsFor(path, title) {
+  const { li, show } = jobRow(`${title} · stems`);
+  toast("Making stems on the PC… (progress in the Web tab)");
+  try {
+    const res = await webJob(`/api/web/stems?${qs({ path })}`,
+      j => show(j.progress, j.message ? `${j.message}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}` : null));
+    show(1, "Adding to the library");
+    await api(`/api/library/add?${qs({ path: res.path })}`);
+    show(1, `Saved: ${res.path.split("/").pop()}${res.seconds ? ` (separated in ${Math.round(res.seconds)} s)` : ""}`);
+    toast(`Stems ready: ${res.title || title}`, "ok");
+    setTimeout(() => li.remove(), 12000);
+  } catch (e) {
+    li.classList.add("err"); show(null, e.message); toast(e.message, "bad");
+  }
+}
+async function checkStemServer(server) {
+  const st = $("#ss-st");
+  st.className = "st"; st.textContent = server ? "Connecting…" : "Not set";
+  if (!server) return;
+  try {
+    const h = await webJob(`/api/web/stemcheck?${qs({ server })}`);
+    st.className = "st on";
+    st.textContent = `Connected · ${h.gpu}${h.busy ? " · separating" : ""}${h.queued ? ` · ${h.queued} queued` : ""}`;
+  } catch (e) { st.textContent = e.message; }
+}
+async function loadStemServer() {
+  try {
+    const p = await webApi("/api/web/prefs");
+    if (p.starting) return;
+    stemServer = p.stemServer || ""; store.set("stemServer", stemServer);
+    if (document.activeElement !== $("#ss-addr")) $("#ss-addr").value = stemServer;
+    checkStemServer(stemServer);
+  } catch {}
+}
+$("#ss-save").addEventListener("click", async () => {
+  const server = $("#ss-addr").value.trim();
+  try {
+    await webApi(`/api/web/prefs?${qs({ stemServer: server })}`);
+    stemServer = server; store.set("stemServer", server);
+    checkStemServer(server);
+  } catch (e) { toast(e.message, "bad"); }
+});
+$("#ss-addr").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#ss-addr").blur(); $("#ss-save").click(); } });
+
 function webJobs() {}   // (downloads started on this page show above; nothing to restore yet)
 
 // Bilibili login screen: Zydek asks the site for a QR login (zydek_web.py), shows the code, and waits for the
@@ -1021,6 +1097,11 @@ function openSheet(t) {
   s.querySelector(".pv").addEventListener("click", () => preview(t));
   s.querySelector(".smp").disabled = t.missing;
   s.querySelector(".smp").addEventListener("click", () => load(t, "sampler"));
+  if (stemServer && !t.stems && !t.missing) {
+    const b = h("button", "wide", "Make stems on the PC");
+    b.addEventListener("click", () => { closeSheet(); makeStems(t); });
+    s.querySelector(".more").appendChild(b);
+  }
   $("#scrim").classList.add("on"); s.classList.add("on");
 }
 // Long press (450 ms without moving): fn(). A long press doesn't also count as a tap.

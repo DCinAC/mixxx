@@ -4,7 +4,8 @@ Runs inside Mixxx in an embedded Python (src/zydek/zydekpython.cpp), which calls
 api(name, args_json) for each /api/web/<name> request from the phone page. Calls return quickly: searches
 and downloads are jobs running in their own threads; the page polls /api/web/job?id=.
 
-No stem separation here: on a phone that would take too long and too much battery.
+No stem separation on the phone itself (too slow, too much battery): "stems" sends a track to the Zydek stem
+server on a PC (stemserver/ on the build PC, set in Settings) and brings back the .stem.mp4.
 """
 
 import json
@@ -14,6 +15,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -31,7 +33,7 @@ HIRES_FORMAT = "bestaudio[acodec=flac]/" + AUDIO_FORMAT
 # Bilibili sessions: written by the app's login (MainActivity.java), read (and refreshed) by yt-dlp.
 COOKIE_FILE = "bilibili-cookies.txt"
 PREFS_FILE = "zydek-web.json"
-DEFAULT_PREFS = {"biliHiRes": True}
+DEFAULT_PREFS = {"biliHiRes": True, "stemServer": ""}
 QUICKJS_STACK = 24 * 1024 * 1024
 THREAD_STACK = 64 * 1024 * 1024
 
@@ -371,6 +373,112 @@ def _download(url, title, client=None):
     return _job("download", title or url, run)
 
 
+# ---- Stems from the PC (stemserver/server.py) ------------------------------------------------------
+
+def _stem_url(server=None):
+    server = (server if server is not None else _prefs()["stemServer"]).strip().rstrip("/")
+    if not server:
+        raise RuntimeError("Set the stem server's address in Settings first")
+    if not re.match(r"^https?://", server):
+        server = "http://" + server
+    if not re.search(r":\d+$", urllib.parse.urlsplit(server).netloc):
+        server += ":8770"
+    return server
+
+
+def _stem_request(url, method="GET", data=None, headers=None, timeout=15):
+    req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read()).get("detail") or e.reason
+        except Exception:
+            msg = e.reason
+        raise RuntimeError(f"Stem server: {msg}") from None
+    except (urllib.error.URLError, OSError) as e:
+        raise RuntimeError(f"Can't reach the stem server at {url.split('/')[2]} ({getattr(e, 'reason', e)})") from None
+
+
+def _stem_check(server):
+    def run(job):
+        with _stem_request(_stem_url(server) + "/health", timeout=5) as r:
+            return json.load(r)
+    return _job("stemcheck", "Stem server", run)
+
+
+class _Upload:
+    """The track file, read in chunks while urllib sends it, reporting how far it got."""
+
+    def __init__(self, path, job):
+        self.f, self.job, self.size, self.sent = open(path, "rb"), job, os.path.getsize(path), 0
+
+    def read(self, n=-1):
+        if self.job.get("cancel"):
+            raise RuntimeError("Cancelled")
+        b = self.f.read(1 << 16 if n is None or n < 0 else min(n, 1 << 16))
+        self.sent += len(b)
+        self.job["progress"] = 0.15 * self.sent / max(self.size, 1)
+        return b
+
+
+def _stems(path, preset):
+    def run(job):
+        base = _stem_url()
+        if not os.path.exists(path):
+            raise RuntimeError("The track's file isn't on this phone")
+        job["message"] = "Sending to the PC"
+        body = _Upload(path, job)
+        try:
+            with _stem_request(f"{base}/jobs?" + urllib.parse.urlencode({"name": os.path.basename(path), "preset": preset}),
+                               "POST", body, {"Content-Length": str(body.size), "Content-Type": "application/octet-stream"},
+                               timeout=120) as r:
+                remote = json.load(r)
+        finally:
+            body.f.close()
+        rid = remote["id"]
+        try:
+            while remote["status"] not in ("done", "error"):
+                if job.get("cancel"):
+                    raise RuntimeError("Cancelled")
+                time.sleep(1)
+                with _stem_request(f"{base}/jobs/{rid}") as r:
+                    remote = json.load(r)
+                st = remote["status"]
+                job["message"] = (f"Waiting on the PC ({remote['ahead']} ahead)" if st == "queued" and remote.get("ahead")
+                                  else "Waiting on the PC" if st == "queued"
+                                  else "Separating on the PC" if st == "separating" else "Writing the stem file")
+                job["progress"] = 0.15 + 0.7 * remote.get("progress", 0)
+            if remote["status"] == "error":
+                raise RuntimeError(remote.get("message") or "The stem server failed")
+            job["message"] = "Downloading the stems"
+            name = safe_filename(f"{remote['artist']} - {remote['title']}" if remote.get("artist")
+                                 else remote.get("title") or os.path.splitext(os.path.basename(path))[0])
+            os.makedirs(_dirs["music"], exist_ok=True)
+            out = os.path.join(_dirs["music"], name + ".stem.mp4")
+            n = 2
+            while os.path.exists(out):
+                out = os.path.join(_dirs["music"], f"{name} ({n}).stem.mp4")
+                n += 1
+            with _stem_request(f"{base}/jobs/{rid}/file", timeout=60) as r:
+                total, got = int(r.headers.get("Content-Length") or 0), 0
+                with open(out + ".part", "wb") as f:
+                    while chunk := r.read(1 << 16):
+                        f.write(chunk)
+                        got += len(chunk)
+                        if total:
+                            job["progress"] = 0.85 + 0.15 * got / total
+            os.replace(out + ".part", out)
+            return {"path": out, "title": remote.get("title"), "artist": remote.get("artist"), "seconds": remote.get("seconds")}
+        finally:
+            try:   # the PC keeps nothing once we have it (or gave up)
+                _stem_request(f"{base}/jobs/{rid}", "DELETE").close()
+            except Exception:
+                pass
+
+    return _job("stems", os.path.basename(path), run)
+
+
 # ---- Bilibili accounts ----------------------------------------------------------------------------
 
 def _account():
@@ -546,12 +654,22 @@ def api(name, args_json):
             if args.get("id") in _jobs:
                 _jobs[args["id"]]["cancel"] = True
             return json.dumps({"ok": True})
+        if name == "stems":     # ?path=&preset=best|fast
+            if not args.get("path"):
+                return json.dumps({"ok": False, "error": "No track"})
+            _stem_url()   # no server set: say so now
+            return json.dumps({"ok": True, "job": _stems(args["path"], args.get("preset") or "best")["id"]})
+        if name == "stemcheck":   # ?server=  (what's typed in Settings; empty = the saved one)
+            return json.dumps({"ok": True, "job": _stem_check(args.get("server"))["id"]})
         if name == "account":
             return json.dumps({"ok": True, "job": _account()["id"]})
-        if name == "prefs":   # ?biliHiRes=0|1 to change, nothing to read
+        if name == "prefs":   # ?biliHiRes=0|1, ?stemServer=host:port to change, nothing to read
             prefs = _prefs()
-            if "biliHiRes" in args:
-                prefs["biliHiRes"] = args["biliHiRes"] not in ("0", "false", "")
+            if "biliHiRes" in args or "stemServer" in args:
+                if "biliHiRes" in args:
+                    prefs["biliHiRes"] = args["biliHiRes"] not in ("0", "false", "")
+                if "stemServer" in args:
+                    prefs["stemServer"] = args["stemServer"].strip()
                 with open(os.path.join(_dirs["data"], PREFS_FILE), "w") as f:
                     json.dump(prefs, f)
             return json.dumps({"ok": True, **prefs})
