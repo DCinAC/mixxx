@@ -1142,7 +1142,8 @@ void Hub::sysex(const QList<int>& parts) {
 void Hub::press(int channel, int note, bool down) {
     // channel 0 = samplers, 1-4 = decks 1-4
     if (channel >= 0 && channel <= kNumDecks && note >= 0 && note < 128) {
-        sendMidi(QByteArray{static_cast<char>(0x90 | channel), static_cast<char>(note), static_cast<char>(down ? 127 : 0)});
+        const char msg[3] = {static_cast<char>(0x90 | channel), static_cast<char>(note), static_cast<char>(down ? 127 : 0)};
+        sendMidi(QByteArray(msg, 3));
     }
 }
 
