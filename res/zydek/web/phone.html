@@ -209,6 +209,10 @@
   .card .row2 span { flex: 1; font-size: 12px; color: var(--dim); }
   .card .row2 input { flex: 1; min-width: 0; height: 44px; box-sizing: border-box; border-radius: 10px; border: 1px solid #333;
     background: #181818; padding: 0 10px; color: var(--text); font: 15px system-ui, sans-serif; }
+  #kitlist .kit { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #1d1d1d; }
+  #kitlist .kit span { flex: 1; min-width: 0; color: var(--text); font-size: 14px; }
+  #kitlist .kit small { display: block; color: var(--dim); font-size: 12px; }
+  #kitlist .kit button.x { width: 36px; padding: 0; }
   #stemsrv .st { font-size: 12px; color: var(--dim); margin-top: 8px; }
   #stemsrv .st.on { color: var(--play); }
   #sheet .more .wide { grid-column: 1 / -1; }
@@ -349,6 +353,13 @@
       <label for="keyfmt">Key notation</label><select id="keyfmt">
         <option value="camelot">Camelot (8A)</option><option value="open">Open Key (1m)</option><option value="musical">Musical (Am)</option></select>
     </div>
+    <div class="card" id="kits">
+      <h3>Sampler kits</h3>
+      <div id="kitlist"></div>
+      <div class="row2"><input id="kitname" placeholder="Kit name" autocomplete="off" enterkeyhint="done"><button id="kitsave">Save the pads</button></div>
+      <div class="hint">A kit remembers what's on the 32 sampler pads, with each pad's mode (one-shot, hold, loop) and tempo
+        setting. Loading one fills the pads, and empties the ones that were empty in it.</div>
+    </div>
     <div class="card" id="stemsrv">
       <h3>Stem server (PC)</h3>
       <div class="row2"><input id="ss-addr" placeholder="192.168.0.100:8770" inputmode="url" autocomplete="off"
@@ -434,7 +445,7 @@ function showPage(p) {
   document.querySelectorAll(".page").forEach(e => e.classList.toggle("on", e.id === "p-" + p));
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.page === p));
   if (p === "fold") { loadFolders(); loadExcluded(); watchAnalysis(); }
-  if (p === "set") { loadTablet(); loadAudio(); loadBili(); loadStemServer(); }
+  if (p === "set") { loadTablet(); loadAudio(); loadBili(); loadStemServer(); loadKits(); }
   if (p === "web") webJobs();
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
@@ -1352,6 +1363,34 @@ function keyChip(t) {
   if (!txt) return `<span class="kchip none">–</span>`;
   return `<span class="kchip" style="--h:${k ? (k.camelot - 1) * 30 : 0}">${esc(txt)}</span>`;
 }
+// Sampler kits (Zydek's server keeps them): load, delete, save the pads as one
+async function loadKits() {
+  let r;
+  try { r = await api("/api/kits"); } catch { return; }
+  const box = $("#kitlist"); box.innerHTML = "";
+  if (!r.kits.length) box.innerHTML = `<div class="note">No kits yet: fill some pads, then save them here.</div>`;
+  r.kits.forEach(k => {
+    const row = h("div", "kit", `<span>${esc(k.name)}<small>${k.pads} pad${k.pads === 1 ? "" : "s"}${k.missing ? ` · ${k.missing} file${k.missing > 1 ? "s" : ""} missing` : ""}</small></span>`);
+    const load = h("button", "", "Load"), del = h("button", "x", "✕");
+    load.addEventListener("click", async () => {
+      try { const x = await api(`/api/kits/load?${qs({ name: k.name })}`); toast(`Loaded ${k.name}: ${x.pads} pads${x.missing ? `, ${x.missing} missing` : ""}`, "ok"); }
+      catch (e) { toast(e.message, "bad"); }
+    });
+    del.addEventListener("click", async () => {
+      if (!confirm(`Delete the kit "${k.name}"? (The sample files stay.)`)) return;
+      try { await api(`/api/kits/delete?${qs({ name: k.name })}`); loadKits(); } catch (e) { toast(e.message, "bad"); }
+    });
+    row.append(load, del); box.appendChild(row);
+  });
+}
+$("#kitsave").addEventListener("click", async () => {
+  const name = $("#kitname").value.trim();
+  if (!name) return toast("Give the kit a name", "bad");
+  try { const r = await api(`/api/kits/save?${qs({ name })}`); toast(`Saved ${name}: ${r.pads} pads`, "ok"); $("#kitname").value = ""; loadKits(); }
+  catch (e) { toast(e.message, "bad"); }
+});
+$("#kitname").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#kitsave").click(); } });
+
 // Start-up animation (intro.html reads the same setting: it runs on this page's origin)
 const INTRO_FULL_DEFAULT = true;   // RELEASE: false, as in intro.html
 $("#introfull").checked = store.get("introFull", INTRO_FULL_DEFAULT);

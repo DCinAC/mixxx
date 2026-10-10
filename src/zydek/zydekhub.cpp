@@ -50,6 +50,8 @@ constexpr int kHello = 0x5F;
 
 const QString kSettingsFile = QStringLiteral("zydek-controller-settings.json");
 const QString kSamplersFile = QStringLiteral("zydek-samplers.json");
+const QString kKitsFile = QStringLiteral("zydek-kits.json");
+constexpr int kKitSlots = 32;   // the pads ZyDeck shows
 constexpr int kSamplerSlots = 64;
 const QString kLatencyFile = QStringLiteral("zydek-latency.log");
 constexpr qint64 kLatencyFileMax = 4 * 1024 * 1024;   // then it moves to .1, replacing the previous one
@@ -347,6 +349,18 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         }
         return result(r);
     }
+    if (path == QLatin1String("/api/kits")) {
+        return json(kits());
+    }
+    if (path == QLatin1String("/api/kits/save")) {   // ?name=
+        return result(saveKit(arg("name")));
+    }
+    if (path == QLatin1String("/api/kits/load")) {   // ?name=
+        return result(loadKit(arg("name")));
+    }
+    if (path == QLatin1String("/api/kits/delete")) {   // ?name=
+        return result(deleteKit(arg("name")));
+    }
     if (path == QLatin1String("/api/sampler/modes")) {
         return json(samplerModes());
     }
@@ -602,6 +616,108 @@ QJsonObject Hub::setSamplerMode(int slot, const QString& mode) {
     ControlObject::set(ConfigKey(QStringLiteral("[Sampler%1]").arg(slot), QStringLiteral("repeat")), mode == QLatin1String("loop") ? 1 : 0);
     emitJson({{"t", "smode"}, {"i", slot - 1}, {"v", mode}});   // every page shows it
     return {{"ok", true}, {"slot", slot}, {"mode", mode}};
+}
+
+// ---- sampler kits ----------------------------------------------------------------------------------
+
+namespace {
+
+QJsonObject readKits(const QString& settingsPath) {
+    QFile f(QDir(settingsPath).filePath(kKitsFile));
+    return f.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(f.readAll()).object() : QJsonObject();
+}
+
+void writeKits(const QString& settingsPath, const QJsonObject& kits) {
+    QSaveFile f(QDir(settingsPath).filePath(kKitsFile));
+    if (f.open(QIODevice::WriteOnly)) {
+        f.write(QJsonDocument(kits).toJson(QJsonDocument::Indented));
+        f.commit();
+    }
+}
+
+} // namespace
+
+QJsonObject Hub::kits() const {
+    const QJsonObject all = readKits(m_pConfig->getSettingsPath());
+    QJsonArray out;
+    for (auto it = all.begin(); it != all.end(); ++it) {
+        int pads = 0, missing = 0;
+        for (const QJsonValue& slot : it.value().toObject().value(QStringLiteral("slots")).toArray()) {
+            const QString path = slot.toObject().value(QStringLiteral("path")).toString();
+            if (!path.isEmpty()) {
+                ++pads;
+                missing += !QFileInfo::exists(path);
+            }
+        }
+        out.append(QJsonObject{{"name", it.key()}, {"pads", pads}, {"missing", missing},
+                {"saved", it.value().toObject().value(QStringLiteral("saved"))}});
+    }
+    return {{"kits", out}};
+}
+
+QJsonObject Hub::saveKit(const QString& name) {
+    const QString kit = name.trimmed();
+    if (kit.isEmpty()) {
+        return {{"ok", false}, {"error", "Give the kit a name"}};
+    }
+    samplerModes();
+    QJsonArray slots;
+    int pads = 0;
+    for (int i = 0; i < kKitSlots; ++i) {
+        const QString group = QStringLiteral("[Sampler%1]").arg(i + 1);
+        const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group);
+        if (!pTrack) {
+            slots.append(QJsonValue());
+            continue;
+        }
+        ++pads;
+        slots.append(QJsonObject{{"path", pTrack->getLocation()},
+                {"mode", m_samplerModes.value(i, QStringLiteral("oneshot"))},
+                {"sync", ControlObject::get(ConfigKey(group, QStringLiteral("sync_enabled"))) > 0}});
+    }
+    QJsonObject all = readKits(m_pConfig->getSettingsPath());
+    all.insert(kit, QJsonObject{{"slots", slots}, {"saved", QDateTime::currentDateTime().toString(Qt::ISODate)}});
+    writeKits(m_pConfig->getSettingsPath(), all);
+    return {{"ok", true}, {"name", kit}, {"pads", pads}};
+}
+
+QJsonObject Hub::loadKit(const QString& name) {
+    const QJsonObject kit = readKits(m_pConfig->getSettingsPath()).value(name).toObject();
+    if (kit.isEmpty()) {
+        return {{"ok", false}, {"error", "No such kit"}};
+    }
+    const QJsonArray slots = kit.value(QStringLiteral("slots")).toArray();
+    int loaded = 0, missing = 0;
+    for (int i = 0; i < kKitSlots; ++i) {
+        const QString group = QStringLiteral("[Sampler%1]").arg(i + 1);
+        const QJsonObject slot = slots.at(i).toObject();
+        const QString path = slot.value(QStringLiteral("path")).toString();
+        if (path.isEmpty() || !QFileInfo::exists(path)) {   // empty in the kit (or the file's gone): empty here
+            missing += !path.isEmpty();
+            if (PlayerInfo::instance().getTrackInfo(group)) {
+                ControlObject::set(ConfigKey(group, QStringLiteral("eject")), 1);
+                ControlObject::set(ConfigKey(group, QStringLiteral("eject")), 0);
+            }
+            continue;
+        }
+        const QString mode = slot.value(QStringLiteral("mode")).toString(QStringLiteral("oneshot"));
+        if (m_library.loadLocation(path, QStringLiteral("sampler%1").arg(i + 1)).value(QStringLiteral("ok")).toBool()) {
+            ++loaded;
+            Library::setSamplerOptions(group, slot.value(QStringLiteral("sync")).toBool(), mode == QLatin1String("loop"));
+            setSamplerMode(i + 1, mode);
+        }
+    }
+    return {{"ok", true}, {"name", name}, {"pads", loaded}, {"missing", missing}};
+}
+
+QJsonObject Hub::deleteKit(const QString& name) {
+    QJsonObject all = readKits(m_pConfig->getSettingsPath());
+    if (!all.contains(name)) {
+        return {{"ok", false}, {"error", "No such kit"}};
+    }
+    all.remove(name);
+    writeKits(m_pConfig->getSettingsPath(), all);
+    return {{"ok", true}};
 }
 
 // ---- audio outputs ---------------------------------------------------------------------------------

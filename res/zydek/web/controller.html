@@ -360,6 +360,8 @@
     <div class="seg" id="s-knob"></div></div>
   <div class="row"><div>Key notation<small>How the deck shows its current key (after key shift, and tempo when key lock is off)</small></div>
     <div class="seg" id="s-keyfmt"></div></div>
+  <div class="row"><div>Sampler kits<small>Load a set of pads (with their modes) or save what's on them now</small></div>
+    <div class="seg" id="s-kits"></div></div>
   <div class="row"><div>Samples follow the master tempo<small>Captured and loaded samples play in time with the decks (SHIFT + a loaded pad changes it for that pad; ⇄ on the pad when it does)</small></div>
     <div class="seg" id="s-ssync"></div></div>
   <div class="row"><div>Mixer knob size<small>Knob diameter; the mixer widens to fit</small></div>
@@ -1889,6 +1891,26 @@ document.getElementById("s-fs").addEventListener("click", () => {
 });
 document.getElementById("s-reset").addEventListener("click", () => { S = { ...DEFAULTS }; saveSettings(); applySettings(); paintSettings(); build(); });
 
+// Sampler kits in the settings: one button per kit (loads it), and "+ Save the pads"
+async function paintKits() {
+  const box = document.getElementById("s-kits");
+  if (!live) { box.textContent = "(live only)"; return; }
+  let r;
+  try { r = await (await fetch("/api/kits")).json(); } catch { return; }
+  box.replaceChildren(...r.kits.map(k => {
+    const b = h("button", "", `${k.name} <small style="opacity:.6">${k.pads}</small>`);
+    b.addEventListener("click", async () => { await fetch(`/api/kits/load?name=${encodeURIComponent(k.name)}`); b.classList.add("on"); });
+    return b;
+  }), (() => {
+    const b = h("button", "", "+ Save the pads");
+    b.addEventListener("click", async () => {
+      const name = prompt("Name for this kit");
+      if (name && name.trim()) { await fetch(`/api/kits/save?name=${encodeURIComponent(name.trim())}`); paintKits(); }
+    });
+    return b;
+  })());
+}
+
 function seg(id, options, get, set) {
   const box = document.getElementById(id);
   box.innerHTML = "";
@@ -1917,6 +1939,7 @@ function paintSettings(soft) {
   seg("s-fs-auto", [[true, "On"], [false, "Off"]], () => S.autoFs, v => S.autoFs = v);
   seg("s-tele", [[true, "On"], [false, "Off"]], () => S.telemetry, v => S.telemetry = v);
   seg("s-ssync", [[true, "On"], [false, "Off"]], () => S.sampleSync, v => S.sampleSync = v);
+  if (!soft) paintKits();
   if (soft) return;
   slider("s-sens", "sens", v => `${v.toFixed(2)} % per mm · ±8 % over ${(8 / v).toFixed(0)} mm of drag · ${(v * 1.28).toFixed(2)} BPM per mm at 128`);
   slider("s-bar", "bar", v => `${v} mm`);

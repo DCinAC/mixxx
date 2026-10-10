@@ -68,6 +68,11 @@ class Hub : public QObject {
     // "hold" plays while held, "loop" starts and stops on alternate taps. Kept in zydek-samplers.json.
     QJsonObject samplerModes();
     QJsonObject setSamplerMode(int slot, const QString& mode);
+    // Sampler kits: named sets of what's on the 32 pads (file, mode, following the tempo), in zydek-kits.json.
+    QJsonObject kits() const;
+    QJsonObject saveKit(const QString& name);
+    QJsonObject loadKit(const QString& name);
+    QJsonObject deleteKit(const QString& name);
     // audio outputs (the phone page's settings)
     QJsonObject audioStatus() const;
     QJsonObject setAudio(const HttpServer::Query& query);
