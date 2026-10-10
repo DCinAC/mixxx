@@ -264,15 +264,17 @@ async function intro() {
   await sized();
   const s0 = startScale();
   world.style.transform = T(s0, -SCREEN.dy * s0);
-  // 1: the player UI builds from left to right, glitching on
-  const uis = [...document.querySelectorAll(".ui")];
+  // 1: the player UI builds from left to right, glitching on; each line starts when the one before is 40 % in
+  // (60 % overlap)
+  const uis = [...document.querySelectorAll(".ui")], UI_MS = ms(300), UI_STEP = UI_MS * .4;
   uis.forEach((el, i) => {
-    anim(el, [{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)" }], { duration: ms(380), delay: ms(200 + i * 140), easing: "steps(6, end)" });
+    const at = ms(150) + i * UI_STEP;
+    anim(el, [{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)" }], { duration: UI_MS, delay: at, easing: "steps(8, end)" });
     anim(el, [{ transform: "translateX(-3px)", opacity: .4 }, { transform: "translateX(2px)", opacity: 1 }, { transform: "translateX(-1px)", opacity: .7 },
-      { transform: "none", opacity: 1 }], { duration: ms(260), delay: ms(520 + i * 140), easing: "steps(4)" });
+      { transform: "none", opacity: 1 }], { duration: UI_MS * .8, delay: at + UI_MS * .3, easing: "steps(4)" });
   });
   anim($(".prog .fill"), [{ width: "4%" }, { width: "30%" }], { duration: ms(3000), delay: ms(400) });
-  await wait(ms(1900));
+  await wait(ms(150) + (uis.length - 1) * UI_STEP + UI_MS + ms(450));   // built, and a moment to look at it
   // 2: zoom out: the gold frame comes into view (the brick is now at the screen)
   const s1 = midScale(), L = deckLayout();   // measured again: the screen may have turned since
   anim(world, [{ transform: T(s0, -SCREEN.dy * s0) }, { transform: T(s1) }], { duration: ms(850), easing: "cubic-bezier(.5,0,.2,1)" });
