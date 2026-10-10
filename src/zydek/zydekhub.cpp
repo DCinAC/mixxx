@@ -797,7 +797,12 @@ QJsonObject Hub::audioStatus() const {
                 const SoundManagerConfig config = pManager->getConfig();
                 const QList<SoundDevicePointer> devices = pManager->getDeviceList(config.getAPI(), true, false);
                 QJsonArray list;
-                QString main, headphones;
+                QString main, headphones, mainChannels, headphonesChannels;
+                // "base,count": 0-based first channel and 1 or 2 channels ("0,2" = 1-2, "1,1" = 2 alone)
+                const auto channels = [](const AudioOutput& out) {
+                    const ChannelGroup group = out.getChannelGroup();
+                    return QStringLiteral("%1,%2").arg(static_cast<int>(group.getChannelBase())).arg(static_cast<int>(group.getChannelCount()));
+                };
                 for (const SoundDevicePointer& pDevice : devices) {
                     list.append(QJsonObject{{"name", pDevice->getDisplayName()},
                             {"channels", static_cast<int>(pDevice->getNumOutputChannels())}});
@@ -810,8 +815,10 @@ QJsonObject Hub::audioStatus() const {
                         }
                         if (it.value().getType() == AudioPathType::Main) {
                             main = pDevice->getDisplayName();
+                            mainChannels = channels(it.value());
                         } else if (it.value().getType() == AudioPathType::Headphones) {
                             headphones = pDevice->getDisplayName();
+                            headphonesChannels = channels(it.value());
                         }
                     }
                 }
@@ -819,7 +826,9 @@ QJsonObject Hub::audioStatus() const {
                         {"api", config.getAPI()},
                         {"devices", list},
                         {"main", main},
-                        {"headphones", headphones}};
+                        {"mainChannels", mainChannels},
+                        {"headphones", headphones},
+                        {"headphonesChannels", headphonesChannels}};
             },
             Qt::BlockingQueuedConnection);
     out.insert(QStringLiteral("latencyMs"),
@@ -834,6 +843,19 @@ QJsonObject Hub::setAudio(const HttpServer::Query& query) {
     }
     const QString mainName = query.value(QStringLiteral("main"));
     const QString headphonesName = query.value(QStringLiteral("headphones"));
+    // "base,count" as audioStatus() gives them; main defaults to 1-2, the headphones to 3-4 on the main's device
+    const auto parseChannels = [](const QString& text, int base, int count) {
+        const QStringList parts = text.split(QLatin1Char(','));
+        if (parts.size() == 2) {
+            base = parts[0].toInt();
+            count = parts[1].toInt() == 1 ? 1 : 2;
+        }
+        return std::pair<int, int>(qBound(0, base, 31), count);
+    };
+    const std::pair<int, int> mainChannels = parseChannels(query.value(QStringLiteral("mainChannels")), 0, 2);
+    const int mainBase = mainChannels.first;
+    const int mainCount = mainChannels.second;
+    const QString headphonesChannels = query.value(QStringLiteral("headphonesChannels"));
     QJsonObject out;
     QMetaObject::invokeMethod(
             pManager.get(),
@@ -859,35 +881,47 @@ QJsonObject Hub::setAudio(const HttpServer::Query& query) {
                 // take turns, each one cutting the other off many times a second.
                 if (pHeadphones && pHeadphones != pMain) {
                     out = {{"ok", false},
-                            {"error", QStringLiteral("Android plays to one output at a time: for headphones, use a USB "
-                                                     "audio interface with 4 outputs as both (main on 1-2, headphones on 3-4), "
-                                                     "or leave Headphones empty")}};
+                            {"error", QStringLiteral("Android plays to one device at a time: put the headphones on the main's "
+                                                     "device, on other channels (a USB interface's 3-4, or main on 1 "
+                                                     "left and headphones on 2 right)")}};
                     return;
                 }
 #endif
-                // Both on one device: the headphones take its outputs 3-4.
-                if (pHeadphones == pMain && pMain->getNumOutputChannels() < 4) {
-                    out = {{"ok", false},
-                            {"error", QStringLiteral("Main and headphones on one output need a device with 4 outputs")}};
+                const std::pair<int, int> phonesChannels = parseChannels(headphonesChannels,
+                        pHeadphones == pMain && pMain->getNumOutputChannels() >= 4 ? 2 : 0, 2);
+                const int phonesBase = phonesChannels.first;
+                const int phonesCount = phonesChannels.second;
+                const auto fits = [](const SoundDevicePointer& pDevice, int base, int count) {
+                    return base + count <= static_cast<int>(pDevice->getNumOutputChannels());
+                };
+                if (!fits(pMain, mainBase, mainCount) || (pHeadphones && !fits(pHeadphones, phonesBase, phonesCount))) {
+                    out = {{"ok", false}, {"error", QStringLiteral("That output doesn't have those channels")}};
                     return;
                 }
+                // Main and headphones may share channels: Mixxx then mixes the cue into the main mix there
+                // (the page warns about it first).
+                const bool shared = pHeadphones == pMain &&
+                        mainBase < phonesBase + phonesCount && phonesBase < mainBase + mainCount;
                 QMultiHash<SoundDeviceId, AudioOutput>& outputs = config.getOutputsRef();
                 for (auto it = outputs.begin(); it != outputs.end();) {
                     const AudioPathType type = it.value().getType();
                     it = type == AudioPathType::Main || type == AudioPathType::Headphones ? outputs.erase(it) : std::next(it);
                 }
                 config.addOutput(pMain->getDeviceId(),
-                        AudioOutput(AudioPathType::Main, 0, mixxx::audio::ChannelCount::stereo(), 0));
+                        AudioOutput(AudioPathType::Main,
+                                static_cast<unsigned char>(mainBase),
+                                mixxx::audio::ChannelCount(mainCount),
+                                0));
                 if (pHeadphones) {
                     config.addOutput(pHeadphones->getDeviceId(),
                             AudioOutput(AudioPathType::Headphones,
-                                    pHeadphones == pMain ? 2 : 0,
-                                    mixxx::audio::ChannelCount::stereo(),
+                                    static_cast<unsigned char>(phonesBase),
+                                    mixxx::audio::ChannelCount(phonesCount),
                                     0));
                 }
                 const SoundDeviceStatus status = pManager->setConfig(config);
                 out = status == SoundDeviceStatus::Ok
-                        ? QJsonObject{{"ok", true}}
+                        ? QJsonObject{{"ok", true}, {"shared", shared}}
                         : QJsonObject{{"ok", false}, {"error", pManager->getLastErrorMessage(status)}};
             },
             Qt::BlockingQueuedConnection);

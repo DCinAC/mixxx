@@ -113,7 +113,14 @@ SoundDevicePortAudio::SoundDevicePortAudio(UserSettingsPointer config,
     // Setting parent class members:
     m_hostAPI = Pa_GetHostApiInfo(deviceInfo->hostApi)->name;
     m_sampleRate = mixxx::audio::SampleRate::fromDouble(deviceInfo->defaultSampleRate);
-    if (m_deviceTypeId == paALSA) {
+    // Zydek: on Android too, so one output on channel 1 or 2 alone plays on that side only (split cue)
+    // rather than as a mono stream on both.
+#ifdef __ANDROID__
+    const bool openInStereo = true;
+#else
+    const bool openInStereo = m_deviceTypeId == paALSA;
+#endif
+    if (openInStereo) {
         // PortAudio gives the device name including the ALSA hw device. The
         // ALSA hw device is an only somewhat reliable identifier; it may change
         // when an audio interface is unplugged or Linux is restarted. Separating
@@ -208,7 +215,14 @@ SoundDeviceStatus SoundDevicePortAudio::open(bool isClkRefDevice, int syncBuffer
     // in stereo and only take the first channel.
     // TODO(rryan): Remove once PortAudio has a solution built in (and
     // released).
-    if (m_deviceTypeId == paALSA) {
+    // Zydek: on Android too, so one output on channel 1 or 2 alone plays on that side only (split cue)
+    // rather than as a mono stream on both.
+#ifdef __ANDROID__
+    const bool openInStereo = true;
+#else
+    const bool openInStereo = m_deviceTypeId == paALSA;
+#endif
+    if (openInStereo) {
         // Only engage workaround if the device has enough input and output
         // channels.
         if (m_deviceInfo->maxInputChannels >= 2 &&
@@ -385,7 +399,14 @@ SoundDeviceStatus SoundDevicePortAudio::open(bool isClkRefDevice, int syncBuffer
     }
 
 #ifdef PA_USE_ALSA
-    if (m_deviceTypeId == paALSA) {
+    // Zydek: on Android too, so one output on channel 1 or 2 alone plays on that side only (split cue)
+    // rather than as a mono stream on both.
+#ifdef __ANDROID__
+    const bool openInStereo = true;
+#else
+    const bool openInStereo = m_deviceTypeId == paALSA;
+#endif
+    if (openInStereo) {
         qInfo() << "Enabling ALSA real-time scheduling";
         PaAlsa_EnableRealtimeScheduling(pStream, 1);
     }

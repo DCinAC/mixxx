@@ -43,12 +43,8 @@ void SoundDevice::setConfigFramesPerBuffer(unsigned int framesPerBuffer) {
 }
 
 SoundDeviceStatus SoundDevice::addOutput(const AudioOutputBuffer& out) {
-    // Check if the output channels are already used
-    foreach (AudioOutputBuffer myOut, m_audioOutputs) {
-        if (out.channelsClash(myOut)) {
-            return SoundDeviceStatus::ErrorDuplicateOutputChannel;
-        }
-    }
+    // Zydek: outputs may share channels (main and headphones on one pair, for a single pair of earphones):
+    // composeOutputBuffer() mixes them together there.
     if (out.getChannelGroup().getChannelBase()
             + out.getChannelGroup().getChannelCount() > getNumOutputChannels()) {
         return SoundDeviceStatus::ErrorExcessiveOutputChannel;
@@ -124,6 +120,7 @@ void SoundDevice::composeOutputBuffer(CSAMPLE* outputBuffer,
                     // sample in a frame)
                     const SINT iFrameBase = iFrameNo * iFrameSize;
                     outputBuffer[iFrameBase + iChannelBase] = SampleUtil::clampSample(
+                            outputBuffer[iFrameBase + iChannelBase] +
                             (pAudioOutputBuffer[iFrameNo * 2] +
                                     pAudioOutputBuffer[iFrameNo * 2 + 1]) / 2.0f);
                 }
@@ -136,8 +133,10 @@ void SoundDevice::composeOutputBuffer(CSAMPLE* outputBuffer,
 
                     // this will make sure a sample from each channel is copied
                     for (int iChannel = 0; iChannel < iChannelCount; ++iChannel) {
+                        // Added (Zydek): outputs sharing channels are mixed
                         outputBuffer[iFrameBase + iChannelBase + iChannel] =
                                 SampleUtil::clampSample(
+                                        outputBuffer[iFrameBase + iChannelBase + iChannel] +
                                         pAudioOutputBuffer[iLocalFrameBase + iChannel]);
 
                         // Input audio pass-through (useful for debugging)
