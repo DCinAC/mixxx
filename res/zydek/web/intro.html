@@ -106,18 +106,14 @@
     background: repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px); mix-blend-mode: multiply; }
 
   /* ---- the 80s cassette player (top view, lying on the ground) ---- */
-  #walkman { position: absolute; left: -15px; top: 152px; width: 330px; height: 220px; opacity: 0; }
+  /* the cassette player, upright like the 1979 original: 300 × 452 px in the brick's 300 × 524 */
+  #walkman { position: absolute; left: 0; top: 36px; width: 300px; height: 452px; opacity: 0; }
   #walkman svg { width: 100%; height: 100%; overflow: visible; }
 
-  /* ---- tape transports (the two decks) ---- */
-  .deck { position: absolute; left: 50%; top: 50%; width: var(--w); height: 74px; margin: -37px 0 0 calc(var(--w) / -2); opacity: 0; }
-  .deck .base { position: absolute; inset: 0; border-radius: 14px; background: #141414; border: 1px solid #333;
-    clip-path: inset(0 calc(50% - 60px) round 14px); }
-  .deck .tape { position: absolute; left: 44px; right: 44px; top: 30px; height: 14px; transform: scaleX(.05);
-    background: repeating-linear-gradient(90deg, #5a3a1c 0 6px, #6b4524 6px 12px); border-top: 1px solid #2a180a; border-bottom: 1px solid #2a180a; }
-  .deck .reel { position: absolute; top: 4px; width: 66px; height: 66px; left: calc(50% - 33px); }
-  .deck .lbl { position: absolute; left: 50%; top: -18px; transform: translateX(-50%); font: 700 11px/1 ui-monospace, monospace;
-    letter-spacing: .2em; color: var(--c); opacity: 0; }
+  /* ---- open-reel decks (the two decks), heads facing each other ---- */
+  .deck { position: absolute; left: 50%; top: 50%; width: 360px; height: 260px; margin: -130px 0 0 -180px; opacity: 0; }
+  .deck svg { overflow: visible; }
+  .deck .spin { transform-box: fill-box; transform-origin: 50% 50%; }
   #wait { position: fixed; left: 0; right: 0; bottom: 9vh; text-align: center; font: 500 13px/1.4 system-ui, sans-serif; color: #6d6d6d;
     opacity: 0; transition: opacity .4s; }
   #fade { position: fixed; inset: 0; background: var(--bg); opacity: 0; pointer-events: none; }
@@ -156,29 +152,39 @@
         <div class="mark">磚</div>
       </div></div>
     </div>
-    <div id="walkman"><svg viewBox="0 0 330 220">
-      <rect x="4" y="10" width="322" height="206" rx="20" fill="#14327a"/>
-      <rect x="0" y="4" width="322" height="204" rx="20" fill="#2453b8"/>
-      <rect x="0" y="4" width="322" height="38" rx="18" fill="#c9ced6"/><rect x="0" y="30" width="322" height="12" fill="#c9ced6"/>
-      <g fill="#8e949e"><rect x="26" y="0" width="34" height="12" rx="3"/><rect x="68" y="0" width="34" height="12" rx="3"/>
-        <rect x="110" y="0" width="34" height="12" rx="3"/><rect x="152" y="0" width="34" height="12" rx="3"/></g>
-      <rect x="236" y="0" width="56" height="12" rx="3" fill="#ff8a1e"/>
-      <text x="22" y="30" font-family="ui-monospace,monospace" font-size="13" font-weight="700" fill="#2c3340" letter-spacing="2">ZY-771</text>
-      <text x="236" y="30" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#2c3340" letter-spacing="1">STEREO</text>
-      <rect x="34" y="62" width="254" height="128" rx="12" fill="#0d1a33" stroke="#9fb3d8" stroke-width="3"/>
-      <rect x="48" y="74" width="226" height="104" rx="8" fill="#e9e1cf"/>
-      <rect x="48" y="74" width="226" height="22" rx="8" fill="#ff71ce"/><rect x="48" y="88" width="226" height="8" fill="#ff71ce"/>
-      <text x="161" y="90" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" font-weight="800" fill="#3a0b2a">磚 · C-90</text>
-      <rect x="82" y="110" width="158" height="52" rx="26" fill="#2a1d14"/>
-      <g class="wreel" transform="translate(110 136)"><circle r="20" fill="#5a3a1c"/><circle r="11" fill="#f4f0e6"/>
-        <path d="M0-11v6M9.5-5.5l-5 3M9.5 5.5l-5-3M0 11v-6M-9.5 5.5l5-3M-9.5-5.5l5 3" stroke="#2a1d14" stroke-width="3"/></g>
-      <g class="wreel" transform="translate(212 136)"><circle r="14" fill="#5a3a1c"/><circle r="11" fill="#f4f0e6"/>
-        <path d="M0-11v6M9.5-5.5l-5 3M9.5 5.5l-5-3M0 11v-6M-9.5 5.5l5-3M-9.5-5.5l5 3" stroke="#2a1d14" stroke-width="3"/></g>
-      <circle cx="300" cy="196" r="6" fill="#0d1a33"/><circle cx="282" cy="196" r="6" fill="#0d1a33"/>
+    <div id="walkman"><svg viewBox="0 0 300 452">
+      <defs>
+        <linearGradient id="wb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5a97d8"/><stop offset=".45" stop-color="#3270b8"/>
+          <stop offset="1" stop-color="#22528f"/></linearGradient>
+        <linearGradient id="ws" x1="0" x2="1"><stop offset="0" stop-color="#a8aeb7"/><stop offset=".35" stop-color="#f1f3f6"/>
+          <stop offset=".7" stop-color="#d4d8de"/><stop offset="1" stop-color="#9ea4ad"/></linearGradient>
+        <linearGradient id="wg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a3f48"/><stop offset=".5" stop-color="#15171b"/>
+          <stop offset="1" stop-color="#2a2e35"/></linearGradient>
+      </defs>
+      <rect x="3" y="9" width="300" height="444" rx="9" fill="#14345e"/>
+      <rect x="0" y="0" width="300" height="444" rx="9" fill="url(#wb)"/>
+      <rect x="230" y="0" width="70" height="444" rx="8" fill="url(#ws)"/>
+      <rect x="230" y="0" width="4" height="444" fill="#7d838c" opacity=".7"/>
+      <g fill="#8f959e"><rect x="292" y="40" width="8" height="54" rx="2"/><rect x="292" y="150" width="8" height="30" rx="2"/>
+        <rect x="292" y="300" width="8" height="70" rx="2"/></g>
+      <rect x="0" y="58" width="230" height="2" fill="#1d4a85" opacity=".8"/>
+      <rect x="44" y="-9" width="34" height="13" rx="3" fill="#ff7a1a"/>
+      <text x="115" y="108" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="21" font-weight="700"
+        fill="#f2f5f9" letter-spacing="3">ZYUNDECK</text>
+      <rect x="52" y="140" width="100" height="196" rx="14" fill="url(#wg)" stroke="#173a66" stroke-width="3"/>
+      <circle cx="102" cy="188" r="30" fill="#3a2616"/><circle cx="102" cy="288" r="19" fill="#3a2616"/>
+      <g fill="#e9e3d4"><circle cx="102" cy="188" r="10"/><circle cx="102" cy="288" r="10"/></g>
+      <g stroke="#3a2616" stroke-width="3"><path d="M102 178v6M92 188h6M112 188h-6M102 198v-6M102 278v6M92 288h6M112 288h-6M102 298v-6"/></g>
+      <rect x="80" y="220" width="44" height="38" rx="3" fill="#ecebe6"/><rect x="84" y="226" width="36" height="5" fill="#ff71ce"/>
+      <path d="M58 150q20-6 40 0" stroke="rgba(255,255,255,.28)" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <path d="M186 296v-56h-11l18-24 18 24h-11v56z" fill="none" stroke="#e9eef6" stroke-width="2.4" stroke-linejoin="round"/>
+      <circle cx="212" cy="334" r="4" fill="#173a66"/>
+      <text x="115" y="404" text-anchor="middle" font-family="system-ui,sans-serif" font-size="25" font-weight="800" font-style="italic"
+        fill="#eef2f8" letter-spacing="2">ZY-771</text>
     </svg></div>
   </div>
-  <div class="deck" id="deck0" style="--c: #ff8a1e"><div class="lbl">DECK 1</div><div class="base"></div><div class="tape"></div></div>
-  <div class="deck" id="deck1" style="--c: #38b6ff"><div class="lbl">DECK 2</div><div class="base"></div><div class="tape"></div></div>
+  <div class="deck" id="deck0"></div>
+  <div class="deck" id="deck1"></div>
 </div>
 <div id="wait">Starting Mixxx…</div>
 <div id="fade"></div>
@@ -195,13 +201,41 @@ let ready = params.has("ready"), skipping = false, leaving = false;
     .catch(() => setTimeout(poll, 400));
 })();
 
-const REEL = `<svg viewBox="-33 -33 66 66" width="66" height="66"><circle r="31" fill="#2a2a2a" stroke="#444" stroke-width="2"/>
-  <circle r="24" fill="#5a3a1c"/><circle r="11" fill="#e8e8e8"/>
-  <g stroke="#1a1a1a" stroke-width="4" stroke-linecap="round"><path d="M0-10v-12M8.7 5l10.4 6M-8.7 5l-10.4 6"/></g>
-  <circle r="3.5" fill="#1a1a1a"/></svg>`;
-document.querySelectorAll(".deck").forEach(d => {
-  ["l", "r"].forEach(side => { const r = document.createElement("div"); r.className = "reel " + side; r.innerHTML = REEL; d.appendChild(r); });
-});
+// An open-reel deck, drawn with its head block at the bottom (rotated so the two decks' heads face each other):
+// two flanged reels with the tape showing through, the tape down round the guides and across the heads.
+function sector(r0, r1, a0, a1) {
+  const p = (r, a) => `${(r * Math.cos(a * Math.PI / 180)).toFixed(2)} ${(r * Math.sin(a * Math.PI / 180)).toFixed(2)}`;
+  return `M${p(r1, a0)}A${r1} ${r1} 0 0 1 ${p(r1, a1)}L${p(r0, a1)}A${r0} ${r0} 0 0 0 ${p(r0, a0)}Z`;
+}
+function reel(cx, cy, pack) {
+  const holes = [0, 120, 240].map(a => sector(21, 68, a + 14, a + 96)).join("");
+  return `<g transform="translate(${cx} ${cy})"><g class="spin">
+    <circle r="${pack}" fill="#3a2717"/><circle r="${pack - 2}" fill="none" stroke="#5a3d22" stroke-width="1"/>
+    <path d="M-78 0a78 78 0 1 0 156 0a78 78 0 1 0-156 0${holes}" fill="#edeff2" fill-rule="evenodd" stroke="#b5bac2" stroke-width="1.5"/>
+    <circle r="78" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="1"/>
+    <circle r="16" fill="#d7dbe0" stroke="#959ba3" stroke-width="1.5"/><circle r="5" fill="#2e2e2e"/>
+    <path d="M0-16v8M13.9 8l-6.9-4M-13.9 8l6.9-4" stroke="#5a5f66" stroke-width="3"/></g></g>`;
+}
+function deckSvg(i) {
+  const c = i ? "#38b6ff" : "#ff8a1e";
+  return `<svg viewBox="0 0 360 260" width="360" height="260">
+    <rect x="3" y="7" width="356" height="253" rx="14" fill="#8f8a80"/>
+    <rect x="0" y="0" width="356" height="253" rx="14" fill="#ebe7df" stroke="#d1ccc2" stroke-width="1.5"/>
+    <path class="tape" d="M58 150L98 212L262 212L290 128" fill="none" stroke="#4a2f19" stroke-width="3" stroke-dasharray="8 3"/>
+    ${reel(92, 96, 60)}${reel(268, 96, 38)}
+    <g fill="#c9cdd3" stroke="#878d95" stroke-width="1.5"><circle cx="98" cy="214" r="7"/><circle cx="262" cy="214" r="7"/></g>
+    <rect x="148" y="214" width="64" height="32" rx="5" fill="#2a2a2a"/>
+    <g fill="#a2a8b0"><rect x="156" y="207" width="11" height="9" rx="1.5"/><rect x="174" y="207" width="11" height="9" rx="1.5"/>
+      <rect x="192" y="207" width="11" height="9" rx="1.5"/></g>
+    <circle cx="236" cy="226" r="4.5" fill="#1d1d1d"/><circle cx="236" cy="240" r="7.5" fill="#262626"/>
+    <g fill="#d8d3c9" stroke="#a8a297" stroke-width="1.2"><rect x="18" y="222" width="17" height="22" rx="2"/>
+      <rect x="39" y="222" width="17" height="22" rx="2"/><rect x="60" y="222" width="17" height="22" rx="2"/></g>
+    <g fill="#3a3a3a"><circle cx="300" cy="234" r="9"/><circle cx="328" cy="234" r="9"/></g>
+    <circle cx="20" cy="20" r="9" fill="${c}"/><text x="20" y="24.5" text-anchor="middle" font-family="system-ui,sans-serif"
+      font-size="12" font-weight="800" fill="#111">${i + 1}</text>
+  </svg>`;
+}
+document.querySelectorAll(".deck").forEach((d, i) => d.innerHTML = deckSvg(i));
 const eq = $(".eq"); for (let i = 0; i < 18; i++) { const b = document.createElement("i"); b.style.animationDelay = `${-i * 137 % 500}ms`; eq.appendChild(b); }
 
 // ---- geometry ------------------------------------------------------------------------------------------
@@ -252,7 +286,7 @@ async function intro() {
   anim(world, [{ transform: flat(1, 1) }, { transform: flat(1.14, .78) }], { duration: 180, easing: "ease-in" });
   await wait(180);
   $("#brick").style.opacity = 0; $("#walkman").style.opacity = 1;
-  shadow.animate([{ borderRadius: "40px", height: "524px", marginTop: "-262px" }, { borderRadius: "30px", height: "230px", marginTop: "-60px" }],
+  shadow.animate([{ borderRadius: "40px", height: "524px", marginTop: "-262px" }, { borderRadius: "24px", height: "452px", marginTop: "-226px" }],
     { duration: 200, fill: "forwards" });
   anim(world, [{ transform: flat(.86, 1.2) }, { transform: flat(1.06, .96) }, { transform: flat(1, 1) }], { duration: 360, easing: "ease-out" });
   await wait(420);
@@ -266,68 +300,72 @@ async function intro() {
   return split(s2);
 }
 
-// 5b-6: two cassette players move apart (one up, one down) and open into tape transports
+// Where the two decks go: stacked in portrait, side by side in landscape; their heads face each other.
+function deckLayout() {
+  if (H() >= W()) {
+    const sc = Math.min(.92 * W() / 360, (.86 * H() / 2 - 10) / 260);
+    return { sc, rot: [0, 180], pos: [[0, -(130 * sc + 12)], [0, 130 * sc + 12]] };
+  }
+  const sc = Math.min(.9 * H() / 360, (.86 * W() / 2 - 10) / 260);
+  return { sc, rot: [-90, 90], pos: [[-(130 * sc + 14), 0], [130 * sc + 14, 0]] };
+}
+const placeDeck = (L, i, s = L.sc) => `translate(${L.pos[i][0]}px, ${L.pos[i][1]}px) rotate(${L.rot[i]}deg) scale(${s})`;
+
+// 5b-6: two cassette players move apart to where the decks go, then each opens into an open-reel deck
 async function split(s2) {
-  const dw = Math.min(W() * .9, 760);
-  const gap = Math.min(H() * .16, 120);
-  const decks = [$("#deck0"), $("#deck1")];
-  decks.forEach(d => d.style.setProperty("--w", dw + "px"));
+  const L = deckLayout(), decks = [$("#deck0"), $("#deck1")];
   const clone = world.cloneNode(true); clone.id = "world2"; world.after(clone);
-  const flat = (ty, sx = 1, sy = 1) => T(s2, ty, 720, 360, 360, sx, sy);
-  anim(world, [{ transform: flat(0, 1.1, .85) }, { transform: flat(-gap) }], { duration: 380, easing: "cubic-bezier(.2,.8,.3,1)" });
-  anim(clone, [{ transform: flat(0, 1.1, .85) }, { transform: flat(gap) }], { duration: 380, easing: "cubic-bezier(.2,.8,.3,1)" });
+  const at = (i, sx = 1, sy = 1) => `translate(${L.pos[i][0]}px, ${L.pos[i][1]}px) ` + T(s2, 0, 720, 360, 360, sx, sy).replace("translate(0px, 0px) ", "");
+  anim(world, [{ transform: T(s2, 0, 720, 360, 360, 1.1, .85) }, { transform: at(0) }], { duration: 380, easing: "cubic-bezier(.2,.8,.3,1)" });
+  anim(clone, [{ transform: T(s2, 0, 720, 360, 360, 1.1, .85) }, { transform: at(1) }], { duration: 380, easing: "cubic-bezier(.2,.8,.3,1)" });
   anim(shadow, [{ opacity: .85 }, { opacity: 0 }], { duration: 300 });
-  await wait(420);
-  // open up: the players fade as their transports grow out of them
-  [world, clone].forEach(w => anim(w, [{ opacity: 1 }, { opacity: 0 }], { duration: 380, delay: 120 }));
+  await wait(440);
+  // open up: each player fades as its deck grows out of it, reels spinning up
+  [world, clone].forEach((w, i) => anim(w, [{ opacity: 1, transform: at(i) }, { opacity: 0, transform: at(i, 1.25, 1.25) }],
+    { duration: 420, easing: "ease-in" }));
   decks.forEach((d, i) => {
-    d.style.top = `calc(50% + ${(i ? 1 : -1) * gap}px)`;
-    anim(d, [{ opacity: 0 }, { opacity: 1 }], { duration: 200 });
-    anim(d.querySelector(".base"), [{ clipPath: "inset(0 calc(50% - 60px) round 14px)" }, { clipPath: "inset(0 0% round 14px)" }],
-      { duration: 520, easing: "cubic-bezier(.2,.8,.2,1)" });
-    anim(d.querySelector(".tape"), [{ transform: "scaleX(.05)" }, { transform: "scaleX(1)" }], { duration: 520, easing: "cubic-bezier(.2,.8,.2,1)" });
-    const off = dw / 2 - 40;
-    anim(d.querySelector(".reel.l"), [{ transform: "translateX(-30px)" }, { transform: `translateX(${-off}px)` }], { duration: 520, easing: "cubic-bezier(.2,.8,.2,1)" });
-    anim(d.querySelector(".reel.r"), [{ transform: "translateX(30px)" }, { transform: `translateX(${off}px)` }], { duration: 520, easing: "cubic-bezier(.2,.8,.2,1)" });
-    anim(d.querySelector(".lbl"), [{ opacity: 0 }, { opacity: .9 }], { duration: 300, delay: 400 });
+    d.querySelector("text").setAttribute("transform", `rotate(${-L.rot[i]} 20 20)`);   // the deck number stays upright
+    anim(d, [{ opacity: 0, transform: placeDeck(L, i, L.sc * .45) }, { opacity: 1, transform: placeDeck(L, i, L.sc * 1.04), offset: .75 },
+      { opacity: 1, transform: placeDeck(L, i) }], { duration: 620, easing: "cubic-bezier(.2,.8,.2,1)" });
+    d.querySelectorAll(".spin").forEach(r => anim(r, [{ transform: "rotate(-300deg)" }, { transform: "rotate(0deg)" }],
+      { duration: 700, easing: "cubic-bezier(.1,.6,.3,1)" }));
   });
-  await wait(600);
-  return scratchLoop(dw);
+  await wait(760);
+  return scratchLoop();
 }
 
-// 7: scratches. A baby scratch, another, then a chirp; the second deck answers. Loops until Mixxx is ready.
+// 7: scratches. A baby scratch, another, then a chirp; the second deck answers. Both reels of a deck turn
+// together and the tape slides across the heads. Loops until Mixxx is ready.
 const BABY = [0, 150, 0, 150, 0, 90, -20, 180, 0];
-async function scratch(deck, dw, delay) {
-  const off = dw / 2 - 40;
-  const reels = [...deck.querySelectorAll(".reel")];
+function scratch(deck, delay) {
   const frames = BABY.map((a, i) => ({ offset: i / (BABY.length - 1), a }));
-  reels.forEach((r, i) => anim(r.querySelector("svg"), frames.map(f => ({ offset: f.offset, transform: `rotate(${f.a}deg)` })),
+  deck.querySelectorAll(".spin").forEach(r => anim(r, frames.map(f => ({ offset: f.offset, transform: `rotate(${f.a}deg)` })),
     { duration: 1100, delay, easing: "ease-in-out", fill: "none" }));
-  anim(deck.querySelector(".tape"), frames.map(f => ({ offset: f.offset, backgroundPosition: `${f.a * .4}px 0` })),
+  anim(deck.querySelector(".tape"), frames.map(f => ({ offset: f.offset, strokeDashoffset: -f.a * .35 })),
     { duration: 1100, delay, easing: "ease-in-out", fill: "none" });
 }
-async function scratchLoop(dw) {
+async function scratchLoop() {
   const decks = [$("#deck0"), $("#deck1")];
   let first = true;
   do {
-    scratch(decks[0], dw, 0);
-    scratch(decks[1], dw, 550);
+    scratch(decks[0], 0);
+    scratch(decks[1], 550);
     await wait(1700);
     if (first) { first = false; if (!ready) $("#wait").style.opacity = 1; }
   } while (!ready);
   return outro();
 }
 
-// 8: the decks slide up to where the app shows them, and the app takes over
+// 8: the decks settle back and the app takes over
 async function outro() {
   if (leaving) return;
   leaving = true;
   $("#wait").style.opacity = 0;
-  const decks = [$("#deck0"), $("#deck1")];
-  decks.forEach((d, i) => anim(d, [{ transform: "none", opacity: 1 }, { transform: `translateY(${-H() * .32}px) scaleY(.6)`, opacity: 0 }],
-    { duration: 520, delay: i * 70, easing: "cubic-bezier(.5,0,.3,1)" }));
-  anim($("#fade"), [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 300 });
-  await wait(620);
+  const L = deckLayout();
+  [$("#deck0"), $("#deck1")].forEach((d, i) => anim(d, [{ opacity: 1, transform: placeDeck(L, i) }, { opacity: 0, transform: placeDeck(L, i, L.sc * .9) }],
+    { duration: 480, delay: i * 70, easing: "cubic-bezier(.5,0,.3,1)" }));
+  anim($("#fade"), [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 280 });
+  await wait(600);
   if (!params.has("ready")) location.replace("/phone");
 }
 
