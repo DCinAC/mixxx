@@ -32,6 +32,7 @@
 #include <cmath>
 #include <complex>
 #include <memory>
+#include <mutex>
 #include <vector>
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -262,19 +263,19 @@ class StemWriter {
         return avformat_write_header(m_fmt, nullptr) >= 0;
     }
 
-    /// Interleaved stereo for track i (0 = the mix).
+    /// Interleaved stereo for track i (0 = the mix). Different tracks can be pushed from different threads.
     bool push(int i, const float* data, int frames) {
         if (frames <= 0) {
             return true;
         }
         Track& t = m_tracks[i];
-        m_left.resize(frames);
-        m_right.resize(frames);
+        t.left.resize(frames);
+        t.right.resize(frames);
         for (int n = 0; n < frames; ++n) {
-            m_left[n] = data[2 * n];
-            m_right[n] = data[2 * n + 1];
+            t.left[n] = data[2 * n];
+            t.right[n] = data[2 * n + 1];
         }
-        void* planes[2] = {m_left.data(), m_right.data()};
+        void* planes[2] = {t.left.data(), t.right.data()};
         if (av_audio_fifo_write(t.fifo, planes, frames) < frames) {
             return false;
         }
@@ -296,6 +297,7 @@ class StemWriter {
         AVCodecContext* ctx = nullptr;
         AVAudioFifo* fifo = nullptr;
         int64_t pts = 0;
+        std::vector<float> left, right;
     };
 
     bool drain(int i, bool last) {
@@ -332,6 +334,7 @@ class StemWriter {
         while (avcodec_receive_packet(t.ctx, pPacket) >= 0) {
             av_packet_rescale_ts(pPacket, t.ctx->time_base, t.st->time_base);
             pPacket->stream_index = t.st->index;
+            std::lock_guard<std::mutex> lock(m_muxLock);   // encoding runs in parallel, the file one at a time
             if (av_interleaved_write_frame(m_fmt, pPacket) < 0) {
                 ok = false;
                 break;
@@ -343,7 +346,7 @@ class StemWriter {
 
     AVFormatContext* m_fmt = nullptr;
     std::array<Track, 1 + kStems> m_tracks;
-    std::vector<float> m_left, m_right;
+    std::mutex m_muxLock;
 };
 
 /// The four models, loaded once (from the APK's assets) and kept.
@@ -638,6 +641,7 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
     qint64 msRead = 0, msModel = 0, msSynth = 0, msWrite = 0;
     QElapsedTimer section;
     std::vector<float> scratch, resampled;
+    Q_UNUSED(msWrite);
     const double expectedFrames = static_cast<double>(totalFrames) * kRate / rate / kHop + 4;
     bool ended = false;
     qint64 totalModelFrames = -1;
@@ -660,23 +664,30 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
             inBase += drop;
         }
     };
-    const auto emitOutput = [&](qint64 until) {   // padded samples before `until` are final: out to the file
+    // Padded samples before `until` are final: stem s's go to the file (each stem's thread does its own)
+    std::array<std::vector<float>, kStems> stemOut;
+    const auto emitStem = [&](int s, qint64 until) {
         const qint64 n = until - outBase;
         if (n <= 0) {
             return true;
         }
         const qint64 from = std::max<qint64>(outBase, kPad), to = std::min<qint64>(until, kPad + signalLength);
-        for (int s = 0; s < kStems; ++s) {
-            out[s].resize(std::max<size_t>(out[s].size(), 2 * static_cast<size_t>(n)), 0.0f);
-            if (to > from) {
-                fromModel[s]->convert(out[s].data() + 2 * (from - outBase), static_cast<int>(to - from), &resampled);
-                if (!writer.push(1 + s, resampled.data(), static_cast<int>(resampled.size() / 2))) {
-                    return false;
-                }
-            }
-            out[s].erase(out[s].begin(), out[s].begin() + 2 * n);
+        out[s].resize(std::max<size_t>(out[s].size(), 2 * static_cast<size_t>(n)), 0.0f);
+        bool ok = true;
+        if (to > from) {
+            fromModel[s]->convert(out[s].data() + 2 * (from - outBase), static_cast<int>(to - from), &stemOut[s]);
+            ok = writer.push(1 + s, stemOut[s].data(), static_cast<int>(stemOut[s].size() / 2));
         }
-        outBase = until;
+        out[s].erase(out[s].begin(), out[s].begin() + 2 * n);
+        return ok;
+    };
+    const auto emitOutput = [&](qint64 until) {
+        for (int s = 0; s < kStems; ++s) {
+            if (!emitStem(s, until)) {
+                return false;
+            }
+        }
+        outBase = std::max(outBase, until);
         return true;
     };
     // Runs the models on every chunk that has enough frames, keeping the middle of each (the edges lack the
@@ -729,6 +740,7 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
                 }
             }
             std::array<std::thread, kStems> workers;
+            std::array<bool, kStems> written{};
             for (int s = 0; s < kStems; ++s) {
                 workers[s] = std::thread([&, s] {
                     std::vector<std::complex<float>> spec(kBins);
@@ -743,18 +755,19 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
                             synthesis[s].inverseAdd(spec.data(), out[s].data() + 2 * (f * kHop - outBase), c);
                         }
                     }
+                    written[s] = emitStem(s, (w + keep1) * kHop);   // and encode it, beside the others
                 });
             }
             for (std::thread& t : workers) {
                 t.join();
             }
-            msSynth += section.restart();
             start = w + keep1;
-            if (!emitOutput(start * kHop)) {
+            outBase = std::max(outBase, start * kHop);
+            msSynth += section.restart();
+            if (!(written[0] && written[1] && written[2] && written[3])) {
                 *pError = QStringLiteral("Couldn't write the stems file");
                 return false;
             }
-            msWrite += section.restart();
             while (frameBase < std::max<qint64>(0, start - kMargin) && !frames.empty()) {
                 frames.pop_front();
                 ++frameBase;
@@ -826,7 +839,7 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
         return {};
     }
     qInfo() << "Zydek live stems:" << path << "in" << timer.elapsed() << "ms: reading" << msRead << "model" << msModel
-            << "stems" << msSynth << "encoding" << msWrite;
+            << "stems and encoding them" << msSynth;
 
     // Into the library as the same track: its beat grid, key, cues and loops (same sample rate, same frames)
     ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
