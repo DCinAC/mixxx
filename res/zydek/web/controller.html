@@ -395,6 +395,8 @@
     <div class="seg" id="s-knob"></div></div>
   <div class="row"><div>Key notation<small>How the deck shows its current key (after key shift, and tempo when key lock is off)</small></div>
     <div class="seg" id="s-keyfmt"></div></div>
+  <div class="row"><div>Live stems<small>When a deck loads a track without stems, the phone separates it (about half a minute) and swaps in the stems version; STEM pads show how far it is</small></div>
+    <div class="seg" id="s-lstems"></div></div>
   <div class="row"><div>Controller mode<small>Control Mixxx on a computer instead: over the USB cable (set it to MIDI in Android's USB notification, then pick the ZyDeck mapping for it in Mixxx), or over Wi-Fi with ZyDeck Link running on the computer</small></div>
     <div class="seg" id="s-remote"></div></div>
   <div class="row"><div>MIDI layout<small>ZyDeck: Mixxx with the ZyDeck mapping (everything). Standard: plain notes and CCs for MIDI Learn in Serato, rekordbox or Traktor (no waveforms or positions come back)</small></div>
@@ -537,6 +539,8 @@ let live = false;                         // true once the real pad server (conn
 // Controller mode (the hub's "remote" status): the decks are Mixxx's on a computer. Waveforms and beat grids
 // then come from ZyDeck Link there (when it runs), not from the phone.
 let REMOTE = { on: false };
+let liveStemsAuto = true;
+fetch("/api/livestems").then(r => r.json()).then(j => { liveStemsAuto = j.auto !== false; }).catch(() => {});
 const assetUrl = path => !REMOTE.on ? path : REMOTE.http ? `${REMOTE.http}${path}?k=${encodeURIComponent(REMOTE.key || "")}` : null;
 
 // =====================================================================================================
@@ -1447,9 +1451,20 @@ function paintPad(s, k) {
     }
     case "loop": setPad(el, d.loopOn && Math.abs(d.loopSize - LOOP_PADS[k]) < 1e-6 ? "lit" : "tint",
       `${fmtBeats(LOOP_PADS[k])}<small>LOOP</small>`, "var(--play)", "#04200e"); break;
-    case "stem": if (k >= 4) { setPad(el, "off", ""); break; }
-      if (live && !d.sc) { setPad(el, "off", `${STEMS[k].n}<small>no stems</small>`); break; }
+    case "stem": {
+      // No stems in the file: the phone makes them (live stems); pad 5 shows how far, or switches to them
+      const ls = d.lstem || {};
+      if (k === 4 && live && !d.sc && !REMOTE.on) {
+        if (ls.s === "making") setPad(el, "tint", `STEMS<small>${Math.round((ls.p || 0) * 100)} %</small>`, "var(--play)");
+        else if (ls.s === "ready") setPad(el, "lit", `USE STEMS<small>short gap</small>`, "var(--play)", "#071a0e");
+        else if (ls.s === "failed") setPad(el, "off", `STEMS<small>${(ls.e || "failed").replace(/</g, "&lt;")}</small>`);
+        else setPad(el, "tint", `MAKE STEMS<small>on the phone</small>`, "var(--play)");
+        break;
+      }
+      if (k >= 4) { setPad(el, "off", ""); break; }
+      if (live && !d.sc) { setPad(el, "off", `${STEMS[k].n}<small>${ls.s === "making" ? "making…" : "no stems"}</small>`); break; }
       setPad(el, d.stems[k] ? "lit" : "tint", `${STEMS[k].n}<small>${d.stems[k] ? "on" : "muted"}</small>`, STEMS[k].c, "#fff"); break;
+    }
     case "smpl": paintSamplerPad(el, (d.n % 2 ? 0 : 8) + k); break;
     case "jump": setPad(el, "tint", ["−1", "+1", "−2", "+2", "−4", "+4", "−8", "+8"][padIndex(d, k)], "var(--jump)"); break;
     case "fx": {
@@ -1526,6 +1541,10 @@ function padPress(s, k, down) {
   }
   if (live) {
     if (d.mode === "smpl") return samplerPress(d, (d.n % 2 ? 0 : 8) + k, down, ui.sides[s].pads[k]);
+    if (d.mode === "stem" && k === 4 && !d.sc && !REMOTE.on) {   // live stems: make them, or switch to them
+      if (down) fetch(`/api/livestems/${d.lstem?.s === "ready" ? "swap" : "make"}?deck=${d.n}`).catch(() => {});
+      return;
+    }
     if ((d.mode === "stem" && k >= 4) || (d.mode === "fx" && k === 7)) return;   // unmapped, like the Inpulse
     let m = PAD_MODE[d.mode];
     if (d.shift && d.mode === "cue") {
@@ -2026,6 +2045,7 @@ function paintSettings(soft) {
   seg("s-tele", [[true, "On"], [false, "Off"]], () => S.telemetry, v => S.telemetry = v);
   seg("s-ssync", [[true, "On"], [false, "Off"]], () => S.sampleSync, v => S.sampleSync = v);
   seg("s-skl", [[true, "On"], [false, "Off"]], () => S.sampleKeylock !== false, v => S.sampleKeylock = v);
+  seg("s-lstems", [[true, "On load"], [false, "Off"]], () => liveStemsAuto, v => { liveStemsAuto = v; fetch(`/api/livestems?auto=${v ? 1 : 0}`).catch(() => {}); });
   seg("s-midilayout", [["zydeck", "ZyDeck"], ["standard", "Standard"]], () => REMOTE.layout || "zydeck",
     v => { fetch(`/api/controller?layout=${v}`).catch(() => {}); REMOTE.layout = v; });
   seg("s-remote", [[true, "On"], [false, "Off"]], () => !!REMOTE.on, v => { fetch(`/api/controller?on=${v ? 1 : 0}`).catch(() => {}); REMOTE.on = v; });
@@ -2228,6 +2248,7 @@ function goLive(init) {
     if (x.n) { d.title = x.n.t; d.artist = x.n.a; }
     loadWaveform(d, x.n ? x.n.id : null); loadBeats(d, x.n ? x.n.id : null); loadCueLabels(d);
   });
+  (init.lstems || []).forEach((x, i) => { if (decks[i]) decks[i].lstem = x; });
   init.s.slice(0, samplers.length).forEach((v, i) => { samplers[i].state = v; if (init.sn[i]) samplers[i].name = init.sn[i].t; });
   init.fx.forEach((u, i) => fxLive[i] = u);
   Object.entries(init.cv || {}).forEach(([k, v]) => applyCv(k, v));
@@ -2315,6 +2336,7 @@ function onMixxx(m) {
     case "stem": d.stems[m.k] = m.v; return markDirty("deck", d);
     case "fx": fxLive[m.u][m.j] = m.v; break;
     case "smode": samplerModes[m.i] = m.v; break;
+    case "lstem": if (decks[m.d]) { decks[m.d].lstem = { s: m.s, p: m.p, e: m.e }; markDirty("deck", decks[m.d]); } return;
     default: return;
   }
   schedulePaint();

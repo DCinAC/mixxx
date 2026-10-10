@@ -417,6 +417,14 @@
         <option value="camelot">Camelot (8A)</option><option value="open">Open Key (1m)</option><option value="musical">Musical (Am)</option></select>
     </div>
     <div class="card">
+      <h3>Live stems</h3>
+      <label class="chk"><input type="checkbox" id="lstems"> Make stems when a deck loads a track</label>
+      <div class="hint">The phone separates the track into drums, bass, other and vocals itself (a small model, ready in
+        about half a minute) and swaps in the stems version; if the deck is already playing, the STEM pads offer the
+        switch (it makes a short gap). Stems files go to Music/ZyDeck Stems and are reused next time. For the best
+        quality, the stem server on a PC is still better.</div>
+    </div>
+    <div class="card">
       <h3>Default behaviour on assignment</h3>
       <label class="chk"><input type="checkbox" id="samplesync"> Follow the master tempo</label>
       <label class="chk"><input type="checkbox" id="samplekeylock"> Keylock</label>
@@ -1812,6 +1820,8 @@ $("#introstyle").value = store.get("introStyle", INTRO_STYLE_DEFAULT);
 $("#introstyle").addEventListener("change", () => { store.set("introStyle", $("#introstyle").value); toast("Shows next time ZyDeck starts", "ok"); });
 $("#samplesync").checked = store.get("sampleSync", true);
 $("#samplesync").addEventListener("change", () => store.set("sampleSync", $("#samplesync").checked));
+api("/api/livestems").then(j => { $("#lstems").checked = j.auto !== false; $("#lstems").disabled = !j.available; }).catch(() => {});
+$("#lstems").addEventListener("change", () => api(`/api/livestems?auto=${$("#lstems").checked ? 1 : 0}`).catch(() => {}));
 $("#samplekeylock").checked = store.get("sampleKeylock", true);
 $("#samplekeylock").addEventListener("change", () => store.set("sampleKeylock", $("#samplekeylock").checked));
 $("#keyfmt").value = store.get("keyNotation", "camelot");
