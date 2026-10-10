@@ -1373,10 +1373,10 @@ async function analyzeAsk() {
   let n;
   try { n = (await api("/api/analyze?dry=1")).count; } catch (e) { return toast(e.message, "bad"); }
   if (!n) return toast("Every track already has a BPM and key", "ok");
-  const mins = Math.max(1, Math.round(n * 2 / 60));
+  const mins = Math.max(1, Math.round(n * 2.5 / 60));   // measured on a OnePlus 13: ~2.5 s a track
   const s = $("#sheet");
   s.innerHTML = `<div class="grip"></div><div class="t">Analyze ${n} track${n > 1 ? "s" : ""}?</div>` +
-    `<div class="warn">This takes a long time: about a couple of seconds a track, so roughly <b>${mins} min</b> here, ` +
+    `<div class="warn">This takes a long time: about 2.5 seconds a track, so roughly <b>${mins} min</b> here, ` +
     `and it works the phone hard (it gets warm and uses a lot of battery).` +
     `<small>Keep it plugged in. Mixing while it runs can stutter; Mixxx pauses it while a track you load is being analyzed. ` +
     `You can stop it any time and carry on later.</small></div>` +
@@ -1395,14 +1395,18 @@ async function watchAnalysis() {
   try { st = await api("/api/analyze/status"); } catch { st = { active: false }; }
   $("#anz").classList.toggle("on", !!st.active);
   if (st.active) {
-    const left = st.total - st.done, rate = st.done > 0 ? st.seconds / st.done : 2;
+    const left = st.total - st.done, rate = st.done > 4 ? st.seconds / st.done : 2.5;
     $("#anzmsg").textContent = `${st.done} of ${st.total} done · about ${Math.max(1, Math.round(left * rate / 60))} min left`;
     $("#anz .bar2 i").style.width = `${Math.round(st.done / Math.max(1, st.total) * 100)}%`;
     $("#anzgo").textContent = "Stop";
     anzTimer = setTimeout(watchAnalysis, 2000);
     if (st.done !== watchAnalysis.lastDone) { watchAnalysis.lastDone = st.done; if (st.done % 10 === 0) loadTracks(); }
   } else {
-    if (watchAnalysis.lastDone !== undefined) { watchAnalysis.lastDone = undefined; $("#anzmsg").textContent = "Finished."; loadTracks(); }
+    if (watchAnalysis.lastDone !== undefined) {
+      watchAnalysis.lastDone = undefined;
+      $("#anzmsg").textContent = st.done < st.total ? `Stopped after ${st.done} of ${st.total}: Analyze all carries on from there.` : "Finished.";
+      loadTracks();
+    }
     $("#anzgo").textContent = "Analyze all";
   }
 }

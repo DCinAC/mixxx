@@ -660,13 +660,12 @@ QJsonObject Library::analyzeAll(bool dryRun) {
     std::shared_ptr<Analysis> a = m_pAnalysis;
     {
         QMutexLocker lock(&a->mutex);
-        for (int id : std::as_const(ids)) {
-            a->pending.insert(id);
+        if (a->active) {
+            return error(QStringLiteral("Already analyzing"));
         }
-        a->total = a->active ? a->total + ids.size() : ids.size();
-        if (!a->active) {
-            a->timer.start();
-        }
+        a->pending = QSet<int>(ids.begin(), ids.end());
+        a->total = ids.size();
+        a->timer.start();
         a->active = true;
     }
     QList<AnalyzerScheduledTrack> tracks;
@@ -685,10 +684,9 @@ QJsonObject Library::analyzeAll(bool dryRun) {
                         }
                     });
                     QObject::connect(pFeature, &AnalysisFeature::analysisActive, pFeature, [a](bool active) {
-                        if (!active) {
+                        if (!active) {   // finished or stopped; what's still pending wasn't analyzed
                             QMutexLocker lock(&a->mutex);
                             a->active = false;
-                            a->pending.clear();
                         }
                     });
                 }
