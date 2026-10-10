@@ -363,7 +363,7 @@ class Models {
 
     bool load(QString* pError) {
         Ort::SessionOptions options;
-        options.SetIntraOpNumThreads(4);   // faster than 6-8 on both a 2024 phone and a 2020 tablet
+        options.DisablePerSessionThreads();   // the four share the environment's pool (below)
         options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
         for (int s = 0; s < kStems; ++s) {
             QFile f(QStringLiteral("assets:/zydek-stems/umxhq-%1.int8.onnx").arg(QLatin1String(kModelNames[s])));
@@ -403,7 +403,16 @@ class Models {
     }
 
   private:
-    Ort::Env m_env{ORT_LOGGING_LEVEL_WARNING, "zydek-stems"};
+    // One pool of 4 threads for all four models (4 beat 6-8 on a 2024 phone and a 2020 tablet), not spinning
+    // while they wait: a pool per model, each spinning, made them fight over the cores (6x slower).
+    static Ort::Env makeEnv() {
+        Ort::ThreadingOptions threading;
+        threading.SetGlobalIntraOpNumThreads(4);
+        threading.SetGlobalInterOpNumThreads(1);
+        threading.SetGlobalSpinControl(0);
+        return Ort::Env(threading, ORT_LOGGING_LEVEL_WARNING, "zydek-stems");
+    }
+    Ort::Env m_env = makeEnv();
     std::array<std::unique_ptr<Ort::Session>, kStems> m_sessions;
 };
 
