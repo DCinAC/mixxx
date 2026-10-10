@@ -828,10 +828,10 @@ bool writeWav(const QString& path, const CSAMPLE* data, SINT samples, int channe
 
 } // namespace
 
-void Library::setSamplerOptions(const QString& group, bool sync, bool repeat) {
-    const auto apply = [group, sync, repeat] {
+void Library::setSamplerOptions(const QString& group, bool sync, bool repeat, bool keylock) {
+    const auto apply = [group, sync, repeat, keylock] {
         ControlObject::set(ConfigKey(group, QStringLiteral("repeat")), repeat ? 1 : 0);
-        ControlObject::set(ConfigKey(group, QStringLiteral("keylock")), 1);
+        ControlObject::set(ConfigKey(group, QStringLiteral("keylock")), keylock ? 1 : 0);
         ControlObject::set(ConfigKey(group, QStringLiteral("quantize")), 1);
         ControlObject::set(ConfigKey(group, QStringLiteral("sync_enabled")), sync ? 1 : 0);
     };

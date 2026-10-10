@@ -100,6 +100,18 @@
   #browser .dirs li { padding: 10px 6px; border-bottom: 1px solid #191919; }
   #browser .dirs li:active { background: #1a1a1a; }
   #browser .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  /* controller mode: the library page shows this instead */
+  #ctlmode { display: none; margin: 12px; padding: 14px; border: 1px solid #3a6ea5; border-radius: 12px; background: #0f1824; line-height: 1.45; }
+  body.remote #ctlmode { display: block; }
+  body.remote #p-lib .bar, body.remote #tracks, body.remote #libnote, body.remote #perm-lib { display: none; }
+  #ctlmode h3 { margin: 0 0 6px; font-size: 16px; }
+  #ctlmode .st { font-size: 15px; color: var(--text); }
+  #ctlmode .st.ok { color: var(--play); }
+  #ctlmode .steps { color: var(--dim); font-size: 13px; margin: 10px 0 0; padding-left: 18px; }
+  #ctlmode .steps li { margin: 4px 0; }
+  #ctlmode .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  #ctlmode .row button { flex: 1 1 140px; min-height: 46px; }
+  #ctlmode .row .go { border-color: #3a6ea5; color: #8cc4ff; }
   .perm { display: none; margin: 10px 12px 0; padding: 12px; border: 1px solid #a0522d; border-radius: 10px; background: #2a1a12;
     font-size: 13px; line-height: 1.4; }
   .perm.on { display: block; }
@@ -314,6 +326,7 @@
           <option value="title">Title</option><option value="bpm">BPM</option><option value="key">Key</option><option value="played">Most played</option></select></div>
       <div class="chips" id="views"></div>
     </div>
+    <div id="ctlmode"></div>
     <div class="perm" id="perm-lib"></div>
     <ul class="list" id="tracks"></ul>
     <div class="note" id="libnote"></div>
@@ -348,6 +361,14 @@
   </section>
 
   <section class="page" id="p-set">
+    <div class="card">
+      <h3>Controller mode</h3>
+      <label class="chk"><input type="checkbox" id="cm-on"> Control Mixxx on a computer</label>
+      <div class="hint">Turns this phone into a MIDI controller for Mixxx on a computer. Over the USB cable: choose
+        <b>MIDI</b> in Android's USB notification, then in Mixxx open Preferences › Controllers, pick the phone and
+        load the <b>ZyDeck</b> mapping. With <b>ZyDeck Link</b> running on the computer, ZyDeck offers to link over
+        Wi-Fi, so you can unplug the cable. Track names and waveforms need ZyDeck Link too.</div>
+    </div>
     <div class="card" id="tabctl">
       <h3>Connect a tablet controller</h3>
       <div class="nets" id="tc-nets"></div>
@@ -435,7 +456,11 @@
   </div>
 </div>
 <div id="pv"><span></span><button id="pvstop">Stop preview</button></div>
-<iframe id="deckview" src="/controller?phone=1" title="Decks"></iframe>
+<iframe id="deckview" title="Decks"></iframe>
+<script>
+  // a tablet gets the tablet controller, a phone the phone layout (smallest side under 600 CSS px)
+  document.getElementById("deckview").src = Math.min(screen.width, screen.height) >= 600 ? "/controller" : "/controller?phone=1";
+</script>
 <nav>
   <button data-page="lib"><span class="i">♫</span>Library</button>
   <button data-page="web"><span class="i">◎</span>Web</button>
@@ -507,7 +532,9 @@ async function loadBeats(d, id) {
   if (!id) return;
   for (let tries = 0; tries < 40 && d.beatsFor === id; tries++) {
     try {
-      const r = await fetch(`/beats/${id}`);
+      const url = assetUrl(`/beats/${id}`);
+      if (!url) return;
+      const r = await fetch(url);
       if (r.ok) { const j = await r.json(); if (d.beatsFor !== id) return; d.beats = Float64Array.from(j.beats); d.bar = j.bar; d.beatsVer++; return; }
     } catch {}
     await new Promise(res => setTimeout(res, 2000));
@@ -518,7 +545,9 @@ async function loadWaveform(d, id) {
   if (!id) return;
   for (let tries = 0; tries < 40 && d.wfFor === id; tries++) {   // a new track is still being analysed
     try {
-      const r = await fetch(`/waveform/${id}`);
+      const url = assetUrl(`/waveform/${id}`);
+      if (!url) return;
+      const r = await fetch(url);
       if (r.ok) {
         const buf = new Uint8Array(await r.arrayBuffer()), dv = new DataView(buf.buffer);
         if (d.wfFor !== id) return;
@@ -547,11 +576,60 @@ function applyCv(k, v, ts) {
     default: { const hc = /^hotcue_(\d+)_position$/.exec(m[2]); if (hc && hc[1] <= 8) d.cuePos[hc[1] - 1] = v; }
   }
 }
+// Controller mode: the decks are Mixxx's on a computer (the hub's "remote" status). Waveforms come from
+// ZyDeck Link there when it runs.
+let remote = { on: false };
+const assetUrl = path => !remote.on ? path : remote.http ? `${remote.http}${path}?k=${encodeURIComponent(remote.key || "")}` : null;
+function linkText() {
+  if (remote.on) return !remote.live ? "Controller mode · not connected" :
+    remote.via === "wifi" ? `Mixxx on ${remote.computer || "the computer"} · Wi-Fi` : "Mixxx on the computer · USB";
+  return live ? "Live · Mixxx" : "Zydek's controller is off (Preferences › Controllers)";
+}
+function onRemote(r) {
+  const was = remote;
+  remote = r;
+  document.body.classList.toggle("remote", !!r.on);
+  $("#cm-on").checked = !!r.on;
+  $("#link").textContent = linkText();
+  if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`, "ok");
+  if (!!was.on !== !!r.on || was.http !== r.http) decks.forEach(d => { loadWaveform(d, d.wfFor); loadBeats(d, d.beatsFor); });
+  paintCtlMode();
+}
+function paintCtlMode() {
+  const r = remote, box = $("#ctlmode");
+  if (!r.on) { box.innerHTML = ""; return; }
+  const comp = esc(r.computer || "the computer");
+  let st, ok = false, steps = "";
+  if (r.via === "wifi") { st = r.live ? `Controlling Mixxx on ${comp} over Wi-Fi. You can unplug the USB cable.` : `Linked to ${comp}, but Mixxx isn't answering.`; ok = r.live; }
+  else if (r.usb === 2) { st = r.live ? "Controlling Mixxx on the computer over USB." : "USB MIDI is ready. Mixxx on the computer isn't answering yet."; ok = r.live; }
+  else if (r.linking) st = `Linking to ${comp} over Wi-Fi…`;
+  else if (r.usb === 1) st = "The cable is plugged in, but not set to MIDI.";
+  else st = r.saved ? `Plug in the USB cable, or wait: ZyDeck tries ${esc(r.saved)} over Wi-Fi.` : "Plug the USB cable into the computer.";
+  if (!r.live) steps = `<ol class="steps">` +
+    (r.usb !== 2 && r.via !== "wifi" ? `<li>Pull down Android's notifications, tap the USB one, and choose <b>MIDI</b>.</li>` : "") +
+    `<li>In Mixxx: Preferences › Controllers › ${r.via === "wifi" ? "<b>ZyDeck Link</b>" : "this phone"} › load <b>ZyDeck</b> and tick Enabled. ` +
+    `Mixxx only finds MIDI devices when it starts: restart it if the phone isn't listed.</li>` +
+    `<li>Optional: run <b>ZyDeck Link</b> on the computer for track names, waveforms and the wireless link.</li></ol>`;
+  box.innerHTML = `<h3>Controller mode</h3><div class="st${ok ? " ok" : ""}">${st}</div>${steps}` +
+    (r.live ? `<div class="hint" style="margin-top:8px;color:var(--dim);font-size:13px">Turn the phone sideways for the decks.</div>` : "") +
+    `<div class="row">${r.offer ? `<button class="go link">Link to ${comp} over Wi-Fi</button>` : ""}` +
+    (r.via === "wifi" ? `<button class="usb">Back to the cable</button>` : "") +
+    (r.saved && r.via !== "wifi" ? `<button class="forget">Forget ${esc(r.saved)}</button>` : "") +
+    `<button class="off">Turn controller mode off</button></div>`;
+  box.querySelector(".link")?.addEventListener("click", () => api("/api/controller?link=1").catch(e => toast(e.message, "bad")));
+  box.querySelector(".usb")?.addEventListener("click", () => api("/api/controller?link=0").catch(() => {}));
+  box.querySelector(".forget")?.addEventListener("click", () => api("/api/controller?forget=1").catch(() => {}));
+  box.querySelector(".off").addEventListener("click", () => api("/api/controller?on=0").catch(() => {}));
+}
+$("#cm-on").addEventListener("change", () => api(`/api/controller?on=${$("#cm-on").checked ? 1 : 0}`).catch(e => toast(e.message, "bad")));
+
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
+    if (m.t === "remote") return onRemote(m);
     if (m.init) {
+      if (m.init.remote) onRemote(m.init.remote);
       live = !!m.init.live;
       m.init.decks.forEach((x, i) => { if (!decks[i]) return; onDeckName(decks[i], x.n); decks[i].cueColors = x.cues.map(v => v ? v - 1 : null); });
       Object.entries(m.init.cv || {}).forEach(([k, v]) => applyCv(k, v));
@@ -564,7 +642,7 @@ function connect() {
       for (const k of ["play", "track_loaded", "duration"]) sub.push(["[PreviewDeck1]", k, 0]);
       sub.push(["[PreviewDeck1]", "playposition", 1]);
       wsSend({ sub });
-      $("#link").textContent = live ? "Live · Mixxx" : "Zydek's controller is off (Preferences › Controllers)";
+      $("#link").textContent = linkText();
       return;
     }
     if (m.t === "cv") applyCv(m.k, m.v, m.ts);

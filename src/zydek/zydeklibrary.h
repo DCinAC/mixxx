@@ -72,7 +72,7 @@ class Library {
     /// stems in stemMask (bit 0 = stem 1; 0 = the whole track), into sampler `slot`.
     QJsonObject cutSample(const QString& group, double start, double end, uint stemMask, int slot, bool sync);
     /// A sampler's playing options: keep its key, follow the master tempo (or not), loop the whole clip (or not).
-    static void setSamplerOptions(const QString& group, bool sync, bool repeat);
+    static void setSamplerOptions(const QString& group, bool sync, bool repeat, bool keylock = true);
 
   private:
     QJsonObject schedule(const QList<int>& ids, bool add);

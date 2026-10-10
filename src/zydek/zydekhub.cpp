@@ -810,7 +810,8 @@ QJsonObject Hub::saveKit(const QString& name) {
         ++pads;
         padList.append(QJsonObject{{"path", pTrack->getLocation()},
                 {"mode", m_samplerModes.value(i, QStringLiteral("oneshot"))},
-                {"sync", ControlObject::get(ConfigKey(group, QStringLiteral("sync_enabled"))) > 0}});
+                {"sync", ControlObject::get(ConfigKey(group, QStringLiteral("sync_enabled"))) > 0},
+                {"keylock", ControlObject::get(ConfigKey(group, QStringLiteral("keylock"))) > 0}});
     }
     QJsonObject all = readKits(m_pConfig->getSettingsPath());
     all.insert(kit, QJsonObject{{"slots", padList}, {"saved", QDateTime::currentDateTime().toString(Qt::ISODate)}});
@@ -840,7 +841,8 @@ QJsonObject Hub::loadKit(const QString& name) {
         const QString mode = slot.value(QStringLiteral("mode")).toString(QStringLiteral("oneshot"));
         if (m_library.loadLocation(path, QStringLiteral("sampler%1").arg(i + 1)).value(QStringLiteral("ok")).toBool()) {
             ++loaded;
-            Library::setSamplerOptions(group, slot.value(QStringLiteral("sync")).toBool(), mode == QLatin1String("loop"));
+            Library::setSamplerOptions(group, slot.value(QStringLiteral("sync")).toBool(), mode == QLatin1String("loop"),
+                    slot.value(QStringLiteral("keylock")).toBool(true));   // kits from before had it on
             setSamplerMode(i + 1, mode);
         }
     }

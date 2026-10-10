@@ -119,6 +119,7 @@
   .padopts button { height: calc(var(--mm) * 8.5); font-size: calc(var(--mm) * 1.8); }
   .padopts button.on { border-color: var(--cue); color: var(--cue); background: color-mix(in srgb, var(--cue) 12%, #1c1c1c); }
   .padopts .wide2 { grid-column: span 2; }
+  .padopts button small { display: block; font-size: calc(var(--mm) * 1.4); opacity: .8; margin-top: calc(var(--mm) * .3); }
   .padopts .clear { color: var(--err); }
   .pad .n { position: absolute; left: calc(var(--mm) * 1); top: calc(var(--mm) * .8); font-size: calc(var(--mm) * 1.6); opacity: .6; }
   .pad.lit { background: var(--c); border-color: var(--c); color: var(--fg, #111); }
@@ -331,6 +332,13 @@
 
   /* tap a deck's BPM: the beat grid editor */
   .bpmtap { pointer-events: auto; text-decoration: underline dotted rgba(255,255,255,.35); text-underline-offset: 3px; }
+  #linkask { position: fixed; z-index: 45; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(92vw, calc(var(--mm) * 80));
+    background: #151515; border: 1px solid #3a6ea5; border-radius: calc(var(--mm) * 1.6); padding: calc(var(--mm) * 2.2);
+    box-shadow: 0 12px 36px rgba(0,0,0,.7); color: var(--text); font-size: calc(var(--mm) * 2); line-height: 1.35; }
+  #linkask small { display: block; color: var(--dim); font-size: calc(var(--mm) * 1.6); margin-top: calc(var(--mm) * .8); }
+  #linkask .b { display: flex; gap: calc(var(--mm) * 1.2); margin-top: calc(var(--mm) * 2); }
+  #linkask .b button { flex: 1; height: calc(var(--mm) * 8); font-size: calc(var(--mm) * 2); }
+  #linkask .b .go { border-color: #3a6ea5; color: #8cc4ff; }
   #gridview { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 40; background: #0b0b0b; }
   #rotate { position: fixed; inset: 0; background: var(--bg); color: var(--text); display: none; align-items: center; justify-content: center;
     font-size: 22px; text-align: center; z-index: 20; padding: 24px; }
@@ -369,6 +377,8 @@
     <div class="seg" id="s-knob"></div></div>
   <div class="row"><div>Key notation<small>How the deck shows its current key (after key shift, and tempo when key lock is off)</small></div>
     <div class="seg" id="s-keyfmt"></div></div>
+  <div class="row"><div>Controller mode<small>Control Mixxx on a computer instead: over the USB cable (set it to MIDI in Android's USB notification, then pick the ZyDeck mapping for it in Mixxx), or over Wi-Fi with ZyDeck Link running on the computer</small></div>
+    <div class="seg" id="s-remote"></div></div>
   <div class="row"><div>Sampler kits<small>Load a set of pads (with their modes) or save what's on them now</small></div>
     <div class="seg" id="s-kits"></div></div>
   <div class="row"><div>Samples follow the master tempo<small>Captured and loaded samples play in time with the decks (SHIFT + a loaded pad changes it for that pad; ⇄ on the pad when it does)</small></div>
@@ -502,6 +512,10 @@ const send = (...args) => {
 };
 let benchQuiet = false;                   // a debug benchmark is driving the controls: don't send them to Mixxx
 let live = false;                         // true once the real pad server (connected to Mixxx) answers
+// Controller mode (the hub's "remote" status): the decks are Mixxx's on a computer. Waveforms and beat grids
+// then come from ZyDeck Link there (when it runs), not from the phone.
+let REMOTE = { on: false };
+const assetUrl = path => !REMOTE.on ? path : REMOTE.http ? `${REMOTE.http}${path}?k=${encodeURIComponent(REMOTE.key || "")}` : null;
 
 // =====================================================================================================
 // Touch handling: every control captures its finger until it lifts (pointer capture)
@@ -838,6 +852,7 @@ function setShift(s, on) {
 // Sampler pads (the samples page, and SAMPLER pad mode). With the deck's SHIFT: an empty pad captures the deck's
 // loop into it (just the stems it's playing); a loaded one starts or stops following the master tempo.
 const samplerSync = new Array(64).fill(false);
+const samplerKeylock = new Array(64).fill(true);   // [SamplerN],keylock: the pitch stays when it follows the tempo
 // Pad modes (kept by Zydek's server, the same on every page): "oneshot" plays to the end, a tap restarts it;
 // "hold" plays while held; "loop" starts and stops on alternate taps (in time when it follows the tempo).
 const samplerModes = new Array(64).fill("oneshot");
@@ -875,11 +890,18 @@ function padOptions(i, anchor) {
     });
     box.appendChild(b);
   });
-  const sync = h("button", "wide2" + (samplerSync[i] ? " on" : ""), `⇄ FOLLOW THE TEMPO ${samplerSync[i] ? "ON" : "OFF"}`);
+  const sync = h("button", samplerSync[i] ? "on" : "", `⇄ TEMPO<small>${samplerSync[i] ? "FOLLOWS" : "OFF"}</small>`);
   bindPress(sync, down => {
     if (!down) return;
     samplerSync[i] = !samplerSync[i];
     if (live) setCtl(g, "sync_enabled", samplerSync[i] ? 1 : 0);
+    paintAll(); close();
+  });
+  const lock = h("button", samplerKeylock[i] ? "on" : "", `KEYLOCK<small>${samplerKeylock[i] ? "ON" : "OFF"}</small>`);
+  bindPress(lock, down => {
+    if (!down) return;
+    samplerKeylock[i] = !samplerKeylock[i];
+    if (live) setCtl(g, "keylock", samplerKeylock[i] ? 1 : 0);
     paintAll(); close();
   });
   const clear = h("button", "clear", "CLEAR");
@@ -888,7 +910,7 @@ function padOptions(i, anchor) {
     if (live) push(g, "eject"); else { samplers[i].state = 0; }
     paintAll(); close();
   });
-  box.append(sync, clear);
+  box.append(sync, lock, clear);
   document.body.append(veil, box);
   const r = anchor ? anchor.getBoundingClientRect() : { left: innerWidth / 2, top: innerHeight / 2, width: 0, height: 0 };
   const b = box.getBoundingClientRect();
@@ -898,6 +920,7 @@ function padOptions(i, anchor) {
 }
 async function captureInto(d, i) {
   const sm = samplers[i];
+  if (REMOTE.on) { sm.note = "not in controller mode"; paintAll(); setTimeout(() => { sm.note = ""; paintAll(); }, 2000); return; }
   if (!live) { sm.state = 1; sm.name = `Deck ${d.n} loop`; paintAll(); return; }
   sm.note = "capturing…"; paintAll();
   try {
@@ -948,7 +971,7 @@ const synced = d => !!d.syncMode && !d.leader;
 // The beat grid editor (grid.html) over the whole page, for the deck on side s; tap its BPM to open it.
 function openGrid(s) {
   const d = deckOf(s);
-  if (!live || !d.beatsFor) return;
+  if (!live || !d.beatsFor || REMOTE.on) return;   // edits the phone's own Mixxx
   document.getElementById("gridview")?.remove();
   const f = document.createElement("iframe");
   f.id = "gridview";
@@ -1256,7 +1279,9 @@ function buildLoops() {
       if (!down) return;
       const shifted = deckOf(0).shift || deckOf(1).shift, bank = shifted ? 1 - s : s;
       if (shifted) { deckOf(0).shift = false; deckOf(1).shift = false; }
-      if (sidePage[s] === "samples" && sideBank[s] === bank) sidePage[s] = "deck";
+      // Back to the deck: a plain press while it shows pads (either bank), or SHIFT on the bank it shows.
+      // SHIFT while it shows its own bank switches to the other one.
+      if (sidePage[s] === "samples" && (!shifted || sideBank[s] === bank)) sidePage[s] = "deck";
       else { sidePage[s] = "samples"; sideBank[s] = bank; }
       layoutEpoch++;
       document.getElementById(s ? "dr" : "dl").replaceChildren(buildSide(s));
@@ -1719,7 +1744,9 @@ async function loadBeats(d, id, keep = false) {   // keep: show the old beats un
   if (!id) return;
   for (let tries = 0; tries < 30 && d.beatsFor === id; tries++) {
     try {
-      const r = await fetch(`/beats/${id}`);
+      const url = assetUrl(`/beats/${id}`);
+      if (!url) return;
+      const r = await fetch(url);
       if (r.ok) {
         const j = await r.json();
         if (d.beatsFor !== id) return;
@@ -1831,7 +1858,9 @@ async function loadWaveform(d, id) {
   if (!id) return;
   for (let tries = 0; tries < 30 && d.wfFor === id; tries++) {
     try {
-      const r = await fetch(`/waveform/${id}`);
+      const url = assetUrl(`/waveform/${id}`);
+      if (!url) return;
+      const r = await fetch(url);
       if (r.ok) {
         const buf = new Uint8Array(await r.arrayBuffer());
         const dv = new DataView(buf.buffer);
@@ -1889,6 +1918,7 @@ document.getElementById("s-reset").addEventListener("click", () => { S = { ...DE
 async function paintKits() {
   const box = document.getElementById("s-kits");
   if (!live) { box.textContent = "(live only)"; return; }
+  if (REMOTE.on) { box.textContent = "(not in controller mode)"; return; }
   let r;
   try { r = await (await fetch("/api/kits")).json(); } catch { return; }
   box.replaceChildren(...r.kits.map(k => {
@@ -1933,6 +1963,7 @@ function paintSettings(soft) {
   seg("s-fs-auto", [[true, "On"], [false, "Off"]], () => S.autoFs, v => S.autoFs = v);
   seg("s-tele", [[true, "On"], [false, "Off"]], () => S.telemetry, v => S.telemetry = v);
   seg("s-ssync", [[true, "On"], [false, "Off"]], () => S.sampleSync, v => S.sampleSync = v);
+  seg("s-remote", [[true, "On"], [false, "Off"]], () => !!REMOTE.on, v => { fetch(`/api/controller?on=${v ? 1 : 0}`).catch(() => {}); REMOTE.on = v; });
   if (!soft) paintKits();
   if (soft) return;
   slider("s-sens", "sens", v => `${v.toFixed(2)} % per mm · ±8 % over ${(8 / v).toFixed(0)} mm of drag · ${(v * 1.28).toFixed(2)} BPM per mm at 128`);
@@ -2090,6 +2121,7 @@ function applyCv(name, v, ts) {
     d.filter = v; markDirty("mixer");
   } else if ((m = /^\[Sampler(\d+)\]$/.exec(group))) {
     if (key === "sync_enabled" && samplerSync[m[1] - 1] !== v > 0) { samplerSync[m[1] - 1] = v > 0; markDirty("all"); }
+    if (key === "keylock") samplerKeylock[m[1] - 1] = v > 0;
   } else if (group === MAIN_GROUP) {
     const f = Object.keys(MAIN).find(k => MAIN[k] === key);
     if (!f || isLocal(master, f) || master[f] === v) return;
@@ -2108,15 +2140,16 @@ function subscribeAll() {
     for (const f of ["vol", "gain", "high", "mid", "low", "filter"]) sub.push([...MIXER[f](n), 2]);
   }
   for (const k of Object.values(MAIN)) sub.push([MAIN_GROUP, k, 2]);
-  for (let n = 1; n <= samplers.length; n++) sub.push([`[Sampler${n}]`, "sync_enabled", 0]);
+  for (let n = 1; n <= samplers.length; n++) sub.push([`[Sampler${n}]`, "sync_enabled", 0], [`[Sampler${n}]`, "keylock", 0]);
   mxSend({ sub });
 }
 
 function goLive(init) {
   live = true;
-  topNote.textContent = "Live · Mixxx";
+  if (init.remote) REMOTE = init.remote;
+  topNote.textContent = liveText();
   if (PHONE) try { parent.postMessage({ zydek: "deck-live" }, location.origin); } catch {}
-  document.getElementById("s-status").textContent = "Live · Mixxx";
+  document.getElementById("s-status").textContent = liveText();
   document.getElementById("gear").classList.add("live");
   decks.forEach((d, i) => Object.assign(d, {
     title: `Deck ${d.n}`, artist: "", bpm: 120, dur: 0, pos: 0, pt: undefined, ratio: 1, playing: false, loaded: false,
@@ -2137,8 +2170,43 @@ function goLive(init) {
   build();
 }
 
+function liveText() {
+  if (!REMOTE.on) return "Live · Mixxx";
+  return REMOTE.via === "wifi" ? `Mixxx on ${REMOTE.computer || "the computer"} · Wi-Fi` : "Mixxx on the computer · USB";
+}
+// Controller mode: what the hub says about the cable and ZyDeck Link
+function onRemote(r) {
+  const was = REMOTE;
+  REMOTE = r;
+  if (live) { topNote.textContent = liveText(); document.getElementById("s-status").textContent = liveText(); }
+  if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`);
+  if (r.on && !r.live && was.live) toast(r.usb === 2 || r.via ? "Mixxx on the computer isn't answering: is the ZyDeck mapping on?" : "The computer is gone: plug the cable back in");
+  // ZyDeck Link answered over the cable: offer the wireless link
+  document.getElementById("linkask")?.remove();
+  if (r.on && r.offer) {
+    const box = h("div", "", `Wireless link to <b>${(r.computer || "the computer").replace(/</g, "&lt;")}</b>?` +
+      `<small>ZyDeck Link is running there. Once it's linked, you can unplug the USB cable.</small>` +
+      `<div class="b"><button class="no">Not now</button><button class="go">Link over Wi-Fi</button></div>`);
+    box.id = "linkask";
+    box.querySelector(".go").addEventListener("click", () => { box.remove(); fetch("/api/controller?link=1").catch(() => {}); toast("Linking…"); });
+    box.querySelector(".no").addEventListener("click", () => { box.remove(); fetch("/api/controller?link=0").catch(() => {}); });
+    document.body.appendChild(box);
+  }
+  if (document.getElementById("settings").classList.contains("open")) paintSettings();
+}
+function toast(text) {
+  document.getElementById("ztoast")?.remove();
+  const t = h("div", "", text);
+  t.id = "ztoast";
+  Object.assign(t.style, { position: "fixed", left: "50%", bottom: "8%", transform: "translateX(-50%)", zIndex: 46, background: "#222",
+    color: "#eee", border: "1px solid #444", borderRadius: "10px", padding: "10px 16px", fontSize: "15px", maxWidth: "90vw" });
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
 function onMixxx(m) {
-  if (m.init) { if (m.init.live) goLive(m.init); return; }
+  if (m.init) { if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); return; }
+  if (m.t === "remote") return onRemote(m);
   if (!live) return;
   const d = m.d !== undefined ? decks[m.d] : null;
   switch (m.t) {
