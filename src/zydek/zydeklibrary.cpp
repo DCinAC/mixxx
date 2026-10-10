@@ -167,6 +167,7 @@ QJsonObject Library::trackJson(const QSqlQuery& q) const {
             {"type", q.value(12).toString().toLower()},
             {"bitrate", q.value(13).toInt()},
             {"stems", location.endsWith(QLatin1String(".stem.mp4"), Qt::CaseInsensitive) ||
+                            location.endsWith(QLatin1String(".stem.m4a"), Qt::CaseInsensitive) ||
                             location.endsWith(QLatin1String(".stem.m4a"), Qt::CaseInsensitive)},
             // fs_deleted: Mixxx's last scan didn't find it; exists(): e.g. the SD card isn't there now
             {"missing", q.value(15).toBool() || !QFileInfo::exists(location)},

@@ -664,7 +664,8 @@ void CoreServices::initialize(QApplication* pApp) {
         QString fd;
         jboolean value = QJniObject::callStaticMethod<jboolean>(
                 "android/os/Environment", "isExternalStorageManager");
-        if (value == false) {
+        // Zydek: the library page asks instead, with the choice of All files or music only
+        if (false && value == false) {
             qDebug() << "requesting ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION";
             QJniObject ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION =
                     QJniObject::getStaticObjectField(

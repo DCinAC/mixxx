@@ -5,7 +5,7 @@ api(name, args_json) for each /api/web/<name> request from the phone page. Calls
 and downloads are jobs running in their own threads; the page polls /api/web/job?id=.
 
 No stem separation on the phone itself (too slow, too much battery): "stems" sends a track to the Zydek stem
-server on a PC (stemserver/ on the build PC, set in Settings) and brings back the .stem.mp4.
+server on a PC (stemserver/ on the build PC, set in Settings) and brings back the .stem.m4a.
 """
 
 import json
@@ -455,10 +455,12 @@ def _stems(path, preset):
             name = safe_filename(f"{remote['artist']} - {remote['title']}" if remote.get("artist")
                                  else remote.get("title") or os.path.splitext(os.path.basename(path))[0])
             os.makedirs(_dirs["music"], exist_ok=True)
-            out = os.path.join(_dirs["music"], name + ".stem.mp4")
+            # .stem.m4a rather than .stem.mp4: Android files .mp4 as video, which Music/ won't take and the
+            # "Music only" file access can't see
+            out = os.path.join(_dirs["music"], name + ".stem.m4a")
             n = 2
             while os.path.exists(out):
-                out = os.path.join(_dirs["music"], f"{name} ({n}).stem.mp4")
+                out = os.path.join(_dirs["music"], f"{name} ({n}).stem.m4a")
                 n += 1
             with _stem_request(f"{base}/jobs/{rid}/file", timeout=60) as r:
                 total, got = int(r.headers.get("Content-Length") or 0), 0

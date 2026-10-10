@@ -100,10 +100,14 @@
   #browser .dirs li { padding: 10px 6px; border-bottom: 1px solid #191919; }
   #browser .dirs li:active { background: #1a1a1a; }
   #browser .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-  #perm { display: none; margin: 10px 12px 0; padding: 10px 12px; border: 1px solid #a0522d; border-radius: 10px; background: #2a1a12;
-    font-size: 13px; gap: 10px; align-items: center; }
-  #perm.on { display: flex; }
-  #perm span { flex: 1; }
+  .perm { display: none; margin: 10px 12px 0; padding: 12px; border: 1px solid #a0522d; border-radius: 10px; background: #2a1a12;
+    font-size: 13px; line-height: 1.4; }
+  .perm.on { display: block; }
+  .perm.audio { border-color: #333; background: #151515; color: var(--dim); }
+  .perm b { color: var(--text); }
+  .perm .row { display: flex; gap: 8px; margin-top: 10px; }
+  .perm .row button { flex: 1; min-height: 46px; }
+  .perm .row button small { display: block; font-size: 11px; color: var(--dim); font-weight: 400; }
   #scanline { padding: 10px 12px; color: var(--dim); font-size: 13px; display: flex; gap: 8px; align-items: center; }
   #scanline span { flex: 1; }
   .fsub { padding: 14px 12px 4px; font-size: 12px; color: var(--dim); letter-spacing: .04em; text-transform: uppercase; }
@@ -293,12 +297,13 @@
           <option value="title">Title</option><option value="bpm">BPM</option><option value="key">Key</option><option value="played">Most played</option></select></div>
       <div class="chips" id="views"></div>
     </div>
+    <div class="perm" id="perm-lib"></div>
     <ul class="list" id="tracks"></ul>
     <div class="note" id="libnote"></div>
   </section>
 
   <section class="page" id="p-fold">
-    <div id="perm"><span>Zydek can't read your music yet: allow <b>All files access</b>.</span><button id="grant">Grant</button></div>
+    <div class="perm" id="perm"></div>
     <div id="scanline"><span id="scanmsg">Music folders Zydek scans for tracks.</span><button id="rescan">Rescan</button></div>
     <div id="folders"></div>
     <div style="padding: 10px 12px"><button id="addfolder">Add a folder…</button></div>
@@ -378,7 +383,7 @@
       <label for="ss-model">Separation model</label><select id="ss-model">
         <option value="best">Best — BS-RoFormer SW (large)</option><option value="fast">Fast — HTDemucs FT</option></select>
       <div class="hint">Tap a track and choose "Make stems on the PC". A PC running Zydek's stem server splits tracks into vocals, drums, bass and other; they come back as
-        .stem.mp4 files in Music/Zydek Web. Type its address and port (8770 if you leave it out).</div>
+        .stem.m4a files in Music/Zydek Web. Type its address and port (8770 if you leave it out).</div>
     </div>
     <div class="card">
       <h3>Audio output</h3>
@@ -941,7 +946,7 @@ async function webDownload(r, target, stems) {
   }
 }
 // Stems from the PC (Settings > Stem server): the phone sends the track's file, the PC separates it, the
-// .stem.mp4 comes back into Music/Zydek Web and the library. Progress shows at the top of the Web tab.
+// .stem.m4a comes back into Music/Zydek Web and the library. Progress shows at the top of the Web tab.
 let stemServer = store.get("stemServer", "");
 let stemPreset = store.get("stemPreset", "best");
 const STEM_MODELS = { best: "Best — BS-RoFormer SW", fast: "Fast — HTDemucs FT" };   // kept here too, so showing the buttons doesn't start Python
@@ -1373,11 +1378,33 @@ $("#pvstop").addEventListener("click", async () => { await api("/api/preview/sto
 // Music folders
 // ---------------------------------------------------------------------------------------------------
 // "All files access": Mixxx reads music folders by path. The app's page has a bridge to Android for it.
+// Or, for people who'd rather not, "Music only": Android then shows Zydek audio files and nothing else.
+let storageWas = null;
 function checkPermission() {
   const bridge = window.ZydekAndroid;
-  $("#perm").classList.toggle("on", !!bridge && !bridge.hasAllFilesAccess());
+  const access = !bridge ? "all" : bridge.storageAccess ? bridge.storageAccess() : bridge.hasAllFilesAccess() ? "all" : "none";
+  const both = `<div class="row"><button class="all">All files<small>every music file, any folder</small></button>` +
+    `<button class="music">Music only<small>audio files, nothing else</small></button></div>`;
+  ["#perm", "#perm-lib"].forEach(id => {
+    const el = $(id);
+    const show = access === "none" || (access === "audio" && id === "#perm");
+    el.classList.toggle("on", show); el.classList.toggle("audio", access === "audio");
+    if (!show) return;
+    el.innerHTML = access === "none"
+      ? `<b>ZyDeck can't read your music yet.</b> Choose what it may read: All files suits most libraries; ` +
+        `Music only shows ZyDeck your audio files and nothing else. ZyDeck never changes or uploads your files.` + both
+      : `<b>Music only.</b> ZyDeck sees your audio files. Stem files ending in .stem.mp4, and music kept with ` +
+        `other files Android doesn't count as audio, need All files access.` +
+        `<div class="row"><button class="all">Allow all files</button></div>`;
+    el.querySelector(".all").addEventListener("click", () => bridge.openAllFilesAccess());
+    el.querySelector(".music")?.addEventListener("click", () => bridge.requestMusicAccess ? bridge.requestMusicAccess() : bridge.openAllFilesAccess());
+  });
+  // Newly allowed: scan, so the tracks show up
+  if (storageWas && storageWas !== access && access !== "none") api("/api/scan").then(() => watchScan()).catch(() => {});
+  storageWas = access;
 }
-$("#grant").addEventListener("click", () => window.ZydekAndroid && window.ZydekAndroid.openAllFilesAccess());
+window.zydekStorage = () => { checkPermission(); loadTracks(); };
+checkPermission();
 async function loadFolders() {
   checkPermission();
   let list;

@@ -74,6 +74,44 @@ public class MainActivity extends QtActivityBase {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager();
     }
 
+    /// What the library may read: "all" (All files access), "audio" (music files only, READ_MEDIA_AUDIO;
+    /// READ_EXTERNAL_STORAGE before Android 13) or "none".
+    public static String storageAccess(Context context) {
+        if (hasAllFilesAccess()) {
+            return "all";
+        }
+        return context.checkSelfPermission(musicPermission()) == PackageManager.PERMISSION_GRANTED ? "audio" : "none";
+    }
+
+    private static String musicPermission() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ? Manifest.permission.READ_MEDIA_AUDIO
+                                                                     : Manifest.permission.READ_EXTERNAL_STORAGE;
+    }
+
+    private static final int MUSIC_PERMISSION_REQUEST = 7102;
+
+    /// Asks Android for music-only access. Once it's been refused for good Android doesn't ask any more:
+    /// then this opens the app's settings page instead.
+    private void requestMusicAccess() {
+        android.content.SharedPreferences prefs = getSharedPreferences("zydek", MODE_PRIVATE);
+        if (prefs.getBoolean("askedMusic", false) && !shouldShowRequestPermissionRationale(musicPermission())) {
+            Intent details = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
+            details.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(details);
+            return;
+        }
+        prefs.edit().putBoolean("askedMusic", true).apply();
+        requestPermissions(new String[] {musicPermission()}, MUSIC_PERMISSION_REQUEST);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == MUSIC_PERMISSION_REQUEST && m_phoneView != null) {
+            m_phoneView.evaluateJavascript("window.zydekStorage && zydekStorage()", null);
+        }
+    }
+
     /// Opens Android's "All files access" switch for this app (one tap to grant).
     public static void openAllFilesAccess(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
@@ -102,6 +140,16 @@ public class MainActivity extends QtActivityBase {
         @JavascriptInterface
         public void openAllFilesAccess() {
             MainActivity.openAllFilesAccess(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public String storageAccess() {
+            return MainActivity.storageAccess(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public void requestMusicAccess() {
+            runOnUiThread(MainActivity.this::requestMusicAccess);
         }
 
         /// site: "cn" (bilibili.com) or "intl" (bilibili.tv)
