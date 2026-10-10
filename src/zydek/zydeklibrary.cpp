@@ -190,6 +190,7 @@ QJsonObject Library::views() {
     };
     const int total = count(QStringLiteral("1"));
     const int stems = count(kStemsWhere);
+    const int recent = count(QStringLiteral("l.last_played_at IS NOT NULL"));
 
     QJsonArray crates;
     q.exec(QStringLiteral(
@@ -216,7 +217,7 @@ QJsonObject Library::views() {
             history.append(p);
         }
     }
-    return {{"total", total}, {"stems", stems}, {"crates", crates}, {"playlists", playlists}, {"autodj", autodj}, {"history", history}};
+    return {{"total", total}, {"stems", stems}, {"recent", recent}, {"crates", crates}, {"playlists", playlists}, {"autodj", autodj}, {"history", history}};
 }
 
 QJsonArray Library::tracks(const QString& search, const QString& view, const QString& sort, int limit, int offset) {
@@ -232,6 +233,11 @@ QJsonArray Library::tracks(const QString& search, const QString& view, const QSt
     const int viewId = view.section(QLatin1Char(':'), 1).toInt();
     if (kind == QLatin1String("stems")) {
         where.append(kStemsWhere);
+    } else if (kind == QLatin1String("recent")) {   // played on a deck, newest first
+        where.append(QStringLiteral("l.last_played_at IS NOT NULL"));
+        if (sort == QLatin1String("added")) {
+            order = QStringLiteral("l.last_played_at DESC");
+        }
     } else if (kind == QLatin1String("crate") && viewId > 0) {
         join = QStringLiteral("JOIN crate_tracks ct ON ct.track_id = l.id");
         where.append(QStringLiteral("ct.crate_id = ?"));
@@ -474,7 +480,23 @@ QJsonObject Library::addTrack(const QString& path) {
     return {{"ok", true}, {"id", id}};
 }
 
+namespace {
+/// A whole storage (the phone's, or a card's) rather than a folder on it: it holds Android/ with every app's
+/// data, and scanning it all is slow and fills the library with ringtones and app sounds.
+bool isStorageRoot(const QString& path) {
+    const QString p = QDir::cleanPath(path);
+    static const QRegularExpression card(QStringLiteral("^/storage/[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}$"));
+    return p == QLatin1String("/") || p == QLatin1String("/storage") || p == QLatin1String("/storage/emulated") ||
+            p == QLatin1String("/storage/emulated/0") || p == QLatin1String("/sdcard") ||
+            p == QLatin1String("/storage/self/primary") || card.match(p).hasMatch();
+}
+} // namespace
+
 QJsonObject Library::addFolder(const QString& path) {
+    if (isStorageRoot(path)) {
+        return error(QStringLiteral("Pick a folder inside the storage, like Music or Download: the whole storage "
+                                    "holds every app's files too"));
+    }
     ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
     if (!pLibrary) {
         return error(QStringLiteral("Mixxx isn't ready"));
@@ -499,6 +521,30 @@ QJsonObject Library::addFolder(const QString& path) {
     default:
         return error(QStringLiteral("Couldn't add the folder"));
     }
+}
+
+QJsonObject Library::removeFolder(const QString& path) {
+    if (folders().size() < 2) {
+        return error(QStringLiteral("That's the only music folder: add another one first"));
+    }
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (!pLibrary) {
+        return error(QStringLiteral("Mixxx isn't ready"));
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    bool ok = false;
+    // Like Mixxx's "Hide tracks": its tracks leave the library, but keep their cues and beat grids in case
+    // the folder comes back
+    QMetaObject::invokeMethod(
+            pCollection,
+            [pCollection, path, &ok] {
+                ok = pCollection->removeDirectory(mixxx::FileInfo(path)) == DirectoryDAO::RemoveResult::Ok;
+                if (ok) {
+                    pCollection->hideAllTracks(QDir(path));
+                }
+            },
+            Qt::BlockingQueuedConnection);
+    return ok ? QJsonObject{{"ok", true}} : error(QStringLiteral("Couldn't remove that folder"));
 }
 
 QJsonObject Library::listDirectory(const QString& requested) const {

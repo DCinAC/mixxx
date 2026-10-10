@@ -371,6 +371,9 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/folders/add")) {
         return result(m_library.addFolder(arg("path")));
     }
+    if (path == QLatin1String("/api/folders/remove")) {   // ?path=
+        return result(m_library.removeFolder(arg("path")));
+    }
     if (path == QLatin1String("/api/library/add")) {   // ?path=  (a Web tab download)
         return result(m_library.addTrack(arg("path")));
     }

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ZyDeck's notification icon: the open-reel deck as a white silhouette (Android tints it) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M1.500,10.500a5,5 0 1,0 10,0a5,5 0 1,0 -10,0ZM5.300,10.500a1.2,1.2 0 1,0 2.4,0a1.2,1.2 0 1,0 -2.4,0ZM5.450,7.600a1.05,1.05 0 1,0 2.1,0a1.05,1.05 0 1,0 -2.1,0ZM7.961,11.950a1.05,1.05 0 1,0 2.1,0a1.05,1.05 0 1,0 -2.1,0ZM2.939,11.950a1.05,1.05 0 1,0 2.1,0a1.05,1.05 0 1,0 -2.1,0Z"/>
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M12.500,10.500a5,5 0 1,0 10,0a5,5 0 1,0 -10,0ZM16.300,10.500a1.2,1.2 0 1,0 2.4,0a1.2,1.2 0 1,0 -2.4,0ZM16.450,7.600a1.05,1.05 0 1,0 2.1,0a1.05,1.05 0 1,0 -2.1,0ZM18.961,11.950a1.05,1.05 0 1,0 2.1,0a1.05,1.05 0 1,0 -2.1,0ZM13.939,11.950a1.05,1.05 0 1,0 2.1,0a1.05,1.05 0 1,0 -2.1,0Z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M3.2,14.4L9.2,19.2h5.6L20.8,14.4L21.6,15.4L15.3,20.4h-6.6L2.4,15.4Z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M10.2,18.6h3.6v3.2h-3.6z"/>
+</vector>

@@ -38,6 +38,8 @@ class Library {
 
     QJsonArray folders();
     QJsonObject addFolder(const QString& path);
+    /// Takes a music folder out of the library (not the only one); its tracks are hidden, not forgotten.
+    QJsonObject removeFolder(const QString& path);
     // crates (changes go through Mixxx, so its own views update too)
     QJsonObject createCrate(const QString& name);
     QJsonObject setCrateTrack(int crateId, int trackId, bool member);

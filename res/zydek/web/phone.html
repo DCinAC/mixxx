@@ -93,6 +93,8 @@
   .folder { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #191919; }
   .folder span { flex: 1; min-width: 0; word-break: break-all; }
   .folder.off span { color: var(--faint); }
+  .folder .rm { flex: none; min-height: 36px; padding: 0 12px; font-size: 13px; }
+  .folder .rm.armed { border-color: var(--err, #e5484d); color: var(--err, #e5484d); }
   #browser { display: none; padding: 8px 12px; border-top: 1px solid var(--edge); }
   #browser.on { display: block; }
   #browser .where { font-size: 13px; color: var(--dim); word-break: break-all; margin: 6px 0; }
@@ -889,7 +891,7 @@ $("#sort").value = store.get("sort", "added");
 async function loadViews() {
   let v;
   try { v = await api("/api/library/views"); } catch (e) { $("#libnote").innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
-  const chips = [["all", "All", v.total], ["stems", "Stems", v.stems],
+  const chips = [["all", "All", v.total], ["recent", "Recently played", v.recent || 0], ["stems", "Stems", v.stems],
     ...v.crates.map(c => [`crate:${c.id}`, c.name, c.count]),
     ...v.playlists.map(p => [`playlist:${p.id}`, p.name, p.count]),
     ...(v.autodj && v.autodj.count ? [[`playlist:${v.autodj.id}`, "Auto DJ", v.autodj.count]] : []),
@@ -1602,8 +1604,24 @@ async function loadFolders() {
   let list;
   try { list = await api("/api/folders"); } catch (e) { $("#folders").innerHTML = `<div class="note err">${esc(e.message)}</div>`; return; }
   const box = $("#folders"); box.innerHTML = "";
-  list.forEach(f => box.appendChild(h("div", "folder" + (f.available ? "" : " off"),
-    `<span>${esc(f.path)}${f.available ? "" : " (not available)"}</span>`)));
+  // with more than one folder, each can be taken out (its tracks are hidden, keeping their cues and grids)
+  list.forEach(f => {
+    const row = h("div", "folder" + (f.available ? "" : " off"), `<span>${esc(f.path)}${f.available ? "" : " (not available)"}</span>`);
+    if (list.length > 1) {
+      const x = h("button", "rm", "Remove");
+      x.addEventListener("click", async () => {
+        if (!x.classList.contains("armed")) {   // the first tap only asks
+          x.classList.add("armed"); x.textContent = "Tap to remove";
+          setTimeout(() => { x.classList.remove("armed"); x.textContent = "Remove"; }, 3000);
+          return;
+        }
+        try { await api(`/api/folders/remove?${qs({ path: f.path })}`); toast(`Removed ${f.path}`, "ok"); loadFolders(); loadViews(); loadTracks(); }
+        catch (e) { toast(e.message, "bad"); }
+      });
+      row.appendChild(x);
+    }
+    box.appendChild(row);
+  });
   if (!list.length) box.innerHTML = `<div class="note">No music folders yet.</div>`;
 }
 let browsePath = "";

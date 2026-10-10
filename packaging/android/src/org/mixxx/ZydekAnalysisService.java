@@ -137,8 +137,14 @@ public class ZydekAnalysisService extends Service {
     private Notification.Builder builder() {
         Intent open = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         return new Notification.Builder(this, CHANNEL)
-                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setSmallIcon(smallIcon())
                 .setContentIntent(PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_IMMUTABLE));
+    }
+
+    /// ZyDeck's own white reel-deck icon (res/drawable/ic_stat_zydeck.xml), Android's sync arrows if it's missing
+    private int smallIcon() {
+        int id = getResources().getIdentifier("ic_stat_zydeck", "drawable", getPackageName());
+        return id != 0 ? id : android.R.drawable.stat_notify_sync;
     }
 
     private Notification progressNotification(String text, int done, int total) {
