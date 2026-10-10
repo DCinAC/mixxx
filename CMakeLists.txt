@@ -1270,6 +1270,7 @@ add_library(
   src/zydek/zydekhub.cpp
   src/zydek/zydeklibrary.cpp
   src/zydek/zydekpython.cpp
+  src/zydek/zydekstems.cpp
   src/controllers/midi/midienumerator.cpp
   src/controllers/midi/midimessage.cpp
   src/controllers/midi/midioutputhandler.cpp
@@ -2531,6 +2532,31 @@ if(QT6)
       foreach(lib libpython3.14.so libssl_python.so libcrypto_python.so libsqlite3_python.so)
         list(APPEND ZYDEK_EXTRA_LIBS "${ZYDEK_PYTHON_PREFIX}/lib/${lib}")
       endforeach()
+      set_target_properties(mixxx PROPERTIES QT_ANDROID_EXTRA_LIBS "${ZYDEK_EXTRA_LIBS}")
+    endif()
+    # Zydek live stems (src/zydek/zydekstems.cpp): ONNX Runtime from its Android AAR (ZYDEK_ONNXRUNTIME_DIR with
+    # headers/ and lib/libonnxruntime.so) and the four Open-Unmix models (ZYDEK_STEM_MODELS: umxhq-*.int8.onnx).
+    # Without them the phone can't make stems itself.
+    foreach(var ZYDEK_ONNXRUNTIME_DIR ZYDEK_STEM_MODELS)
+      if(NOT ${var} AND DEFINED ENV{${var}})
+        set(${var} "$ENV{${var}}" CACHE PATH "Zydek live stems" FORCE)
+      endif()
+    endforeach()
+    if(ZYDEK_ONNXRUNTIME_DIR AND ZYDEK_STEM_MODELS AND EXISTS "${ZYDEK_ONNXRUNTIME_DIR}/lib/libonnxruntime.so")
+      message(STATUS "Zydek live stems: ONNX Runtime from ${ZYDEK_ONNXRUNTIME_DIR}")
+      find_package(FFTW3f CONFIG REQUIRED)
+      target_include_directories(mixxx-lib PRIVATE "${ZYDEK_ONNXRUNTIME_DIR}/headers")
+      target_compile_definitions(mixxx-lib PRIVATE ZYDEK_LIVESTEMS)
+      target_link_libraries(mixxx-lib PRIVATE "${ZYDEK_ONNXRUNTIME_DIR}/lib/libonnxruntime.so" FFTW3::fftw3f)
+      add_custom_command(
+        TARGET copy-resource-android
+        POST_BUILD
+        COMMAND
+          ${CMAKE_COMMAND} -E copy_directory "${ZYDEK_STEM_MODELS}"
+          ${CMAKE_CURRENT_BINARY_DIR}/android-build/assets/zydek-stems
+      )
+      get_target_property(ZYDEK_EXTRA_LIBS mixxx QT_ANDROID_EXTRA_LIBS)
+      list(APPEND ZYDEK_EXTRA_LIBS "${ZYDEK_ONNXRUNTIME_DIR}/lib/libonnxruntime.so")
       set_target_properties(mixxx PROPERTIES QT_ANDROID_EXTRA_LIBS "${ZYDEK_EXTRA_LIBS}")
     endif()
     target_link_libraries(mixxx PUBLIC omp)

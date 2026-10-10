@@ -19,6 +19,7 @@ class QTcpSocket;
 class ZydekController;
 
 namespace zydek {
+class LiveStems;
 
 /// The link between the Zydek pages (tablet controller, settings/debug page) and Mixxx.
 ///
@@ -183,6 +184,26 @@ class Hub : public QObject {
     // Controller mode's "Standard MIDI" layout, for Serato, rekordbox and other DJ apps (MIDI Learn): plain
     // notes and CCs instead of the ZyDeck mapping's SysEx; their LED notes come back as the pages' state.
     // The chart is in tools/zydeck-link/MIDI.md.
+    // Live stems (zydekstems.h): a deck's track separated on the phone when it loads, then swapped for its
+    // stems version (at once if the deck isn't playing; the STEM pads offer it if it is, the swap has a gap).
+    struct DeckStems {
+        int trackId = 0;
+        QString state;   // "" | "making" | "ready" (waiting for the swap) | "on" | "failed"
+        double progress = 0;
+        QString error;
+    };
+    LiveStems* m_pLiveStems = nullptr;
+    bool m_liveStemsAuto = true;
+    DeckStems m_deckStems[kNumDecks];
+    QHash<QString, std::pair<double, bool>> m_stemsSeek;   // group -> (play position, playing) once it loads
+    void deckTrackLoaded(int deck, const TrackPointer& pTrack);
+    void liveStemsProgress(int trackId, double fraction);
+    void liveStemsFinished(int trackId, const QString& path, const QString& error);
+    QJsonObject swapToStems(int deck);
+    void emitDeckStems(int deck);
+    QJsonArray deckStemsJson() const;
+    QJsonObject liveStemsStatus() const;
+
     bool m_standardMidi = false;
     int m_stdKeyShift[kNumDecks] = {};
     bool standardMidi() const { return m_controllerMode && m_standardMidi; }

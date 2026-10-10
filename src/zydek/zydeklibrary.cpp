@@ -310,13 +310,13 @@ QJsonObject Library::load(int trackId, const QString& target) {
     return result;
 }
 
-QJsonObject Library::loadLocation(const QString& location, const QString& target) {
+QJsonObject Library::loadLocation(const QString& location, const QString& target, bool evenIfPlaying) {
     QString err;
     const QString group = groupFor(target, &err);
     if (group.isEmpty()) {
         return error(err);
     }
-    if (group.startsWith(QLatin1String("[Channel")) && control(group, QStringLiteral("play")) > 0) {
+    if (!evenIfPlaying && group.startsWith(QLatin1String("[Channel")) && control(group, QStringLiteral("play")) > 0) {
         return error(QStringLiteral("Deck %1 is playing").arg(group.mid(8, 1)));
     }
     PlayerManager* pPlayerManager = mixxx::qml::QmlPlayerManagerProxy::get();
@@ -687,7 +687,8 @@ void Library::saveExcluded() {
 
 QString Library::notExcluded(QVariantList* pArgs) {
     loadExcluded();
-    QStringList parts;
+    // Live stems files stand in for their tracks on the decks; the library shows the originals
+    QStringList parts{QStringLiteral("tl.location NOT LIKE '%/ZyDeck Stems/%'")};
     for (const QString& dir : std::as_const(m_excluded)) {
         // a plain prefix compare: LIKE would treat _ and % in folder names as wildcards
         const QString prefix = dir + QLatin1Char('/');
@@ -695,7 +696,7 @@ QString Library::notExcluded(QVariantList* pArgs) {
         pArgs->append(prefix.size());
         pArgs->append(prefix);
     }
-    return parts.isEmpty() ? QStringLiteral("1") : parts.join(QStringLiteral(" AND "));
+    return parts.join(QStringLiteral(" AND "));
 }
 
 QJsonArray Library::excludedFolders() {

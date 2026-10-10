@@ -32,7 +32,7 @@ class Library {
 
     /// target: deck1..deck4, sampler (first empty), samplerN. Returns {ok, group} or {error}.
     QJsonObject load(int trackId, const QString& target);
-    QJsonObject loadLocation(const QString& location, const QString& target);
+    QJsonObject loadLocation(const QString& location, const QString& target, bool evenIfPlaying = false);
     QJsonObject preview(int trackId);
     void stopPreview();
     QJsonObject decks() const;

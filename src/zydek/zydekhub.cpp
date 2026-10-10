@@ -28,6 +28,7 @@
 #include "track/beats.h"
 #include "track/cue.h"
 #include "zydek/zydekpython.h"
+#include "zydek/zydekstems.h"
 #include "track/track.h"
 #include "waveform/waveform.h"
 
@@ -187,13 +188,14 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
     connect(&PlayerInfo::instance(),
             &PlayerInfo::trackChanged,
             this,
-            [this](const QString& group, TrackPointer, TrackPointer) {
+            [this](const QString& group, TrackPointer pNew, TrackPointer) {
                 if (m_controllerMode) {
                     return;   // the pages show the computer's decks
                 }
                 const int n = QStringView(group).mid(group.indexOf(QRegularExpression(QStringLiteral("\\d")))).chopped(1).toInt();
                 if (group.startsWith(QLatin1String("[Channel")) && n >= 1 && n <= kNumDecks) {
                     updateName(false, n - 1, 0);
+                    deckTrackLoaded(n - 1, pNew);
                 } else if (group.startsWith(QLatin1String("[Sampler")) && n >= 1 && n <= kNumSamplers) {
                     updateName(true, n - 1, 0);
                     if (m_lastSessionRestored) {
@@ -259,10 +261,17 @@ void Hub::start() {
     {
         QFile f(QDir(m_pConfig->getSettingsPath()).filePath(kAudioPrefsFile));
         if (f.open(QIODevice::ReadOnly)) {
-            m_latencyOffsetMs = QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("offsetMs")).toInt();
+            const QJsonObject prefs = QJsonDocument::fromJson(f.readAll()).object();
+            m_latencyOffsetMs = prefs.value(QStringLiteral("offsetMs")).toInt();
+            m_liveStemsAuto = prefs.value(QStringLiteral("liveStems")).toBool(true);
         }
     }
     loadRemote();
+    if (LiveStems::available()) {
+        m_pLiveStems = new LiveStems(m_pConfig, this);
+        connect(m_pLiveStems, &LiveStems::progress, this, &Hub::liveStemsProgress);
+        connect(m_pLiveStems, &LiveStems::finished, this, &Hub::liveStemsFinished);
+    }
     m_lastSessionTimer.setSingleShot(true);
     m_lastSessionTimer.setInterval(2000);
     connect(&m_lastSessionTimer, &QTimer::timeout, this, [this] { saveKit(kLastSession); });
@@ -503,6 +512,27 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
             return result({{"ok", false}, {"error", "Couldn't set that BPM"}});
         }
         return result({{"ok", true}, {"bpm", pTrack->getBpm()}});
+    }
+    if (path == QLatin1String("/api/livestems")) {   // ?auto=0|1: make stems whenever a deck loads a track
+        if (query.contains(QStringLiteral("auto"))) {
+            m_liveStemsAuto = arg("auto") != QLatin1String("0");
+            saveAudioPrefs();
+        }
+        return json(liveStemsStatus());
+    }
+    if (path == QLatin1String("/api/livestems/make")) {   // ?deck=1..4: now, for what's loaded
+        const int deck = arg("deck").toInt() - 1;
+        const TrackPointer pTrack = deck >= 0 && deck < kNumDecks ? PlayerInfo::instance().getTrackInfo(QStringLiteral("[Channel%1]").arg(deck + 1)) : TrackPointer();
+        if (!m_pLiveStems || !pTrack) {
+            return result({{"ok", false}, {"error", m_pLiveStems ? "Nothing loaded there" : "This build can't make stems on the phone"}});
+        }
+        m_deckStems[deck] = {pTrack->getId().toVariant().toInt(), QStringLiteral("making"), 0, {}};
+        m_pLiveStems->request(pTrack);
+        emitDeckStems(deck);
+        return result({{"ok", true}});
+    }
+    if (path == QLatin1String("/api/livestems/swap")) {   // ?deck=1..4: load its stems, where it is
+        return result(swapToStems(arg("deck").toInt() - 1));
     }
     if (path == QLatin1String("/api/library/rename")) {   // ?id=&title=
         const QJsonObject r = m_library.renameTrack(arg("id").toInt(), arg("title"));
@@ -1073,7 +1103,7 @@ void Hub::emitLatency() {
 void Hub::saveAudioPrefs() const {
     QSaveFile f(QDir(m_pConfig->getSettingsPath()).filePath(kAudioPrefsFile));
     if (f.open(QIODevice::WriteOnly)) {
-        f.write(QJsonDocument(QJsonObject{{"offsetMs", m_latencyOffsetMs}}).toJson());
+        f.write(QJsonDocument(QJsonObject{{"offsetMs", m_latencyOffsetMs}, {"liveStems", m_liveStemsAuto}}).toJson());
         f.commit();
     }
 }
@@ -1372,6 +1402,130 @@ void Hub::setControl(const QString& group, const QString& key, double value) {
     parts.append(0);
     parts += encodeValue(value);
     sysex(parts);
+}
+
+// ---- live stems --------------------------------------------------------------------------------------
+
+namespace {
+bool isStemsFile(const QString& location) {
+    return location.endsWith(QLatin1String(".stem.mp4"), Qt::CaseInsensitive) ||
+            location.endsWith(QLatin1String(".stem.m4a"), Qt::CaseInsensitive);
+}
+} // namespace
+
+void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
+    const QString group = QStringLiteral("[Channel%1]").arg(deck + 1);
+    DeckStems& ds = m_deckStems[deck];
+    if (!pTrack) {
+        ds = {};
+        emitDeckStems(deck);
+        return;
+    }
+    const QString location = pTrack->getLocation();
+    const auto seek = m_stemsSeek.find(group);
+    if (location.contains(QLatin1String("/ZyDeck Stems/"))) {   // our stems took over: back where it was
+        if (seek != m_stemsSeek.end()) {
+            const auto [position, playing] = *seek;
+            m_stemsSeek.erase(seek);
+            ControlObject::set(ConfigKey(group, QStringLiteral("playposition")), position);
+            if (playing) {
+                ControlObject::set(ConfigKey(group, QStringLiteral("play")), 1);
+            }
+        }
+        ds = {pTrack->getId().toVariant().toInt(), QStringLiteral("on"), 1, {}};
+        emitDeckStems(deck);
+        return;
+    }
+    m_stemsSeek.remove(group);
+    ds = {pTrack->getId().toVariant().toInt(), {}, 0, {}};
+    if (!m_pLiveStems || isStemsFile(location)) {   // a stems file of its own: nothing to do
+        emitDeckStems(deck);
+        return;
+    }
+    const QString cached = m_pLiveStems->stemFileFor(ds.trackId);
+    if (!cached.isEmpty()) {   // made before: straight in
+        ds.state = QStringLiteral("ready");
+        swapToStems(deck);
+        return;
+    }
+    if (m_liveStemsAuto) {
+        ds.state = QStringLiteral("making");
+        m_pLiveStems->request(pTrack);
+    }
+    emitDeckStems(deck);
+}
+
+void Hub::liveStemsProgress(int trackId, double fraction) {
+    for (int i = 0; i < kNumDecks; ++i) {
+        DeckStems& ds = m_deckStems[i];
+        if (ds.trackId == trackId && ds.state == QLatin1String("making") && fraction - ds.progress >= 0.02) {
+            ds.progress = fraction;
+            emitDeckStems(i);
+        }
+    }
+}
+
+void Hub::liveStemsFinished(int trackId, const QString& path, const QString& error) {
+    for (int i = 0; i < kNumDecks; ++i) {
+        DeckStems& ds = m_deckStems[i];
+        if (ds.trackId != trackId || ds.state != QLatin1String("making")) {
+            continue;
+        }
+        if (path.isEmpty()) {
+            ds.state = QStringLiteral("failed");
+            ds.error = error;
+            emitDeckStems(i);
+            continue;
+        }
+        ds.state = QStringLiteral("ready");
+        ds.progress = 1;
+        const bool playing = ControlObject::get(ConfigKey(QStringLiteral("[Channel%1]").arg(i + 1), QStringLiteral("play"))) > 0;
+        if (playing) {
+            emitDeckStems(i);   // the pages offer the swap: it makes a short gap
+        } else {
+            swapToStems(i);
+        }
+    }
+}
+
+QJsonObject Hub::swapToStems(int deck) {
+    if (deck < 0 || deck >= kNumDecks || !m_pLiveStems) {
+        return {{"ok", false}, {"error", "No such deck"}};
+    }
+    const QString path = m_pLiveStems->stemFileFor(m_deckStems[deck].trackId);
+    if (path.isEmpty()) {
+        return {{"ok", false}, {"error", "Its stems aren't ready"}};
+    }
+    const QString group = QStringLiteral("[Channel%1]").arg(deck + 1);
+    m_stemsSeek.insert(group,
+            {ControlObject::get(ConfigKey(group, QStringLiteral("playposition"))),
+                    ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0});
+    const QJsonObject r = m_library.loadLocation(path, QStringLiteral("deck%1").arg(deck + 1), true);
+    if (!r.value(QStringLiteral("ok")).toBool()) {
+        m_stemsSeek.remove(group);
+    }
+    return r;
+}
+
+void Hub::emitDeckStems(int deck) {
+    const DeckStems& ds = m_deckStems[deck];
+    emitJson({{"t", "lstem"}, {"d", deck}, {"s", ds.state}, {"p", ds.progress}, {"e", ds.error}});
+}
+
+QJsonArray Hub::deckStemsJson() const {
+    QJsonArray out;
+    for (const DeckStems& ds : m_deckStems) {
+        out.append(QJsonObject{{"s", ds.state}, {"p", ds.progress}, {"e", ds.error}});
+    }
+    return out;
+}
+
+QJsonObject Hub::liveStemsStatus() const {
+    QJsonObject out{{"available", m_pLiveStems != nullptr}, {"auto", m_liveStemsAuto}, {"decks", deckStemsJson()}};
+    if (m_pLiveStems) {
+        out.insert(QStringLiteral("job"), m_pLiveStems->status());
+    }
+    return out;
 }
 
 // ---- controller mode ------------------------------------------------------------------------------
@@ -2162,6 +2316,7 @@ QJsonObject Hub::snapshot() const {
                     {"live", live()},
                     {"remote", remoteStatus()},
                     {"lat", latencySeconds()},
+                    {"lstems", deckStemsJson()},
                     {"cv", m_controlValues}}}};
 }
 
