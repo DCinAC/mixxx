@@ -63,12 +63,16 @@
     box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 8px 20px rgba(0,0,0,.7); }
   .cover .sky { position: absolute; inset: 0;
     background: linear-gradient(180deg, #12002b 0%, #2d0b5a 40%, #8a1d7a 62%, #ff4fa0 70%, #12002b 70.4%); }
-  .cover .sun { position: absolute; left: 50%; top: 70%; width: 100px; height: 100px; margin: -100px 0 0 -50px; border-radius: 50%;
-    background: linear-gradient(180deg, #ffe66b 0%, #ff9a5a 45%, #ff3c9e 100%);
-    -webkit-mask: linear-gradient(180deg, #000 0 52%, transparent 52% 57%, #000 57% 67%, transparent 67% 72%, #000 72% 80%,
-      transparent 80% 86%, #000 86% 92%, transparent 92%);
-    mask: linear-gradient(180deg, #000 0 52%, transparent 52% 57%, #000 57% 67%, transparent 67% 72%, #000 72% 80%,
-      transparent 80% 86%, #000 86% 92%, transparent 92%); }
+  /* where the sun would be: a red clay brick, sliced like a vaporwave sun */
+  .cover .sun { position: absolute; left: 50%; top: 70%; width: 116px; height: 54px; margin: -54px 0 0 -58px; border-radius: 3px;
+    background: radial-gradient(circle at 20% 30%, rgba(255,210,180,.25) 0 1px, transparent 1.5px) 0 0 / 7px 6px,
+      radial-gradient(circle at 70% 60%, rgba(60,10,5,.35) 0 1px, transparent 1.5px) 0 0 / 9px 8px,
+      linear-gradient(180deg, #ff8566 0%, #d9472d 40%, #a82a1a 75%, #7a1a10 100%);
+    box-shadow: 0 0 22px rgba(255,70,50,.55), inset 0 2px 0 rgba(255,190,160,.5), inset 0 -3px 0 rgba(60,8,4,.5);
+    -webkit-mask: linear-gradient(180deg, #000 0 46%, transparent 46% 52%, #000 52% 63%, transparent 63% 69%, #000 69% 79%,
+      transparent 79% 85%, #000 85%);
+    mask: linear-gradient(180deg, #000 0 46%, transparent 46% 52%, #000 52% 63%, transparent 63% 69%, #000 69% 79%,
+      transparent 79% 85%, #000 85%); }
   .cover .floor { position: absolute; left: -70%; right: -70%; top: 70%; height: 70%; transform-origin: 50% 0;
     transform: perspective(110px) rotateX(62deg);
     background: repeating-linear-gradient(90deg, rgba(1,205,254,.9) 0 1.5px, transparent 1.5px 16px),
@@ -136,7 +140,7 @@
           <div class="ui bar"><span>7:71</span><span>◉ ▮▮▮</span></div>
           <div class="ui cover"><div class="sky"></div><div class="floor"></div><div class="sun"></div><b>磚</b><div class="scan"></div></div>
           <div class="ui fmt">DSD 771MHz<span>HR</span></div>
-          <div class="ui title">ZyunDeck (Extended Mix)</div>
+          <div class="ui title">ZyunDeck</div>
           <div class="ui album">BS EN 771-1</div>
           <div class="ui artist">Digital Music Brick</div>
           <div class="ui prog"><div class="line"></div><div class="fill"></div><span class="t">0:42</span><span class="t m">磚/771</span><span class="t r">7:71</span></div>
@@ -266,7 +270,7 @@ async function intro() {
   world.style.transform = T(s0, -SCREEN.dy * s0);
   // 1: the player UI builds from left to right, glitching on; each line starts when the one before is 40 % in
   // (60 % overlap)
-  const uis = [...document.querySelectorAll(".ui")], UI_MS = ms(300), UI_STEP = UI_MS * .4;
+  const uis = [...document.querySelectorAll(".ui")], UI_MS = ms(200), UI_STEP = UI_MS * .4;
   uis.forEach((el, i) => {
     const at = ms(150) + i * UI_STEP;
     anim(el, [{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)" }], { duration: UI_MS, delay: at, easing: "steps(8, end)" });
@@ -274,13 +278,13 @@ async function intro() {
       { transform: "none", opacity: 1 }], { duration: UI_MS * .8, delay: at + UI_MS * .3, easing: "steps(4)" });
   });
   anim($(".prog .fill"), [{ width: "4%" }, { width: "30%" }], { duration: ms(3000), delay: ms(400) });
-  await wait(ms(150) + (uis.length - 1) * UI_STEP + UI_MS + ms(450));   // built, and a moment to look at it
-  // 2: zoom out: the gold frame comes into view (the brick is now at the screen)
+  // 2: as soon as the title is in, it starts to fall away into the screen (the rest of the UI still building on
+  // the way), and once the whole UI is up it starts to tumble, like a slice of toast.
+  const lineDone = i => ms(150) + i * UI_STEP + UI_MS;
+  const titleDone = lineDone(uis.indexOf($(".ui.title"))), uiDone = lineDone(uis.length - 1);
+  await wait(titleDone);
   const s1 = midScale(), L = deckLayout();   // measured again: the screen may have turned since
-  anim(world, [{ transform: T(s0, -SCREEN.dy * s0) }, { transform: T(s1) }], { duration: ms(850), easing: "cubic-bezier(.5,0,.2,1)" });
-  await wait(ms(950));
-
-  await dropAndBounce(L, s1);
+  await dropAndBounce(L, s1, s0, uiDone - titleDone);
   decks.forEach((d, i) => d.querySelector("text").setAttribute("transform", `rotate(${-L.rot[i]} 20 20)`));   // the numbers stay upright
   await wait(ms(200));
   return play(L);
@@ -290,9 +294,9 @@ async function intro() {
 // something new: the brick drops 150 cm onto the ground and bounces back up as an open-reel deck; that one
 // lands and bounces up as two decks, which turn to face each other in the air and bounce to a stop.
 // Real bounces: falling at G, each one keeping E of the speed; squashed for a moment on every landing.
-function flights() {   // [{dur, v}] in s and cm/s: the fall from the screen, then one flight per bounce
-  const out = [{ dur: Math.sqrt(2 * DROP / G), v: 0, h0: DROP }];
-  let v = Math.sqrt(2 * G * DROP) * E;
+function flights(h0) {   // [{dur, v}] in s and cm/s: the fall from h0 cm up, then one flight per bounce
+  const out = [{ dur: Math.sqrt(2 * h0 / G), v: 0, h0 }];
+  let v = Math.sqrt(2 * G * h0) * E;
   while (v > 40) { out.push({ dur: 2 * v / G, v, h0: 0 }); v *= E; }
   return out;
 }
@@ -304,8 +308,11 @@ function ripple(x, y, w) {
   r.animate([{ transform: "scale(.55)", opacity: .7 }, { transform: "scale(1.8)", opacity: 0 }],
     { duration: 700, easing: "cubic-bezier(.2,.7,.3,1)" }).onfinish = () => r.remove();
 }
-function dropAndBounce(L, s1) {
-  const segs = flights(), starts = [];
+// It starts from where the phone's screen showed only the brick's screen: in front of the screen, at the height
+// where its perspective makes it s0 big (s1 is its size at the screen itself), and falls from rest.
+function dropAndBounce(L, s1, s0, spinDelayMs) {
+  const y0 = DROP + EYE - EYE * s1 / s0, spinDelay = spinDelayMs / 1000;
+  const segs = flights(y0), starts = [];
   let acc = 0;
   segs.forEach(f => { starts.push(acc); acc += f.dur; });
   const total = acc, SQ = .09 * SLOW, single = .55;    // squash time (s); the single deck's size against the final ones
@@ -320,7 +327,7 @@ function dropAndBounce(L, s1) {
       let seg = 0;
       while (seg + 1 < segs.length && t >= starts[seg + 1]) seg++;
       const tau = t - starts[seg], f = segs[seg];
-      const y = seg === 0 ? DROP - G * tau * tau / 2 : Math.max(0, f.v * tau - G * tau * tau / 2);
+      const y = seg === 0 ? y0 - G * tau * tau / 2 : Math.max(0, f.v * tau - G * tau * tau / 2);
       // squash and stretch around each landing, harder for the faster ones
       let sx = 1, sy = 1;
       for (let k = 1; k <= segs.length; k++) {
@@ -334,11 +341,13 @@ function dropAndBounce(L, s1) {
         lastSeg = seg;
       }
       if (seg === 0 || (seg === 1 && morphAt === null)) {
-        // the brick: half a turn on the way down, a little tumble
-        const q = seg === 0 ? tau / f.dur : 1;
-        const rz = 180 * q, rx = 16 * Math.sin(Math.PI * q), ry = -12 * Math.sin(Math.PI * q);
-        world.style.transform = T(brickAt(y), 0, rx, ry, rz, sx, sy);
-        shadow.style.opacity = (.15 + .7 * (1 - y / DROP)).toFixed(2);
+        // the brick: it slides from showing just its screen to the middle as it falls, and from when the whole
+        // UI is up it tumbles, faster and faster, landing screen down (as toast does)
+        const q = seg === 0 ? tau / f.dur : 1, sd = Math.min(spinDelay, f.dur * .8);
+        const qs = seg === 0 ? Math.max(0, tau - sd) / (f.dur - sd) : 1, e = qs * qs;
+        const rx = 180 * e, rz = 70 * e, ry = 14 * Math.sin(Math.PI * qs);
+        world.style.transform = T(brickAt(y), -SCREEN.dy * brickAt(y) * (1 - q) * (1 - q), rx, ry, rz, sx, sy);
+        shadow.style.opacity = Math.max(0, .15 + .7 * (1 - y / DROP)).toFixed(2);
         shadow.style.transform = `scale(${brickAt(0) * 1.05}) translate(${y * .35}px, ${y * .6}px)`;
         if (seg === 1 && tau > f.dur * .14) {   // on its way back up: it becomes an open-reel deck
           morphAt = t;
