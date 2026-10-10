@@ -176,6 +176,7 @@
   #app.stacked .topbar .knob { width: calc(var(--mm) * 12); }
   #app.stacked .topbar .switch { height: calc(var(--mm) * 10.5); flex: 1; }
   #app.stacked .side.left { grid-template-columns: calc(var(--mm) * 13) minmax(0, 1fr); }
+  #app.stacked .side.samples { grid-template-columns: minmax(0, 1fr); }   /* the sampler page: just its 16 pads */
   /* shorter mixer: the EQ columns run the full height, the crossfader sits under the two channel faders */
   #app.stacked #mixer > :nth-child(1) { grid-area: 1 / 1 / 3 / 2; }
   #app.stacked #mixer > :nth-child(2) { grid-area: 1 / 2 / 2 / 3; }
