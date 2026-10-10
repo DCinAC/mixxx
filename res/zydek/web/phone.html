@@ -336,6 +336,11 @@
         Dolby audio is skipped: Mixxx here can't decode it.</div>
     </div>
     <div class="card">
+      <h3>Start-up</h3>
+      <label class="chk"><input type="checkbox" id="introfull"> Show the full animation every time (a tap skips it)</label>
+      <div class="hint">Off: the full intro plays only the very first time; after that, just the logo while Mixxx starts.</div>
+    </div>
+    <div class="card">
       <h3>Library</h3>
       <label for="keyfmt">Key notation</label><select id="keyfmt">
         <option value="camelot">Camelot (8A)</option><option value="open">Open Key (1m)</option><option value="musical">Musical (Am)</option></select>
@@ -1343,6 +1348,10 @@ function keyChip(t) {
   if (!txt) return `<span class="kchip none">–</span>`;
   return `<span class="kchip" style="--h:${k ? (k.camelot - 1) * 30 : 0}">${esc(txt)}</span>`;
 }
+// Start-up animation (intro.html reads the same setting: it runs on this page's origin)
+const INTRO_FULL_DEFAULT = true;   // RELEASE: false, as in intro.html
+$("#introfull").checked = store.get("introFull", INTRO_FULL_DEFAULT);
+$("#introfull").addEventListener("change", () => store.set("introFull", $("#introfull").checked));
 $("#keyfmt").value = store.get("keyNotation", "camelot");
 $("#keyfmt").addEventListener("change", () => { store.set("keyNotation", $("#keyfmt").value); loadTracks(); });
 

@@ -111,6 +111,8 @@
       radial-gradient(closest-side, rgba(255,255,255,.035), transparent); }
   .ripple { position: absolute; border-radius: 50%; border: 2px solid rgba(255,255,255,.55); pointer-events: none;
     box-shadow: 0 0 14px rgba(255,113,206,.35), inset 0 0 10px rgba(1,205,254,.25); }
+  #logoName { position: fixed; left: 0; right: 0; top: calc(50% + 21vmin); text-align: center; opacity: 0;
+    font: 700 20px/1 Georgia, "Times New Roman", serif; letter-spacing: .3em; text-indent: .3em; color: #e8e8e8; }
   #wait { position: fixed; left: 0; right: 0; bottom: 9vh; text-align: center; font: 500 13px/1.4 system-ui, sans-serif; color: #6d6d6d;
     opacity: 0; transition: opacity .4s; }
   #fade { position: fixed; inset: 0; background: var(--bg); opacity: 0; pointer-events: none; }
@@ -152,11 +154,18 @@
   <div class="deck" id="deck0"></div>
   <div class="deck" id="deck1"></div>
 </div>
+<div id="logoName">ZYDECK</div>
 <div id="wait">Starting Mixxx…</div>
 <div id="fade"></div>
 <script>
 const $ = s => document.querySelector(s);
 const QUICK = location.hash === "#quick" || window.ZYDEK_QUICK;
+// The whole intro the very first time, and every time with Settings > Start-up > "Show the full animation";
+// otherwise just the logo while Mixxx starts. (The phone page shares this page's storage: same origin.)
+const INTRO_FULL_DEFAULT = true;   // RELEASE: false. On while we're testing the intro
+const stored = k => { try { const v = localStorage.getItem("zphone." + k); return v == null ? null : JSON.parse(v); } catch { return null; } };
+const FULL = !stored("introSeen") || (stored("introFull") ?? INTRO_FULL_DEFAULT);
+try { localStorage.setItem("zphone.introSeen", "true"); } catch {}
 const params = new URLSearchParams(location.search);
 let ready = params.has("ready"), skipping = false, leaving = false;
 
@@ -414,7 +423,28 @@ addEventListener("pointerdown", () => {
 if (QUICK) {   // after an error: just wait for the server
   $("#stage").style.display = "none"; $("#wait").style.opacity = 1; $("#wait").textContent = "Waiting for Mixxx…";
   (function check() { if (ready) location.replace("/phone"); else setTimeout(check, 300); })();
-} else intro();
+} else if (FULL) intro();
+else logo();
+
+// After the first start: the logo (an open-reel deck, playing) until Mixxx is ready.
+async function logo() {
+  world.style.display = "none"; shadow.style.display = "none";
+  const sc = Math.min(W(), H()) * .58 / 360;
+  anim(decks[0], [{ opacity: 0, transform: D(0, 12, 0, sc * .9) }, { opacity: 1, transform: D(0, 0, 0, sc) }], { duration: 380, easing: "cubic-bezier(.2,.8,.3,1)" });
+  anim($("#logoName"), [{ opacity: 0 }, { opacity: 1 }], { duration: 380, delay: 150 });
+  requestAnimationFrame(turn);
+  setMode(reels[0], "play");
+  await wait(700);
+  let shown = false;
+  while (!ready) { await wait(150); if (!shown) { shown = true; setTimeout(() => { if (!ready) $("#wait").style.opacity = 1; }, 1500); } }
+  leaving = true;
+  $("#wait").style.opacity = 0;
+  anim(decks[0], [{ opacity: 1 }, { opacity: 0 }], { duration: 300 });
+  anim($("#logoName"), [{ opacity: 1 }, { opacity: 0 }], { duration: 300 });
+  await wait(320);
+  stopTurning = true;
+  if (!params.has("ready")) location.replace("/phone");
+}
 </script>
 </body>
 </html>

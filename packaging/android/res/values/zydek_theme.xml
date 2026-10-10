@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zydek: the app's theme. Dark from the first frame, so the start-up intro (res/zydek/web/intro.html) follows on
+     from black instead of a logo. -->
+<resources>
+    <style name="ZydekTheme" parent="@android:style/Theme.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@color/zydek_black</item>
+    </style>
+    <color name="zydek_black">#0B0B0B</color>
+</resources>

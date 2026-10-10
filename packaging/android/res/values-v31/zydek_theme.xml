@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ always shows a splash screen with the app's icon on launch. Zydek's is plain black, with no
+     icon: the intro (or, after the first start, the logo) comes straight after it. -->
+<resources>
+    <style name="ZydekTheme" parent="@android:style/Theme.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@color/zydek_black</item>
+        <item name="android:windowSplashScreenBackground">@color/zydek_black</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+        <item name="android:windowSplashScreenAnimationDuration">0</item>
+    </style>
+</resources>
