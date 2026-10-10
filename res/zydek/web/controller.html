@@ -182,14 +182,20 @@
   #sideR .topbar { justify-content: flex-end; }
   #strip0, #strip1 { display: grid; min-width: 0; min-height: 0; }
   #app.stacked .topbar .tab { width: calc(var(--mm) * 12); height: calc(var(--mm) * 10.5); font-size: calc(var(--mm) * 2.2); }
-  #app.stacked #gear { width: calc(var(--mm) * 10); height: calc(var(--mm) * 10.5); }
+  #app.stacked #gear { width: calc(var(--mm) * 10); height: calc(var(--mm) * 10.5); flex: none; }
+  /* both side columns: the same rows at the same heights, so the SAMPLES buttons (and the rest) line up */
+  #sideL > .topbar:first-child, #sideR > .topbar:first-child { height: calc(var(--mm) * 13); flex: none; }
   #app.stacked .loopbox button { height: calc(var(--mm) * 10.5); }
   #app.stacked .topbar .knob { width: calc(var(--mm) * 12); }
   #app.stacked .topbar .switch { height: calc(var(--mm) * 10.5); flex: 1; }
   #app.stacked .topbar .switch.narrow { flex: 0 0 calc(var(--mm) * 15); min-width: 0; }
-  .smpbtn { flex: 1; height: calc(var(--mm) * 8); font-size: calc(var(--mm) * 2); letter-spacing: .04em; }
-  .smpbtn span { font-weight: 400; }
-  .smpbtn.on { border-color: var(--cue); color: var(--cue); background: color-mix(in srgb, var(--cue) 14%, #1c1c1c); }
+  .smpbtn { flex: 1; height: calc(var(--mm) * 9); line-height: 1.05; font-size: calc(var(--mm) * 2); letter-spacing: .04em; }
+  .smpbtn i { font-style: normal; font-weight: 400; }
+  .smpbtn small { display: block; font-size: calc(var(--mm) * 1.4); font-weight: 500; color: var(--dim); margin-top: 1px; }
+  .smpbtn .dimmed { opacity: .4; }
+  .smpbtn small.lit { color: var(--text); }
+  .smpbtn.on { border-color: var(--play); color: var(--play); background: color-mix(in srgb, var(--play) 14%, #1c1c1c); }
+  .smpbtn.on small.lit { color: var(--play); }
   #app:not(.stacked) .smpbtn { flex: 0 0 auto; height: calc(var(--mm) * 11); padding: 0 calc(var(--mm) * 2); }
   .topbar .sshift { flex: 1; height: calc(var(--mm) * 10.5); font-size: calc(var(--mm) * 2.2); }
   .sshift.on { background: var(--err); border-color: var(--err); color: #fff; }
@@ -475,6 +481,9 @@ const sides = [0, 1];                    // deck index shown on the left / right
 // What each side shows: its deck, or sampler pads (left 1-16, right 17-32), switched on its own so the other
 // side stays a deck.
 const sidePage = ["deck", "deck"];
+// Which pads a side shows when it's on sampler pads: 0 = 1-16, 1 = 17-32. Left normally 1-16, right 17-32;
+// SHIFT + SAMPLES shows the other bank.
+const sideBank = [0, 1];
 const deckOf = s => decks[sides[s]];
 // Wired to Mixxx later; for now every event is logged for the Mac's /settings debug view.
 const eventLog = [];
@@ -716,7 +725,7 @@ function buildSide(s) {
     const pads = h("div", "pads grid16");
     u.spads = [];
     for (let k = 0; k < 16; k++) {
-      const i = s * 16 + k, p = h("div", "pad");
+      const i = sideBank[s] * 16 + k, p = h("div", "pad");
       bindPress(p, down => samplerPress(deckOf(s), i, down, p));
       pads.appendChild(p); u.spads[k] = { el: p, i };
     }
@@ -803,6 +812,21 @@ function shiftButton(s, u, cls = "shift") {
     paintAll();
   });
   return u.shiftBtn;
+}
+
+// SAMPLES 1-16 / 17-32 on both sides: green while that side shows pads; the SHIFT bank on a dimmed second line,
+// lit while either SHIFT is on (or while that side shows it).
+const BANKS = ["1–16", "17–32"];
+function paintSamplesButtons() {
+  const shifted = deckOf(0).shift || deckOf(1).shift;
+  [0, 1].forEach(s => {
+    const b = ui.loops?.[s]?.smp;
+    if (!b) return;
+    const on = sidePage[s] === "samples", alt = on && sideBank[s] !== s;
+    b.classList.toggle("on", on);
+    setHTML(b, `<span class="${shifted || alt ? "dimmed" : ""}">SAMPLES <i>${BANKS[s]}</i></span>` +
+      `<small class="${shifted || alt ? "lit" : ""}">⇧ ${BANKS[1 - s]}</small>`);
+  });
 }
 
 // With both sides on sampler pads the two SHIFTs are one (the 32 pads are one grid); otherwise each has its own.
@@ -1065,7 +1089,7 @@ function placeChrome() {
   // a side showing sampler pads has its SHIFT next to its deck switch (narrower there to make room)
   const sh = s => sidePage[s] === "samples" ? ui.sides[s]?.shiftBtn : null;
   ui.sides.forEach((u, s) => u?.sw?.classList.toggle("narrow", sidePage[s] === "samples"));
-  $("sideL").replaceChildren(row(smp(0), $("gear")), row(ui.loops[0].flags), row($("loop0")), row(ui.sides[0]?.sw, sh(0), ui.chans[0]?.gain));
+  $("sideL").replaceChildren(row($("gear"), topNote), row(smp(0)), row(ui.loops[0].flags), row($("loop0")), row(ui.sides[0]?.sw, sh(0), ui.chans[0]?.gain));
   $("sideR").replaceChildren(row($("topknobs")), row(smp(1)), row(ui.loops[1].flags), row($("loop1")), row(ui.chans[1]?.gain, sh(1), ui.sides[1]?.sw));
 }
 
@@ -1225,11 +1249,15 @@ function buildLoops() {
     bindPress(kl, down => { if (!down) return; const d = deckOf(s); d.keylock = !d.keylock; send("keylock", d.n, d.keylock ? 1 : 0); paintLoop(s); });
     bindPress(qz, down => { if (!down) return; const d = deckOf(s); d.quantize = !d.quantize; send("quantize", d.n, d.quantize ? 1 : 0); paintLoop(s); });
     flags.append(kl, qz);
-    // SAMPLES: this side shows sampler pads instead of its deck (and back); only this side is rebuilt
-    const smp = h("button", "smpbtn", `SAMPLES <span>${s ? "17–32" : "1–16"}</span>`);
+    // SAMPLES: this side shows sampler pads instead of its deck (and back); only this side is rebuilt. With
+    // either side's SHIFT, the other bank (the left side can show 17-32, the right 1-16).
+    const smp = h("button", "smpbtn");
     bindPress(smp, down => {
       if (!down) return;
-      sidePage[s] = sidePage[s] === "samples" ? "deck" : "samples";
+      const shifted = deckOf(0).shift || deckOf(1).shift, bank = shifted ? 1 - s : s;
+      if (shifted) { deckOf(0).shift = false; deckOf(1).shift = false; }
+      if (sidePage[s] === "samples" && sideBank[s] === bank) sidePage[s] = "deck";
+      else { sidePage[s] = "samples"; sideBank[s] = bank; }
       layoutEpoch++;
       document.getElementById(s ? "dr" : "dl").replaceChildren(buildSide(s));
       placeChrome();
@@ -1310,7 +1338,7 @@ function paintSide(s) {
     setHTML(u.title, `${d.title}<small>${d.artist}</small>`);
     setText(u.strip.querySelector(".label"), `${S.revs} rev · ${stripSeconds().toFixed(1)} s`);
   }
-  ui.loops?.[s]?.smp.classList.toggle("on", sidePage[s] === "samples");
+  paintSamplesButtons();
   if (sidePage[s] === "samples") { u.spads.forEach(({ el, i }) => paintSamplerPad(el, i)); return; }
   u.play.classList.toggle("on", d.playing);
   u.cue.classList.toggle("on", !d.playing && Math.abs(d.pos - d.cuePoint) < .05);
