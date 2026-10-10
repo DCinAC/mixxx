@@ -282,7 +282,7 @@ async function intro() {
   await dropAndBounce(L, s1, s0, uiDone - titleDone);
   await cardDraw(L);
   decks.forEach((d, i) => d.querySelector("text").setAttribute("transform", `rotate(${-L.rot[i]} 20 20)`));   // the numbers stay upright
-  return ready ? outro(L) : play(L);   // the decks only perform while Mixxx is still loading
+  return play(L);
 }
 
 // 3-4: like a fruit dropping into juice in an ad, but into the screen, and every bounce turns it into
@@ -291,8 +291,8 @@ async function intro() {
 // Real bounces: falling at G, each one keeping E of the speed; squashed for a moment on every landing.
 function flights(h0) {   // [{dur, v}] in s and cm/s: the fall from h0 cm up, then one flight per bounce
   const out = [{ dur: Math.sqrt(2 * h0 / G_FALL), v: 0, h0 }];
-  let v = Math.sqrt(2 * G * REBOUND);
-  while (v > 40) { out.push({ dur: 2 * v / G, v, h0: 0 }); v *= E; }
+  const v = Math.sqrt(2 * G * REBOUND);
+  out.push({ dur: 2 * v / G, v, h0: 0 });   // the one rebound off the ground; then it stays down
   return out;
 }
 function ripple(x, y, w) {
@@ -411,22 +411,23 @@ let stopTurning = false;
 const setMode = (r, mode) => { r.mode = mode; r.t0 = performance.now(); r.base = r.angle; };
 
 async function play(L) {
-  // waits that end as soon as Mixxx is ready: the show is only for while it loads
-  const until = async t => { const end = performance.now() + t; while (!ready && performance.now() < end) await wait(40); };
+  // The decks always play their set once; it goes round again only while Mixxx is still loading (a tap skips it
+  // once Mixxx is ready).
+  const until = async t => { const end = performance.now() + t; while (!leaving && performance.now() < end) await wait(40); };
   requestAnimationFrame(turn);
   setMode(reels[0], "play");
-  setTimeout(() => { if (!ready) $("#wait").style.opacity = 1; }, 2500);
+  setTimeout(() => { if (!ready && !leaving) $("#wait").style.opacity = 1; }, 4000);
   await until(600);
   setMode(reels[1], "play");
   await until(500);
   const SET = [["scratch", 860], ["chirp", 660], ["play", 800], ["scratch", 860], ["play", 900]];
-  while (!ready) {
+  do {
     for (const [mode, t] of SET) {
-      if (ready) break;
+      if (leaving) return;
       setMode(reels[1], mode);
       await until(t);
     }
-  }
+  } while (!ready && !leaving);
   return outro(L);
 }
 
