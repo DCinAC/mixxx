@@ -65,6 +65,8 @@ class Library {
     /// Writes the track loaded in group (a deck, or the preview deck) to the library now, so beat grid edits
     /// show in the library without waiting for it to be ejected.
     QJsonObject saveLoaded(const QString& group);
+    /// A track's title in the library (samples are named after their track and length until renamed).
+    QJsonObject renameTrack(int trackId, const QString& title);
     void stopAnalysis();
 
     /// Sampler capture: the loop on a deck, with only the stems that deck plays (all of them for a normal

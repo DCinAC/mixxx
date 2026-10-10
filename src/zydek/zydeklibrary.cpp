@@ -860,6 +860,27 @@ QJsonObject Library::analysisStatus() {
             {"seconds", m_pAnalysis->active ? m_pAnalysis->timer.elapsed() / 1000.0 : 0.0}};
 }
 
+QJsonObject Library::renameTrack(int trackId, const QString& title) {
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    const QString name = title.trimmed().left(200);
+    if (!pLibrary || trackId <= 0 || name.isEmpty()) {
+        return error(QStringLiteral("Give it a name"));
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    bool ok = false;
+    QMetaObject::invokeMethod(
+            pLibrary,
+            [pCollection, trackId, name, &ok] {
+                const TrackPointer pTrack = pCollection->getTrackById(TrackId(QVariant(trackId)));
+                if (pTrack) {
+                    pTrack->setTitle(name);
+                    ok = pCollection->saveTrack(pTrack) != TrackCollectionManager::SaveTrackResult::Failed;
+                }
+            },
+            Qt::BlockingQueuedConnection);
+    return ok ? QJsonObject{{"ok", true}} : error(QStringLiteral("Couldn't rename it"));
+}
+
 QJsonObject Library::saveLoaded(const QString& group) {
     const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group);
     ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();

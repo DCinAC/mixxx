@@ -1374,7 +1374,8 @@ async function openSheet(t) {
   const tools = !t.missing ? `<button class="mksample">Make a sample<small>cut it into a pad</small></button>` +
     `<button class="editgrid">Edit beat grid<small>in your headphones</small></button>` +
     `<button class="analyze${stemServer && !t.stems ? "" : " wide"}">${analyzed ? "Analyze again<small>new beat grid and key</small>" : "Analyze<small>BPM, key and waveform</small>"}</button>` +
-    (stemServer && !t.stems ? `<button class="mkstems">Make stems on the PC<small>${esc(STEM_MODELS[stemPreset] || stemPreset)}</small></button>` : "") : "";
+    (stemServer && !t.stems ? `<button class="mkstems">Make stems on the PC<small>${esc(STEM_MODELS[stemPreset] || stemPreset)}</small></button>` : "") +
+    `<button class="rename wide">Rename<small>the title in the library</small></button>` : "";
   s.innerHTML = `<div class="grip"></div><div class="t">${esc(t.title)}</div>` +
     `<div class="a">${esc(t.artist || "Unknown artist")}${t.album ? " · " + esc(t.album) : ""}</div>` +
     `<div class="facts"><div><b>${t.bpm ? t.bpm.toFixed(1) : "—"}</b>BPM</div><div><b>${esc(keyText(t) || "—")}</b>Key</div>` +
@@ -1398,6 +1399,18 @@ async function openSheet(t) {
   s.querySelector(".smp").disabled = t.missing;
   s.querySelector(".smp").addEventListener("click", () => load(t, "sampler"));
   s.querySelector(".mkstems")?.addEventListener("click", () => { closeSheet(); makeStems(t); });
+  s.querySelector(".rename")?.addEventListener("click", () => {
+    const b = s.querySelector(".rename");
+    b.outerHTML = `<div class="newcrate renamebox" style="grid-column:1/-1;margin:0"><input value="${esc(t.title)}" maxlength="200" enterkeyhint="done"><button>Rename</button></div>`;
+    const box = s.querySelector(".renamebox"), inp = box.querySelector("input");
+    const go = async () => {
+      try { await api(`/api/library/rename?${qs({ id: t.id, title: inp.value })}`); toast("Renamed", "ok"); t.title = inp.value.trim(); s.querySelector(".t").textContent = t.title; loadTracks(); }
+      catch (e) { toast(e.message, "bad"); }
+    };
+    box.querySelector("button").addEventListener("click", go);
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+    inp.focus(); inp.select();
+  });
   s.querySelector(".editgrid")?.addEventListener("click", () => { closeSheet(); openEditor("grid", t); });
   s.querySelector(".mksample")?.addEventListener("click", () => { closeSheet(); openEditor("sample", t); });
   const an = s.querySelector(".analyze");

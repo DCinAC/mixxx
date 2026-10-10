@@ -26,6 +26,7 @@
 #include "soundio/soundmanagerconfig.h"
 #include "soundio/soundmanagerutil.h"
 #include "track/beats.h"
+#include "track/cue.h"
 #include "zydek/zydekpython.h"
 #include "track/track.h"
 #include "waveform/waveform.h"
@@ -494,6 +495,56 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
             return result({{"ok", false}, {"error", "Couldn't set that BPM"}});
         }
         return result({{"ok", true}, {"bpm", pTrack->getBpm()}});
+    }
+    if (path == QLatin1String("/api/library/rename")) {   // ?id=&title=
+        const QJsonObject r = m_library.renameTrack(arg("id").toInt(), arg("title"));
+        for (int i = 0; i < kNumSamplers && r.value(QStringLiteral("ok")).toBool(); ++i) {
+            updateName(true, i, 0);   // a pad holding it shows the new name
+        }
+        for (int i = 0; i < kNumDecks && r.value(QStringLiteral("ok")).toBool(); ++i) {
+            updateName(false, i, 0);
+        }
+        return result(r);
+    }
+    if (path == QLatin1String("/api/cues")) {   // ?group=[ChannelN] -> {"labels": [8 hot cue names]}
+        QJsonArray labels;
+        for (int i = 0; i < 8; ++i) {
+            labels.append(QString());
+        }
+        if (const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(arg("group"))) {
+            for (const CuePointer& pCue : pTrack->getCuePoints()) {
+                const int n = pCue->getHotCue();
+                if (n >= 0 && n < 8) {
+                    labels[n] = pCue->getLabel();
+                }
+            }
+        }
+        return json(QJsonObject{{"labels", labels}});
+    }
+    if (path == QLatin1String("/api/cues/label")) {   // ?group=&n=1..8&label=
+        const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(arg("group"));
+        const int n = arg("n").toInt() - 1;
+        if (pTrack) {
+            for (const CuePointer& pCue : pTrack->getCuePoints()) {
+                if (pCue->getHotCue() == n) {
+                    pCue->setLabel(arg("label").trimmed().left(60));
+                    return result({{"ok", true}});
+                }
+            }
+        }
+        return result({{"ok", false}, {"error", "No hot cue there"}});
+    }
+    if (path == QLatin1String("/api/sampler/rename")) {   // ?slot=1..64&name=: the sample's title in the library
+        const int slot = arg("slot").toInt();
+        const QString name = arg("name").trimmed().left(120);
+        const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(QStringLiteral("[Sampler%1]").arg(slot));
+        if (!pTrack || name.isEmpty()) {
+            return result({{"ok", false}, {"error", pTrack ? "Give it a name" : "Nothing on that pad"}});
+        }
+        pTrack->setTitle(name);
+        m_library.saveLoaded(QStringLiteral("[Sampler%1]").arg(slot));
+        updateName(true, slot - 1, 0);
+        return result({{"ok", true}});
     }
     if (path == QLatin1String("/api/kits")) {
         return json(kits());
