@@ -324,16 +324,16 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         return json(audioStatus());
     }
     if (path == QLatin1String("/api/audio/buffer")) {   // ?index=3..7
-        return result(setAudioBuffer(arg("index").toInt()));
+        return result(setAudioBuffer(query.value(QStringLiteral("index")).toInt()));
     }
     if (path == QLatin1String("/api/audio/latency")) {   // ?offset=ms (fine-tune) · ?measure=1
         if (query.contains(QStringLiteral("offset"))) {
-            m_latencyOffsetMs = std::clamp(arg("offset").toInt(), -200, 400);
+            m_latencyOffsetMs = std::clamp(query.value(QStringLiteral("offset")).toInt(), -200, 400);
             saveAudioPrefs();
             emitLatency();
         }
 #ifdef Q_OS_ANDROID
-        if (arg("measure") == QLatin1String("1")) {
+        if (query.value(QStringLiteral("measure")) == QLatin1String("1")) {
             QJniObject::callStaticMethod<void>("org/mixxx/ZydekAudio", "measureNow", "()V");
         }
 #endif
