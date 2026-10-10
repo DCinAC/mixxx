@@ -211,10 +211,11 @@ TabletPads.setTempo = function (d, overlimit, percent) {
     if (TabletPads._baseRange[d] === undefined) { TabletPads._baseRange[d] = engine.getValue(g, "rateRange"); }
     var base = TabletPads._baseRange[d], t = percent / 100, range = base;
     if (overlimit) {
-        // Keep the range just wider than the tempo, so Mixxx's own slider stays readable; max 90 %.
-        range = Math.min(0.9, Math.max(base, Math.ceil(Math.abs(t) * 100 + 1) / 100));
+        // Keep the range just wider than the tempo, so Mixxx's own slider stays readable; up to 300 % (Mixxx
+        // allows 400 %), and never slower than 1 % of normal speed.
+        range = Math.min(3, Math.max(base, Math.ceil(Math.abs(t) * 100 + 1) / 100));
     }
-    t = Math.max(-range, Math.min(range, t));
+    t = Math.max(Math.max(-range, -0.99), Math.min(range, t));
     if (Math.abs(engine.getValue(g, "rateRange") - range) > 1e-9) {
         engine.setValue(g, "rateRange", range);       // Mixxx keeps the actual tempo when the range changes
     }

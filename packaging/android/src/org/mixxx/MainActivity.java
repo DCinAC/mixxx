@@ -60,6 +60,9 @@ public class MainActivity extends QtActivityBase {
             + "(function t(){fetch('/phone',{cache:'no-store'}).then(function(r){if(r.ok)location.replace('/phone');"
             + "else setTimeout(t,400)}).catch(function(){setTimeout(t,400)})})()</script></body></html>";
     private WebView m_phoneView;
+    // The start-up screen (the intro, or the logo) is always upright; the phone page then turns with the phone.
+    private boolean m_booting = true;
+    private int m_userOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER;
     private LinearLayout m_loginView;   // Bilibili login (see "Bilibili accounts" below)
     private WebView m_loginWeb;
     private TextView m_loginStatus;
@@ -538,13 +541,16 @@ public class MainActivity extends QtActivityBase {
         }
         switch (orientation) {
             case "landscape":
-                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+                m_userOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
                 break;
             case "portrait":
-                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
+                m_userOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
                 break;
             default:
-                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_USER);   // follows the rotation lock
+                m_userOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER;   // follows the rotation lock
+        }
+        if (!m_booting) {
+            setRequestedOrientation(m_userOrientation);
         }
     }
 
@@ -578,6 +584,14 @@ public class MainActivity extends QtActivityBase {
         m_phoneView.addJavascriptInterface(new PageBridge(), "ZydekAndroid");
         m_phoneView.setWebViewClient(new WebViewClient() {
             @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (m_booting && url != null && url.startsWith(PHONE_PAGE)) {   // past the start-up screen
+                    m_booting = false;
+                    setRequestedOrientation(m_userOrientation);
+                }
+            }
+
+            @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 // Zydek's server isn't up any more: the start-up page waits for it, without the intro.
                 if (request.isForMainFrame()) {
@@ -593,6 +607,8 @@ public class MainActivity extends QtActivityBase {
     /// ZyunDeck's intro (res/zydek/web/intro.html, read from the APK because Mixxx's server isn't up yet),
     /// which moves on to the phone page once the server answers. quick: only wait, no intro.
     private void showBootPage(boolean quick) {
+        m_booting = true;
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
         String html = BOOT_PAGE;
         try (java.io.InputStream in = getAssets().open("zydek/web/intro.html")) {
             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();

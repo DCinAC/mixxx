@@ -298,7 +298,7 @@
   #app.phone .sync.beat small.lit { color: #000 !important; }
   #app.phone .pdeck.d34 { --acc: var(--deck34); }
   #app.phone .prow { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); min-height: 0; flex: none; }
-  #app.phone .prow.modes { grid-template-columns: 1fr 1fr 1fr; }
+  #app.phone .prow.modes { grid-template-columns: 1fr 1fr 1fr .8fr; }
   #app.phone .prow button { font-size: calc(var(--mm) * 2.3); }
   #app.phone .prow.modes button { font-size: calc(var(--mm) * 1.8); }
   #app.phone .pdeck .pads { grid-template-rows: minmax(0, 1fr); }
@@ -731,7 +731,7 @@ function buildSide(s) {
 
   // pad modes + pads
   const modes = h("div", "modes");
-  u.modes = ["cue", "roll", "stem", "smpl", "jump", "fx"].map(m => {
+  u.modes = ["cue", "roll", "stem", "smpl", "jump", "fx", "grid"].map(m => {
     const b = h("button", "", m.toUpperCase()); b.dataset.mode = m;
     b.addEventListener("click", () => { const d = deckOf(s); d.mode = m; d.shift = false; paintSide(s); });
     modes.appendChild(b); return b;
@@ -755,11 +755,13 @@ function tempoControls(s, u, olLabel) {
   drag(u.lane, {
     // Touchpad: only the change in finger position counts, wherever you touch.
     down: e => { if (synced(deckOf(s))) return false;   // a synced deck follows the master's tempo
-      u.lane.classList.add("held"); u.laneDeck = deckOf(s); return { y: e.clientY, deck: u.laneDeck, t: u.laneDeck.tempo }; },
+      u.lane.classList.add("held"); u.laneDeck = deckOf(s); return { y: e.clientY, deck: u.laneDeck }; },
     move: (e, st) => {
       const dmm = (e.clientY - st.y) / S.pxmm;
-      const lim = st.deck.ol ? 90 : 8;
-      st.deck.tempo = clamp(st.t + dmm * S.sens * (S.fasterDown ? 1 : -1), -lim, lim);
+      st.y = e.clientY;
+      // TEMPO BOOST: from -99 % to +300 %, each mm counting for more the further from 0 % (it stays fine near 0)
+      const d = st.deck, gain = d.ol ? Math.max(1, Math.abs(d.tempo) / 8) : 1;
+      d.tempo = clamp(d.tempo + dmm * S.sens * gain * (S.fasterDown ? 1 : -1), d.ol ? -99 : -8, d.ol ? 300 : 8);
       send("tempo", st.deck.n, st.deck.tempo);
       paintTempo(s);
     },
@@ -919,10 +921,12 @@ function buildNudge(s, u) {
   drag(u.nudge, {
     down: e => {
       const d = deckOf(s), adjust = d.adjust || null, loopMove = !adjust && d.shift && d.loopOn;
-      u.nudge.classList.add("held"); u.nudge.classList.toggle("loopmove", !!(adjust || loopMove));
+      const grid = !adjust && !loopMove && d.mode === "grid";   // GRID mode: the bar slides the beat grid
+      u.nudge.classList.add("held"); u.nudge.classList.toggle("loopmove", !!(adjust || loopMove || grid));
       if (adjust) setHTML(u.nudge, loopRange(d) ? `◀ EARLIER · LOOP ${adjust.toUpperCase()} · LATER ▶` : "NO LOOP TO ADJUST");
       else if (loopMove) setHTML(u.nudge, "◀ EARLIER · MOVE LOOP · LATER ▶");
-      return { x: e.clientX, d, adjust, loopMove, acc: 0, samples: [{ t: performance.now(), x: e.clientX }] };
+      else if (grid) setHTML(u.nudge, "◀ EARLIER · BEAT GRID · LATER ▶");
+      return { x: e.clientX, d, adjust, loopMove, grid, acc: 0, samples: [{ t: performance.now(), x: e.clientX }] };
     },
     move: (e, st) => {
       const now = performance.now(), dx = e.clientX - st.x;
@@ -933,6 +937,13 @@ function buildNudge(s, u) {
         if (!lr) return;
         if (st.adjust === "in") send("loopPoint", st.d.n, "in", clamp(lr[0] + sec, 0, lr[1] - .01));
         else send("loopPoint", st.d.n, "out", clamp(lr[1] + sec, lr[0] + .01, st.d.dur));
+        return;
+      }
+      if (st.grid) {   // a small grid step per 1.2 mm, right = later
+        st.acc += dx / S.pxmm;
+        const q = Math.trunc(st.acc / 1.2);
+        for (let n = 0; n < Math.abs(q); n++) gridSend(st.d, q > 0 ? "beats_translate_later" : "beats_translate_earlier");
+        st.acc -= q * 1.2;
         return;
       }
       if (st.loopMove) {
@@ -1022,6 +1033,37 @@ const volumeFader = s => {
 const PHONE_EQ = [["low", "mid"], ["filter", "high"]];   // knob: [normally, with SHIFT]
 const EQ_LABEL = { low: "BASS", mid: "MID", filter: "FILTER", high: "HIGH" };
 const LOOP_PADS = [.5, 1, 2, 4];
+// GRID pads: Mixxx's beat grid controls, for tracks whose grid is off. [control, label, SHIFT control, SHIFT
+// label, repeats while held]. On the phone's 4 pads: BEAT (SHIFT: UNDO), ◀ ▶ (SHIFT: −/+ BPM), TAP (SHIFT: MATCH).
+const GRID_PADS = [
+  ["beats_translate_curpos", "BEAT<small>here</small>", "beats_undo_adjustment", "UNDO<small>grid</small>"],
+  ["beats_translate_earlier", "◀<small>earlier</small>", null, null, true],
+  ["beats_translate_later", "▶<small>later</small>", null, null, true],
+  ["beats_translate_match_alignment", "MATCH<small>other deck</small>"],
+  ["beats_adjust_slower", "−BPM<small>0.01</small>", null, null, true],
+  ["beats_adjust_faster", "+BPM<small>0.01</small>", null, null, true],
+  ["beats_set_halve", "½<small>BPM</small>", "beats_set_double", "×2<small>BPM</small>"],
+  ["bpm_tap", "TAP<small>tempo</small>"],
+];
+function gridAction(d, k) {
+  if (PHONE) k = d.shift ? [-1, 4, 5, 3][k] : [0, 1, 2, 7][k];
+  if (k === -1) return { c: GRID_PADS[0][2], l: GRID_PADS[0][3] };
+  const p = GRID_PADS[k];
+  return !PHONE && d.shift && p[2] ? { c: p[2], l: p[3] } : { c: p[0], l: p[1], rep: !!p[4] };
+}
+function gridSend(d, control) {
+  if (live) { setCtl(ch(d.n), control, 1); setCtl(ch(d.n), control, 0); refreshBeats(d); return; }
+  const bump = { beats_adjust_slower: -.01, beats_adjust_faster: .01 }[control];   // the simulation: just the BPM
+  if (bump) d.bpm = +(d.bpm + bump).toFixed(2);
+  if (control === "beats_set_halve") d.bpm /= 2;
+  if (control === "beats_set_double") d.bpm *= 2;
+}
+// the strip's beat lines follow the grid edits (fetched again once the edits pause)
+function refreshBeats(d) {
+  clearTimeout(d.beatsTimer);
+  d.beatsTimer = setTimeout(() => loadBeats(d, d.beatsFor, true), 120);
+}
+
 // The phone's 4 jump pads (−4, −1, +1, +4 beats) as the tablet's 8: −1 +1 −2 +2 −4 +4 −8 +8
 const PHONE_JUMPS = [4, 0, 1, 5];
 const padIndex = (d, k) => PHONE && d.mode === "jump" ? PHONE_JUMPS[k] : k;
@@ -1045,12 +1087,12 @@ function buildPhone() {
     u.strip.append(info, u.sw);
     strips[s] = u.strip;
     transportControls(s, u);
-    u.mA = h("button"); u.mB = h("button"); u.mC = h("button");
+    u.mA = h("button"); u.mB = h("button"); u.mC = h("button"); u.mD = h("button");
     const mode = (el, normal, shifted) => bindPress(el, down => { if (!down) return;
       const d = deckOf(s); d.mode = d.shift ? shifted : normal; d.shift = false; paintSide(s); paintMixer(); });
-    mode(u.mA, "cue", "fx"); mode(u.mB, "loop", "smpl"); mode(u.mC, "stem", "key");
+    mode(u.mA, "cue", "fx"); mode(u.mB, "loop", "smpl"); mode(u.mC, "stem", "key"); mode(u.mD, "grid", "grid");
     u.deck = u.el = h("div", "pdeck");
-    u.deck.append(buildNudge(s, u), row("transport", u.cue, u.play), buildPads(s, u, 4), row("modes", u.mA, u.mB, u.mC),
+    u.deck.append(buildNudge(s, u), row("transport", u.cue, u.play), buildPads(s, u, 4), row("modes", u.mA, u.mB, u.mC, u.mD),
       s ? row("transport", u.sync, u.shiftBtn) : row("transport", u.shiftBtn, u.sync));   // SHIFT on the outside
     u.col = h("div", "tempo pcol");
     ui.sides[s] = u;
@@ -1227,6 +1269,8 @@ function paintSide(s) {
     u.mA.classList.toggle("on", d.mode === "cue" || d.mode === "fx");
     u.mB.classList.toggle("on", d.mode === "loop" || d.mode === "smpl");
     setHTML(u.mC, two("STEM", "KEY", d.shift || d.mode === "key"));
+    setHTML(u.mD, "GRID<small>beats</small>");
+    u.mD.classList.toggle("on", d.mode === "grid");
     u.mC.classList.toggle("on", d.mode === "stem" || d.mode === "key");
     setHTML(u.sync, two("SYNC", "MASTER", d.shift || d.leader));
   }
@@ -1242,6 +1286,7 @@ function paintPad(s, k) {
     case "cue": { const c = d.cues[k];
       setPad(el, (c ? "lit" : "") + (d.shift && c ? " armed" : ""), `${k + 1}`, c && rgb(c.c), c && fgFor(c.c)); break; }
     case "roll": setPad(el, d.rolls[k] ? "lit" : "tint", ["⅛", "¼", "½", "1", "2", "4", "8", "16"][k], "var(--roll)"); break;
+    case "grid": setPad(el, "tint", gridAction(d, k).l, "#e2b84a"); break;
     case "key": {   // the phone's KEY pads: −1, +1 (SHIFT: reset), MATCH (key sync), KEY LOCK
       const name = keyName(d.curKey);
       if (k < 2) setPad(el, "tint", d.shift ? `RESET<small>${name}</small>` : `${k ? "+1" : "−1"}<small>${name}</small>`, "var(--jump)");
@@ -1307,6 +1352,16 @@ const PAD_MODE = { cue: 0, roll: 2, stem: 3, jump: 4, fx: 5 };
 function padPress(s, k, down) {
   const d = deckOf(s), beat = 60 / d.bpm;
   k = padIndex(d, k);
+  if (d.mode === "grid") {
+    clearInterval(d.gridRepeat);
+    if (!down) return;
+    const a = gridAction(d, k);
+    d.shift = false;                         // a SHIFT function is used once
+    gridSend(d, a.c);
+    if (a.rep) d.gridRepeat = setInterval(() => gridSend(d, a.c), 90);   // ◀ ▶ −/+ BPM repeat while held
+    paintAll();
+    return;
+  }
   if (d.mode === "key") {
     if (!down) { if (k === 2 && live) send("keyAction", d.n, "sync_key", 0); return; }
     if (k < 2 && d.shift) {   // back to the track's own key
@@ -1354,7 +1409,7 @@ function padPress(s, k, down) {
 
 function otherBpm(s) { const o = decks[sides[1 - s]]; return o.bpm * (1 + o.tempo / 100); }
 function matchTempo(d, s) {
-  d.tempo = clamp(otherBpm(s) / d.bpm * 100 - 100, -90, 90);
+  d.tempo = clamp(otherBpm(s) / d.bpm * 100 - 100, -99, 300);
   if (Math.abs(d.tempo) > 8) d.ol = true;
 }
 // How close this deck's BPM is to the other side's (also at double/half time): 0 = far, 1 = matched.
@@ -1583,8 +1638,9 @@ function drawStripWave(u, d, start, sec) {
 }
 
 // Live: the track's beats (Mixxx's beat grid), fetched with its waveform.
-async function loadBeats(d, id) {
-  d.beatsFor = id; d.beats = null; d.beatsVer = (d.beatsVer || 0) + 1;
+async function loadBeats(d, id, keep = false) {   // keep: show the old beats until the new ones are in
+  d.beatsFor = id; d.beatsVer = (d.beatsVer || 0) + 1;
+  if (!keep) d.beats = null;
   if (!id) return;
   for (let tries = 0; tries < 30 && d.beatsFor === id; tries++) {
     try {
