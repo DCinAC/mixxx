@@ -569,6 +569,7 @@ public class MainActivity extends QtActivityBase {
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
         windowInsetsController.hide(WindowInsetsCompat.Type.navigationBars());
 
+        ZydekMidi.init(this);   // controller mode's USB MIDI link (the hub turns it on)
         createPhoneView();
         updateMode(getResources().getConfiguration().orientation);
         applyOrientationExtra(getIntent());

@@ -47,6 +47,10 @@ class Hub : public QObject {
     void setController(ZydekController* pController);
     /// MIDI or SysEx the mapping sent to the "device".
     void fromMixxx(const QByteArray& message);
+    /// Controller mode (Android): bytes from the computer over the USB MIDI cable, and the cable's state
+    /// (0 unplugged, 1 plugged in but not set to MIDI, 2 ready), from ZydekMidi.java.
+    void usbMidiReceived(const QByteArray& data);
+    void usbMidiState(int state);
 
   private:
     struct Deck {
@@ -98,7 +102,9 @@ class Hub : public QObject {
     // Mixxx -> pages
     void emitJson(const QJsonObject& message);
     void setDeckField(int deck, int& field, int value, const char* kind);
-    void updateName(bool sampler, int index);
+    void updateName(bool sampler, int index, int lengthMs);
+    void applyName(bool sampler, int index, const QJsonValue& name);
+    void handleMixxx(const QByteArray& msg);   // from the mapping, here or on the computer
     QJsonObject snapshot() const;
     QJsonObject deckJson(int i) const;
 
@@ -117,6 +123,52 @@ class Hub : public QObject {
     bool m_lastSessionRestored = false;
     void restoreLastSession(int tries);
     ZydekController* m_pController = nullptr;
+
+    // Controller mode: the pages control Mixxx on a computer instead of the one here. The same MIDI/SysEx
+    // goes over the USB MIDI cable, or over Wi-Fi to ZyDeck Link on the computer (which hands it to Mixxx
+    // through its "ZyDeck" MIDI port). ZyDeck Link answers a hello over the cable with its address and a
+    // key (F0 7D 60/61), and looks up track names (F0 7D 62/63); then the pages offer the wireless link.
+    struct MidiParser {   // a MIDI byte stream (running status, SysEx split over packets) into messages
+        QByteArray message;
+        int status = 0;
+        bool sysex = false;
+        template<typename F>
+        void feed(const QByteArray& data, F&& onMessage);
+    };
+    bool m_controllerMode = false;
+    int m_usbState = 0;
+    bool m_remoteLive = false;   // the mapping on the computer answered
+    qint64 m_remoteRxMs = 0;     // when it last did
+    qint64 m_helloMs = -100000;  // when the hello last went over the cable
+    MidiParser m_usbParser;
+    MidiParser m_linkParser;
+    QTcpSocket* m_pLink = nullptr;   // to ZyDeck Link over Wi-Fi
+    QByteArray m_linkBuffer;
+    bool m_linkUp = false;
+    int m_linkHost = 0;              // which of the computer's addresses is being tried
+    QJsonObject m_linkTarget;        // the computer being linked to (name, hosts, port, key)
+    QJsonObject m_linkOffer;         // what ZyDeck Link said over the cable
+    bool m_offerDeclined = false;
+    QJsonObject m_linkSaved;         // the computer linked last time, tried again over Wi-Fi
+    QTimer m_remoteTimer;
+    void setControllerMode(bool on);
+    QJsonObject remoteStatus() const;
+    void emitRemote();
+    bool live() const;
+    bool canSend() const;
+    void sendMidi(const QByteArray& data);
+    void setControl(const QString& group, const QString& key, double value);
+    void remoteMessage(const QByteArray& msg, bool viaUsb);
+    void sendSysexText(int type, const QByteArray& text);
+    void linkConnect(const QJsonObject& computer);
+    void linkDrop(bool retry);
+    void linkLine(const QByteArray& line);
+    void remoteTick();
+    void resendSubscriptions();
+    void resetMixxxState();
+    void loadRemote();
+    void saveRemote() const;
+    QString deviceName() const;
 
     int m_samplers[kNumSamplers] = {};
     QJsonValue m_samplerNames[kNumSamplers];

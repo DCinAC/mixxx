@@ -82,6 +82,7 @@
             android:foregroundServiceType="dataSync"/>
     </application>
 
+    <uses-feature android:name="android.software.midi" android:required="false"/>
     <uses-feature
         android:name="android.hardware.usb.host"
         android:required="true" />

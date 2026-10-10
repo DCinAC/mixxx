@@ -30,6 +30,11 @@
 #include "track/track.h"
 #include "waveform/waveform.h"
 
+#ifdef Q_OS_ANDROID
+#include <QJniEnvironment>
+#include <QJniObject>
+#endif
+
 namespace zydek {
 
 namespace {
@@ -47,6 +52,12 @@ constexpr int kSync = 0x54;
 constexpr int kValue = 0x58;
 constexpr int kPing = 0x5E;   // F0 7D 5E <seq 3x7 bits> F7, echoed back unchanged by the mapping
 constexpr int kHello = 0x5F;
+// Controller mode, with ZyDeck Link on the computer (the mapping ignores these): text as hex of UTF-8 JSON
+constexpr int kLinkHello = 0x60;   // device -> computer: {"v": 1, "name": device}
+constexpr int kLinkOffer = 0x61;   // computer -> device: {"name", "hosts": [...], "port", "key"}
+constexpr int kNameAsk = 0x62;     // device -> computer: {"s": sampler?, "i": index, "ms": track length}
+constexpr int kNameReply = 0x63;   // computer -> device: {"s", "i", "n": {t, a, id} or null}
+const QString kRemoteFile = QStringLiteral("zydek-controller-mode.json");
 
 const QString kSettingsFile = QStringLiteral("zydek-controller-settings.json");
 const QString kSamplersFile = QStringLiteral("zydek-samplers.json");
@@ -175,11 +186,14 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
             &PlayerInfo::trackChanged,
             this,
             [this](const QString& group, TrackPointer, TrackPointer) {
+                if (m_controllerMode) {
+                    return;   // the pages show the computer's decks
+                }
                 const int n = QStringView(group).mid(group.indexOf(QRegularExpression(QStringLiteral("\\d")))).chopped(1).toInt();
                 if (group.startsWith(QLatin1String("[Channel")) && n >= 1 && n <= kNumDecks) {
-                    updateName(false, n - 1);
+                    updateName(false, n - 1, 0);
                 } else if (group.startsWith(QLatin1String("[Sampler")) && n >= 1 && n <= kNumSamplers) {
-                    updateName(true, n - 1);
+                    updateName(true, n - 1, 0);
                     if (m_lastSessionRestored) {
                         m_lastSessionTimer.start();
                     }
@@ -190,9 +204,43 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
     if (f.open(QIODevice::ReadOnly)) {
         m_ctlSettings = QJsonDocument::fromJson(f.readAll()).object();
     }
+    m_remoteTimer.setInterval(1000);
+    connect(&m_remoteTimer, &QTimer::timeout, this, &Hub::remoteTick);
 }
 
+#ifdef Q_OS_ANDROID
+namespace {
+Hub* s_pHub = nullptr;   // for ZydekMidi.java's callbacks
+
+void JNICALL jniMidiReceive(JNIEnv* env, jclass, jbyteArray data) {
+    const jsize n = env->GetArrayLength(data);
+    QByteArray bytes(n, Qt::Uninitialized);
+    env->GetByteArrayRegion(data, 0, n, reinterpret_cast<jbyte*>(bytes.data()));
+    if (Hub* pHub = s_pHub) {
+        QMetaObject::invokeMethod(pHub, [pHub, bytes] { pHub->usbMidiReceived(bytes); }, Qt::QueuedConnection);
+    }
+}
+
+void JNICALL jniMidiState(JNIEnv*, jclass, jint state) {
+    if (Hub* pHub = s_pHub) {
+        QMetaObject::invokeMethod(pHub, [pHub, state] { pHub->usbMidiState(state); }, Qt::QueuedConnection);
+    }
+}
+} // namespace
+#endif
+
 void Hub::start() {
+#ifdef Q_OS_ANDROID
+    s_pHub = this;
+    const JNINativeMethod methods[] = {
+            {"nativeReceive", "([B)V", reinterpret_cast<void*>(jniMidiReceive)},
+            {"nativeState", "(I)V", reinterpret_cast<void*>(jniMidiState)}};
+    QJniEnvironment env;
+    if (!env.registerNativeMethods("org/mixxx/ZydekMidi", methods, 2)) {
+        qWarning() << "Zydek: no USB MIDI for controller mode";
+    }
+#endif
+    loadRemote();
     m_lastSessionTimer.setSingleShot(true);
     m_lastSessionTimer.setInterval(2000);
     connect(&m_lastSessionTimer, &QTimer::timeout, this, [this] { saveKit(kLastSession); });
@@ -272,7 +320,7 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         return json(lanUrls());
     }
     if (path == QLatin1String("/status")) {
-        return json(QJsonObject{{"live", m_pController != nullptr}});
+        return json(QJsonObject{{"live", live()}});
     }
     return {404, "text/plain", "not found\n", {}};
 }
@@ -295,7 +343,7 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     }
     if (path == QLatin1String("/api/decks")) {
         QJsonObject d = m_library.decks();
-        d.insert(QStringLiteral("live"), m_pController != nullptr);
+        d.insert(QStringLiteral("live"), live());
         return json(d);
     }
     if (path == QLatin1String("/api/load")) {   // ?track_id=&target=deck1..4|sampler|samplerN[&sync=1|0 for a sampler]
@@ -347,6 +395,27 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     }
     if (path == QLatin1String("/api/folders/exclude")) {   // ?path=&on=1|0
         return result(m_library.setExcluded(arg("path"), arg("on") != QLatin1String("0")));
+    }
+    if (path == QLatin1String("/api/controller")) {   // controller mode: ?on=1|0, ?link=1 (go wireless),
+        // ?link=0 (not now / back to the cable), ?forget=1 (forget the computer)
+        if (query.contains(QStringLiteral("on"))) {
+            setControllerMode(arg("on") == QLatin1String("1"));
+        }
+        if (arg("link") == QLatin1String("1") && m_controllerMode && !m_linkOffer.isEmpty()) {
+            m_linkHost = 0;
+            linkConnect(m_linkOffer);
+        } else if (arg("link") == QLatin1String("0")) {
+            m_offerDeclined = true;
+            linkDrop(false);
+            m_linkSaved = {};   // stay on the cable: don't come back over Wi-Fi by itself
+            saveRemote();
+        }
+        if (arg("forget") == QLatin1String("1")) {
+            m_linkSaved = {};
+            saveRemote();
+            emitRemote();
+        }
+        return json(remoteStatus());
     }
     if (path == QLatin1String("/api/analyze/track")) {   // ?id=&fresh=1 (start over: new beat grid and key)
         return result(m_library.analyzeTrack(arg("id").toInt(), arg("fresh") == QLatin1String("1")));
@@ -663,7 +732,7 @@ QJsonObject Hub::setSamplerMode(int slot, const QString& mode) {
         f.commit();
     }
     // a looping pad repeats its clip; the others play it once
-    ControlObject::set(ConfigKey(QStringLiteral("[Sampler%1]").arg(slot), QStringLiteral("repeat")), mode == QLatin1String("loop") ? 1 : 0);
+    setControl(QStringLiteral("[Sampler%1]").arg(slot), QStringLiteral("repeat"), mode == QLatin1String("loop") ? 1 : 0);
     emitJson({{"t", "smode"}, {"i", slot - 1}, {"v", mode}});   // every page shows it
     return {{"ok", true}, {"slot", slot}, {"mode", mode}};
 }
@@ -939,7 +1008,7 @@ QJsonObject Hub::setAudio(const HttpServer::Query& query) {
 void Hub::ping(QTcpSocket* pClient, const QJsonArray& ping) {   // [seq, page's performance.now()]
     const int seq = ping.at(0).toInt() & 0x1FFFFF;
     m_pings.insert(seq, Ping{pClient, ping.at(1).toDouble(), m_clock.elapsed()});
-    if (!m_pController) {
+    if (!canSend()) {
         pong(seq, false);
         return;
     }
@@ -1016,7 +1085,7 @@ HttpServer::Response Hub::latencyLog(const HttpServer::Query& query) const {
 // ---- page -> Mixxx --------------------------------------------------------------------------------
 
 void Hub::handlePageMessage(const QByteArray& text) {
-    if (!m_pController) {
+    if (!canSend()) {
         return;
     }
     if (!text.startsWith('{')) {   // "d|u <channel> <note>": a pad press
@@ -1067,21 +1136,455 @@ void Hub::sysex(const QList<int>& parts) {
         data.append(static_cast<char>(p & 0x7F));
     }
     data.append(static_cast<char>(0xF7));
-    m_pController->injectSysex(data);
+    sendMidi(data);
 }
 
 void Hub::press(int channel, int note, bool down) {
     // channel 0 = samplers, 1-4 = decks 1-4
     if (channel >= 0 && channel <= kNumDecks && note >= 0 && note < 128) {
-        m_pController->injectShortMessage(static_cast<unsigned char>(0x90 | channel),
-                static_cast<unsigned char>(note),
-                down ? 127 : 0);
+        sendMidi(QByteArray{static_cast<char>(0x90 | channel), static_cast<char>(note), static_cast<char>(down ? 127 : 0)});
+    }
+}
+
+/// To the mapping: here (the Zydek controller in this Mixxx), or on the computer in controller mode.
+void Hub::sendMidi(const QByteArray& data) {
+    if (data.isEmpty()) {
+        return;
+    }
+    if (!m_controllerMode) {
+        if (!m_pController) {
+            return;
+        }
+        if (static_cast<unsigned char>(data[0]) == 0xF0) {
+            m_pController->injectSysex(data);
+        } else if (data.size() == 3) {
+            m_pController->injectShortMessage(static_cast<unsigned char>(data[0]),
+                    static_cast<unsigned char>(data[1]),
+                    static_cast<unsigned char>(data[2]));
+        }
+        return;
+    }
+    if (m_linkUp && m_pLink) {
+        m_pLink->write("M " + data.toHex() + '\n');
+        return;
+    }
+#ifdef Q_OS_ANDROID
+    if (m_usbState == 2) {
+        QJniEnvironment env;
+        jbyteArray array = env->NewByteArray(data.size());
+        env->SetByteArrayRegion(array, 0, data.size(), reinterpret_cast<const jbyte*>(data.constData()));
+        QJniObject::callStaticMethod<jboolean>("org/mixxx/ZydekMidi", "send", "([B)Z", array);
+        env->DeleteLocalRef(array);
+    }
+#endif
+}
+
+void Hub::setControl(const QString& group, const QString& key, double value) {
+    if (!m_controllerMode) {
+        ControlObject::set(ConfigKey(group, key), value);
+        return;
+    }
+    QList<int> parts{kSet, 0};
+    parts += encodeName(group, key);
+    parts.append(0);
+    parts += encodeValue(value);
+    sysex(parts);
+}
+
+// ---- controller mode ------------------------------------------------------------------------------
+
+template<typename F>
+void Hub::MidiParser::feed(const QByteArray& data, F&& onMessage) {
+    for (const char c : data) {
+        const auto b = static_cast<unsigned char>(c);
+        if (b >= 0xF8) {
+            continue;   // real-time (clock...): not ours
+        }
+        if (b == 0xF0) {
+            sysex = true;
+            message = QByteArray(1, c);
+            continue;
+        }
+        if (sysex) {
+            if (b == 0xF7) {
+                message.append(c);
+                sysex = false;
+                onMessage(message);
+                message.clear();
+            } else if (b & 0x80) {
+                sysex = false;   // a broken SysEx: drop it, start over with this status byte
+                message.clear();
+            } else {
+                message.append(c);
+                continue;
+            }
+            if (!(b & 0x80) || b == 0xF7) {
+                continue;
+            }
+        }
+        if (b & 0x80) {
+            status = b < 0xF0 ? b : 0;
+            message = QByteArray(1, c);
+            continue;
+        }
+        if (!status) {
+            continue;
+        }
+        if (message.isEmpty()) {
+            message = QByteArray(1, static_cast<char>(status));   // running status
+        }
+        message.append(c);
+        const int need = (status & 0xF0) == 0xC0 || (status & 0xF0) == 0xD0 ? 2 : 3;
+        if (message.size() == need) {
+            onMessage(message);
+            message.clear();
+        }
+    }
+}
+
+void Hub::usbMidiReceived(const QByteArray& data) {
+    m_usbParser.feed(data, [this](const QByteArray& msg) { remoteMessage(msg, true); });
+}
+
+void Hub::usbMidiState(int state) {
+    if (state == m_usbState) {
+        return;
+    }
+    const bool wasReady = m_usbState == 2;
+    m_usbState = state;
+    if (state != 2) {
+        m_usbParser = MidiParser();
+        if (!m_linkUp) {
+            m_remoteLive = false;
+        }
+        if (state == 0) {
+            m_linkOffer = {};   // a new cable, a new offer
+            m_offerDeclined = false;
+        }
+    } else if (!wasReady && !m_linkUp) {
+        m_helloMs = -100000;   // say hello now
+        resendSubscriptions();
+    }
+    emitRemote();
+    remoteTick();
+}
+
+void Hub::setControllerMode(bool on) {
+    if (on == m_controllerMode) {
+        return;
+    }
+    m_controllerMode = on;
+    saveRemote();
+#ifdef Q_OS_ANDROID
+    QJniObject::callStaticMethod<void>("org/mixxx/ZydekMidi", "setEnabled", "(Z)V", static_cast<jboolean>(on));
+#endif
+    if (on) {
+        m_remoteTimer.start();
+    } else {
+        m_remoteTimer.stop();
+        linkDrop(false);
+        m_usbState = 0;
+        m_linkOffer = {};
+    }
+    m_remoteLive = false;
+    resetMixxxState();
+    if (on) {   // each deck's and pad's track length: ZyDeck Link finds its name from it
+        for (int i = 1; i <= kNumDecks; ++i) {
+            m_subscriptions.insert(QStringLiteral("[Channel%1],duration").arg(i), 0);
+        }
+        for (int i = 1; i <= kKitSlots; ++i) {
+            m_subscriptions.insert(QStringLiteral("[Sampler%1],duration").arg(i), 0);
+        }
+    }
+    resendSubscriptions();
+    if (!on) {   // back to this Mixxx: the pages get its names again
+        for (int i = 0; i < kNumDecks; ++i) {
+            updateName(false, i, 0);
+        }
+        for (int i = 0; i < kNumSamplers; ++i) {
+            updateName(true, i, 0);
+        }
+    }
+    m_server.broadcast(QStringLiteral("/ws"), QJsonDocument(snapshot()).toJson(QJsonDocument::Compact));
+}
+
+/// Forget what the pages were shown (the other Mixxx's decks): the mapping fills it in again.
+void Hub::resetMixxxState() {
+    std::fill(std::begin(m_samplers), std::end(m_samplers), 0);
+    for (QJsonValue& n : m_samplerNames) {
+        n = QJsonValue();
+    }
+    for (Deck& d : m_decks) {
+        d = Deck();
+    }
+    for (auto& unit : m_fx) {
+        std::fill(std::begin(unit), std::end(unit), 0);
+    }
+    m_controlValues = {};
+}
+
+void Hub::resendSubscriptions() {
+    for (auto it = m_subscriptions.cbegin(); it != m_subscriptions.cend(); ++it) {
+        const int comma = it.key().indexOf(QLatin1Char(','));
+        sysex(QList<int>{kSubscribe, it.value()} + encodeName(it.key().left(comma), it.key().mid(comma + 1)));
+    }
+}
+
+bool Hub::canSend() const {
+    return m_controllerMode ? (m_linkUp || m_usbState == 2) : m_pController != nullptr;
+}
+
+bool Hub::live() const {
+    return m_controllerMode ? m_remoteLive && canSend() : m_pController != nullptr;
+}
+
+QJsonObject Hub::remoteStatus() const {
+    QJsonObject out{{"on", m_controllerMode},
+            {"usb", m_usbState},
+            {"via", !m_controllerMode ? "" : m_linkUp ? "wifi" : m_usbState == 2 ? "usb" : ""},
+            {"live", live()},
+            {"linking", m_pLink != nullptr && !m_linkUp},
+            {"saved", m_linkSaved.value(QStringLiteral("name"))}};
+    const QJsonObject& computer = m_linkUp ? m_linkTarget : m_linkOffer;
+    if (!computer.isEmpty()) {
+        const QJsonArray hosts = computer.value(QStringLiteral("hosts")).toArray();
+        const QString host = m_linkUp ? m_linkTarget.value(QStringLiteral("host")).toString()
+                                      : hosts.isEmpty() ? QString() : hosts.first().toString();
+        out.insert(QStringLiteral("computer"), computer.value(QStringLiteral("name")));
+        // waveforms and beat grids come straight from ZyDeck Link (pages add ?k=<key>)
+        if (!host.isEmpty()) {
+            out.insert(QStringLiteral("http"),
+                    QStringLiteral("http://%1:%2").arg(host).arg(computer.value(QStringLiteral("port")).toInt()));
+            out.insert(QStringLiteral("key"), computer.value(QStringLiteral("key")));
+        }
+    }
+    // ask the pages to offer the wireless link
+    out.insert(QStringLiteral("offer"), !m_linkUp && !m_offerDeclined && !m_linkOffer.isEmpty() && !m_pLink);
+    return out;
+}
+
+void Hub::emitRemote() {
+    QJsonObject m = remoteStatus();
+    m.insert(QStringLiteral("t"), QStringLiteral("remote"));
+    emitJson(m);
+}
+
+void Hub::sendSysexText(int type, const QByteArray& text) {
+    QList<int> parts{type};
+    for (const char c : text.toHex()) {
+        parts.append(c);
+    }
+    sysex(parts);
+}
+
+/// From the computer: the mapping's MIDI/SysEx, or ZyDeck Link's answers.
+void Hub::remoteMessage(const QByteArray& msg, bool viaUsb) {
+    if (!m_controllerMode) {
+        return;
+    }
+    const auto byte = [&msg](int i) { return static_cast<unsigned char>(msg[i]); };
+    if (msg.size() >= 4 && byte(0) == 0xF0 && byte(1) == 0x7D && (byte(2) == kLinkOffer || byte(2) == kNameReply)) {
+        const QJsonObject j = QJsonDocument::fromJson(QByteArray::fromHex(msg.mid(3, msg.size() - 4))).object();
+        if (byte(2) == kLinkOffer) {
+            const bool fresh = m_linkOffer.value(QStringLiteral("key")) != j.value(QStringLiteral("key"));
+            m_linkOffer = j;
+            if (fresh) {
+                emitRemote();
+                // ZyDeck Link is there now: it can name what's loaded
+                for (auto it = m_controlValues.constBegin(); it != m_controlValues.constEnd(); ++it) {
+                    static const QRegularExpression slot(QStringLiteral(R"(^\[(Channel|Sampler)(\d+)\],duration$)"));
+                    const QRegularExpressionMatch m = slot.match(it.key());
+                    if (m.hasMatch()) {
+                        updateName(m.captured(1) == QLatin1String("Sampler"), m.captured(2).toInt() - 1,
+                                static_cast<int>(it.value().toDouble() * 1000));
+                    }
+                }
+            }
+        } else {
+            applyName(j.value(QStringLiteral("s")).toBool(), j.value(QStringLiteral("i")).toInt(), j.value(QStringLiteral("n")));
+        }
+        return;
+    }
+    if (viaUsb && m_linkUp) {
+        return;   // the same mapping's messages arrive over Wi-Fi now
+    }
+    m_remoteRxMs = m_clock.elapsed();
+    if (!m_remoteLive) {
+        m_remoteLive = true;
+        emitRemote();
+        m_server.broadcast(QStringLiteral("/ws"), QJsonDocument(snapshot()).toJson(QJsonDocument::Compact));
+    }
+    handleMixxx(msg);
+}
+
+/// Once a second in controller mode: hello over the cable until ZyDeck Link answers, check that the
+/// mapping still answers, and try the computer from last time over Wi-Fi when there's no cable.
+void Hub::remoteTick() {
+    if (!m_controllerMode) {
+        return;
+    }
+    const qint64 now = m_clock.elapsed();
+    if (m_usbState == 2 && !m_linkUp && m_linkOffer.isEmpty() && now - m_helloMs > 3000) {
+        m_helloMs = now;
+        sendSysexText(kLinkHello,
+                QJsonDocument(QJsonObject{{"v", 1}, {"name", deviceName()}}).toJson(QJsonDocument::Compact));
+    }
+    if (canSend() && now - m_remoteRxMs > 4000) {
+        sysex({kPing, 0x7F, 0x7F, 0x7F});   // the mapping echoes it: still there?
+        if (m_remoteLive && now - m_remoteRxMs > 10000) {
+            m_remoteLive = false;   // Mixxx closed, or the mapping isn't on for this port
+            emitRemote();
+            m_server.broadcast(QStringLiteral("/ws"), QJsonDocument(snapshot()).toJson(QJsonDocument::Compact));
+        }
+    }
+    if (!m_pLink && m_usbState != 2 && !m_linkSaved.isEmpty() && now - m_helloMs > 5000) {
+        m_helloMs = now;
+        linkConnect(m_linkSaved);
+    }
+}
+
+void Hub::linkConnect(const QJsonObject& computer) {
+    linkDrop(false);
+    const QJsonArray hosts = computer.value(QStringLiteral("hosts")).toArray();
+    if (hosts.isEmpty()) {
+        return;
+    }
+    m_linkTarget = computer;
+    m_linkHost = std::clamp(m_linkHost, 0, static_cast<int>(hosts.size()) - 1);
+    const QString host = hosts.at(m_linkHost).toString();
+    m_linkTarget.insert(QStringLiteral("host"), host);
+    m_pLink = new QTcpSocket(this);
+    m_linkBuffer.clear();
+    m_linkParser = MidiParser();
+    QTcpSocket* pLink = m_pLink;
+    connect(pLink, &QTcpSocket::connected, this, [this, pLink] {
+        pLink->setSocketOption(QAbstractSocket::LowDelayOption, 1);
+        pLink->write("ZYDECK " + m_linkTarget.value(QStringLiteral("key")).toString().toLatin1() + ' ' +
+                deviceName().toUtf8().toHex() + '\n');
+    });
+    connect(pLink, &QTcpSocket::readyRead, this, [this, pLink] {
+        if (pLink != m_pLink) {
+            return;
+        }
+        m_linkBuffer += pLink->readAll();
+        for (int nl; (nl = m_linkBuffer.indexOf('\n')) >= 0;) {
+            const QByteArray line = m_linkBuffer.left(nl);
+            m_linkBuffer.remove(0, nl + 1);
+            linkLine(line);
+            if (pLink != m_pLink) {
+                return;
+            }
+        }
+    });
+    connect(pLink, &QTcpSocket::errorOccurred, this, [this, pLink] {
+        if (pLink == m_pLink) {
+            m_linkHost++;   // the next address next time
+            linkDrop(true);
+        }
+    });
+    connect(pLink, &QTcpSocket::disconnected, this, [this, pLink] {
+        if (pLink == m_pLink) {
+            linkDrop(true);
+        }
+    });
+    pLink->connectToHost(host, static_cast<quint16>(computer.value(QStringLiteral("port")).toInt()));
+    QTimer::singleShot(4000, pLink, [this, pLink] {
+        if (pLink == m_pLink && !m_linkUp) {
+            m_linkHost++;
+            linkDrop(true);
+        }
+    });
+    emitRemote();
+}
+
+void Hub::linkLine(const QByteArray& line) {
+    if (line.startsWith("M ")) {
+        m_linkParser.feed(QByteArray::fromHex(line.mid(2)), [this](const QByteArray& msg) { remoteMessage(msg, false); });
+    } else if (line.startsWith("J ")) {
+        const QJsonObject j = QJsonDocument::fromJson(line.mid(2)).object();
+        if (j.contains(QStringLiteral("n"))) {
+            applyName(j.value(QStringLiteral("s")).toBool(), j.value(QStringLiteral("i")).toInt(), j.value(QStringLiteral("n")));
+        }
+    } else if (line.startsWith("OK")) {
+        m_linkUp = true;
+        m_linkHost = 0;
+        m_linkSaved = m_linkTarget;
+        m_linkSaved.remove(QStringLiteral("host"));
+        saveRemote();
+        m_remoteLive = false;
+        m_remoteRxMs = m_clock.elapsed();
+        resendSubscriptions();   // to the mapping on ZyDeck Link's port (the durations bring the names)
+        emitRemote();
+    } else if (line.startsWith("NO")) {   // a wrong key: that computer forgot this device
+        m_linkSaved = {};
+        saveRemote();
+        linkDrop(false);
+    }
+}
+
+void Hub::linkDrop(bool retry) {
+    const bool wasUp = m_linkUp;
+    m_linkUp = false;
+    if (m_pLink) {
+        QTcpSocket* pLink = m_pLink;
+        m_pLink = nullptr;
+        pLink->disconnect(this);
+        pLink->abort();
+        pLink->deleteLater();
+    }
+    if (wasUp) {
+        m_remoteLive = false;
+        if (m_usbState == 2) {
+            resendSubscriptions();   // back on the cable
+        }
+    }
+    if (retry) {
+        m_helloMs = m_clock.elapsed();   // remoteTick tries again in a few seconds
+    }
+    if (m_controllerMode) {
+        emitRemote();
+    }
+}
+
+QString Hub::deviceName() const {
+#ifdef Q_OS_ANDROID
+    const QString model = QJniObject::getStaticObjectField("android/os/Build", "MODEL", "Ljava/lang/String;").toString();
+    if (!model.isEmpty()) {
+        return model;
+    }
+#endif
+    return QStringLiteral("ZyDeck");
+}
+
+void Hub::loadRemote() {
+    QFile f(QDir(m_pConfig->getSettingsPath()).filePath(kRemoteFile));
+    if (!f.open(QIODevice::ReadOnly)) {
+        return;
+    }
+    const QJsonObject j = QJsonDocument::fromJson(f.readAll()).object();
+    m_linkSaved = j.value(QStringLiteral("computer")).toObject();
+    if (j.value(QStringLiteral("on")).toBool()) {
+        QTimer::singleShot(0, this, [this] { setControllerMode(true); });
+    }
+}
+
+void Hub::saveRemote() const {
+    QSaveFile f(QDir(m_pConfig->getSettingsPath()).filePath(kRemoteFile));
+    if (f.open(QIODevice::WriteOnly)) {
+        f.write(QJsonDocument(QJsonObject{{"on", m_controllerMode}, {"computer", m_linkSaved}}).toJson());
+        f.commit();
     }
 }
 
 // ---- Mixxx -> pages -------------------------------------------------------------------------------
 
 void Hub::fromMixxx(const QByteArray& msg) {
+    if (!m_controllerMode) {   // in controller mode the pages show the computer's Mixxx, not this one
+        handleMixxx(msg);
+    }
+}
+
+void Hub::handleMixxx(const QByteArray& msg) {
     auto byte = [&msg](int i) { return static_cast<unsigned char>(msg[i]); };
     if (msg.size() == 7 && byte(0) == 0xF0 && byte(1) == 0x7D && byte(2) == kPing) {
         pong(byte(3) | byte(4) << 7 | byte(5) << 14, true);
@@ -1090,11 +1593,7 @@ void Hub::fromMixxx(const QByteArray& msg) {
     if (msg.size() >= 4 && byte(0) == 0xF0 && byte(1) == 0x7D &&
             (byte(2) == kValue || byte(2) == kHello)) {
         if (byte(2) == kHello) {   // the mapping (re)started: subscriptions must be made again
-            for (auto it = m_subscriptions.cbegin(); it != m_subscriptions.cend(); ++it) {
-                const int comma = it.key().indexOf(QLatin1Char(','));
-                sysex(QList<int>{kSubscribe, it.value()} +
-                        encodeName(it.key().left(comma), it.key().mid(comma + 1)));
-            }
+            resendSubscriptions();
             return;
         }
         const int end = msg.indexOf('\0', 3);
@@ -1104,6 +1603,13 @@ void Hub::fromMixxx(const QByteArray& msg) {
         const QString name = QString::fromLatin1(msg.mid(3, end - 3));
         const double value = decodeValue(msg.mid(end + 1, kValueBytes));
         m_controlValues.insert(name, value);
+        if (m_controllerMode && name.endsWith(QLatin1String("],duration"))) {
+            static const QRegularExpression slot(QStringLiteral(R"(^\[(Channel|Sampler)(\d+)\],)"));
+            const QRegularExpressionMatch m = slot.match(name);
+            if (m.hasMatch()) {
+                updateName(m.captured(1) == QLatin1String("Sampler"), m.captured(2).toInt() - 1, static_cast<int>(value * 1000));
+            }
+        }
         // ts: the hub's clock (ms) when Mixxx reported it, so pages can time positions without network jitter
         emitJson({{"t", "cv"}, {"k", name}, {"v", value}, {"ts", static_cast<double>(m_clock.elapsed())}});
         return;
@@ -1112,9 +1618,9 @@ void Hub::fromMixxx(const QByteArray& msg) {
         const int kind = byte(2), idx = byte(3), sub = byte(4);
         const int v = byte(5) | byte(6) << 7 | byte(7) << 14 | byte(8) << 21;
         if (kind == kSamplerLength && idx < kNumSamplers) {
-            updateName(true, idx);
+            updateName(true, idx, v);
         } else if (kind == kDeckLength && idx < kNumDecks) {
-            updateName(false, idx);
+            updateName(false, idx, v);
         } else if (kind == kHotcue && idx < kNumDecks && sub < 8 && m_decks[idx].cues[sub] != v) {
             m_decks[idx].cues[sub] = v;   // 0 = no cue, otherwise RGB colour + 1
             emitJson({{"t", "cue"}, {"d", idx}, {"k", sub}, {"v", v}});
@@ -1163,7 +1669,23 @@ void Hub::setDeckField(int deck, int& field, int value, const char* kind) {
     }
 }
 
-void Hub::updateName(bool sampler, int index) {
+void Hub::updateName(bool sampler, int index, int lengthMs) {
+    if (m_controllerMode) {
+        // Only the computer knows what's loaded: ZyDeck Link looks the length up in its Mixxx library (with
+        // no ZyDeck Link there, the pages show no names)
+        if (lengthMs <= 0) {
+            applyName(sampler, index, QJsonValue());
+            return;
+        }
+        const QByteArray ask = QJsonDocument(QJsonObject{{"s", sampler}, {"i", index}, {"ms", lengthMs}})
+                                       .toJson(QJsonDocument::Compact);
+        if (m_linkUp && m_pLink) {
+            m_pLink->write("J " + ask + '\n');
+        } else {
+            sendSysexText(kNameAsk, ask);
+        }
+        return;
+    }
     // The mapping reports a new track length when a deck or sampler loads or ejects a track; Mixxx knows
     // exactly what's loaded, so the page gets its title, artist and library id (for /waveform/<id>).
     const QString group = sampler ? QStringLiteral("[Sampler%1]").arg(index + 1)
@@ -1176,6 +1698,13 @@ void Hub::updateName(bool sampler, int index) {
             title = QFileInfo(pTrack->getLocation()).completeBaseName();
         }
         name = QJsonObject{{"t", title}, {"a", pTrack->getArtist()}, {"id", pTrack->getId().toVariant().toInt()}};
+    }
+    applyName(sampler, index, name);
+}
+
+void Hub::applyName(bool sampler, int index, const QJsonValue& name) {
+    if (index < 0 || index >= (sampler ? kNumSamplers : kNumDecks)) {
+        return;
     }
     QJsonValue& current = sampler ? m_samplerNames[index] : m_decks[index].name;
     if (current == name) {
@@ -1220,7 +1749,8 @@ QJsonObject Hub::snapshot() const {
                     {"sn", samplerNames},
                     {"decks", decks},
                     {"fx", fx},
-                    {"live", m_pController != nullptr},
+                    {"live", live()},
+                    {"remote", remoteStatus()},
                     {"cv", m_controlValues}}}};
 }
 
