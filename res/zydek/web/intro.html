@@ -255,8 +255,14 @@ function deckLayout() {
   return { sc, rot: [270, 90], pos: [[-(130 * sc + 14), 0], [130 * sc + 14, 0]] };
 }
 
+// The app shows this page before Android has finished laying it out: wait for the real screen size first.
+async function sized() {
+  for (let i = 0; i < 120 && (W() < 200 || H() < 200); i++) await new Promise(r => requestAnimationFrame(r));
+}
+
 async function intro() {
-  const s0 = startScale(), s1 = midScale(), L = deckLayout();
+  await sized();
+  const s0 = startScale();
   world.style.transform = T(s0, -SCREEN.dy * s0);
   // 1: the player UI builds from left to right, glitching on
   const uis = [...document.querySelectorAll(".ui")];
@@ -268,6 +274,7 @@ async function intro() {
   anim($(".prog .fill"), [{ width: "4%" }, { width: "30%" }], { duration: ms(3000), delay: ms(400) });
   await wait(ms(1900));
   // 2: zoom out: the gold frame comes into view (the brick is now at the screen)
+  const s1 = midScale(), L = deckLayout();   // measured again: the screen may have turned since
   anim(world, [{ transform: T(s0, -SCREEN.dy * s0) }, { transform: T(s1) }], { duration: ms(850), easing: "cubic-bezier(.5,0,.2,1)" });
   await wait(ms(950));
 
@@ -428,6 +435,7 @@ else logo();
 
 // After the first start: the logo (an open-reel deck, playing) until Mixxx is ready.
 async function logo() {
+  await sized();
   world.style.display = "none"; shadow.style.display = "none";
   const sc = Math.min(W(), H()) * .58 / 360;
   anim(decks[0], [{ opacity: 0, transform: D(0, 12, 0, sc * .9) }, { opacity: 1, transform: D(0, 0, 0, sc) }], { duration: 380, easing: "cubic-bezier(.2,.8,.3,1)" });
