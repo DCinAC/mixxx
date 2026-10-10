@@ -230,6 +230,9 @@
   .card .pick { display: flex; gap: 8px; }
   .card .pick select:first-child { flex: 1; min-width: 0; }
   .card .pick select.ch { width: 108px; flex: none; }
+  .card .segs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .card .segs button { flex: 1 1 60px; min-height: 40px; font-size: 13px; }
+  .card .segs button.on { border-color: var(--play); color: var(--play); }
   #a-warn { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.4;
     background: #3a2a00; border: 1px solid #a07800; color: #ffd75e; }
   #a-warn.on { display: block; }
@@ -439,6 +442,14 @@
       <div class="pick"><select id="a-phones"></select><select id="a-phones-ch" class="ch" aria-label="Headphones channels"></select></div>
       <div id="a-warn"></div>
       <div class="row2"><span id="a-info"></span><button id="a-apply">Apply</button></div>
+      <label>Audio buffer<small style="display:inline;margin-left:6px">smaller answers sooner; bigger if the sound breaks up</small></label>
+      <div class="segs" id="a-buf"></div>
+      <label>Latency compensation</label>
+      <div class="row2"><span id="a-lat">…</span><button id="a-measure">Measure again</button></div>
+      <div class="row2"><input type="range" id="a-off" min="-100" max="300" step="5" style="flex:1"><span id="a-off-v" style="flex:none;width:70px;text-align:right"></span></div>
+      <div class="hint">ZyDeck measures how late the sound comes out of the current output (Bluetooth adds a lot)
+        and draws the waveforms that much later, so they match what you hear. Fine-tune with the slider if the
+        beats still look early or late.</div>
       <div class="hint">"Android: follow the system" plays wherever Android sends music: Bluetooth or USB when connected,
         the speaker otherwise. Bluetooth adds a lot of delay: use wired or USB audio to mix.<br>
         Android plays to one device at a time, so main and headphones go on one device's channels: a USB interface
@@ -636,7 +647,9 @@ function connect() {
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if (m.t === "remote") return onRemote(m);
+    if (m.t === "lat") { LAT = m.s || 0; return; }
     if (m.init) {
+      LAT = m.init.lat || 0;
       if (m.init.remote) onRemote(m.init.remote);
       live = !!m.init.live;
       m.init.decks.forEach((x, i) => { if (!decks[i]) return; onDeckName(decks[i], x.n); decks[i].cueColors = x.cues.map(v => v ? v - 1 : null); });
@@ -830,11 +843,14 @@ function hubTime(ts, now) {   // ts on the hub's clock -> this page's clock
   return ts + clockSync.off;
 }
 function posSeed(d, p, v, now) { Object.assign(d, { pp: p, pt: now, pv: v, shown: undefined }); }
-function posModel(d, now) {
-  return d.pt === undefined ? d.pos || 0 : d.pp + d.pv * Math.max(0, Math.min((now - d.pt) / 1000, .25));
+// LAT: how far the sound runs behind Mixxx's play position (the output's measured latency, from the hub).
+// Positions are drawn that much earlier while playing, so the waveform matches what you hear.
+let LAT = 0;
+function posModel(d, now, lat = 0) {
+  return d.pt === undefined ? d.pos || 0 : d.pp + d.pv * Math.max(-.6, Math.min((now - d.pt) / 1000 - lat, .25));
 }
 function posAt(d, now) {   // what to draw now
-  const target = posModel(d, now);
+  const target = posModel(d, now, LAT);
   let shown = d.shown;
   const dir = d.pv > .05 ? 1 : d.pv < -.05 ? -1 : 0;
   if (shown === undefined || Math.abs(target - shown) > .25 || !dir) shown = target;
@@ -1299,9 +1315,34 @@ async function loadAudio() {
   $("#a-phones").innerHTML = opts(a.headphones, true);
   $("#a-main-ch").innerHTML = channelOptions($("#a-main").value, a.mainChannels);
   $("#a-phones-ch").innerHTML = channelOptions($("#a-phones").value, a.headphonesChannels);
-  $("#a-info").textContent = a.main ? `${a.latencyMs ? a.latencyMs.toFixed(1) + " ms buffer · " : ""}${a.api}` : "No output: Mixxx is silent";
+  $("#a-info").textContent = a.main ? `${a.latencyMs ? a.latencyMs.toFixed(1) + " ms buffer · " : ""}${a.api}` +
+    (a.dropouts ? ` · ${a.dropouts} dropouts` : "") : "No output: Mixxx is silent";
   audioWarn();
+  const BUFS = [[3, "5 ms"], [4, "11 ms"], [5, "21 ms"], [6, "43 ms"], [7, "85 ms"]];
+  $("#a-buf").innerHTML = "";
+  BUFS.forEach(([i, label]) => {
+    const b = h("button", i === a.buffer ? "on" : "", label);
+    b.addEventListener("click", async () => {
+      try { await api(`/api/audio/buffer?index=${i}`); toast(`Audio buffer ${label}`, "ok"); } catch (e) { toast(e.message, "bad"); }
+      loadAudio();
+    });
+    $("#a-buf").appendChild(b);
+  });
+  paintLatency(a);
 }
+function paintLatency(a) {
+  $("#a-lat").textContent = a.measuredMs >= 0
+    ? `Measured ${a.measuredMs} ms${a.route ? " on " + a.route : ""} · drawing ${a.totalMs} ms later`
+    : `Not measured yet · drawing ${a.totalMs} ms later (the buffer)`;
+  $("#a-off").value = a.offsetMs; $("#a-off-v").textContent = `${a.offsetMs > 0 ? "+" : ""}${a.offsetMs} ms`;
+}
+$("#a-off").addEventListener("input", () => { $("#a-off-v").textContent = `${+$("#a-off").value > 0 ? "+" : ""}${$("#a-off").value} ms`; });
+$("#a-off").addEventListener("change", async () => { try { paintLatency(await api(`/api/audio/latency?offset=${$("#a-off").value}`)); } catch {} });
+$("#a-measure").addEventListener("click", async () => {
+  $("#a-lat").textContent = "Measuring…";
+  await api("/api/audio/latency?measure=1").catch(() => {});
+  setTimeout(async () => { try { paintLatency(await api("/api/audio")); } catch {} }, 2500);
+});
 // A new device: main on its 1–2; headphones on the main's 3–4 when it has them, else 1–2 (shared, with the warning).
 $("#a-main").addEventListener("change", () => {
   $("#a-main-ch").innerHTML = channelOptions($("#a-main").value, "0,2"); audioWarn();

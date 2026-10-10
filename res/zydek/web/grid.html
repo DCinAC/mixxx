@@ -76,6 +76,7 @@
   </div>
 </div>
 <script>
+let LAT = 0;   // seconds the sound runs behind Mixxx (the hub measures it)
 const $ = s => document.querySelector(s);
 const params = new URLSearchParams(location.search);
 const GROUP = params.get("group") || "[PreviewDeck1]", TRACK = +params.get("track") || 0;
@@ -93,6 +94,8 @@ function connect() {
   ws.onopen = () => wsSend({ sub: ["playposition", "play", "duration", "rate_ratio", "file_bpm"].map(k => [GROUP, k, k === "playposition" ? 1 : 0]) });
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
+    if (m.init) LAT = m.init.lat || 0;
+    if (m.t === "lat") LAT = m.s || 0;
     if (m.t !== "cv" || !m.k.startsWith(GROUP + ",")) return;
     const k = m.k.slice(GROUP.length + 1), v = m.v;
     if (k === "playposition") { if (!dragging) { st.pos = v * st.dur; st.posAt = performance.now(); } }
@@ -134,7 +137,8 @@ const cv = $("#wave canvas"), g = cv.getContext("2d");
 function draw(now) {
   const dpr = devicePixelRatio || 1, r = cv.getBoundingClientRect(), W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
-  const pos = st.playing && !dragging ? st.pos + (now - st.posAt) / 1000 * st.ratio : st.pos;
+  // drawn LAT behind Mixxx's position while playing: where the sound you hear is (the output's latency)
+  const pos = st.playing && !dragging ? st.pos + ((now - st.posAt) / 1000 - LAT) * st.ratio : st.pos;
   const sec = ZOOMS[zi], pxs = W / sec, start = pos - sec / 2, mid = H / 2;
   g.clearRect(0, 0, W, H);
   g.fillStyle = "rgba(255,255,255,.25)"; g.fillRect(0, Math.floor(mid), W, Math.max(1, dpr * .6));

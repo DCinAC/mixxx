@@ -1552,11 +1552,14 @@ function hubTime(ts, now) {   // ts on the hub's clock -> this page's clock
   return ts + clockSync.off;
 }
 function posSeed(d, p, v, now) { Object.assign(d, { pp: p, pt: now, pv: v, shown: undefined }); }
-function posModel(d, now) {
-  return d.pt === undefined ? d.pos || 0 : d.pp + d.pv * Math.max(0, Math.min((now - d.pt) / 1000, .25));
+// LAT: how far the sound runs behind Mixxx's play position (the output's measured latency, from the hub).
+// Positions are drawn that much earlier while playing, so the waveform matches what you hear.
+let LAT = 0;
+function posModel(d, now, lat = 0) {
+  return d.pt === undefined ? d.pos || 0 : d.pp + d.pv * Math.max(-.6, Math.min((now - d.pt) / 1000 - lat, .25));
 }
 function posAt(d, now) {   // what to draw now
-  const target = posModel(d, now);
+  const target = posModel(d, now, LAT);
   let shown = d.shown;
   const dir = d.pv > .05 ? 1 : d.pv < -.05 ? -1 : 0;
   if (shown === undefined || Math.abs(target - shown) > .25 || !dir) shown = target;
@@ -2214,8 +2217,9 @@ function toast(text) {
 }
 
 function onMixxx(m) {
-  if (m.init) { if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); return; }
+  if (m.init) { LAT = m.init.lat || 0; if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); return; }
   if (m.t === "remote") return onRemote(m);
+  if (m.t === "lat") { LAT = m.s || 0; return; }
   if (!live) return;
   const d = m.d !== undefined ? decks[m.d] : null;
   switch (m.t) {

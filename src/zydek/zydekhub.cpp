@@ -58,6 +58,7 @@ constexpr int kLinkOffer = 0x61;   // computer -> device: {"name", "hosts": [...
 constexpr int kNameAsk = 0x62;     // device -> computer: {"s": sampler?, "i": index, "ms": track length}
 constexpr int kNameReply = 0x63;   // computer -> device: {"s", "i", "n": {t, a, id} or null}
 const QString kRemoteFile = QStringLiteral("zydek-controller-mode.json");
+const QString kAudioPrefsFile = QStringLiteral("zydek-audio.json");
 
 const QString kSettingsFile = QStringLiteral("zydek-controller-settings.json");
 const QString kSamplersFile = QStringLiteral("zydek-samplers.json");
@@ -221,6 +222,15 @@ void JNICALL jniMidiReceive(JNIEnv* env, jclass, jbyteArray data) {
     }
 }
 
+void JNICALL jniLatency(JNIEnv* env, jclass, jint ms, jstring route) {
+    const char* chars = env->GetStringUTFChars(route, nullptr);
+    const QString text = QString::fromUtf8(chars);
+    env->ReleaseStringUTFChars(route, chars);
+    if (Hub* pHub = s_pHub) {
+        QMetaObject::invokeMethod(pHub, [pHub, ms, text] { pHub->outputLatencyMeasured(ms, text); }, Qt::QueuedConnection);
+    }
+}
+
 void JNICALL jniMidiState(JNIEnv*, jclass, jint state) {
     if (Hub* pHub = s_pHub) {
         QMetaObject::invokeMethod(pHub, [pHub, state] { pHub->usbMidiState(state); }, Qt::QueuedConnection);
@@ -239,7 +249,18 @@ void Hub::start() {
     if (!env.registerNativeMethods("org/mixxx/ZydekMidi", methods, 2)) {
         qWarning() << "Zydek: no USB MIDI for controller mode";
     }
+    const JNINativeMethod audioMethods[] = {
+            {"nativeLatency", "(ILjava/lang/String;)V", reinterpret_cast<void*>(jniLatency)}};
+    if (env.registerNativeMethods("org/mixxx/ZydekAudio", audioMethods, 1)) {
+        QJniObject::callStaticMethod<void>("org/mixxx/ZydekAudio", "measureNow", "()V");
+    }
 #endif
+    {
+        QFile f(QDir(m_pConfig->getSettingsPath()).filePath(kAudioPrefsFile));
+        if (f.open(QIODevice::ReadOnly)) {
+            m_latencyOffsetMs = QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("offsetMs")).toInt();
+        }
+    }
     loadRemote();
     m_lastSessionTimer.setSingleShot(true);
     m_lastSessionTimer.setInterval(2000);
@@ -302,8 +323,27 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     if (path == QLatin1String("/api/audio")) {
         return json(audioStatus());
     }
+    if (path == QLatin1String("/api/audio/buffer")) {   // ?index=3..7
+        return result(setAudioBuffer(arg("index").toInt()));
+    }
+    if (path == QLatin1String("/api/audio/latency")) {   // ?offset=ms (fine-tune) · ?measure=1
+        if (query.contains(QStringLiteral("offset"))) {
+            m_latencyOffsetMs = std::clamp(arg("offset").toInt(), -200, 400);
+            saveAudioPrefs();
+            emitLatency();
+        }
+#ifdef Q_OS_ANDROID
+        if (arg("measure") == QLatin1String("1")) {
+            QJniObject::callStaticMethod<void>("org/mixxx/ZydekAudio", "measureNow", "()V");
+        }
+#endif
+        return json(audioStatus());
+    }
     if (path == QLatin1String("/api/audio/set")) {   // ?main=<output name>&headphones=<output name, or empty>
         const QJsonObject result = setAudio(query);
+#ifdef Q_OS_ANDROID
+        QJniObject::callStaticMethod<void>("org/mixxx/ZydekAudio", "measureNow", "()V");   // a new route
+#endif
         HttpServer::Response r = json(result);
         if (!result.value(QStringLiteral("ok")).toBool()) {
             r.status = 409;
@@ -904,6 +944,7 @@ QJsonObject Hub::audioStatus() const {
                     }
                 }
                 out = {{"ok", true},
+                        {"buffer", static_cast<int>(config.getAudioBufferSizeIndex())},
                         {"api", config.getAPI()},
                         {"devices", list},
                         {"main", main},
@@ -914,7 +955,70 @@ QJsonObject Hub::audioStatus() const {
             Qt::BlockingQueuedConnection);
     out.insert(QStringLiteral("latencyMs"),
             ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms"))));
+    out.insert(QStringLiteral("measuredMs"), m_measuredLatencyMs);
+    out.insert(QStringLiteral("route"), m_latencyRoute);
+    out.insert(QStringLiteral("offsetMs"), m_latencyOffsetMs);
+    out.insert(QStringLiteral("totalMs"), std::round(latencySeconds() * 1000));
+    out.insert(QStringLiteral("dropouts"),
+            ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("audio_latency_overload_count"))));
     return out;
+}
+
+/// Mixxx's audio buffer: 3 = 5.3 ms, 4 = 10.7, 5 = 21.3, 6 = 42.7, 7 = 85.3 (at 48 kHz). Smaller answers sooner
+/// but drops out if the phone can't keep up.
+QJsonObject Hub::setAudioBuffer(int index) {
+    const std::shared_ptr<SoundManager> pManager = mixxx::qml::QmlSoundManagerProxy::registeredManager();
+    if (!pManager || index < 1 || index > 7) {
+        return {{"ok", false}, {"error", "No such buffer size"}};
+    }
+    QJsonObject out;
+    QMetaObject::invokeMethod(
+            pManager.get(),
+            [&] {
+                SoundManagerConfig config = pManager->getConfig();
+                config.setAudioBufferSizeIndex(static_cast<unsigned int>(index));
+                const SoundDeviceStatus status = pManager->setConfig(config);
+                out = status == SoundDeviceStatus::Ok
+                        ? QJsonObject{{"ok", true}}
+                        : QJsonObject{{"ok", false}, {"error", pManager->getLastErrorMessage(status)}};
+            },
+            Qt::BlockingQueuedConnection);
+#ifdef Q_OS_ANDROID
+    QJniObject::callStaticMethod<void>("org/mixxx/ZydekAudio", "measureNow", "()V");
+#endif
+    emitLatency();
+    return out;
+}
+
+void Hub::outputLatencyMeasured(int ms, const QString& route) {
+    m_measuredLatencyMs = ms;
+    m_latencyRoute = route;
+    emitLatency();
+}
+
+/// How far behind Mixxx's reported play positions the sound is: the output's measured latency (which
+/// covers a buffer like Mixxx's) or, until it's measured, Mixxx's buffer; plus the user's offset. Nothing
+/// in controller mode: the sound comes from the computer.
+double Hub::latencySeconds() const {
+    if (m_controllerMode) {
+        return 0;
+    }
+    const double base = m_measuredLatencyMs >= 0
+            ? m_measuredLatencyMs
+            : ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms")));
+    return std::max(0.0, base + m_latencyOffsetMs) / 1000.0;
+}
+
+void Hub::emitLatency() {
+    emitJson({{"t", "lat"}, {"s", latencySeconds()}});
+}
+
+void Hub::saveAudioPrefs() const {
+    QSaveFile f(QDir(m_pConfig->getSettingsPath()).filePath(kAudioPrefsFile));
+    if (f.open(QIODevice::WriteOnly)) {
+        f.write(QJsonDocument(QJsonObject{{"offsetMs", m_latencyOffsetMs}}).toJson());
+        f.commit();
+    }
 }
 
 QJsonObject Hub::setAudio(const HttpServer::Query& query) {
@@ -1758,6 +1862,7 @@ QJsonObject Hub::snapshot() const {
                     {"fx", fx},
                     {"live", live()},
                     {"remote", remoteStatus()},
+                    {"lat", latencySeconds()},
                     {"cv", m_controlValues}}}};
 }
 

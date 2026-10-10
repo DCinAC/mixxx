@@ -51,6 +51,8 @@ class Hub : public QObject {
     /// (0 unplugged, 1 plugged in but not set to MIDI, 2 ready), from ZydekMidi.java.
     void usbMidiReceived(const QByteArray& data);
     void usbMidiState(int state);
+    /// The output's measured latency (ZydekAudio.java), for drawing the waveforms in time with the sound.
+    void outputLatencyMeasured(int ms, const QString& route);
 
   private:
     struct Deck {
@@ -80,6 +82,14 @@ class Hub : public QObject {
     // audio outputs (the phone page's settings)
     QJsonObject audioStatus() const;
     QJsonObject setAudio(const HttpServer::Query& query);
+    QJsonObject setAudioBuffer(int index);
+    // Output latency compensation: measured (or Mixxx's buffer until then) + the user's fine-tune offset
+    int m_measuredLatencyMs = -1;
+    QString m_latencyRoute;
+    int m_latencyOffsetMs = 0;
+    double latencySeconds() const;
+    void emitLatency();
+    void saveAudioPrefs() const;
     QString lanUrl() const;
     /// The phone's addresses a tablet can reach: [{label: "Wi-Fi" | "Hotspot", url}], Wi-Fi first.
     QJsonArray lanUrls() const;

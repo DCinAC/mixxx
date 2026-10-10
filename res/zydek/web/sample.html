@@ -64,6 +64,7 @@
   </div>
 </div>
 <script>
+let LAT = 0;   // seconds the sound runs behind Mixxx (the hub measures it)
 const $ = s => document.querySelector(s);
 const TRACK = +new URLSearchParams(location.search).get("track") || 0, GROUP = "[PreviewDeck1]";
 const STEMS = ["Drums", "Bass", "Other", "Vocals"];   // stem 1..4 of ZyDeck's stem files
@@ -84,6 +85,8 @@ function connect() {
   ws.onopen = () => wsSend({ sub: ["playposition", "play", "duration", "rate_ratio", "track_samples", "loop_enabled"].map(k => [GROUP, k, k === "playposition" ? 1 : 0]) });
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
+    if (m.init) LAT = m.init.lat || 0;
+    if (m.t === "lat") LAT = m.s || 0;
     if (m.t !== "cv" || !m.k.startsWith(GROUP + ",")) return;
     const k = m.k.slice(GROUP.length + 1), v = m.v;
     if (k === "playposition") { if (!dragging) { st.pos = v * st.dur; st.posAt = performance.now(); } }
@@ -181,7 +184,8 @@ const cv = $("#wave canvas"), g = cv.getContext("2d");
 function draw(now) {
   const dpr = devicePixelRatio || 1, rc = cv.getBoundingClientRect(), W = Math.round(rc.width * dpr), H = Math.round(rc.height * dpr);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
-  const pos = st.playing && !dragging ? st.pos + (now - st.posAt) / 1000 * st.ratio : st.pos;
+  // drawn LAT behind Mixxx's position while playing: where the sound you hear is (the output's latency)
+  const pos = st.playing && !dragging ? st.pos + ((now - st.posAt) / 1000 - LAT) * st.ratio : st.pos;
   const sec = ZOOMS[zi], pxs = W / sec, start = pos - sec / 2, mid = H / 2;
   g.clearRect(0, 0, W, H);
   const r = range();
