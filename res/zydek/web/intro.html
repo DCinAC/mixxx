@@ -228,7 +228,9 @@ const EYE = 35, DROP = 180, HOP = 60;         // cm; HOP: heights for the shadow
 // falls and bounces happen in gravity divided by SLOW², which stretches them in time without changing their shape.
 const SLOW = 2;
 const ms = x => x * SLOW;
-const G = 981 / (SLOW * SLOW);            // cm/s²
+const G = 981 / (SLOW * SLOW);            // cm/s², for the bounces
+const G_FALL = 981 * 1.6;                 // the drop itself: fast, not slowed down
+const REBOUND = 35;                       // cm: how high it bounces back up (where it turns into the deck)
 const E = .62;                                // how much of its speed a thing keeps when it bounces
 const persp = y => EYE / (EYE + DROP - y);
 const fallMs = h => Math.sqrt(2 * h / G) * 1000;
@@ -245,7 +247,7 @@ const deckShadow = (y, sc) => `drop-shadow(${(4 + y * .5) * sc}px ${(8 + y * .9)
 // Where the two decks land: stacked in portrait, side by side in landscape, their heads facing each other.
 function deckLayout() {
   if (H() >= W()) {
-    const sc = Math.min(.92 * W() / 360, (.86 * H() / 2 - 10) / 260);
+    const sc = Math.min(.86 * W() / 360, (.86 * H() / 2 - 10) / 260);
     return { sc, rot: [360, 180], pos: [[0, -(130 * sc + 12)], [0, 130 * sc + 12]] };
   }
   const sc = Math.min(.9 * H() / 360, (.86 * W() / 2 - 10) / 260);
@@ -278,6 +280,7 @@ async function intro() {
   await wait(titleDone);
   const s1 = midScale(), L = deckLayout();   // measured again: the screen may have turned since
   await dropAndBounce(L, s1, s0, uiDone - titleDone);
+  await cardDraw(L);
   decks.forEach((d, i) => d.querySelector("text").setAttribute("transform", `rotate(${-L.rot[i]} 20 20)`));   // the numbers stay upright
   return ready ? outro(L) : play(L);   // the decks only perform while Mixxx is still loading
 }
@@ -287,8 +290,8 @@ async function intro() {
 // lands and bounces up as two decks, which turn to face each other in the air and bounce to a stop.
 // Real bounces: falling at G, each one keeping E of the speed; squashed for a moment on every landing.
 function flights(h0) {   // [{dur, v}] in s and cm/s: the fall from h0 cm up, then one flight per bounce
-  const out = [{ dur: Math.sqrt(2 * h0 / G), v: 0, h0 }];
-  let v = Math.sqrt(2 * G * h0) * E;
+  const out = [{ dur: Math.sqrt(2 * h0 / G_FALL), v: 0, h0 }];
+  let v = Math.sqrt(2 * G * REBOUND);
   while (v > 40) { out.push({ dur: 2 * v / G, v, h0: 0 }); v *= E; }
   return out;
 }
@@ -319,7 +322,7 @@ function dropAndBounce(L, s1, s0, spinDelayMs) {
       let seg = 0;
       while (seg + 1 < segs.length && t >= starts[seg + 1]) seg++;
       const tau = t - starts[seg], f = segs[seg];
-      const y = seg === 0 ? y0 - G * tau * tau / 2 : Math.max(0, f.v * tau - G * tau * tau / 2);
+      const y = seg === 0 ? y0 - G_FALL * tau * tau / 2 : Math.max(0, f.v * tau - G * tau * tau / 2);
       // squash and stretch around each landing, harder for the faster ones
       let sx = 1, sy = 1;
       for (let k = 1; k <= segs.length; k++) {
@@ -330,11 +333,8 @@ function dropAndBounce(L, s1, s0, spinDelayMs) {
       // into a deck while edge-on, and at the top of the bounce the deck splits in two, which drift apart, turn to
       // face each other and grow to full size by the time they land
       const spinP = seg >= 1 ? Math.min(1, (t - starts[1]) / (segs[1].dur * .55)) : 0, spin = 720 * (1 - (1 - spinP) ** 3);
-      const tSplit = starts[1] + segs[1].dur / 2, splitSpan = segs[1].dur / 2 + (segs[2] ? segs[2].dur : 0);
-      const q = t < tSplit ? 0 : ease(Math.min(1, (t - tSplit) / splitSpan)), k = single + (1 - single) * q;
       if (seg !== lastSeg) {   // a landing: a ripple on the ground where it hit
-        if (seg === 1) ripple(0, 0, 300 * brickAt(0) * 1.1);
-        else L.pos.forEach(p => ripple(p[0] * q, p[1] * q, 360 * deckAt(0, k) * .9 * Math.pow(.8, seg - 2)));
+        ripple(0, 0, seg === 1 ? 300 * brickAt(0) * 1.1 : 360 * deckAt(0, 1) * .9 * Math.pow(.8, seg - 2));
         lastSeg = seg;
       }
       if (seg === 0) {
@@ -357,26 +357,31 @@ function dropAndBounce(L, s1, s0, spinDelayMs) {
           decks[0].style.opacity = 1;
         }
       }
-      if (morphAt !== null && t < tSplit) {   // one deck, still spinning, turning to 180°
+      if (morphAt !== null) {   // the deck: still spinning as it rises, turning to 180°, landing full size
         const r = 70 + 110 * ease(spinP);
-        decks[0].style.transform = D(0, 0, r, deckAt(y, single) * sx, deckAt(y, single) * sy, spin);
-        decks[0].style.filter = deckShadow(y, deckAt(0, single));
-      }
-      if (t >= tSplit) {
-        decks.forEach((d, i) => {
-          d.style.opacity = 1;
-          d.style.transform = D(L.pos[i][0] * q, L.pos[i][1] * q, 180 + (L.rot[i] - 180) * q, deckAt(y, k) * sx, deckAt(y, k) * sy, spin);
-          d.style.filter = deckShadow(y, deckAt(0, k));
-        });
+        decks[0].style.transform = D(0, 0, r, deckAt(y, 1) * sx, deckAt(y, 1) * sy, spin);
+        decks[0].style.filter = deckShadow(y, deckAt(0, 1));
       }
       if (t < total && !leaving) requestAnimationFrame(frame);
       else {
-        decks.forEach((d, i) => { d.style.opacity = 1; d.style.transform = D(...L.pos[i], L.rot[i], L.sc); d.style.filter = deckShadow(0, L.sc); });
+        decks[0].style.opacity = 1; decks[0].style.transform = D(0, 0, 180, L.sc); decks[0].style.filter = deckShadow(0, L.sc);
         done();
       }
     };
     requestAnimationFrame(frame);
   });
+}
+
+// 4b: the second deck comes out from under the first, like drawing a card; both slide to their places
+async function cardDraw(L) {
+  decks[0].style.zIndex = 2; decks[1].style.zIndex = 1;
+  Object.assign(decks[1].style, { opacity: 1, transform: D(0, 0, 180, L.sc), filter: deckShadow(0, L.sc) });
+  const t = ms(320);
+  anim(decks[0], [{ transform: D(0, 0, 180, L.sc) }, { transform: D(...L.pos[0], L.rot[0], L.sc) }],
+    { duration: t, easing: "cubic-bezier(.2,.9,.3,1.12)" });
+  anim(decks[1], [{ transform: D(0, 0, 180, L.sc * .97) }, { transform: D(L.pos[1][0] * 1.06, L.pos[1][1] * 1.06, L.rot[1], L.sc), offset: .72 },
+    { transform: D(...L.pos[1], L.rot[1], L.sc) }], { duration: t * 1.2, delay: ms(50), easing: "cubic-bezier(.25,.8,.3,1)" });
+  await wait(t * 1.2 + ms(80));
 }
 
 // 5: deck 1 plays, deck 2 joins in, both at normal speed; then deck 2 scratches a little (about 30° of the reel)
