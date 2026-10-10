@@ -399,14 +399,7 @@ SoundDeviceStatus SoundDevicePortAudio::open(bool isClkRefDevice, int syncBuffer
     }
 
 #ifdef PA_USE_ALSA
-    // Zydek: on Android too, so one output on channel 1 or 2 alone plays on that side only (split cue)
-    // rather than as a mono stream on both.
-#ifdef __ANDROID__
-    const bool openInStereo = true;
-#else
-    const bool openInStereo = m_deviceTypeId == paALSA;
-#endif
-    if (openInStereo) {
+    if (m_deviceTypeId == paALSA) {
         qInfo() << "Enabling ALSA real-time scheduling";
         PaAlsa_EnableRealtimeScheduling(pStream, 1);
     }
