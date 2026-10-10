@@ -112,6 +112,30 @@
     font: 700 20px/1 Georgia, "Times New Roman", serif; letter-spacing: .3em; text-indent: .3em; color: #e8e8e8; }
   #wait { position: fixed; left: 0; right: 0; bottom: 9vh; text-align: center; font: 500 13px/1.4 system-ui, sans-serif; color: #6d6d6d;
     opacity: 0; transition: opacity .4s; }
+  /* ---- "Gold leaf" intro (gild): a clay brick → the gold brick → tape → decks → the app ---- */
+  #gild { position: fixed; inset: 0; display: none; }
+  #gild .c { position: absolute; left: 50%; top: 50%; }
+  #g-brick, #g-pwrap { transform-origin: 50% 50%; }
+  #g-brick svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  #g-pwrap { overflow: visible; }
+  #g-player { position: absolute; left: 50%; top: 50%; width: 300px; height: 524px; margin: -262px 0 0 -150px; border-radius: 22px;
+    box-shadow: inset 0 0 0 1.5px rgba(255,246,210,.7), inset 0 0 0 3px rgba(130,92,25,.5), 0 18px 40px rgba(0,0,0,.6); }
+  #g-player .glass { position: absolute; inset: 7px; border-radius: 16px; overflow: hidden;
+    background: linear-gradient(160deg, #141414 0%, #050505 45%, #0b0b0b 100%); }
+  #g-screen { position: absolute; left: 19px; top: 43px; width: 248px; height: 400px; border-radius: 4px; overflow: hidden;
+    background: linear-gradient(180deg, #171717, #070707); }
+  #g-screen b { position: absolute; left: 0; right: 0; top: 70px; text-align: center; opacity: 0;
+    font: 900 150px/1 "Noto Serif CJK TC", "Noto Serif CJK SC", "Source Han Serif", serif; color: #fff;
+    text-shadow: 3px 0 rgba(255,0,140,.75), -3px 0 rgba(1,205,254,.75), 0 0 20px rgba(255,113,206,.8); }
+  #g-screen canvas { position: absolute; left: 14px; top: 270px; width: 220px; height: 70px; opacity: 0; }
+  #g-shine { position: absolute; top: -30%; bottom: -30%; width: 34%; left: -40%; pointer-events: none; mix-blend-mode: screen;
+    transform: skewX(-18deg);
+    background: linear-gradient(90deg, transparent, rgba(255,226,140,.0) 10%, rgba(255,236,170,.85) 45%, #fff 50%,
+      rgba(255,214,110,.85) 55%, transparent 90%); }
+  .dust { position: absolute; left: 50%; top: 50%; border-radius: 50%; pointer-events: none; }
+  #g-tape { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  .g-strip { position: absolute; left: 50%; top: 50%; height: 12px; border-radius: 3px; opacity: 0;
+    background: repeating-linear-gradient(90deg, #5a3a1c 0 6px, #6b4524 6px 12px); }
   #fade { position: fixed; inset: 0; background: var(--bg); opacity: 0; pointer-events: none; }
 </style>
 </head>
@@ -153,6 +177,17 @@
 </div>
 <div id="logoName">ZYDECK</div>
 <div id="wait">Starting Mixxx…</div>
+<div id="gild">
+  <div class="c" id="g-brick"></div>
+  <div class="c" id="g-pwrap"><div id="g-player" class="gold"><div class="glass">
+    <div class="brand">ZYDECK</div>
+    <div id="g-screen"><b>磚</b><canvas width="440" height="140"></canvas></div>
+    <div class="mark">磚</div>
+  </div></div><div id="g-shine"></div></div>
+  <svg id="g-tape"><path id="g-tape0" fill="none" stroke="#4a2f19" stroke-width="5" stroke-linecap="round"/>
+    <path id="g-tape1" fill="none" stroke="#4a2f19" stroke-width="5" stroke-linecap="round"/></svg>
+  <div class="g-strip" id="g-strip0"></div><div class="g-strip" id="g-strip1"></div>
+</div>
 <div id="fade"></div>
 <script>
 const $ = s => document.querySelector(s);
@@ -162,6 +197,10 @@ const QUICK = location.hash === "#quick" || window.ZYDEK_QUICK;
 const INTRO_FULL_DEFAULT = true;   // RELEASE: false. On while we're testing the intro
 const stored = k => { try { const v = localStorage.getItem("zphone." + k); return v == null ? null : JSON.parse(v); } catch { return null; } };
 const FULL = !stored("introSeen") || (stored("introFull") ?? INTRO_FULL_DEFAULT);
+// Which intro: "gild" (Gold leaf: a clay brick turns into the gold one, its waveform becomes the decks' tape) or
+// "drop" (the gold brick falls into the screen and bounces up as the decks). Settings > Start-up.
+const INTRO_STYLE_DEFAULT = "gild";   // RELEASE: pick one
+const STYLE = stored("introStyle") || INTRO_STYLE_DEFAULT;
 try { localStorage.setItem("zphone.introSeen", "true"); } catch {}
 const params = new URLSearchParams(location.search);
 let ready = params.has("ready"), skipping = false, leaving = false;
@@ -454,8 +493,161 @@ addEventListener("pointerdown", () => {
 if (QUICK) {   // after an error: just wait for the server
   $("#stage").style.display = "none"; $("#wait").style.opacity = 1; $("#wait").textContent = "Waiting for Mixxx…";
   (function check() { if (ready) location.replace("/phone"); else setTimeout(check, 300); })();
-} else if (FULL) intro();
+} else if (FULL) (STYLE === "drop" ? intro() : gild());
 else logo();
+
+// =========================================================================================================
+// "Gold leaf" (gild): one continuous move, every step turning into the next by its shape, at real speed:
+//   0.0  a red clay brick (BS EN 771-1, maker's stamp ZYDECK in the frog) drops into the screen: thud, dust
+//   0.6  gold leaf sweeps across it: it's the gold brick now (金磚), lying on its side, and stands up; 磚 on screen
+//   1.4  a waveform plays on its screen, then peels off the glass as tape, streaming out to both sides
+//   2.1  the decks build round the tape (heads facing); the gold brick sinks away
+//   3.0  one beat: deck 2 scratches (more of the set while Mixxx is still loading)
+//   3.6  each deck's tape pulls tight and slides up to where the app shows the decks; the app takes over
+// =========================================================================================================
+function brickSvg() {
+  const speck = Array.from({ length: 70 }, () => {
+    const x = 8 + Math.random() * 414, y = 8 + Math.random() * 189, r = .6 + Math.random() * 1.4;
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${Math.random() < .5 ? "#e88a6e" : "#6a1c10"}" opacity=".55"/>`;
+  }).join("");
+  return `<svg viewBox="0 0 430 205"><defs>
+      <linearGradient id="gbk" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d95a3c"/><stop offset=".55" stop-color="#b13b24"/>
+        <stop offset="1" stop-color="#8a2919"/></linearGradient>
+      <linearGradient id="gfr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6e1d11"/><stop offset="1" stop-color="#a5361f"/></linearGradient></defs>
+    <rect x="0" y="0" width="430" height="205" rx="8" fill="url(#gbk)"/>${speck}
+    <rect x="1.5" y="1.5" width="427" height="202" rx="7" fill="none" stroke="#f0a088" stroke-opacity=".45" stroke-width="3"/>
+    <rect x="95" y="52" width="240" height="101" rx="16" fill="url(#gfr)"/>
+    <rect x="95" y="52" width="240" height="101" rx="16" fill="none" stroke="#4d1209" stroke-opacity=".6" stroke-width="3"/>
+    <text x="215" y="118" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="38" font-weight="700"
+      letter-spacing="7" fill="#e07a5e" opacity=".55">ZYDECK</text>
+    <text x="215" y="116" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="38" font-weight="700"
+      letter-spacing="7" fill="#4a1209">ZYDECK</text>
+    <text x="215" y="142" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" letter-spacing="3" fill="#4a1209"
+      opacity=".7">BS EN 771-1</text></svg>`;
+}
+
+async function gild() {
+  await sized();
+  world.style.display = "none"; shadow.style.display = "none";
+  const g = $("#gild"); g.style.display = "block";
+  const L = deckLayout();
+  const bw = Math.min(W() * .66, 440), bh = bw * 205 / 430;
+  const brick = $("#g-brick"), pwrap = $("#g-pwrap"), player = $("#g-player");
+  Object.assign(brick.style, { width: bw + "px", height: bh + "px", margin: `${-bh / 2}px 0 0 ${-bw / 2}px` });
+  brick.innerHTML = brickSvg();
+  // 1: the brick drops in, accelerating, and lands with a thud
+  anim(brick, [{ transform: "scale(3.4)", opacity: 0 }, { transform: "scale(2.6)", opacity: 1, offset: .15 }, { transform: "scale(1)", opacity: 1 }],
+    { duration: 430, easing: "cubic-bezier(.55,0,.9,.4)" });
+  await wait(430);
+  anim(brick, [{ transform: "scale(1.09, .88)" }, { transform: "scale(.97, 1.04)" }, { transform: "scale(1)" }], { duration: 220, easing: "ease-out" });
+  anim(g, [{ transform: "translate(0,0)" }, { transform: "translate(-3px, 2px)" }, { transform: "translate(3px,-2px)" }, { transform: "translate(-2px,1px)" },
+    { transform: "translate(0,0)" }], { duration: 180, easing: "steps(4)" });
+  for (let i = 0; i < 18; i++) {   // dust, kicked out along the ground
+    const d = document.createElement("i"), a = Math.random() * Math.PI * 2, r0 = .5 + Math.random() * .1, sz = 3 + Math.random() * 5;
+    d.className = "dust";
+    const x0 = Math.cos(a) * bw * r0, y0 = Math.sin(a) * bh * r0, out = 30 + Math.random() * 60;
+    Object.assign(d.style, { width: sz + "px", height: sz + "px", margin: `${-sz / 2}px 0 0 ${-sz / 2}px`,
+      background: ["#ff71ce", "#01cdfe", "#f3e6dc", "#d9714f"][i % 4] });
+    g.appendChild(d);
+    d.animate([{ transform: `translate(${x0}px, ${y0}px)`, opacity: .9 },
+      { transform: `translate(${x0 + Math.cos(a) * out}px, ${y0 + Math.sin(a) * out}px) scale(.3)`, opacity: 0 }],
+      { duration: 520 + Math.random() * 260, easing: "cubic-bezier(.1,.7,.3,1)" }).onfinish = () => d.remove();
+  }
+  await wait(170);
+
+  // 2: gold leaf sweeps across: the clay brick becomes the gold brick (lying on its side), which then stands up
+  const ps = bw / 524;                      // the player lying on its side: as long as the brick
+  const pW = bw, pH = 300 * ps;
+  Object.assign(pwrap.style, { width: pW + "px", height: Math.max(pH, bh) + "px", margin: `${-Math.max(pH, bh) / 2}px 0 0 ${-pW / 2}px` });
+  player.style.transform = `rotate(-90deg) scale(${ps})`;
+  const sweep = 520, ease = "cubic-bezier(.45,0,.35,1)";
+  const reveal = anim(pwrap, [{ clipPath: "inset(-20% 100% -20% -20%)" }, { clipPath: "inset(-20% -20% -20% -20%)" }], { duration: sweep, easing: ease });
+  anim(brick, [{ clipPath: "inset(-5% -5% -5% 0%)" }, { clipPath: "inset(-5% -5% -5% 100%)" }], { duration: sweep, easing: ease });
+  anim($("#g-shine"), [{ left: "-40%", opacity: 1 }, { left: "90%", opacity: 1, offset: .85 }, { left: "110%", opacity: 0 }], { duration: sweep, easing: ease });
+  await wait(sweep + 60);
+  brick.style.display = "none";
+  reveal.cancel();   // no clipping once it's all gold: it's about to grow past the brick's outline
+  const ps2 = Math.min(.6 * H() / 524, .66 * W() / 300);
+  anim(player, [{ transform: `rotate(-90deg) scale(${ps})` }, { transform: `rotate(6deg) scale(${ps2 * 1.04})`, offset: .75 },
+    { transform: `rotate(0deg) scale(${ps2})` }], { duration: 480, easing: "cubic-bezier(.3,.7,.3,1)" });
+  anim($("#g-screen b"), [{ opacity: 0, transform: "scale(.85)" }, { opacity: 1, transform: "scale(1)" }], { duration: 300, delay: 260, easing: "ease-out" });
+  await wait(560);
+
+  // 3: a waveform plays on its screen, then peels off the glass as tape
+  const cv = $("#g-screen canvas"), cg = cv.getContext("2d"), bars = Array.from({ length: 400 }, (_, i) =>
+    .25 + .75 * Math.abs(Math.sin(i * .37) * Math.cos(i * .11)) * (i % 8 < 2 ? 1 : .7));
+  let wfOn = true, wfX = 0;
+  const grad = cg.createLinearGradient(0, 0, 440, 0); grad.addColorStop(0, "#ff71ce"); grad.addColorStop(1, "#01cdfe");
+  (function wf() {
+    cg.clearRect(0, 0, 440, 140); cg.fillStyle = grad;
+    for (let x = 0; x < 110; x++) { const h = bars[(x + Math.floor(wfX)) % bars.length] * 64; cg.fillRect(x * 4, 70 - h, 3, h * 2); }
+    wfX += .9;
+    if (wfOn) requestAnimationFrame(wf);
+  })();
+  anim(cv, [{ opacity: 0 }, { opacity: 1 }], { duration: 200 });
+  await wait(420);
+  // the tape: from the waveform on the screen out to where each deck's tape will run
+  const r = cv.getBoundingClientRect(), x0 = r.left + r.width / 2 - W() / 2, y0 = r.top + r.height / 2 - H() / 2;
+  const tapeAt = i => {   // the middle of deck i's tape path (its local 180, 212), on screen relative to the centre
+    const a = L.rot[i] * Math.PI / 180, lx = 0, ly = 82 * L.sc;
+    return [L.pos[i][0] + lx * Math.cos(a) - ly * Math.sin(a), L.pos[i][1] + lx * Math.sin(a) + ly * Math.cos(a)];
+  };
+  const svgT = $("#g-tape");
+  svgT.setAttribute("viewBox", `${-W() / 2} ${-H() / 2} ${W()} ${H()}`);
+  [0, 1].forEach(i => {
+    const [x1, y1] = tapeAt(i), side = i ? 1 : -1, p = $("#g-tape" + i);
+    // out to the side first, then round to the deck's tape (like tape spilling off the glass)
+    p.setAttribute("d", `M${x0} ${y0} C ${x0 + side * W() * .42} ${y0 + (y1 - y0) * .1}, ${side * W() * .46} ${y1}, ${x1} ${y1}`);
+    const len = p.getTotalLength();
+    p.style.strokeDasharray = `${len}`;
+    anim(p, [{ strokeDashoffset: len }, { strokeDashoffset: 0 }], { duration: 600, delay: i * 60, easing: "cubic-bezier(.3,.6,.3,1)" });
+  });
+  await wait(420);
+
+  // 4: the decks build round the tape; the gold brick sinks away
+  wfOn = false;
+  anim(pwrap, [{ transform: "scale(1)", opacity: 1 }, { transform: "scale(.55)", opacity: 0 }], { duration: 520, easing: "cubic-bezier(.5,0,.8,.5)" });
+  decks.forEach((d, i) => {
+    d.querySelector("text").setAttribute("transform", `rotate(${-L.rot[i]} 20 20)`);
+    anim(d, [{ opacity: 0, transform: D(...L.pos[i], L.rot[i], L.sc * .86) }, { opacity: 1, transform: D(...L.pos[i], L.rot[i], L.sc) }],
+      { duration: 480, delay: 120 + i * 90, easing: "cubic-bezier(.2,.8,.3,1.1)" });
+    d.querySelectorAll(".spin").forEach(r => anim(r, [{ transform: "rotate(-260deg)" }, { transform: "rotate(0deg)" }],
+      { duration: 700, delay: 120 + i * 90, easing: "cubic-bezier(.1,.6,.3,1)" }));
+    anim($("#g-tape" + i), [{ opacity: 1 }, { opacity: 0 }], { duration: 300, delay: 500 });
+  });
+  await wait(900);
+
+  // 5: one beat: deck 1 plays, deck 2 scratches; more of the set while Mixxx is still loading
+  requestAnimationFrame(turn);
+  setMode(reels[0], "play"); setMode(reels[1], "play");
+  await wait(250);
+  setMode(reels[1], "scratch");
+  await wait(600);
+  setMode(reels[1], "play");
+  if (!ready) {
+    setTimeout(() => { if (!ready && !leaving) $("#wait").style.opacity = 1; }, 1500);
+    const SET = [["chirp", 660], ["play", 800], ["scratch", 860], ["play", 900]];
+    while (!ready && !leaving) for (const [mode, t] of SET) { if (ready || leaving) break; setMode(reels[1], mode); await wait(t); }
+  }
+  if (leaving) return;
+  leaving = true;
+  $("#wait").style.opacity = 0;
+
+  // 6: each deck's tape pulls tight and slides up to where the app shows the decks; the app takes over
+  [0, 1].forEach(i => {
+    const st = $("#g-strip" + i), [x1, y1] = tapeAt(i), w0 = 160 * L.sc, w1 = W() * .94;
+    const yTop = -H() / 2 + (H() >= W() ? 46 + i * 50 : 30 + i * 46);
+    Object.assign(st.style, { width: w0 + "px", margin: `-6px 0 0 ${-w0 / 2}px` });
+    anim(st, [{ opacity: 1, transform: `translate(${x1}px, ${y1}px) scaleX(1)` },
+      { opacity: 1, transform: `translate(0px, ${yTop}px) scaleX(${w1 / w0})`, offset: .8 },
+      { opacity: 0, transform: `translate(0px, ${yTop}px) scaleX(${w1 / w0})` }], { duration: 520, delay: i * 50, easing: "cubic-bezier(.6,0,.3,1)" });
+  });
+  decks.forEach((d, i) => anim(d, [{ opacity: 1 }, { opacity: 0 }], { duration: 260 }));
+  anim($("#fade"), [{ opacity: 0 }, { opacity: 1 }], { duration: 200, delay: 380 });
+  await wait(600);
+  stopTurning = true;
+  if (!params.has("ready")) location.replace("/phone");
+}
 
 // After the first start: the logo (an open-reel deck, playing) until Mixxx is ready.
 async function logo() {

@@ -337,6 +337,9 @@
     </div>
     <div class="card">
       <h3>Start-up</h3>
+      <label for="introstyle">Intro</label><select id="introstyle">
+        <option value="gild">Gold leaf: a clay brick turns to gold, its waveform becomes the decks' tape</option>
+        <option value="drop">Drop: the gold brick falls into the screen and bounces up as the decks</option></select>
       <label class="chk"><input type="checkbox" id="introfull"> Show the full animation every time (a tap skips it)</label>
       <div class="hint">Off: the full intro plays only the very first time; after that, just the logo while Mixxx starts.</div>
     </div>
@@ -1352,6 +1355,9 @@ function keyChip(t) {
 const INTRO_FULL_DEFAULT = true;   // RELEASE: false, as in intro.html
 $("#introfull").checked = store.get("introFull", INTRO_FULL_DEFAULT);
 $("#introfull").addEventListener("change", () => store.set("introFull", $("#introfull").checked));
+const INTRO_STYLE_DEFAULT = "gild";   // RELEASE: as in intro.html
+$("#introstyle").value = store.get("introStyle", INTRO_STYLE_DEFAULT);
+$("#introstyle").addEventListener("change", () => { store.set("introStyle", $("#introstyle").value); toast("Shows next time ZyDeck starts", "ok"); });
 $("#keyfmt").value = store.get("keyNotation", "camelot");
 $("#keyfmt").addEventListener("change", () => { store.set("keyNotation", $("#keyfmt").value); loadTracks(); });
 
