@@ -239,7 +239,14 @@ class StemWriter {
             if (m_fmt->oformat->flags & AVFMT_GLOBALHEADER) {
                 t.ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
             }
-            if (avcodec_open2(t.ctx, pAac, nullptr) < 0 || avcodec_parameters_from_context(t.st->codecpar, t.ctx) < 0) {
+            AVDictionary* pOptions = nullptr;
+            av_dict_set(&pOptions, "aac_coder", "fast", 0);   // FFmpeg's encoder: its default search is slow
+            const int opened = avcodec_open2(t.ctx, pAac, &pOptions);
+            av_dict_free(&pOptions);
+            if (&t == &m_tracks[0]) {
+                qInfo() << "Zydek live stems: encoding with" << pAac->name;
+            }
+            if (opened < 0 || avcodec_parameters_from_context(t.st->codecpar, t.ctx) < 0) {
                 return false;
             }
             t.st->time_base = AVRational{1, rate};
@@ -602,6 +609,7 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
     }
 
     Fft fft;
+    std::array<Fft, kStems> synthesis;   // one per stem: they run side by side
     Resampler toModel(rate, kRate);
     std::array<std::unique_ptr<Resampler>, kStems> fromModel;
     for (auto& p : fromModel) {
@@ -617,8 +625,9 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
     std::array<std::vector<float>, kStems> out;   // overlap-add, interleaved stereo, padded samples from outBase
     qint64 outBase = 0;
     std::vector<float> mag(2 * static_cast<size_t>(kBins) * kChunk);
-    std::array<std::vector<float>, kStems> est;
-    std::vector<std::complex<float>> spec(kBins);
+    std::array<std::vector<float>, kStems> est, share;   // share: frame-major ([channel][frame][bin]), kept frames
+    qint64 msRead = 0, msModel = 0, msSynth = 0, msWrite = 0;
+    QElapsedTimer section;
     std::vector<float> scratch, resampled;
     const double expectedFrames = static_cast<double>(totalFrames) * kRate / rate / kHop + 4;
     bool ended = false;
@@ -681,35 +690,62 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
                     }
                 }
             }
+            section.start();
             if (!pModels->run(mag, &est)) {
                 *pError = QStringLiteral("The stem model failed");
                 return false;
             }
-            for (qint64 t = keep0; t < keep1; ++t) {
-                const qint64 f = w + t;
-                const auto& fr = frames[f - frameBase];
-                for (int s = 0; s < kStems; ++s) {
-                    std::vector<float>& acc = out[s];
-                    const size_t need = 2 * static_cast<size_t>(f * kHop + kFft - outBase);
-                    if (acc.size() < need) {
-                        acc.resize(need, 0.0f);
-                    }
-                    for (int c = 0; c < 2; ++c) {
-                        const size_t at = static_cast<size_t>(c) * kBins * kChunk + t;
-                        for (int b = 0; b < kBins; ++b) {
-                            const size_t i = at + static_cast<size_t>(b) * kChunk;
-                            const float sum = est[0][i] + est[1][i] + est[2][i] + est[3][i] + 1e-8f;
-                            spec[b] = fr[c][b] * (est[s][i] / sum);   // its share of the mixture
+            msModel += section.restart();
+            // Each stem's share of the mixture (soft masks), turned frame-major so the synthesis reads in order
+            const qint64 keepN = keep1 - keep0;
+            for (int s = 0; s < kStems; ++s) {
+                share[s].resize(2 * static_cast<size_t>(keepN) * kBins);
+            }
+            for (int c = 0; c < 2; ++c) {
+                for (int b = 0; b < kBins; ++b) {
+                    const size_t row = (static_cast<size_t>(c) * kBins + b) * kChunk;
+                    for (qint64 t = keep0; t < keep1; ++t) {
+                        const size_t i = row + t, o = (static_cast<size_t>(c) * keepN + (t - keep0)) * kBins + b;
+                        const float inv = 1.0f / (est[0][i] + est[1][i] + est[2][i] + est[3][i] + 1e-8f);
+                        for (int s = 0; s < kStems; ++s) {
+                            share[s][o] = est[s][i] * inv;
                         }
-                        fft.inverseAdd(spec.data(), acc.data() + 2 * (f * kHop - outBase), c);
                     }
                 }
             }
+            for (int s = 0; s < kStems; ++s) {
+                const size_t need = 2 * static_cast<size_t>((w + keep1 - 1) * kHop + kFft - outBase);
+                if (out[s].size() < need) {
+                    out[s].resize(need, 0.0f);
+                }
+            }
+            std::array<std::thread, kStems> workers;
+            for (int s = 0; s < kStems; ++s) {
+                workers[s] = std::thread([&, s] {
+                    std::vector<std::complex<float>> spec(kBins);
+                    for (qint64 t = keep0; t < keep1; ++t) {
+                        const qint64 f = w + t;
+                        const auto& fr = frames[f - frameBase];
+                        for (int c = 0; c < 2; ++c) {
+                            const float* m = share[s].data() + (static_cast<size_t>(c) * keepN + (t - keep0)) * kBins;
+                            for (int b = 0; b < kBins; ++b) {
+                                spec[b] = fr[c][b] * m[b];
+                            }
+                            synthesis[s].inverseAdd(spec.data(), out[s].data() + 2 * (f * kHop - outBase), c);
+                        }
+                    }
+                });
+            }
+            for (std::thread& t : workers) {
+                t.join();
+            }
+            msSynth += section.restart();
             start = w + keep1;
             if (!emitOutput(start * kHop)) {
                 *pError = QStringLiteral("Couldn't write the stems file");
                 return false;
             }
+            msWrite += section.restart();
             while (frameBase < std::max<qint64>(0, start - kMargin) && !frames.empty()) {
                 frames.pop_front();
                 ++frameBase;
@@ -728,6 +764,7 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
     constexpr SINT kBlock = 65536;
     mixxx::SampleBuffer buffer(kBlock * 2);
     for (SINT pos = range.start(); pos < range.end();) {
+        section.start();
         const SINT n = std::min<SINT>(kBlock, range.end() - pos);
         const mixxx::ReadableSampleFrames read = pSource->readSampleFrames(mixxx::WritableSampleFrames(
                 mixxx::IndexRange::forward(pos, n), mixxx::SampleBuffer::WritableSlice(buffer)));
@@ -744,6 +781,7 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
         in.insert(in.end(), scratch.begin(), scratch.end());
         signalLength += static_cast<qint64>(scratch.size() / 2);
         computeFrames(inBase + static_cast<qint64>(in.size() / 2));
+        msRead += section.elapsed();
         if (!separateChunks()) {
             QFile::remove(partPath);
             return {};
@@ -778,7 +816,8 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
         *pError = QStringLiteral("Couldn't write the stems file");
         return {};
     }
-    qInfo() << "Zydek live stems:" << path << "in" << timer.elapsed() << "ms";
+    qInfo() << "Zydek live stems:" << path << "in" << timer.elapsed() << "ms: reading" << msRead << "model" << msModel
+            << "stems" << msSynth << "encoding" << msWrite;
 
     // Into the library as the same track: its beat grid, key, cues and loops (same sample rate, same frames)
     ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
