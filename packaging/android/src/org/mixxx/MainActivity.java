@@ -579,20 +579,33 @@ public class MainActivity extends QtActivityBase {
         m_phoneView.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                // Zydek's server isn't up (yet, or any more): the start-up page waits for it.
+                // Zydek's server isn't up any more: the start-up page waits for it, without the intro.
                 if (request.isForMainFrame()) {
-                    showBootPage();
+                    showBootPage(true);
                 }
             }
         });
         addContentView(m_phoneView, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        showBootPage();
+        showBootPage(false);
     }
 
-    private void showBootPage() {
+    /// ZyunDeck's intro (res/zydek/web/intro.html, read from the APK because Mixxx's server isn't up yet),
+    /// which moves on to the phone page once the server answers. quick: only wait, no intro.
+    private void showBootPage(boolean quick) {
+        String html = BOOT_PAGE;
+        try (java.io.InputStream in = getAssets().open("zydek/web/intro.html")) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[16384];
+            for (int n; (n = in.read(buf)) > 0;) {
+                out.write(buf, 0, n);
+            }
+            html = out.toString("UTF-8");
+        } catch (java.io.IOException e) {
+            // an older package without the intro: the plain start-up page
+        }
         // On the server's origin, so the page can ask it whether it's up.
-        m_phoneView.loadDataWithBaseURL(PHONE_ORIGIN + "/", BOOT_PAGE, "text/html", "utf-8", null);
+        m_phoneView.loadDataWithBaseURL(PHONE_ORIGIN + "/intro" + (quick ? "#quick" : ""), html, "text/html", "utf-8", null);
     }
 
     private void updateMode(int orientation) {

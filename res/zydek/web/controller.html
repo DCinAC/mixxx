@@ -742,7 +742,17 @@ function tempoControls(s, u, olLabel) {
   u.lane = h("div", "lane", `<div class="end t"></div><div class="zero"></div><div class="mark"></div><div class="lock"></div><div class="end b"></div>`);
   u.tread = h("div", "tread");
   u.shiftBtn = h("button", "shift", "SHIFT");
-  u.shiftBtn.addEventListener("click", () => { const d = deckOf(s); d.shift = !d.shift; paintSide(s); if (PHONE) paintMixer(); });
+  // Held: a momentary SHIFT, like a controller's. Tapped: it stays on until the next tap (or until it's used).
+  // Only one deck's SHIFT is on at a time.
+  let shiftAt = 0, wasOn = false;
+  bindPress(u.shiftBtn, down => {
+    const d = deckOf(s);
+    if (down) {
+      shiftAt = performance.now(); wasOn = d.shift;
+      if (!wasOn) { decks.forEach(o => o.shift = o === d); }
+    } else if (wasOn || performance.now() - shiftAt > 350) d.shift = false;
+    paintAll();
+  });
   drag(u.lane, {
     // Touchpad: only the change in finger position counts, wherever you touch.
     down: e => { if (synced(deckOf(s))) return false;   // a synced deck follows the master's tempo
@@ -1427,9 +1437,15 @@ function frame(now) {
 // record, so it only redraws when the cursor wraps (or the track, zoom or size changes).
 // =====================================================================================================
 const TILE = 1024;                       // device pixels per cached tile
-function renderTile(wf, k, pxPerSec, H) {
+// Like Mixxx's RGB waveform (allshader/waveformrendererrgb.cpp): per column the loudest low / mid / high mix
+// red / green / blue, scaled so the strongest is full brightness; the EQ knobs scale each band, which changes
+// both the colour and the height (turn the bass down and the waveform loses its red and shrinks).
+const eqGain = p => p <= .5 ? p * 2 : 1 + (p - .5) * 6;      // knob position -> gain: 0 = kill, centre = 1, full = 4
+const eqKey = d => [d.low, d.mid, d.high].map(v => Math.round((v ?? .5) * 40)).join(",");
+function renderTile(wf, k, pxPerSec, H, d) {
   const c = document.createElement("canvas"); c.width = TILE; c.height = H;
   const g = c.getContext("2d"), mid = H / 2, a = wf.data, perPx = wf.rate / pxPerSec, x0 = k * TILE;
+  const gl = eqGain(d.low ?? .5), gm = eqGain(d.mid ?? .5), gh = eqGain(d.high ?? .5);
   for (let x = 0; x < TILE; x++) {
     const i0 = Math.floor((x0 + x) * perPx), i1 = Math.max(i0 + 1, Math.floor((x0 + x + 1) * perPx));
     if (i1 <= 0 || i0 >= wf.n) continue;
@@ -1441,9 +1457,12 @@ function renderTile(wf, k, pxPerSec, H) {
       if (a[j + 2] > mi) mi = a[j + 2];
       if (a[j + 3] > hi) hi = a[j + 3];
     }
-    const m = Math.max(lo, mi, hi, 1);                     // colour from the band balance, like Mixxx's RGB waveform
-    g.fillStyle = `rgb(${Math.round(255 * lo / m)},${Math.round(230 * mi / m)},${Math.round(255 * hi / m)})`;
-    const h = Math.max(1, all / 255 * mid * .95);
+    const L = lo * gl, M = mi * gm, Hh = hi * gh, unscaled = lo + mi + hi;
+    const gain = unscaled > 0 ? (L + M + Hh) / unscaled : 1;
+    const m = Math.max(L, M, Hh);
+    if (m <= 0) continue;
+    g.fillStyle = `rgb(${Math.round(255 * L / m)},${Math.round(255 * M / m)},${Math.round(255 * Hh / m)})`;
+    const h = Math.min(mid, Math.max(1, all * gain / 255 * mid * .95));
     g.fillRect(x, mid - h, 1, h * 2);
   }
   return c;
@@ -1456,27 +1475,29 @@ function drawStripWave(u, d, start, sec) {
   const left = Math.round(start * pxPerSec);               // whole device pixels: crisp, and skip identical frames
   const lr = loopRange(d);
   const cues = cueMarks(d).map(m => m.t.toFixed(3) + m.color).join();
-  const key = `${d.n}|${d.wfVer || 0}|${d.beatsVer || 0}|${lr ? lr.join() + d.loopOn : ""}|${cues}|${left}|${sec}|${W}|${H}`;
+  const key = `${d.n}|${d.wfVer || 0}|${d.beatsVer || 0}|${lr ? lr.join() + d.loopOn : ""}|${cues}|${left}|${sec}|${W}|${H}|${eqKey(d)}|${d.dur}`;
   if (u.wfKey === key) return;
   u.wfKey = key;
   const c = u.wfCanvas;
   if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
   const g = c.getContext("2d");
   g.clearRect(0, 0, W, H);
+  g.fillStyle = "rgba(255,255,255,.28)";                    // Mixxx's centre axis, under the signal
+  g.fillRect(0, Math.floor(H / 2), W, Math.max(1, Math.round(dpr * .6)));
   const wf = d.wf;
   if (!wf) { drawStripMarks(g, d, start, sec, pxPerSec, left, W, H); return; }
   // Tiles are cached per track at the strip's scale for normal speed (rendering one costs a few ms, copying
   // it each frame almost nothing) and squeezed or stretched to the tempo as they're copied, so moving the
   // tempo never re-renders them. Tile edges are rounded to whole pixels on both sides: no seams.
   const basePx = W / stripSeconds(), f = pxPerSec / basePx;
-  const tkey = `${d.n}|${d.wfVer}|${stripSeconds()}|${W}|${H}`;
+  const tkey = `${d.n}|${d.wfVer}|${stripSeconds()}|${W}|${H}|${eqKey(d)}`;
   if (u.tileKey !== tkey) { u.tileKey = tkey; u.tiles = new Map(); }
   const edge = k => Math.round(k * TILE * f) - left;
   for (let k = Math.floor(left / f / TILE); edge(k) < W; k++) {
     if (k < 0 || k * TILE / basePx > wf.n / wf.rate) continue;
     let t = u.tiles.get(k);
     if (!t) {
-      t = renderTile(wf, k, basePx, H);
+      t = renderTile(wf, k, basePx, H, d);
       u.tiles.set(k, t);
       if (u.tiles.size > 12) u.tiles.delete(u.tiles.keys().next().value);   // keep the 12 most recent
     }
@@ -1489,7 +1510,7 @@ function drawStripWave(u, d, start, sec) {
   if (!u.tiles.has(next) && next * TILE / basePx < wf.n / wf.rate && u.prefetch !== `${tkey}|${next}`) {
     u.prefetch = `${tkey}|${next}`;
     const idle = window.requestIdleCallback || (f => setTimeout(f, 30));
-    idle(() => { if (u.tileKey === tkey && !u.tiles.has(next)) u.tiles.set(next, renderTile(wf, next, basePx, H)); });
+    idle(() => { if (u.tileKey === tkey && !u.tiles.has(next)) u.tiles.set(next, renderTile(wf, next, basePx, H, d)); });
   }
 }
 
@@ -1580,7 +1601,27 @@ function drawOverlays(g, d, start, sec, pxPerSec, left, W, H) {
     else { g.fillStyle = "rgba(255,255,255,.5)"; g.fillRect(x, 0, dpr, tick); g.fillRect(x, H - tick, dpr, tick); }
   }
 }
+// Mixxx's pre-roll and post-roll (allshader/waveformrendererpreroll.cpp): before the track's start and after its
+// end, a row of triangles pointing in towards the track, 40 % of the waveform's height, outlined 1.5 px with a
+// 25 % fill.
+function drawRolls(g, d, pxPerSec, left, W, H) {
+  if (!(d.dur > 0)) return;
+  const dpr = devicePixelRatio || 1, breadth = H * .4, mid = H / 2, len = Math.max(4, Math.round(breadth));
+  const tri = (tip, dir) => {   // dir 1: tip on the right
+    g.beginPath(); g.moveTo(tip - dir * .75 * dpr, mid);
+    g.lineTo(tip - dir * (len - .75 * dpr), mid - breadth / 2); g.lineTo(tip - dir * (len - .75 * dpr), mid + breadth / 2);
+    g.closePath(); g.fill(); g.stroke();
+  };
+  g.lineWidth = 1.5 * dpr; g.lineJoin = "round"; g.strokeStyle = "rgb(190,198,210)"; g.fillStyle = "rgba(190,198,210,.25)";
+  let x = Math.round(0 * pxPerSec) - left;                 // the track's start: tips point right, at it
+  if (x > W + len) x -= Math.ceil((x - W - len) / len) * len;
+  for (; x > 0; x -= len) tri(x, 1);
+  x = Math.round(d.dur * pxPerSec) - left;                 // the end: tips point left, at it
+  if (x < -len) x += Math.ceil((-len - x) / len) * len;
+  for (; x < W; x += len) tri(x, -1);
+}
 function drawStripMarks(g, d, start, sec, pxPerSec, left, W, H) {
+  drawRolls(g, d, pxPerSec, left, W, H);
   drawOverlays(g, d, start, sec, pxPerSec, left, W, H);
   drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H);
 }

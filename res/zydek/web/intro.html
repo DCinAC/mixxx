@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>ZyunDeck</title>
+<!--
+  ZyunDeck's opening (磚 = brick: Cantonese for those gold-brick audio players). The app shows this the moment
+  it starts, before Mixxx's server is up (MainActivity loads it from the APK on the server's origin), and moves
+  on to /phone once the server answers:
+
+    1  the phone is the brick's screen: a vaporwave player UI builds from left to right
+    2  zoom out: the gold brick's frame comes into view
+    3  it spins on every axis and falls away onto the ground (the screen's plane), to ~30% of the screen
+    4  it squashes and pops into a blue 80s cassette player
+    5  it bounces up towards you, lands and splits in two
+    6  each one opens into a tape transport: two reels and the tape between them
+    7  the reels scratch (looping until Mixxx is ready), then the decks slide up into the app
+
+  A tap skips ahead. ?ready (testing): don't wait for the server. #quick: only wait (after an error).
+-->
+<style>
+  :root { --bg: #0b0b0b; --pink: #ff71ce; --cyan: #01cdfe; --purple: #b967ff; --gold: #d9b45a; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #stage { position: fixed; inset: 0; perspective: 1600px; overflow: hidden; }
+  .center { position: absolute; left: 50%; top: 50%; }
+  /* the gold brick: a box 300 × 524 × 79 px (the player is 75.6 × 132 × 19.9 mm) */
+  #shadow { width: 300px; height: 524px; margin: -262px 0 0 -150px; border-radius: 40px; opacity: 0;
+    background: radial-gradient(closest-side, rgba(0,0,0,.85), rgba(0,0,0,0)); filter: blur(18px); }
+  .world { width: 300px; height: 524px; margin: -262px 0 0 -150px; transform-style: preserve-3d; will-change: transform; }
+  #brick { position: absolute; inset: 0; transform-style: preserve-3d; }
+  .face { position: absolute; left: 50%; top: 50%; backface-visibility: hidden; }
+  .gold { background:
+      repeating-linear-gradient(90deg, rgba(255,250,225,.06) 0 1px, transparent 1px 3px),
+      linear-gradient(115deg, #fbe7a1 0%, #d9ad48 18%, #a77a24 40%, #e9c56a 58%, #b88a32 78%, #f3d888 100%); }
+  .front { width: 300px; height: 524px; margin: -262px 0 0 -150px; transform: translateZ(39.5px); border-radius: 22px;
+    box-shadow: inset 0 0 0 1.5px rgba(255,246,210,.7), inset 0 0 0 3px rgba(130,92,25,.5); }
+  .glass { position: absolute; inset: 7px; border-radius: 16px; overflow: hidden;
+    background: linear-gradient(160deg, #141414 0%, #050505 45%, #0b0b0b 100%); box-shadow: inset 0 0 0 1px #000; }
+  .glass::after { content: ""; position: absolute; inset: 0; pointer-events: none;   /* a reflection across the glass */
+    background: linear-gradient(118deg, transparent 0 34%, rgba(255,255,255,.07) 34% 46%, transparent 46%); }
+  .brand { position: absolute; left: 0; right: 0; top: 17px; text-align: center; font: 700 15px/1 Georgia, "Times New Roman", serif;
+    letter-spacing: .32em; text-indent: .32em; color: #d6d6d6; }
+  .mark { position: absolute; right: 26px; bottom: 18px; font: 900 26px/1 "Noto Serif CJK TC", "Noto Serif CJK SC", serif;
+    background: linear-gradient(135deg, #f6dc8c, #b9892f); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .back { width: 300px; height: 524px; margin: -262px 0 0 -150px; transform: rotateY(180deg) translateZ(39.5px); border-radius: 22px;
+    box-shadow: inset 0 0 0 1.5px rgba(255,246,210,.6); }
+  .side { width: 79px; height: 500px; margin: -250px 0 0 -39.5px; }
+  .side.r { transform: rotateY(90deg) translateZ(150px); } .side.l { transform: rotateY(-90deg) translateZ(150px); }
+  .side.r i { position: absolute; left: 30px; width: 19px; border-radius: 9px; background: linear-gradient(90deg, #8a6420, #f2d27c, #8a6420);
+    box-shadow: 0 0 0 1px rgba(80,55,10,.6); }
+  .end { width: 276px; height: 79px; margin: -39.5px 0 0 -138px; }
+  .end.t { transform: rotateX(90deg) translateZ(262px); } .end.b { transform: rotateX(-90deg) translateZ(262px); }
+  .end.t i { position: absolute; top: 24px; width: 30px; height: 30px; border-radius: 50%; background: radial-gradient(#050505 0 40%, #6b4c15 42%, #e7c46b 70%); }
+  #screen { position: absolute; left: 19px; top: 43px; width: 248px; height: 400px; border-radius: 4px; overflow: hidden; background: #000; }
+
+  /* vaporwave backdrop on the player's screen */
+  .sky { position: absolute; inset: 0; opacity: 0;
+    background: linear-gradient(180deg, #12002b 0%, #2d0b5a 38%, #8a1d7a 60%, #ff4fa0 72%, #12002b 72.2%); }
+  .sun { position: absolute; left: 50%; top: 66%; width: 150px; height: 150px; margin: -150px 0 0 -75px; border-radius: 50%;
+    background: linear-gradient(180deg, #ffe66b 0%, #ff9a5a 45%, #ff3c9e 100%);
+    -webkit-mask: linear-gradient(180deg, #000 0 52%, transparent 52% 56%, #000 56% 66%, transparent 66% 71%, #000 71% 79%,
+      transparent 79% 85%, #000 85% 91%, transparent 91%);
+    mask: linear-gradient(180deg, #000 0 52%, transparent 52% 56%, #000 56% 66%, transparent 66% 71%, #000 71% 79%,
+      transparent 79% 85%, #000 85% 91%, transparent 91%); }
+  .floor { position: absolute; left: -60%; right: -60%; top: 72%; height: 60%; transform-origin: 50% 0;
+    transform: perspective(160px) rotateX(62deg);
+    background: repeating-linear-gradient(90deg, rgba(1,205,254,.85) 0 1.5px, transparent 1.5px 22px),
+      repeating-linear-gradient(0deg, rgba(255,113,206,.8) 0 1.5px, transparent 1.5px 22px), #1a0030;
+    animation: floor 1.2s linear infinite; }
+  @keyframes floor { to { background-position: 0 0, 0 22px, 0 0; } }
+
+  /* the player UI: everything builds in from left to right (.ui), glitching on */
+  .ui { position: absolute; clip-path: inset(0 100% 0 0); }
+  .bar { left: 10px; right: 10px; top: 7px; height: 12px; display: flex; justify-content: space-between; align-items: center;
+    font: 600 8px/1 ui-monospace, "Roboto Mono", monospace; color: #fff; letter-spacing: .06em; }
+  .cover { left: 44px; top: 30px; width: 160px; height: 160px; background: rgba(20,0,40,.7);
+    border: 1.5px solid var(--pink); box-shadow: 0 0 14px rgba(255,113,206,.7), inset 0 0 18px rgba(185,103,255,.5);
+    display: grid; place-items: center; }
+  .cover b { font: 900 120px/1 "Noto Serif CJK TC", "Noto Serif CJK SC", "Source Han Serif", serif;
+    background: linear-gradient(180deg, #fff 0%, var(--pink) 55%, var(--cyan) 100%); -webkit-background-clip: text; background-clip: text;
+    color: transparent; filter: drop-shadow(0 0 8px rgba(255,113,206,.8)); }
+  .corner { position: absolute; width: 12px; height: 12px; border: 2px solid var(--cyan); }
+  .corner.a { left: -5px; top: -5px; border-right: 0; border-bottom: 0; } .corner.b { right: -5px; bottom: -5px; border-left: 0; border-top: 0; }
+  .fmt { left: 0; right: 0; top: 200px; text-align: center; font: 700 8px/1 ui-monospace, monospace; color: #ffd36b; letter-spacing: .08em; }
+  .fmt span { border: 1px solid #ffd36b; padding: 0 2px; margin-left: 4px; }
+  .title { left: 10px; right: 10px; top: 214px; text-align: center; font: 800 14px/1.2 system-ui, sans-serif; color: #fff;
+    text-shadow: 1.5px 0 rgba(255,0,110,.8), -1.5px 0 rgba(1,205,254,.8); }
+  .album { left: 10px; right: 10px; top: 234px; text-align: center; font: 700 9.5px/1.2 ui-monospace, "Roboto Mono", monospace;
+    color: var(--cyan); letter-spacing: .14em; }
+  .artist { left: 10px; right: 10px; top: 248px; text-align: center; font: 500 9px/1.2 system-ui, sans-serif; color: rgba(255,255,255,.7); }
+  .prog { left: 14px; right: 14px; top: 270px; height: 18px; }
+  .prog .line { position: absolute; left: 0; right: 0; top: 4px; height: 2px; background: rgba(255,255,255,.22); }
+  .prog .fill { position: absolute; left: 0; top: 4px; height: 2px; width: 4%; background: var(--pink); box-shadow: 0 0 6px var(--pink); }
+  .prog .t { position: absolute; top: 10px; font: 600 7.5px/1 ui-monospace, monospace; color: rgba(255,255,255,.75); }
+  .prog .t.m { left: 50%; transform: translateX(-50%); } .prog .t.r { right: 0; }
+  .ctl { left: 40px; right: 40px; top: 298px; height: 40px; display: flex; justify-content: space-between; align-items: center; }
+  .ctl span { width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid #fff; display: grid; place-items: center;
+    box-shadow: 0 0 6px rgba(185,103,255,.9); }
+  .ctl span.big { width: 40px; height: 40px; border-color: var(--pink); box-shadow: 0 0 8px var(--pink); }
+  .ctl svg { width: 13px; height: 13px; fill: #fff; } .ctl .big svg { width: 16px; height: 16px; fill: var(--pink); }
+  .eq { left: 18px; right: 18px; top: 352px; height: 22px; display: flex; gap: 3px; align-items: flex-end; }
+  .eq i { flex: 1; background: linear-gradient(0deg, var(--cyan), var(--purple)); height: 30%; animation: eq .5s ease-in-out infinite alternate; }
+  @keyframes eq { to { height: 100%; } }
+  .scan { position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px); mix-blend-mode: multiply; }
+
+  /* ---- the 80s cassette player (top view, lying on the ground) ---- */
+  #walkman { position: absolute; left: -15px; top: 152px; width: 330px; height: 220px; opacity: 0; }
+  #walkman svg { width: 100%; height: 100%; overflow: visible; }
+
+  /* ---- tape transports (the two decks) ---- */
+  .deck { position: absolute; left: 50%; top: 50%; width: var(--w); height: 74px; margin: -37px 0 0 calc(var(--w) / -2); opacity: 0; }
+  .deck .base { position: absolute; inset: 0; border-radius: 14px; background: #141414; border: 1px solid #333;
+    clip-path: inset(0 calc(50% - 60px) round 14px); }
+  .deck .tape { position: absolute; left: 44px; right: 44px; top: 30px; height: 14px; transform: scaleX(.05);
+    background: repeating-linear-gradient(90deg, #5a3a1c 0 6px, #6b4524 6px 12px); border-top: 1px solid #2a180a; border-bottom: 1px solid #2a180a; }
+  .deck .reel { position: absolute; top: 4px; width: 66px; height: 66px; left: calc(50% - 33px); }
+  .deck .lbl { position: absolute; left: 50%; top: -18px; transform: translateX(-50%); font: 700 11px/1 ui-monospace, monospace;
+    letter-spacing: .2em; color: var(--c); opacity: 0; }
+  #wait { position: fixed; left: 0; right: 0; bottom: 9vh; text-align: center; font: 500 13px/1.4 system-ui, sans-serif; color: #6d6d6d;
+    opacity: 0; transition: opacity .4s; }
+  #fade { position: fixed; inset: 0; background: var(--bg); opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="shadow" class="center"></div>
+  <div id="world" class="world center">
+    <div id="brick">
+      <div class="face back gold"></div>
+      <div class="face side l gold"></div>
+      <div class="face side r gold"><i style="top:80px;height:30px"></i><i style="top:126px;height:56px"></i><i style="top:198px;height:30px"></i>
+        <i style="top:244px;height:30px"></i><i style="top:290px;height:46px"></i></div>
+      <div class="face end t gold"><i style="left:70px"></i><i style="left:178px"></i></div>
+      <div class="face end b gold"></div>
+      <div class="face front gold"><div class="glass">
+        <div class="brand">ZYUNDECK</div>
+        <div id="screen">
+          <div class="sky"></div><div class="floor"></div><div class="sun"></div>
+          <div class="ui bar"><span>7:71</span><span>◉ ▮▮▮</span></div>
+          <div class="ui cover"><b>磚</b><i class="corner a"></i><i class="corner b"></i></div>
+          <div class="ui fmt">DSD 771MHz<span>HR</span></div>
+          <div class="ui title">ZyunDeck (Extended Mix)</div>
+          <div class="ui album">BS EN 771-1</div>
+          <div class="ui artist">Digital Music Brick</div>
+          <div class="ui prog"><div class="line"></div><div class="fill"></div><span class="t">0:42</span><span class="t m">磚/771</span><span class="t r">7:71</span></div>
+          <div class="ui ctl">
+            <span><svg viewBox="0 0 24 24"><path d="M5 5h2.5v14H5zM20 5v14L8.5 12z"/></svg></span>
+            <span class="big"><svg viewBox="0 0 24 24"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg></span>
+            <span><svg viewBox="0 0 24 24"><path d="M16.5 5H19v14h-2.5zM4 5l11.5 7L4 19z"/></svg></span>
+          </div>
+          <div class="ui eq"></div>
+          <div class="scan"></div>
+        </div>
+        <div class="mark">磚</div>
+      </div></div>
+    </div>
+    <div id="walkman"><svg viewBox="0 0 330 220">
+      <rect x="4" y="10" width="322" height="206" rx="20" fill="#14327a"/>
+      <rect x="0" y="4" width="322" height="204" rx="20" fill="#2453b8"/>
+      <rect x="0" y="4" width="322" height="38" rx="18" fill="#c9ced6"/><rect x="0" y="30" width="322" height="12" fill="#c9ced6"/>
+      <g fill="#8e949e"><rect x="26" y="0" width="34" height="12" rx="3"/><rect x="68" y="0" width="34" height="12" rx="3"/>
+        <rect x="110" y="0" width="34" height="12" rx="3"/><rect x="152" y="0" width="34" height="12" rx="3"/></g>
+      <rect x="236" y="0" width="56" height="12" rx="3" fill="#ff8a1e"/>
+      <text x="22" y="30" font-family="ui-monospace,monospace" font-size="13" font-weight="700" fill="#2c3340" letter-spacing="2">ZY-771</text>
+      <text x="236" y="30" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#2c3340" letter-spacing="1">STEREO</text>
+      <rect x="34" y="62" width="254" height="128" rx="12" fill="#0d1a33" stroke="#9fb3d8" stroke-width="3"/>
+      <rect x="48" y="74" width="226" height="104" rx="8" fill="#e9e1cf"/>
+      <rect x="48" y="74" width="226" height="22" rx="8" fill="#ff71ce"/><rect x="48" y="88" width="226" height="8" fill="#ff71ce"/>
+      <text x="161" y="90" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" font-weight="800" fill="#3a0b2a">磚 · C-90</text>
+      <rect x="82" y="110" width="158" height="52" rx="26" fill="#2a1d14"/>
+      <g class="wreel" transform="translate(110 136)"><circle r="20" fill="#5a3a1c"/><circle r="11" fill="#f4f0e6"/>
+        <path d="M0-11v6M9.5-5.5l-5 3M9.5 5.5l-5-3M0 11v-6M-9.5 5.5l5-3M-9.5-5.5l5 3" stroke="#2a1d14" stroke-width="3"/></g>
+      <g class="wreel" transform="translate(212 136)"><circle r="14" fill="#5a3a1c"/><circle r="11" fill="#f4f0e6"/>
+        <path d="M0-11v6M9.5-5.5l-5 3M9.5 5.5l-5-3M0 11v-6M-9.5 5.5l5-3M-9.5-5.5l5 3" stroke="#2a1d14" stroke-width="3"/></g>
+      <circle cx="300" cy="196" r="6" fill="#0d1a33"/><circle cx="282" cy="196" r="6" fill="#0d1a33"/>
+    </svg></div>
+  </div>
+  <div class="deck" id="deck0" style="--c: #ff8a1e"><div class="lbl">DECK 1</div><div class="base"></div><div class="tape"></div></div>
+  <div class="deck" id="deck1" style="--c: #38b6ff"><div class="lbl">DECK 2</div><div class="base"></div><div class="tape"></div></div>
+</div>
+<div id="wait">Starting Mixxx…</div>
+<div id="fade"></div>
+<script>
+const $ = s => document.querySelector(s);
+const QUICK = location.hash === "#quick" || window.ZYDEK_QUICK;
+const params = new URLSearchParams(location.search);
+let ready = params.has("ready"), skipping = false, leaving = false;
+
+// Mixxx's server: the app moves on to the phone page once it answers.
+(function poll() {
+  if (ready) return;
+  fetch("/phone", { cache: "no-store" }).then(r => { if (r.ok) ready = true; else setTimeout(poll, 400); })
+    .catch(() => setTimeout(poll, 400));
+})();
+
+const REEL = `<svg viewBox="-33 -33 66 66" width="66" height="66"><circle r="31" fill="#2a2a2a" stroke="#444" stroke-width="2"/>
+  <circle r="24" fill="#5a3a1c"/><circle r="11" fill="#e8e8e8"/>
+  <g stroke="#1a1a1a" stroke-width="4" stroke-linecap="round"><path d="M0-10v-12M8.7 5l10.4 6M-8.7 5l-10.4 6"/></g>
+  <circle r="3.5" fill="#1a1a1a"/></svg>`;
+document.querySelectorAll(".deck").forEach(d => {
+  ["l", "r"].forEach(side => { const r = document.createElement("div"); r.className = "reel " + side; r.innerHTML = REEL; d.appendChild(r); });
+});
+const eq = $(".eq"); for (let i = 0; i < 18; i++) { const b = document.createElement("i"); b.style.animationDelay = `${-i * 137 % 500}ms`; eq.appendChild(b); }
+
+// ---- geometry ------------------------------------------------------------------------------------------
+const W = () => innerWidth, H = () => innerHeight;
+const SCREEN = { w: 248, h: 400, dy: 7 + 43 + 200 - 262 };   // the brick's screen and its centre's offset from the brick's
+function startScale() {   // the screen fills the phone (cropped a little at the sides); in landscape it fits the height
+  return W() < H() ? Math.max(W() / SCREEN.w, H() / SCREEN.h) : H() / SCREEN.h;
+}
+const midScale = () => Math.min(.72 * H() / 524, .8 * W() / 300);
+const smallScale = () => Math.min(.3 * Math.max(W(), H()) / 524, .55 * W() / 300);
+const T = (s, ty = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1) =>
+  `translate(0px, ${ty}px) scale(${s * sx}, ${s * sy}) rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(${rz}deg)`;
+
+// ---- timeline -------------------------------------------------------------------------------------------
+const anims = [];
+const anim = (el, frames, opts) => { const a = el.animate(frames, { fill: "forwards", ...opts }); anims.push(a); return a; };
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const world = $("#world"), shadow = $("#shadow");
+
+async function intro() {
+  const s0 = startScale(), s1 = midScale(), s2 = smallScale();
+  world.style.transform = T(s0, -SCREEN.dy * s0);
+  // 1: the player UI builds from left to right, glitching on
+  anim($(".sky"), [{ opacity: 0 }, { opacity: 1 }], { duration: 350 });
+  const uis = [...document.querySelectorAll(".ui")];
+  uis.forEach((el, i) => {
+    anim(el, [{ clipPath: "inset(0 100% 0 0)", opacity: 1 }, { clipPath: "inset(0 0% 0 0)", opacity: 1 }],
+      { duration: 380, delay: 250 + i * 150, easing: "steps(6, end)" });
+    anim(el, [{ transform: "translateX(-3px)", opacity: .4 }, { transform: "translateX(2px)", opacity: 1 }, { transform: "translateX(-1px)", opacity: .7 },
+      { transform: "none", opacity: 1 }], { duration: 260, delay: 600 + i * 150, easing: "steps(4)" });
+  });
+  anim($(".prog .fill"), [{ width: "4%" }, { width: "34%" }], { duration: 3200, delay: 400 });
+  await wait(1900);
+  // 2: zoom out: the gold frame comes into view
+  anim(world, [{ transform: T(s0, -SCREEN.dy * s0) }, { transform: T(s1) }], { duration: 850, easing: "cubic-bezier(.5,0,.2,1)" });
+  anim(shadow, [{ opacity: 0, transform: `scale(${s1 * 1.6}) translate(30px, 60px)` }, { opacity: .25, transform: `scale(${s1 * 1.4}) translate(24px, 50px)` }],
+    { duration: 850 });
+  await wait(900);
+  // 3: free fall onto the ground, spinning on every axis; lands flat, face up
+  anim(world, [{ transform: T(s1) }, { transform: T(s2, 0, 720, 360, 360) }], { duration: 1250, easing: "cubic-bezier(.45,0,.85,.55)" });
+  anim(shadow, [{ opacity: .25, transform: `scale(${s1 * 1.4}) translate(24px, 50px)` }, { opacity: .85, transform: `scale(${s2 * 1.05}) translate(6px, 10px)` }],
+    { duration: 1250, easing: "cubic-bezier(.45,0,.85,.55)" });
+  await wait(1250);
+  anim(world, [{ transform: T(s2, 0, 720, 360, 360, 1.06, .9) }, { transform: T(s2, 0, 720, 360, 360) }], { duration: 220, easing: "ease-out" });
+  await wait(320);
+  // 4: squash, and pop into the cassette player
+  const flat = (sx, sy) => T(s2, 0, 720, 360, 360, sx, sy);
+  anim(world, [{ transform: flat(1, 1) }, { transform: flat(1.14, .78) }], { duration: 180, easing: "ease-in" });
+  await wait(180);
+  $("#brick").style.opacity = 0; $("#walkman").style.opacity = 1;
+  shadow.animate([{ borderRadius: "40px", height: "524px", marginTop: "-262px" }, { borderRadius: "30px", height: "230px", marginTop: "-60px" }],
+    { duration: 200, fill: "forwards" });
+  anim(world, [{ transform: flat(.86, 1.2) }, { transform: flat(1.06, .96) }, { transform: flat(1, 1) }], { duration: 360, easing: "ease-out" });
+  await wait(420);
+  // 5: bounce up towards you, land, split in two
+  anim(world, [{ transform: flat(1, 1) }, { transform: flat(1.32, 1.32) }], { duration: 300, easing: "cubic-bezier(.2,.7,.4,1)" });
+  anim(shadow, [{ opacity: .85 }, { opacity: .3 }], { duration: 300 });
+  await wait(300);
+  anim(world, [{ transform: flat(1.32, 1.32) }, { transform: flat(1, 1) }], { duration: 260, easing: "cubic-bezier(.6,0,.9,.6)" });
+  anim(shadow, [{ opacity: .3 }, { opacity: .85 }], { duration: 260 });
+  await wait(260);
+  return split(s2);
+}
+
+// 5b-6: two cassette players move apart (one up, one down) and open into tape transports
+async function split(s2) {
+  const dw = Math.min(W() * .9, 760);
+  const gap = Math.min(H() * .16, 120);
+  const decks = [$("#deck0"), $("#deck1")];
+  decks.forEach(d => d.style.setProperty("--w", dw + "px"));
+  const clone = world.cloneNode(true); clone.id = "world2"; world.after(clone);
+  const flat = (ty, sx = 1, sy = 1) => T(s2, ty, 720, 360, 360, sx, sy);
+  anim(world, [{ transform: flat(0, 1.1, .85) }, { transform: flat(-gap) }], { duration: 380, easing: "cubic-bezier(.2,.8,.3,1)" });
+  anim(clone, [{ transform: flat(0, 1.1, .85) }, { transform: flat(gap) }], { duration: 380, easing: "cubic-bezier(.2,.8,.3,1)" });
+  anim(shadow, [{ opacity: .85 }, { opacity: 0 }], { duration: 300 });
+  await wait(420);
+  // open up: the players fade as their transports grow out of them
+  [world, clone].forEach(w => anim(w, [{ opacity: 1 }, { opacity: 0 }], { duration: 380, delay: 120 }));
+  decks.forEach((d, i) => {
+    d.style.top = `calc(50% + ${(i ? 1 : -1) * gap}px)`;
+    anim(d, [{ opacity: 0 }, { opacity: 1 }], { duration: 200 });
+    anim(d.querySelector(".base"), [{ clipPath: "inset(0 calc(50% - 60px) round 14px)" }, { clipPath: "inset(0 0% round 14px)" }],
+      { duration: 520, easing: "cubic-bezier(.2,.8,.2,1)" });
+    anim(d.querySelector(".tape"), [{ transform: "scaleX(.05)" }, { transform: "scaleX(1)" }], { duration: 520, easing: "cubic-bezier(.2,.8,.2,1)" });
+    const off = dw / 2 - 40;
+    anim(d.querySelector(".reel.l"), [{ transform: "translateX(-30px)" }, { transform: `translateX(${-off}px)` }], { duration: 520, easing: "cubic-bezier(.2,.8,.2,1)" });
+    anim(d.querySelector(".reel.r"), [{ transform: "translateX(30px)" }, { transform: `translateX(${off}px)` }], { duration: 520, easing: "cubic-bezier(.2,.8,.2,1)" });
+    anim(d.querySelector(".lbl"), [{ opacity: 0 }, { opacity: .9 }], { duration: 300, delay: 400 });
+  });
+  await wait(600);
+  return scratchLoop(dw);
+}
+
+// 7: scratches. A baby scratch, another, then a chirp; the second deck answers. Loops until Mixxx is ready.
+const BABY = [0, 150, 0, 150, 0, 90, -20, 180, 0];
+async function scratch(deck, dw, delay) {
+  const off = dw / 2 - 40;
+  const reels = [...deck.querySelectorAll(".reel")];
+  const frames = BABY.map((a, i) => ({ offset: i / (BABY.length - 1), a }));
+  reels.forEach((r, i) => anim(r.querySelector("svg"), frames.map(f => ({ offset: f.offset, transform: `rotate(${f.a}deg)` })),
+    { duration: 1100, delay, easing: "ease-in-out", fill: "none" }));
+  anim(deck.querySelector(".tape"), frames.map(f => ({ offset: f.offset, backgroundPosition: `${f.a * .4}px 0` })),
+    { duration: 1100, delay, easing: "ease-in-out", fill: "none" });
+}
+async function scratchLoop(dw) {
+  const decks = [$("#deck0"), $("#deck1")];
+  let first = true;
+  do {
+    scratch(decks[0], dw, 0);
+    scratch(decks[1], dw, 550);
+    await wait(1700);
+    if (first) { first = false; if (!ready) $("#wait").style.opacity = 1; }
+  } while (!ready);
+  return outro();
+}
+
+// 8: the decks slide up to where the app shows them, and the app takes over
+async function outro() {
+  if (leaving) return;
+  leaving = true;
+  $("#wait").style.opacity = 0;
+  const decks = [$("#deck0"), $("#deck1")];
+  decks.forEach((d, i) => anim(d, [{ transform: "none", opacity: 1 }, { transform: `translateY(${-H() * .32}px) scaleY(.6)`, opacity: 0 }],
+    { duration: 520, delay: i * 70, easing: "cubic-bezier(.5,0,.3,1)" }));
+  anim($("#fade"), [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 300 });
+  await wait(620);
+  if (!params.has("ready")) location.replace("/phone");
+}
+
+// A tap skips ahead: straight to the app if Mixxx is ready, otherwise to the scratching.
+addEventListener("pointerdown", () => {
+  if (skipping || leaving) return;
+  skipping = true;
+  if (ready) { anims.forEach(a => a.finish()); leaving = true; location.replace("/phone"); }
+});
+
+if (QUICK) {   // after an error: just wait for the server
+  $("#stage").style.display = "none"; $("#wait").style.opacity = 1; $("#wait").textContent = "Waiting for Mixxx…";
+  (function check() { if (ready) location.replace("/phone"); else setTimeout(check, 300); })();
+} else intro();
+</script>
+</body>
+</html>
