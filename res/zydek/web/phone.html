@@ -1200,20 +1200,21 @@ function onLongPress(el, fn) {
   el.addEventListener("contextmenu", e => e.preventDefault());
 }
 
-// Beat grid editor (grid.html): the track goes to the headphones' preview deck and the editor opens over the page
-async function editGrid(t) {
+// The beat grid editor (grid.html) and the sample editor (sample.html): the track goes to the headphones'
+// preview deck and the editor opens over the page
+async function openEditor(kind, t) {
   try { await api(`/api/load?${qs({ track_id: t.id, target: "preview" })}`); } catch (e) { return toast(e.message, "bad"); }
   document.getElementById("gridview")?.remove();
   const f = document.createElement("iframe");
   f.id = "gridview";
-  f.src = `/grid?group=${encodeURIComponent("[PreviewDeck1]")}&track=${t.id}`;
+  f.src = kind === "grid" ? `/grid?group=${encodeURIComponent("[PreviewDeck1]")}&track=${t.id}` : `/sample?track=${t.id}`;
   document.body.appendChild(f);
 }
 addEventListener("message", e => {
-  if (e.origin !== location.origin || e.data?.zydek !== "grid-close") return;
+  if (e.origin !== location.origin || !["grid-close", "sample-close"].includes(e.data?.zydek)) return;
   document.getElementById("gridview")?.remove();
   api("/api/preview/stop").catch(() => {});
-  loadTracks();   // its BPM may have changed
+  loadViews(); loadTracks();   // a BPM may have changed, a sample may have been added
 });
 
 // Crates: long press a track to put it in crates (or take it out); "+ Crate" makes a new one.
@@ -1224,12 +1225,14 @@ async function openCrateSheet(t) {
   if (t) { try { member = await api(`/api/crates/of?${qs({ track: t.id })}`); } catch {} }
   s.innerHTML = `<div class="grip"></div><div class="t">${t ? esc(t.title) : "New crate"}</div>` +
     (t ? `<div class="a">${esc(t.artist || "Unknown artist")} · tap a crate to add or remove</div>` +
-      `<div class="more">${!t.missing ? `<button class="wide editgrid">Edit beat grid<small>in your headphones</small></button>` : ""}` +
+      `<div class="more">${!t.missing ? `<button class="mksample">Make a sample<small>cut it into a pad</small></button>` +
+        `<button class="editgrid">Edit beat grid<small>in your headphones</small></button>` : ""}` +
       (stemServer && !t.stems && !t.missing ? `<button class="wide mkstems">Make stems on the PC<small>${esc(STEM_MODELS[stemPreset] || stemPreset)}</small></button>` : "") + `</div>` +
       `<div class="crates"></div>` : "") +
     `<div class="newcrate"><input placeholder="New crate name" enterkeyhint="done"><button>Make crate</button></div>`;
   s.querySelector(".mkstems")?.addEventListener("click", () => { closeSheet(); makeStems(t); });
-  s.querySelector(".editgrid")?.addEventListener("click", () => { closeSheet(); editGrid(t); });
+  s.querySelector(".editgrid")?.addEventListener("click", () => { closeSheet(); openEditor("grid", t); });
+  s.querySelector(".mksample")?.addEventListener("click", () => { closeSheet(); openEditor("sample", t); });
   const box = s.querySelector(".crates");
   if (box) crateList.forEach(c => {
     const on = member.includes(c.id);

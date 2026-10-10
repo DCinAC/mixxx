@@ -797,22 +797,45 @@ QJsonObject Library::captureSample(int deck, int slot, bool sync) {
     }
     // the stems this deck plays
     uint mask = 0;
-    QStringList stems;
     const int stemCount = static_cast<int>(control(group, QStringLiteral("stem_count")));
-    if (stemCount > 0) {
+    for (int s = 0; s < stemCount && s < 4; ++s) {
+        const QString sg = QStringLiteral("[Channel%1_Stem%2]").arg(deck).arg(s + 1);
+        if (control(sg, QStringLiteral("mute")) == 0 && control(sg, QStringLiteral("volume")) > 0) {
+            mask |= 1u << s;
+        }
+    }
+    if (stemCount > 0 && !mask) {
+        return error(QStringLiteral("Every stem on deck %1 is muted").arg(deck));
+    }
+    if (stemCount > 0 && mask == (1u << stemCount) - 1) {
+        mask = 0;   // all of them: just the track
+    }
+    return renderSample(pTrack, loopIn / 2, loopOut / 2, mask, slot, sync);
+}
+
+QJsonObject Library::cutSample(const QString& group, double start, double end, uint stemMask, int slot, bool sync) {
+    if (slot < 1 || slot > kMaxSamplers) {
+        return error(QStringLiteral("No such sampler"));
+    }
+    const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group);
+    if (!pTrack) {
+        return error(QStringLiteral("Nothing is loaded to cut from"));
+    }
+    const double rate = pTrack->getSampleRate().toDouble();
+    if (!(end > start) || start < 0 || rate <= 0) {
+        return error(QStringLiteral("Pick a stretch of the track first"));
+    }
+    return renderSample(pTrack, start * rate, end * rate, stemMask & 15, slot, sync);
+}
+
+QJsonObject Library::renderSample(const TrackPointer& pTrack, double firstFrame, double lastFrame, uint mask, int slot, bool sync) {
+    QStringList stems;
+    if (mask) {
         const QList<StemInfo> info = pTrack->getStemInfo();
-        for (int s = 0; s < stemCount && s < 4; ++s) {
-            const QString sg = QStringLiteral("[Channel%1_Stem%2]").arg(deck).arg(s + 1);
-            if (control(sg, QStringLiteral("mute")) == 0 && control(sg, QStringLiteral("volume")) > 0) {
-                mask |= 1u << s;
+        for (int s = 0; s < 4; ++s) {
+            if (mask & (1u << s)) {
                 stems.append(s < info.size() && !info[s].getLabel().isEmpty() ? info[s].getLabel() : QStringLiteral("Stem %1").arg(s + 1));
             }
-        }
-        if (!mask) {
-            return error(QStringLiteral("Every stem on deck %1 is muted").arg(deck));
-        }
-        if (mask == (1u << stemCount) - 1) {
-            stems.clear();   // all of them: just the track
         }
     }
     mixxx::AudioSource::OpenParams params;
@@ -828,7 +851,7 @@ QJsonObject Library::captureSample(int deck, int slot, bool sync) {
     }
     const int channels = pSource->getSignalInfo().getChannelCount();
     const int rate = pSource->getSignalInfo().getSampleRate();
-    const SINT first = static_cast<SINT>(loopIn / 2), last = static_cast<SINT>(loopOut / 2);
+    const SINT first = static_cast<SINT>(firstFrame), last = static_cast<SINT>(lastFrame);
     mixxx::SampleBuffer buffer((last - first) * channels);
     const mixxx::ReadableSampleFrames read = pSource->readSampleFrames(mixxx::WritableSampleFrames(
             mixxx::IndexRange::between(first, last), mixxx::SampleBuffer::WritableSlice(buffer)));

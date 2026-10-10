@@ -210,7 +210,8 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         return {200, "text/html; charset=utf-8", kIndexPage, {}};
     }
     if (path == QLatin1String("/controller") || path == QLatin1String("/settings") ||
-            path == QLatin1String("/sizes") || path == QLatin1String("/phone") || path == QLatin1String("/grid")) {
+            path == QLatin1String("/sizes") || path == QLatin1String("/phone") || path == QLatin1String("/grid") ||
+            path == QLatin1String("/sample")) {
         return staticFile(path.mid(1) + QLatin1String(".html"));
     }
     if (path == QLatin1String("/controller.webmanifest")) {
@@ -378,6 +379,15 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     }
     if (path == QLatin1String("/api/kits/delete")) {   // ?name=
         return result(deleteKit(arg("name")));
+    }
+    if (path == QLatin1String("/api/sampler/cut")) {   // ?group=&start=&end= (s)&stems=<mask>&slot=&sync=&mode=
+        const int slot = arg("slot").toInt();
+        const QJsonObject r = m_library.cutSample(arg("group"), arg("start").toDouble(), arg("end").toDouble(),
+                arg("stems").toUInt(), slot, arg("sync") != QLatin1String("0"));
+        if (r.value(QStringLiteral("ok")).toBool()) {
+            setSamplerMode(slot, arg("mode").isEmpty() ? QStringLiteral("loop") : arg("mode"));
+        }
+        return result(r);
     }
     if (path == QLatin1String("/api/sampler/modes")) {
         return json(samplerModes());
@@ -616,7 +626,12 @@ QJsonObject Hub::samplerModes() {
             m_samplerModes.append(saved.at(i).toString(QStringLiteral("oneshot")));
         }
     }
-    return {{"modes", QJsonArray::fromStringList(m_samplerModes)}};
+    QJsonArray names;   // what's on the 32 pads ZyDeck shows ("" = empty)
+    for (int i = 0; i < kKitSlots; ++i) {
+        const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(QStringLiteral("[Sampler%1]").arg(i + 1));
+        names.append(pTrack ? (pTrack->getTitle().isEmpty() ? QFileInfo(pTrack->getLocation()).completeBaseName() : pTrack->getTitle()) : QString());
+    }
+    return {{"modes", QJsonArray::fromStringList(m_samplerModes)}, {"names", names}};
 }
 
 QJsonObject Hub::setSamplerMode(int slot, const QString& mode) {
