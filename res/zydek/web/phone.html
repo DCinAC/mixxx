@@ -1384,7 +1384,12 @@ async function analyzeAsk() {
   s.querySelector(".no").addEventListener("click", closeSheet);
   s.querySelector(".go").addEventListener("click", async () => {
     closeSheet();
-    try { await api("/api/analyze"); toast(`Analyzing ${n} tracks…`, "ok"); watchAnalysis(); } catch (e) { toast(e.message, "bad"); }
+    try {
+      await api("/api/analyze");
+      toast(`Analyzing ${n} tracks…`, "ok");
+      window.ZydekAndroid?.analysisStarted?.();   // keeps going in the background, progress in a notification
+      watchAnalysis();
+    } catch (e) { toast(e.message, "bad"); }
   });
   $("#scrim").classList.add("on"); s.classList.add("on");
 }

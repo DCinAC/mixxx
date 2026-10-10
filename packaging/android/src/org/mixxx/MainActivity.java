@@ -1,9 +1,11 @@
 package org.mixxx;
 
+import android.Manifest;
 import android.content.Context;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
@@ -126,6 +128,19 @@ public class MainActivity extends QtActivityBase {
         @JavascriptInterface
         public void addToGallery(String path) {
             MediaScannerConnection.scanFile(MainActivity.this, new String[] {path}, new String[] {"image/png"}, null);
+        }
+
+        /// "Analyze all" started: keep Mixxx running with the progress in a notification (asking once for
+        /// permission to show notifications).
+        @JavascriptInterface
+        public void analysisStarted() {
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                        && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, 7101);
+                }
+                ZydekAnalysisService.start(MainActivity.this);
+            });
         }
 
         /// CSS pixels per millimetre of this screen (the deck view sizes its controls in mm).
