@@ -226,6 +226,16 @@
   #stemsrv .st { font-size: 12px; color: var(--dim); margin-top: 8px; }
   #stemsrv .st.on { color: var(--play); }
   #sheet .more .wide { grid-column: 1 / -1; }
+  #sheet .pvn { position: relative; height: 64px; margin-top: 10px; border-radius: 8px; background: #0b0b0b; border: 1px solid #262626;
+    touch-action: none; overflow: hidden; }
+  #sheet .pvn canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #sheet .pvn .ph { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 4px #000; display: none; }
+  #sheet .pvn .played { position: absolute; top: 0; bottom: 0; left: 0; background: rgba(0,0,0,.45); display: none; }
+  #sheet .pvn.on .ph, #sheet .pvn.on .played { display: block; }
+  #sheet .pvn .tm { position: absolute; right: 6px; top: 4px; font-size: 11px; color: #ccc; background: rgba(0,0,0,.6);
+    padding: 1px 5px; border-radius: 4px; font-variant-numeric: tabular-nums; pointer-events: none; }
+  #sheet .pvn .hint { position: absolute; left: 8px; bottom: 4px; font-size: 11px; color: #888; pointer-events: none; }
+  #sheet .pvn.on .hint { display: none; }
   #sheet hr { border: 0; border-top: 1px solid #333; margin: 14px 0 6px; }
   #sheet .sub { font-size: 12px; color: var(--dim); margin: 12px 0 0; }
   #sheet .more button.armed { border-color: var(--warn, #e0a000); color: var(--warn, #e0a000); }
@@ -514,6 +524,7 @@ async function loadWaveform(d, id) {
   }
 }
 function applyCv(k, v, ts) {
+  if (k.startsWith("[PreviewDeck1],")) return applyPreviewCv(k.slice(15), v);
   const m = /^\[Channel(\d)\],(.*)$/.exec(k);
   if (!m) return;
   const d = decks[m[1] - 1];
@@ -543,6 +554,8 @@ function connect() {
           ...[1, 2, 3, 4, 5, 6, 7, 8].map(k => `hotcue_${k}_position`)]) sub.push([`[Channel${n}]`, k, 0]);
         sub.push([`[Channel${n}]`, "playposition", 1]);
       }
+      for (const k of ["play", "track_loaded", "duration"]) sub.push(["[PreviewDeck1]", k, 0]);
+      sub.push(["[PreviewDeck1]", "playposition", 1]);
       wsSend({ sub });
       $("#link").textContent = live ? "Live · Mixxx" : "Zydek's controller is off (Preferences › Controllers)";
       return;
@@ -1233,6 +1246,8 @@ async function openSheet(t) {
     `<div class="facts"><div><b>${t.bpm ? t.bpm.toFixed(1) : "—"}</b>BPM</div><div><b>${esc(keyText(t) || "—")}</b>Key</div>` +
     `<div><b>${fmtTime(t.duration)}</b>Length</div><div><b>${t.played || 0}</b>Played</div></div>` +
     `<div class="loads"></div><div class="more"><button class="pv">Preview (headphones)</button><button class="smp">Load to sampler</button></div>` +
+    (!t.missing ? `<div class="pvn"><canvas></canvas><div class="played"></div><div class="ph"></div><span class="tm"></span>` +
+      `<span class="hint">Touch the waveform to preview from there</span></div>` : "") +
     `<hr>${tools ? `<div class="more">${tools}</div>` : ""}` +
     `<div class="sub">Crates · tap one to add or remove</div><div class="crates"></div>` +
     `<div class="newcrate"><input placeholder="New crate name" enterkeyhint="done"><button>Make crate</button></div>`;
@@ -1244,7 +1259,8 @@ async function openSheet(t) {
     s.querySelector(".loads").appendChild(b);
   });
   s.querySelector(".pv").disabled = t.missing;
-  s.querySelector(".pv").addEventListener("click", () => preview(t));
+  s.querySelector(".pv").addEventListener("click", () => previewing(t) ? stopPreview() : preview(t, true));
+  if (!t.missing) previewNeedle(s.querySelector(".pvn"), t);
   s.querySelector(".smp").disabled = t.missing;
   s.querySelector(".smp").addEventListener("click", () => load(t, "sampler"));
   s.querySelector(".mkstems")?.addEventListener("click", () => { closeSheet(); makeStems(t); });
@@ -1364,15 +1380,97 @@ async function load(t, target) {
     closeSheet();
   } catch (e) { toast(e.message, "bad"); }
 }
-async function preview(t) {
+// The preview deck ([PreviewDeck1], the headphones): its state comes over /ws like the decks'.
+const pvState = { track: null, playing: false, loaded: false, dur: 0, pos: 0, at: 0 };
+const previewing = t => pvState.track && t && pvState.track.id === t.id && pvState.loaded;
+async function preview(t, keepOpen) {
   try {
     await api(`/api/preview?${qs({ track_id: t.id })}`);
+    pvState.track = t; pvState.loaded = false;
     $("#pv span").textContent = `Previewing on the headphones: ${t.title}`;
     $("#pv").classList.add("on");
-    closeSheet();
-  } catch (e) { toast(e.message, "bad"); }
+    if (!keepOpen) closeSheet();
+    return true;
+  } catch (e) { toast(e.message, "bad"); return false; }
 }
-$("#pvstop").addEventListener("click", async () => { await api("/api/preview/stop").catch(() => {}); $("#pv").classList.remove("on"); });
+async function stopPreview() {
+  await api("/api/preview/stop").catch(() => {});
+  pvState.track = null; pvState.playing = false;
+  $("#pv").classList.remove("on");
+}
+$("#pvstop").addEventListener("click", stopPreview);
+function applyPreviewCv(key, v) {
+  switch (key) {
+    case "play": pvState.pos = pvPos(); pvState.at = performance.now(); pvState.playing = v > 0; break;
+    case "track_loaded": pvState.loaded = v > 0; if (!pvState.loaded) pvState.playing = false; break;
+    case "duration": pvState.dur = v; if (v > 0) pvState.loaded = true; break;   // a new track over an old one
+    case "playposition": pvState.pos = v; pvState.at = performance.now(); break;
+  }
+}
+// Where the preview is now (0..1), run on from the last report while it plays
+function pvPos() {
+  if (!pvState.playing || !pvState.dur) return pvState.pos;
+  return Math.min(1, pvState.pos + (performance.now() - pvState.at) / 1000 / pvState.dur);
+}
+// Needle search in the track sheet: the whole track's waveform; touch it to preview from there (starting
+// the preview if needed), drag to keep seeking.
+function previewNeedle(box, t) {
+  const c = box.querySelector("canvas"), ph = box.querySelector(".ph"), played = box.querySelector(".played"), tm = box.querySelector(".tm");
+  let wf = null;
+  fetch(`/waveform/${t.id}`).then(r => r.ok ? r.arrayBuffer() : null).then(b => {
+    if (!b) return;
+    const buf = new Uint8Array(b), dv = new DataView(b);
+    wf = { n: dv.getUint32(8, true), data: buf.subarray(12) }; draw();
+  }).catch(() => {});
+  function draw() {
+    sizeCanvas(c);
+    const g = c.getContext("2d"), W = c.width, H = c.height;
+    g.clearRect(0, 0, W, H);
+    if (!wf) { g.fillStyle = "#333"; g.fillRect(0, H / 2 - 1, W, 2); return; }
+    const per = wf.n / W, a = wf.data;
+    for (let x = 0; x < W; x++) {
+      const i0 = Math.floor(x * per), i1 = Math.max(i0 + 1, Math.floor((x + 1) * per));
+      let all = 0, best = i0;
+      for (let i = i0; i < i1 && i < wf.n; i++) if (a[i * 4] > all) { all = a[i * 4]; best = i; }
+      g.fillStyle = colorFor(a, best * 4);
+      const hh = Math.max(1, all / 255 * H * .46);
+      g.fillRect(x, H / 2 - hh, 1, hh * 2);
+    }
+  }
+  draw();
+  const dur = () => pvState.dur || t.duration || 0;
+  let seeking = false, lastSend = 0, pending = null;
+  const seek = async (e, force) => {
+    const r = box.getBoundingClientRect(), frac = clamp((e.clientX - r.left) / r.width, 0, 1);
+    pvState.pos = frac; pvState.at = performance.now();
+    if (!previewing(t)) {   // start the preview, then jump once it's loaded
+      pending = frac;
+      if (pvState.track && pvState.track.id === t.id) return;
+      if (!(await preview(t, true))) return;
+      for (let i = 0; i < 40 && !previewing(t); i++) await new Promise(res => setTimeout(res, 75));
+      if (pending != null) { wsSend({ set: ["[PreviewDeck1]", "playposition", pending, 0] }); pending = null; }
+      return;
+    }
+    const now = performance.now();
+    if (force || now - lastSend > 30) { lastSend = now; wsSend({ set: ["[PreviewDeck1]", "playposition", frac, 0] }); }
+  };
+  box.addEventListener("pointerdown", e => { seeking = true; box.setPointerCapture(e.pointerId); seek(e, true); });
+  box.addEventListener("pointermove", e => { if (seeking) seek(e); });
+  box.addEventListener("pointerup", e => { if (seeking) seek(e, true); seeking = false; });
+  box.addEventListener("pointercancel", () => { seeking = false; });
+  (function frame() {
+    if (!box.isConnected || !$("#sheet").classList.contains("on")) return;
+    const on = previewing(t);
+    box.classList.toggle("on", on);
+    const f = on ? pvPos() : 0;
+    ph.style.left = played.style.width = (f * 100) + "%";
+    tm.textContent = on ? `${fmtTime(f * dur())} / ${fmtTime(dur())}` : fmtTime(dur());
+    const btn = $("#sheet .pv");
+    if (btn) btn.textContent = on ? "Stop preview" : "Preview (headphones)";
+    if (sizeCanvas(c)) draw();
+    requestAnimationFrame(frame);
+  })();
+}
 
 // ---------------------------------------------------------------------------------------------------
 // Music folders
