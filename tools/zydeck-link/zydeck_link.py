@@ -43,6 +43,9 @@ if sys.platform == "darwin":
     DATA = Path.home() / "Library/Application Support/ZyDeck Link"
     MIXXX_DIRS = [Path.home() / "Library/Containers/org.mixxx.mixxx/Data/Library/Application Support/Mixxx",
                   Path.home() / "Library/Application Support/Mixxx"]
+elif sys.platform == "win32":
+    DATA = Path(os.environ.get("APPDATA", Path.home())) / "ZyDeck Link"
+    MIXXX_DIRS = [Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local")) / "Mixxx"]
 else:
     DATA = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "zydeck-link"
     MIXXX_DIRS = [Path.home() / ".mixxx", Path.home() / ".local/share/mixxx",
@@ -263,24 +266,60 @@ def decode_beats(blob: bytes, version: str, rate: int, duration: float, locked: 
 
 # ---- MIDI ------------------------------------------------------------------------------------------
 
+class WindowsPort:
+    """Windows has no virtual MIDI ports of its own: this makes one with loopMIDI's driver (teVirtualMIDI, free
+    from tobias-erichsen.de; ZyDeck Link only needs it installed). What ZyDeck Link sends comes out of the port
+    for Mixxx, and what Mixxx sends to it arrives here, without looping back."""
+
+    PARSE_RX, INSTANTIATE_BOTH = 1, 12
+
+    def __init__(self, name: str, on_message):
+        import ctypes
+        from ctypes import wintypes
+        self.dll = ctypes.WinDLL("teVirtualMIDI64.dll" if ctypes.sizeof(ctypes.c_void_p) == 8 else "teVirtualMIDI.dll")
+        CB = ctypes.WINFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_ubyte), wintypes.DWORD, ctypes.c_void_p)
+        self._cb = CB(lambda _port, data, length, _user: on_message(list(data[:length])) if length else None)
+        self.dll.virtualMIDICreatePortEx2.restype = ctypes.c_void_p
+        self.dll.virtualMIDICreatePortEx2.argtypes = [wintypes.LPCWSTR, CB, ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD]
+        self.dll.virtualMIDISendData.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ubyte), wintypes.DWORD]
+        self.port = self.dll.virtualMIDICreatePortEx2(name, self._cb, None, 65535, self.PARSE_RX | self.INSTANTIATE_BOTH)
+        if not self.port:
+            raise OSError("couldn't make the MIDI port (is loopMIDI's driver installed?)")
+        self._ctypes = ctypes
+
+    def send_message(self, data: list[int]):
+        buf = (self._ctypes.c_ubyte * len(data))(*data)
+        self.dll.virtualMIDISendData(self.port, buf, len(data))
+
+
 class Midi:
     """The ZyDeck Link port for Mixxx, and every other MIDI input watched for ZyDeck's hello."""
 
     def __init__(self, link):
         self.link = link
         self.lock = threading.Lock()
-        self.out = rtmidi.MidiOut(name=APP)
-        self.out.open_virtual_port(PORT_NAME)
-        self.inp = rtmidi.MidiIn(name=APP)
-        self.inp.open_virtual_port(PORT_NAME)
-        self.inp.ignore_types(sysex=False, timing=True, active_sense=True)
-        self.inp.set_callback(lambda ev, _: link.from_mixxx(ev[0]))
+        self.problem = ""
+        if sys.platform == "win32":
+            try:
+                self.out = WindowsPort(PORT_NAME, link.from_mixxx)
+            except OSError as e:   # still useful over the cable: names and waveforms
+                self.out, self.problem = None, ("No ZyDeck Link MIDI port: install loopMIDI (free) for the Wi-Fi link. "
+                                                f"Over the USB cable everything else works. ({e})")
+        else:
+            self.out = rtmidi.MidiOut(name=APP)
+            self.out.open_virtual_port(PORT_NAME)
+            self.inp = rtmidi.MidiIn(name=APP)
+            self.inp.open_virtual_port(PORT_NAME)
+            self.inp.ignore_types(sysex=False, timing=True, active_sense=True)
+            self.inp.set_callback(lambda ev, _: link.from_mixxx(ev[0]))
         self.watched: dict[str, rtmidi.MidiIn] = {}
         self.replies: dict[str, rtmidi.MidiOut] = {}
         self.devices: dict[str, float] = {}   # port -> when ZyDeck said hello over it
         threading.Thread(target=self._watch, daemon=True).start()
 
     def to_mixxx(self, data: list[int]):
+        if self.out is None:
+            return
         with self.lock:
             self.out.send_message(data)
 
@@ -322,8 +361,25 @@ class Midi:
             self.replies[port] = out
         out.send_message(data)
 
+    # Windows lets one app at a time open a MIDI input: there ZyDeck Link holds the cable's port and relays it
+    # to and from the ZyDeck Link port, which is the one Mixxx uses. Elsewhere Mixxx can open the cable too.
+    RELAY_CABLE = sys.platform == "win32"
+
+    def to_cables(self, msg: list[int]):
+        if not self.RELAY_CABLE:
+            return
+        now = time.time()
+        for port, seen in list(self.devices.items()):
+            if now - seen < 3600:
+                try:
+                    self._reply(port, msg)
+                except rtmidi.RtMidiError:
+                    pass
+
     def _from_cable(self, port: str, msg: list[int]):
         if len(msg) < 4 or msg[0] != 0xF0 or msg[1] != 0x7D or msg[2] not in (LINK_HELLO, NAME_ASK):
+            if self.RELAY_CABLE and port in self.devices:
+                self.to_mixxx(msg)
             return   # the mapping's own messages: Mixxx reads those from this port itself
         j = sx_json(msg)
         if j is None:
@@ -374,6 +430,9 @@ class Link:
 
     # Mixxx -> linked devices
     def from_mixxx(self, msg: list[int]):
+        midi = getattr(self, "midi", None)   # Windows' port can call before it's all set up
+        if midi:
+            midi.to_cables(msg)
         if self.loop and self.clients:
             line = b"M " + bytes(msg).hex().encode() + b"\n"
             self.loop.call_soon_threadsafe(self._broadcast, line)
@@ -507,11 +566,23 @@ def _launch_command() -> list[str]:
     return [sys.executable, str(Path(__file__).resolve())]
 
 
+STARTUP = Path(os.environ.get("APPDATA", Path.home())) / "Microsoft/Windows/Start Menu/Programs/Startup/ZyDeck Link.cmd"
+
+
 def open_at_login() -> bool:
+    if sys.platform == "win32":
+        return STARTUP.is_file()
     return AGENT.is_file() if sys.platform == "darwin" else AUTOSTART.is_file()
 
 
 def set_open_at_login(on: bool):
+    if sys.platform == "win32":
+        if on:
+            STARTUP.parent.mkdir(parents=True, exist_ok=True)
+            STARTUP.write_text("@start \"\" " + " ".join(f'"{a}"' for a in _launch_command()) + "\r\n")
+        else:
+            STARTUP.unlink(missing_ok=True)
+        return
     if sys.platform == "darwin":
         if on:
             args = "".join(f"<string>{a}</string>" for a in _launch_command())
@@ -565,7 +636,7 @@ def window(link: Link):
     install.configure(command=do_install)
 
     def refresh():
-        lines["port"].configure(text=f"MIDI port for Mixxx: {PORT_NAME}. In Mixxx: Preferences › Controllers › "
+        lines["port"].configure(text=link.midi.problem or f"MIDI port for Mixxx: {PORT_NAME}. In Mixxx: Preferences › Controllers › "
                                      f"{PORT_NAME} › load ZyDeck, tick Enabled. Mixxx only finds MIDI ports when it "
                                      "starts: start ZyDeck Link first.")
         d = mixxx_dir()
