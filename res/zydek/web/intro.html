@@ -105,6 +105,12 @@
   .deck { position: absolute; left: 50%; top: 50%; width: 360px; height: 260px; margin: -130px 0 0 -180px; opacity: 0; }
   .deck svg { overflow: visible; }
   .deck .spin { transform-box: fill-box; transform-origin: 50% 50%; }
+  /* the ground the things land on (85-150 cm behind the screen): faint dots, and a ripple where something lands */
+  #ground { position: fixed; inset: -10%; opacity: 0; pointer-events: none;
+    background: radial-gradient(circle, rgba(255,255,255,.07) 1px, transparent 1.5px) 0 0 / 18px 18px,
+      radial-gradient(closest-side, rgba(255,255,255,.035), transparent); }
+  .ripple { position: absolute; border-radius: 50%; border: 2px solid rgba(255,255,255,.55); pointer-events: none;
+    box-shadow: 0 0 14px rgba(255,113,206,.35), inset 0 0 10px rgba(1,205,254,.25); }
   #wait { position: fixed; left: 0; right: 0; bottom: 9vh; text-align: center; font: 500 13px/1.4 system-ui, sans-serif; color: #6d6d6d;
     opacity: 0; transition: opacity .4s; }
   #fade { position: fixed; inset: 0; background: var(--bg); opacity: 0; pointer-events: none; }
@@ -112,6 +118,7 @@
 </head>
 <body>
 <div id="stage">
+  <div id="ground"></div>
   <div id="shadow" class="center"></div>
   <div id="world" class="world center">
     <div id="brick">
@@ -210,8 +217,13 @@ const T = (s, ty = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1) =>
 // ---- camera ---------------------------------------------------------------------------------------------
 // The phone's screen is a window: the eye 35 cm in front of it, the ground 85 cm behind it. Something y cm above
 // the ground looks EYE / (EYE + DROP - y) times the size it would be at the screen.
-const EYE = 35, DROP = 85, HOP = 26;          // cm; HOP: how high the two decks bounce
-const G = 981 * .6;                           // cm/s², a little slower than real: easier to follow
+const EYE = 35, DROP = 150, HOP = 60;         // cm; HOP: heights for the shadows' softness
+// The whole intro runs SLOW times slower than real life: the scripted parts take SLOW times longer, and the
+// falls and bounces happen in gravity divided by SLOW², which stretches them in time without changing their shape.
+const SLOW = 2;
+const ms = x => x * SLOW;
+const G = 981 * .7 / (SLOW * SLOW);            // cm/s²
+const E = .62;                                // how much of its speed a thing keeps when it bounces
 const persp = y => EYE / (EYE + DROP - y);
 const fallMs = h => Math.sqrt(2 * h / G) * 1000;
 
@@ -240,59 +252,103 @@ async function intro() {
   // 1: the player UI builds from left to right, glitching on
   const uis = [...document.querySelectorAll(".ui")];
   uis.forEach((el, i) => {
-    anim(el, [{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)" }], { duration: 380, delay: 200 + i * 140, easing: "steps(6, end)" });
+    anim(el, [{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)" }], { duration: ms(380), delay: ms(200 + i * 140), easing: "steps(6, end)" });
     anim(el, [{ transform: "translateX(-3px)", opacity: .4 }, { transform: "translateX(2px)", opacity: 1 }, { transform: "translateX(-1px)", opacity: .7 },
-      { transform: "none", opacity: 1 }], { duration: 260, delay: 520 + i * 140, easing: "steps(4)" });
+      { transform: "none", opacity: 1 }], { duration: ms(260), delay: ms(520 + i * 140), easing: "steps(4)" });
   });
-  anim($(".prog .fill"), [{ width: "4%" }, { width: "30%" }], { duration: 3000, delay: 400 });
-  await wait(1900);
+  anim($(".prog .fill"), [{ width: "4%" }, { width: "30%" }], { duration: ms(3000), delay: ms(400) });
+  await wait(ms(1900));
   // 2: zoom out: the gold frame comes into view (the brick is now at the screen)
-  anim(world, [{ transform: T(s0, -SCREEN.dy * s0) }, { transform: T(s1) }], { duration: 850, easing: "cubic-bezier(.5,0,.2,1)" });
-  await wait(950);
+  anim(world, [{ transform: T(s0, -SCREEN.dy * s0) }, { transform: T(s1) }], { duration: ms(850), easing: "cubic-bezier(.5,0,.2,1)" });
+  await wait(ms(950));
 
-  // 3: it drops 85 cm onto the ground, turning half a round; on the way it opens out into an open-reel deck
-  const tf = fallMs(DROP), N = 16, morphAt = .6;
-  const fall = [], deckFall = [], shadowFall = [];
-  const brickPx = 300 * s1;                                  // the brick's width at the screen
-  for (let k = 0; k <= N; k++) {
-    const t = k / N * tf / 1000, y = DROP - G * t * t / 2, f = persp(y) / persp(DROP), q = k / N;
-    const rz = 180 * q, rx = 16 * Math.sin(Math.PI * q), ry = -12 * Math.sin(Math.PI * q);
-    fall.push({ offset: q, transform: T(s1 * f, 0, rx, ry, rz) });
-    shadowFall.push({ offset: q, opacity: .15 + .7 * q * q, transform: `scale(${s1 * persp(0) / persp(DROP) * 1.05}) translate(${30 * (1 - q * q)}px, ${50 * (1 - q * q)}px)` });
-    if (q >= morphAt) {   // the deck grows out of the brick as it unfolds, landing full size
-      const u = (q - morphAt) / (1 - morphAt), from = brickPx * f / 360, ease = 1 - (1 - u) ** 2;
-      deckFall.push({ offset: u, transform: D(0, 0, rz, from + (L.sc - from) * ease), opacity: Math.min(1, u * 4), filter: deckShadow(y * (1 - u), L.sc) });
-    }
-  }
-  anim(world, fall, { duration: tf, easing: "linear" });
-  anim(shadow, shadowFall, { duration: tf, easing: "linear" });
-  anim(world, [{ opacity: 1 }, { opacity: 0 }], { duration: tf * .12, delay: tf * morphAt });
-  anim(decks[0], deckFall, { duration: tf * (1 - morphAt), delay: tf * morphAt, easing: "linear" });
-  anim(shadow, [{ opacity: .85 }, { opacity: 0 }], { duration: 120, delay: tf * morphAt + 60 });
-  await wait(tf);
-
-  // impact: squash
-  anim(decks[0], [{ transform: D(0, 0, 180, L.sc * 1.07, L.sc * .9) }, { transform: D(0, 0, 180, L.sc) }], { duration: 120, easing: "ease-out" });
-  await wait(90);
-
-  // 4: it bounces back up as two decks, which turn to face each other and land in their places
-  const tb = 2 * fallMs(HOP), v = Math.sqrt(2 * G * HOP);
-  decks.forEach((d, i) => {
-    const frames = [];
-    for (let k = 0; k <= N; k++) {
-      const q = k / N, t = q * tb / 1000, y = Math.max(0, v * t - G * t * t / 2);
-      const sc = L.sc * persp(y) / persp(0), ease = q * q * (3 - 2 * q);
-      frames.push({ offset: q, opacity: 1, filter: deckShadow(y, L.sc),
-        transform: D(L.pos[i][0] * ease, L.pos[i][1] * ease, 180 + (L.rot[i] - 180) * ease, sc) });
-    }
-    anim(d, frames, { duration: tb, easing: "linear" });
-  });
-  await wait(tb);
-  decks.forEach((d, i) => anim(d, [{ transform: D(...L.pos[i], L.rot[i], L.sc * 1.05, L.sc * .93) }, { transform: D(...L.pos[i], L.rot[i], L.sc) }],
-    { duration: 140, easing: "ease-out" }));
+  await dropAndBounce(L, s1);
   decks.forEach((d, i) => d.querySelector("text").setAttribute("transform", `rotate(${-L.rot[i]} 20 20)`));   // the numbers stay upright
-  await wait(260);
+  await wait(ms(200));
   return play(L);
+}
+
+// 3-4: like a fruit dropping into juice in an ad, but into the screen, and every bounce turns it into
+// something new: the brick drops 150 cm onto the ground and bounces back up as an open-reel deck; that one
+// lands and bounces up as two decks, which turn to face each other in the air and bounce to a stop.
+// Real bounces: falling at G, each one keeping E of the speed; squashed for a moment on every landing.
+function flights() {   // [{dur, v}] in s and cm/s: the fall from the screen, then one flight per bounce
+  const out = [{ dur: Math.sqrt(2 * DROP / G), v: 0, h0: DROP }];
+  let v = Math.sqrt(2 * G * DROP) * E;
+  while (v > 40) { out.push({ dur: 2 * v / G, v, h0: 0 }); v *= E; }
+  return out;
+}
+function ripple(x, y, w) {
+  const r = document.createElement("div");
+  r.className = "ripple";
+  r.style.cssText = `left: calc(50% + ${x}px); top: calc(50% + ${y}px); width: ${w}px; height: ${w}px; margin: ${-w / 2}px 0 0 ${-w / 2}px`;
+  $("#stage").appendChild(r);
+  r.animate([{ transform: "scale(.55)", opacity: .7 }, { transform: "scale(1.8)", opacity: 0 }],
+    { duration: 700, easing: "cubic-bezier(.2,.7,.3,1)" }).onfinish = () => r.remove();
+}
+function dropAndBounce(L, s1) {
+  const segs = flights(), starts = [];
+  let acc = 0;
+  segs.forEach(f => { starts.push(acc); acc += f.dur; });
+  const total = acc, SQ = .09 * SLOW, single = .55;    // squash time (s); the single deck's size against the final ones
+  const brickAt = y => s1 * persp(y) / persp(DROP), deckAt = (y, k) => L.sc * k * persp(y) / persp(0);
+  const ease = q => q * q * (3 - 2 * q);
+  let morphAt = null, lastSeg = 0;
+  anim($("#ground"), [{ opacity: 0 }, { opacity: 1 }], { duration: segs[0].dur * 1000, easing: "ease-in" });
+  return new Promise(done => {
+    const t0 = performance.now();
+    const frame = now => {
+      const t = Math.min(total, (now - t0) / 1000);
+      let seg = 0;
+      while (seg + 1 < segs.length && t >= starts[seg + 1]) seg++;
+      const tau = t - starts[seg], f = segs[seg];
+      const y = seg === 0 ? DROP - G * tau * tau / 2 : Math.max(0, f.v * tau - G * tau * tau / 2);
+      // squash and stretch around each landing, harder for the faster ones
+      let sx = 1, sy = 1;
+      for (let k = 1; k <= segs.length; k++) {
+        const ti = k < segs.length ? starts[k] : total, d = Math.abs(t - ti);
+        if (d < SQ) { const a = (1 - d / SQ) * Math.pow(E, k - 1); sx = 1 + .24 * a; sy = 1 - .28 * a; }
+      }
+      if (seg !== lastSeg) {   // a landing: a ripple on the ground where it hit
+        const w = seg <= 2 ? (seg === 1 ? 300 * brickAt(0) : 360 * deckAt(0, single)) : 360 * L.sc;
+        if (seg <= 2) ripple(0, 0, w * 1.1);
+        else L.pos.forEach(p => ripple(p[0], p[1], w * .9 * Math.pow(.8, seg - 3)));
+        lastSeg = seg;
+      }
+      if (seg === 0 || (seg === 1 && morphAt === null)) {
+        // the brick: half a turn on the way down, a little tumble
+        const q = seg === 0 ? tau / f.dur : 1;
+        const rz = 180 * q, rx = 16 * Math.sin(Math.PI * q), ry = -12 * Math.sin(Math.PI * q);
+        world.style.transform = T(brickAt(y), 0, rx, ry, rz, sx, sy);
+        shadow.style.opacity = (.15 + .7 * (1 - y / DROP)).toFixed(2);
+        shadow.style.transform = `scale(${brickAt(0) * 1.05}) translate(${y * .35}px, ${y * .6}px)`;
+        if (seg === 1 && tau > f.dur * .14) {   // on its way back up: it becomes an open-reel deck
+          morphAt = t;
+          world.style.opacity = 0; shadow.style.opacity = 0;
+          decks[0].style.opacity = 1;
+        }
+      }
+      if (morphAt !== null && seg === 1) {        // one deck in the air, popping out of the brick
+        const pd = .22 * SLOW, pop = 1 + .18 * Math.max(0, 1 - (t - morphAt) / pd) * Math.sin(Math.min(1, (t - morphAt) / pd) * Math.PI);
+        decks[0].style.transform = D(0, 0, 180, deckAt(y, single) * pop * sx, deckAt(y, single) * pop * sy);
+        decks[0].style.filter = deckShadow(y, deckAt(0, single));
+      }
+      if (seg >= 2) {                              // two decks: apart, turning to face each other, growing to full size
+        const q = ease(Math.min(1, (t - starts[2]) / segs[2].dur)), k = single + (1 - single) * q;
+        decks.forEach((d, i) => {
+          d.style.opacity = 1;
+          d.style.transform = D(L.pos[i][0] * q, L.pos[i][1] * q, 180 + (L.rot[i] - 180) * q, deckAt(y, k) * sx, deckAt(y, k) * sy);
+          d.style.filter = deckShadow(y, deckAt(0, k));
+        });
+      }
+      if (t < total && !leaving) requestAnimationFrame(frame);
+      else {
+        decks.forEach((d, i) => { d.style.opacity = 1; d.style.transform = D(...L.pos[i], L.rot[i], L.sc); d.style.filter = deckShadow(0, L.sc); });
+        done();
+      }
+    };
+    requestAnimationFrame(frame);
+  });
 }
 
 // 5: deck 1 plays, deck 2 joins in, both at normal speed; then deck 2 scratches a little (about 30° of the reel)
@@ -321,17 +377,17 @@ const setMode = (r, mode) => { r.mode = mode; r.t0 = performance.now(); r.base =
 async function play(L) {
   requestAnimationFrame(turn);
   setMode(reels[0], "play");
-  await wait(900);
+  await wait(ms(900));
   setMode(reels[1], "play");
   let first = true;
   do {
-    await wait(1100);
+    await wait(ms(1100));
     setMode(reels[1], "scratch");
-    await wait(2000);                          // four pulls
+    await wait(ms(2000));                          // four pulls
     setMode(reels[1], "play");
     if (first) { first = false; if (!ready) $("#wait").style.opacity = 1; }
   } while (!ready);
-  await wait(500);
+  await wait(ms(500));
   return outro(L);
 }
 
