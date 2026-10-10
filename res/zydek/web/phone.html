@@ -368,11 +368,17 @@
   <section class="page" id="p-set">
     <div class="card">
       <h3>Controller mode</h3>
-      <label class="chk"><input type="checkbox" id="cm-on"> Control Mixxx on a computer</label>
+      <label class="chk"><input type="checkbox" id="cm-on"> Control DJ software on a computer</label>
+      <label for="cm-layout">MIDI layout</label><select id="cm-layout">
+        <option value="zydeck">ZyDeck: Mixxx with the ZyDeck mapping (everything, with waveforms)</option>
+        <option value="standard">Standard MIDI: Serato, rekordbox, Traktor… (MIDI Learn)</option></select>
       <div class="hint">Turns this phone into a MIDI controller for Mixxx on a computer. Over the USB cable: choose
         <b>MIDI</b> in Android's USB notification, then in Mixxx open Preferences › Controllers, pick the phone and
         load the <b>ZyDeck</b> mapping. With <b>ZyDeck Link</b> running on the computer, ZyDeck offers to link over
-        Wi-Fi, so you can unplug the cable. Track names and waveforms need ZyDeck Link too.</div>
+        Wi-Fi, so you can unplug the cable. Track names and waveforms need ZyDeck Link too.<br>
+        <b>Standard MIDI</b> sends plain notes and CCs (decks on MIDI channels 1–4, mixer and samplers on 16) for
+        MIDI Learn in Serato DJ Pro, rekordbox or Traktor. Those apps don't send back positions or waveforms, so the
+        decks show only what their LEDs say. The chart: tools/zydeck-link/MIDI.md in ZyDeck's source.</div>
     </div>
     <div class="card" id="tabctl">
       <h3>Connect a tablet controller</h3>
@@ -609,6 +615,7 @@ function onRemote(r) {
   remote = r;
   document.body.classList.toggle("remote", !!r.on);
   $("#cm-on").checked = !!r.on;
+  $("#cm-layout").value = r.layout || "zydeck";
   $("#link").textContent = linkText();
   if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`, "ok");
   if (!!was.on !== !!r.on || was.http !== r.http) decks.forEach(d => { loadWaveform(d, d.wfFor); loadBeats(d, d.beatsFor); });
@@ -626,8 +633,10 @@ function paintCtlMode() {
   else st = r.saved ? `Plug in the USB cable, or wait: ZyDeck tries ${esc(r.saved)} over Wi-Fi.` : "Plug the USB cable into the computer.";
   if (!r.live) steps = `<ol class="steps">` +
     (r.usb !== 2 && r.via !== "wifi" ? `<li>Pull down Android's notifications, tap the USB one, and choose <b>MIDI</b>.</li>` : "") +
-    `<li>In Mixxx: Preferences › Controllers › ${r.via === "wifi" ? "<b>ZyDeck Link</b>" : "this phone"} › load <b>ZyDeck</b> and tick Enabled. ` +
-    `Mixxx only finds MIDI devices when it starts: restart it if the phone isn't listed.</li>` +
+    (r.layout === "standard"
+      ? `<li>In your DJ app, open its MIDI settings and use MIDI Learn on ${r.via === "wifi" ? "<b>ZyDeck Link</b>" : "this phone"}.</li>`
+      : `<li>In Mixxx: Preferences › Controllers › ${r.via === "wifi" ? "<b>ZyDeck Link</b>" : "this phone"} › load <b>ZyDeck</b> and tick Enabled. ` +
+        `Mixxx only finds MIDI devices when it starts: restart it if the phone isn't listed.</li>`) +
     `<li>Optional: run <b>ZyDeck Link</b> on the computer for track names, waveforms and the wireless link.</li></ol>`;
   box.innerHTML = `<h3>Controller mode</h3><div class="st${ok ? " ok" : ""}">${st}</div>${steps}` +
     (r.live ? `<div class="hint" style="margin-top:8px;color:var(--dim);font-size:13px">Turn the phone sideways for the decks.</div>` : "") +
@@ -640,6 +649,7 @@ function paintCtlMode() {
   box.querySelector(".forget")?.addEventListener("click", () => api("/api/controller?forget=1").catch(() => {}));
   box.querySelector(".off").addEventListener("click", () => api("/api/controller?on=0").catch(() => {}));
 }
+$("#cm-layout").addEventListener("change", () => api(`/api/controller?layout=${$("#cm-layout").value}`).catch(e => toast(e.message, "bad")));
 $("#cm-on").addEventListener("change", () => api(`/api/controller?on=${$("#cm-on").checked ? 1 : 0}`).catch(e => toast(e.message, "bad")));
 
 function connect() {

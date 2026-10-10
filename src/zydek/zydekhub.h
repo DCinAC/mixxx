@@ -180,6 +180,17 @@ class Hub : public QObject {
     void saveRemote() const;
     QString deviceName() const;
 
+    // Controller mode's "Standard MIDI" layout, for Serato, rekordbox and other DJ apps (MIDI Learn): plain
+    // notes and CCs instead of the ZyDeck mapping's SysEx; their LED notes come back as the pages' state.
+    // The chart is in tools/zydeck-link/MIDI.md.
+    bool m_standardMidi = false;
+    int m_stdKeyShift[kNumDecks] = {};
+    bool standardMidi() const { return m_controllerMode && m_standardMidi; }
+    void standardFromPage(const QJsonObject& m);
+    void standardPad(int channel, int note, bool down);
+    void standardFromDj(const QByteArray& msg);
+    void stdSend(int status, int data1, int data2);
+
     int m_samplers[kNumSamplers] = {};
     QJsonValue m_samplerNames[kNumSamplers];
     Deck m_decks[kNumDecks];

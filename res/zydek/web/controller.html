@@ -397,6 +397,8 @@
     <div class="seg" id="s-keyfmt"></div></div>
   <div class="row"><div>Controller mode<small>Control Mixxx on a computer instead: over the USB cable (set it to MIDI in Android's USB notification, then pick the ZyDeck mapping for it in Mixxx), or over Wi-Fi with ZyDeck Link running on the computer</small></div>
     <div class="seg" id="s-remote"></div></div>
+  <div class="row"><div>MIDI layout<small>ZyDeck: Mixxx with the ZyDeck mapping (everything). Standard: plain notes and CCs for MIDI Learn in Serato, rekordbox or Traktor (no waveforms or positions come back)</small></div>
+    <div class="seg" id="s-midilayout"></div></div>
   <div class="row"><div>Sampler kits<small>Load a set of pads (with their modes) or save what's on them now</small></div>
     <div class="seg" id="s-kits"></div></div>
   <div class="row"><div>Default behaviour on assignment: follow the master tempo<small>What a pad gets when a track, capture or cut sample goes on it: playing in time with the decks. SHIFT + a loaded pad changes it for that pad (⇄ on the pad)</small></div>
@@ -2024,6 +2026,8 @@ function paintSettings(soft) {
   seg("s-tele", [[true, "On"], [false, "Off"]], () => S.telemetry, v => S.telemetry = v);
   seg("s-ssync", [[true, "On"], [false, "Off"]], () => S.sampleSync, v => S.sampleSync = v);
   seg("s-skl", [[true, "On"], [false, "Off"]], () => S.sampleKeylock !== false, v => S.sampleKeylock = v);
+  seg("s-midilayout", [["zydeck", "ZyDeck"], ["standard", "Standard"]], () => REMOTE.layout || "zydeck",
+    v => { fetch(`/api/controller?layout=${v}`).catch(() => {}); REMOTE.layout = v; });
   seg("s-remote", [[true, "On"], [false, "Off"]], () => !!REMOTE.on, v => { fetch(`/api/controller?on=${v ? 1 : 0}`).catch(() => {}); REMOTE.on = v; });
   if (!soft) paintKits();
   if (soft) return;
@@ -2234,7 +2238,8 @@ function goLive(init) {
 
 function liveText() {
   if (!REMOTE.on) return "Live · Mixxx";
-  return REMOTE.via === "wifi" ? `Mixxx on ${REMOTE.computer || "the computer"} · Wi-Fi` : "Mixxx on the computer · USB";
+  const app = REMOTE.layout === "standard" ? "MIDI" : "Mixxx";
+  return REMOTE.via === "wifi" ? `${app} on ${REMOTE.computer || "the computer"} · Wi-Fi` : `${app} on the computer · USB`;
 }
 // Controller mode: what the hub says about the cable and ZyDeck Link
 function onRemote(r) {

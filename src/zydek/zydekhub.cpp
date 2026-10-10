@@ -442,6 +442,14 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     }
     if (path == QLatin1String("/api/controller")) {   // controller mode: ?on=1|0, ?link=1 (go wireless),
         // ?link=0 (not now / back to the cable), ?forget=1 (forget the computer)
+        if (query.contains(QStringLiteral("layout"))) {   // zydeck | standard
+            m_standardMidi = arg("layout") == QLatin1String("standard");
+            saveRemote();
+            m_remoteLive = false;
+            resendSubscriptions();
+            emitRemote();
+            m_server.broadcast(QStringLiteral("/ws"), QJsonDocument(snapshot()).toJson(QJsonDocument::Compact));
+        }
         if (query.contains(QStringLiteral("on"))) {
             setControllerMode(arg("on") == QLatin1String("1"));
         }
@@ -1250,11 +1258,26 @@ void Hub::handlePageMessage(const QByteArray& text) {
     if (!text.startsWith('{')) {   // "d|u <channel> <note>": a pad press
         const QList<QByteArray> parts = text.split(' ');
         if (parts.size() == 3) {
-            press(parts[1].toInt(), parts[2].toInt(), parts[0] == "d");
+            if (standardMidi()) {
+                standardPad(parts[1].toInt(), parts[2].toInt(), parts[0] == "d");
+            } else {
+                press(parts[1].toInt(), parts[2].toInt(), parts[0] == "d");
+            }
         }
         return;
     }
     const QJsonObject m = QJsonDocument::fromJson(text).object();
+    if (standardMidi()) {
+        if (m.contains(QStringLiteral("sub"))) {   // remembered for the ZyDeck layout; nothing to ask here
+            for (const QJsonValue& v : m.value(QStringLiteral("sub")).toArray()) {
+                const QJsonArray s = v.toArray();
+                m_subscriptions.insert(s[0].toString() + QLatin1Char(',') + s[1].toString(), s[2].toInt());
+            }
+            return;
+        }
+        standardFromPage(m);
+        return;
+    }
     if (m.contains(QStringLiteral("set"))) {   // [group, key, value, param?]
         const QJsonArray a = m.value(QStringLiteral("set")).toArray();
         QList<int> parts{kSet, a.size() > 3 && (a[3].toBool() || a[3].toInt()) ? 1 : 0};
@@ -1484,6 +1507,9 @@ void Hub::resetMixxxState() {
 }
 
 void Hub::resendSubscriptions() {
+    if (standardMidi()) {
+        return;
+    }
     for (auto it = m_subscriptions.cbegin(); it != m_subscriptions.cend(); ++it) {
         const int comma = it.key().indexOf(QLatin1Char(','));
         sysex(QList<int>{kSubscribe, it.value()} + encodeName(it.key().left(comma), it.key().mid(comma + 1)));
@@ -1495,6 +1521,9 @@ bool Hub::canSend() const {
 }
 
 bool Hub::live() const {
+    if (standardMidi()) {
+        return canSend();   // Serato and co. don't answer: being connected is all there is
+    }
     return m_controllerMode ? m_remoteLive && canSend() : m_pController != nullptr;
 }
 
@@ -1504,7 +1533,8 @@ QJsonObject Hub::remoteStatus() const {
             {"via", !m_controllerMode ? "" : m_linkUp ? "wifi" : m_usbState == 2 ? "usb" : ""},
             {"live", live()},
             {"linking", m_pLink != nullptr && !m_linkUp},
-            {"saved", m_linkSaved.value(QStringLiteral("name"))}};
+            {"saved", m_linkSaved.value(QStringLiteral("name"))},
+            {"layout", m_standardMidi ? "standard" : "zydeck"}};
     const QJsonObject& computer = m_linkUp ? m_linkTarget : m_linkOffer;
     if (!computer.isEmpty()) {
         const QJsonArray hosts = computer.value(QStringLiteral("hosts")).toArray();
@@ -1568,6 +1598,10 @@ void Hub::remoteMessage(const QByteArray& msg, bool viaUsb) {
     if (viaUsb && m_linkUp) {
         return;   // the same mapping's messages arrive over Wi-Fi now
     }
+    if (standardMidi()) {
+        standardFromDj(msg);
+        return;
+    }
     m_remoteRxMs = m_clock.elapsed();
     if (!m_remoteLive) {
         m_remoteLive = true;
@@ -1589,7 +1623,7 @@ void Hub::remoteTick() {
         sendSysexText(kLinkHello,
                 QJsonDocument(QJsonObject{{"v", 1}, {"name", deviceName()}}).toJson(QJsonDocument::Compact));
     }
-    if (canSend() && now - m_remoteRxMs > 4000) {
+    if (canSend() && !standardMidi() && now - m_remoteRxMs > 4000) {
         sysex({kPing, 0x7F, 0x7F, 0x7F});   // the mapping echoes it: still there?
         if (m_remoteLive && now - m_remoteRxMs > 10000) {
             m_remoteLive = false;   // Mixxx closed, or the mapping isn't on for this port
@@ -1723,6 +1757,7 @@ void Hub::loadRemote() {
     }
     const QJsonObject j = QJsonDocument::fromJson(f.readAll()).object();
     m_linkSaved = j.value(QStringLiteral("computer")).toObject();
+    m_standardMidi = j.value(QStringLiteral("layout")).toString() == QLatin1String("standard");
     if (j.value(QStringLiteral("on")).toBool()) {
         QTimer::singleShot(0, this, [this] { setControllerMode(true); });
     }
@@ -1731,8 +1766,223 @@ void Hub::loadRemote() {
 void Hub::saveRemote() const {
     QSaveFile f(QDir(m_pConfig->getSettingsPath()).filePath(kRemoteFile));
     if (f.open(QIODevice::WriteOnly)) {
-        f.write(QJsonDocument(QJsonObject{{"on", m_controllerMode}, {"computer", m_linkSaved}}).toJson());
+        f.write(QJsonDocument(QJsonObject{{"on", m_controllerMode},
+                                      {"computer", m_linkSaved},
+                                      {"layout", m_standardMidi ? "standard" : "zydeck"}})
+                        .toJson());
         f.commit();
+    }
+}
+
+// ---- controller mode: Standard MIDI (Serato, rekordbox, ...) --------------------------------------
+// MIDI channels 1-4 = decks 1-4, channel 16 = mixer and samplers. Buttons are notes (127 press, 0 release);
+// toggles (play, sync, keylock...) are a press and a release, which the DJ app turns into its own toggle.
+namespace {
+constexpr int kStdPlay = 0x00, kStdCue = 0x01, kStdSync = 0x02, kStdKeylock = 0x03, kStdQuantize = 0x04,
+              kStdPfl = 0x05, kStdJogTouch = 0x08, kStdSyncMaster = 0x09, kStdMute = 0x0A, kStdEject = 0x0B,
+              kStdLoopBase = 0x10,   // beatloop 1/8 .. 32 at 0x10..0x18
+        kStdReloop = 0x19, kStdLoopHalve = 0x1A, kStdLoopDouble = 0x1B, kStdLoopIn = 0x1C, kStdLoopOut = 0x1D,
+              kStdLoopMoveBack = 0x1E, kStdLoopMoveFwd = 0x1F, kStdPads = 0x40,   // + mode * 8 + pad (0x40..0x7F)
+        kStdKeyDown = 0x78, kStdKeyUp = 0x79, kStdKeyReset = 0x7A, kStdKeySync = 0x7B;
+// CCs on a deck's channel; the tempo is its pitch bend (centre = 0 %, ends = ±8 %)
+constexpr int kStdCcVolume = 0x00, kStdCcGain = 0x01, kStdCcHigh = 0x02, kStdCcMid = 0x03, kStdCcLow = 0x04,
+              kStdCcFilter = 0x05, kStdCcJog = 0x06, kStdCcNudge = 0x07;
+// channel 16
+constexpr int kStdGlobal = 15, kStdCcXfader = 0x00, kStdCcMain = 0x01, kStdCcPhones = 0x02, kStdCcHeadMix = 0x03,
+              kStdSamplerStop = 0x40;   // sampler i plays on note i, stops on 0x40 + i
+const QStringList kStdLoopSizes{"0.125", "0.25", "0.5", "1", "2", "4", "8", "16", "32"};
+
+int stdDeck(const QString& group) {   // [ChannelN] -> 0..3, else -1
+    static const QRegularExpression re(QStringLiteral(R"(^\[Channel([1-4])\]$)"));
+    const QRegularExpressionMatch m = re.match(group);
+    return m.hasMatch() ? m.captured(1).toInt() - 1 : -1;
+}
+int cc7(double v01) {
+    return std::clamp(static_cast<int>(std::lround(v01 * 127)), 0, 127);
+}
+} // namespace
+
+void Hub::stdSend(int status, int data1, int data2) {
+    const char msg[3] = {static_cast<char>(status), static_cast<char>(data1 & 0x7F), static_cast<char>(data2 & 0x7F)};
+    sendMidi(QByteArray(msg, 3));
+}
+
+void Hub::standardFromPage(const QJsonObject& m) {
+    const auto note = [this](int deckOrChannel, int n, bool down) { stdSend(0x90 | deckOrChannel, n, down ? 127 : 0); };
+    const auto pulse = [&](int ch, int n) { note(ch, n, true); note(ch, n, false); };
+    if (m.contains(QStringLiteral("sync"))) {   // [deck, mode]: 3 = as the master
+        const QJsonArray a = m.value(QStringLiteral("sync")).toArray();
+        pulse(a[0].toInt(), a[1].toInt() == 3 ? kStdSyncMaster : kStdSync);
+        return;
+    }
+    if (m.contains(QStringLiteral("tempo"))) {   // [deck, overlimit, percent] -> pitch bend, ±8 % at the ends
+        const QJsonArray a = m.value(QStringLiteral("tempo")).toArray();
+        const int v = std::clamp(8192 + static_cast<int>(std::lround(a[2].toDouble() / 8.0 * 8191)), 0, 16383);
+        stdSend(0xE0 | (a[0].toInt() & 3), v & 0x7F, v >> 7);
+        return;
+    }
+    if (m.contains(QStringLiteral("scratch"))) {   // [deck, op, ticks]: touch, turn (relative, 64 = still), let go
+        const QJsonArray a = m.value(QStringLiteral("scratch")).toArray();
+        const int deck = a[0].toInt() & 3, op = a[1].toInt();
+        if (op == 1 || op == 0) {
+            note(deck, kStdJogTouch, op == 1);
+        } else {
+            for (int left = a[2].toInt(); left != 0;) {
+                const int step = std::clamp(left, -63, 63);
+                stdSend(0xB0 | deck, kStdCcJog, 64 + step);
+                left -= step;
+            }
+        }
+        return;
+    }
+    if (!m.contains(QStringLiteral("set"))) {
+        return;
+    }
+    const QJsonArray a = m.value(QStringLiteral("set")).toArray();
+    const QString group = a[0].toString(), key = a[1].toString();
+    const double v = a[2].toDouble();
+    const bool down = v > 0;
+    int deck = stdDeck(group);
+    if (group == QLatin1String("[Master]")) {
+        const int cc = key == QLatin1String("crossfader") ? kStdCcXfader : key == QLatin1String("gain") ? kStdCcMain
+                : key == QLatin1String("headGain")                         ? kStdCcPhones
+                : key == QLatin1String("headMix")                          ? kStdCcHeadMix
+                                                                           : -1;
+        if (cc >= 0) {
+            stdSend(0xB0 | kStdGlobal, cc, cc7(v));   // the page sends these as 0..1
+        }
+        return;
+    }
+    static const QRegularExpression rack(QStringLiteral(R"(^\[(EqualizerRack1|QuickEffectRack1)_\[Channel([1-4])\](_Effect1)?\]$)"));
+    if (const QRegularExpressionMatch r = rack.match(group); r.hasMatch()) {
+        deck = r.captured(2).toInt() - 1;
+        const int cc = key == QLatin1String("parameter3") ? kStdCcHigh : key == QLatin1String("parameter2") ? kStdCcMid
+                : key == QLatin1String("parameter1")                                                        ? kStdCcLow
+                : key == QLatin1String("super1")                                                            ? kStdCcFilter
+                                                                                                            : -1;
+        if (cc >= 0) {
+            stdSend(0xB0 | deck, cc, cc7(v));
+        }
+        return;
+    }
+    static const QRegularExpression sampler(QStringLiteral(R"(^\[Sampler(\d+)\]$)"));
+    if (const QRegularExpressionMatch r = sampler.match(group); r.hasMatch()) {
+        const int i = r.captured(1).toInt() - 1;
+        if (i < 64 && down && (key == QLatin1String("cue_gotoandplay") || key == QLatin1String("start_play"))) {
+            pulse(kStdGlobal, i);
+        } else if (i < 64 && down && (key == QLatin1String("cue_gotoandstop") || key == QLatin1String("stop"))) {
+            pulse(kStdGlobal, kStdSamplerStop + i);
+        }
+        return;
+    }
+    static const QRegularExpression stem(QStringLiteral(R"(^\[Channel([1-4])_Stem([1-4])\]$)"));
+    if (const QRegularExpressionMatch r = stem.match(group); r.hasMatch()) {
+        if (key == QLatin1String("mute")) {   // like the STEM pads: 4 = vocals first
+            pulse(r.captured(1).toInt() - 1, kStdPads + 3 * 8 + (4 - r.captured(2).toInt()));
+        }
+        return;
+    }
+    if (deck < 0) {
+        return;
+    }
+    if (key == QLatin1String("volume") || key == QLatin1String("pregain")) {
+        stdSend(0xB0 | deck, key == QLatin1String("volume") ? kStdCcVolume : kStdCcGain, cc7(v));
+    } else if (key == QLatin1String("wheel")) {   // nudge: a bend, relative like a jog's outer ring
+        stdSend(0xB0 | deck, kStdCcNudge, 64 + std::clamp(static_cast<int>(std::lround(v * 400)), -63, 63));
+    } else if (key == QLatin1String("play") || key == QLatin1String("keylock") || key == QLatin1String("quantize") ||
+            key == QLatin1String("pfl") || key == QLatin1String("mute") || key == QLatin1String("eject")) {
+        if (key == QLatin1String("eject") && !down) {
+            return;
+        }
+        pulse(deck, key == QLatin1String("play") ? kStdPlay : key == QLatin1String("keylock") ? kStdKeylock
+                        : key == QLatin1String("quantize")                                  ? kStdQuantize
+                        : key == QLatin1String("pfl")                                       ? kStdPfl
+                        : key == QLatin1String("mute")                                      ? kStdMute
+                                                                                            : kStdEject);
+    } else if (key == QLatin1String("cue_default")) {
+        note(deck, kStdCue, down);
+    } else if (key == QLatin1String("pitch_adjust")) {   // absolute semitones from the page: steps for the app
+        const int target = static_cast<int>(std::lround(v));
+        while (m_stdKeyShift[deck] < target) {
+            pulse(deck, kStdKeyUp);
+            m_stdKeyShift[deck]++;
+        }
+        while (m_stdKeyShift[deck] > target) {
+            pulse(deck, kStdKeyDown);
+            m_stdKeyShift[deck]--;
+        }
+    } else if (key == QLatin1String("reset_key") || key == QLatin1String("sync_key")) {
+        if (key == QLatin1String("reset_key") && down) {
+            m_stdKeyShift[deck] = 0;
+        }
+        note(deck, key == QLatin1String("reset_key") ? kStdKeyReset : kStdKeySync, down);
+    } else if (key == QLatin1String("loop_move")) {
+        if (v != 0) {
+            pulse(deck, v > 0 ? kStdLoopMoveFwd : kStdLoopMoveBack);
+        }
+    } else if (key.startsWith(QLatin1String("beatloop_")) && key.endsWith(QLatin1String("_toggle"))) {
+        const int i = kStdLoopSizes.indexOf(key.mid(9, key.size() - 9 - 7));
+        if (i >= 0) {
+            note(deck, kStdLoopBase + i, down);
+        }
+    } else {
+        const int n = key == QLatin1String("reloop_toggle") ? kStdReloop : key == QLatin1String("loop_halve") ? kStdLoopHalve
+                : key == QLatin1String("loop_double")                                                          ? kStdLoopDouble
+                : key == QLatin1String("loop_in")                                                              ? kStdLoopIn
+                : key == QLatin1String("loop_out")                                                             ? kStdLoopOut
+                                                                                                               : -1;
+        if (n >= 0) {
+            note(deck, n, down);
+        }
+    }
+}
+
+/// The pad pages: samplers (channel 0) on channel 16, deck pads (channels 1-4) at 0x40 + mode * 8 + pad.
+void Hub::standardPad(int channel, int note, bool down) {
+    if (channel == 0 && note >= 0 && note < 64) {
+        stdSend(0x90 | kStdGlobal, note, down ? 127 : 0);
+    } else if (channel >= 1 && channel <= kNumDecks && note >= 0 && note < 64) {
+        stdSend(0x90 | (channel - 1), kStdPads + note, down ? 127 : 0);
+    }
+}
+
+/// LEDs from the DJ app (if its mapping sends them) become the pages' state.
+void Hub::standardFromDj(const QByteArray& msg) {
+    if (msg.size() != 3) {
+        return;
+    }
+    const int status = static_cast<unsigned char>(msg[0]) & 0xF0, ch = static_cast<unsigned char>(msg[0]) & 0x0F;
+    const int n = static_cast<unsigned char>(msg[1]);
+    const int vel = status == 0x80 ? 0 : static_cast<unsigned char>(msg[2]);
+    if (status != 0x90 && status != 0x80) {
+        return;
+    }
+    const auto cv = [this](const QString& name, double value) {
+        m_controlValues.insert(name, value);
+        emitJson({{"t", "cv"}, {"k", name}, {"v", value}, {"ts", static_cast<double>(m_clock.elapsed())}});
+    };
+    if (ch == kStdGlobal && n < 64) {
+        if (m_samplers[n] != (vel ? 2 : 0)) {
+            m_samplers[n] = vel ? 2 : 0;
+            emitJson({{"t", "s"}, {"i", n}, {"v", m_samplers[n]}});
+        }
+        return;
+    }
+    if (ch >= kNumDecks) {
+        return;
+    }
+    const QString group = QStringLiteral("[Channel%1]").arg(ch + 1);
+    switch (n) {
+    case kStdPlay: cv(group + QStringLiteral(",play"), vel ? 1 : 0); return;
+    case kStdSync: cv(group + QStringLiteral(",sync_enabled"), vel ? 1 : 0); return;
+    case kStdKeylock: cv(group + QStringLiteral(",keylock"), vel ? 1 : 0); return;
+    case kStdQuantize: cv(group + QStringLiteral(",quantize"), vel ? 1 : 0); return;
+    case kStdPfl: cv(group + QStringLiteral(",pfl"), vel ? 1 : 0); return;
+    default: break;
+    }
+    if (n >= kStdPads && n < kStdPads + 8 && m_decks[ch].cues[n - kStdPads] != (vel ? 0xF0A23B + 1 : 0)) {
+        m_decks[ch].cues[n - kStdPads] = vel ? 0xF0A23B + 1 : 0;   // a lit hot cue pad (no colour over MIDI)
+        emitJson({{"t", "cue"}, {"d", ch}, {"k", n - kStdPads}, {"v", m_decks[ch].cues[n - kStdPads]}});
     }
 }
 
