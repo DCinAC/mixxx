@@ -226,6 +226,9 @@
   #toast.on { opacity: 1; transform: translate(-50%, 0); }
   #toast.ok { border-color: var(--play); } #toast.bad { border-color: var(--err); }
 
+  /* the search fields' clear button: bigger than the browser's own */
+  input[type=search]::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; width: 24px; height: 24px;
+    margin: 0 2px 0 8px; background: center / 24px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='11' fill='%23555'/%3E%3Cpath d='M8 8l8 8M16 8l-8 8' stroke='%230b0b0b' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E"); }
   /* Landscape: the deck view (the controller's phone layout), loaded with the page and kept running, so
      turning the phone switches instantly. Portrait: the library. */
   #deckview { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 50; background: var(--bg); visibility: hidden; }

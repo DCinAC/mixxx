@@ -278,7 +278,20 @@
     display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
   #app.phone .psw small { font-size: calc(var(--mm) * 1.4); color: var(--dim); margin-top: 2px; }
   #app.phone .lower { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: calc(var(--mm) * 1.2); min-height: 0; }
-  #app.phone .pdeck { --acc: var(--deck12); display: grid; grid-template-rows: 9fr 13fr 6.5fr 9fr; gap: var(--gap); min-width: 0; min-height: 0; }
+  #app.phone .pdeck { --acc: var(--deck12); display: grid; grid-template-rows: calc(var(--mm) * 5) 7.6fr 11.1fr 7.3fr 10fr;
+    gap: var(--gap); min-width: 0; min-height: 0; }
+  #app.phone .pdeck .nudge { border-radius: calc(var(--mm) * 1.2); font-size: calc(var(--mm) * 1.3); }
+  #app.phone .nudge.d34 { --acc: var(--deck34); }
+  /* two-function controls: the main function big, the SHIFT function small and dimmed (lit while it applies) */
+  #app.phone { --tab: #3d8bff; }
+  #app.phone .prow button small, #app.phone .knob span small { display: block; font-size: calc(var(--mm) * 1.35); color: var(--dim);
+    font-weight: 600; letter-spacing: .02em; margin-top: 1px; }
+  #app.phone .dimmed { opacity: .35; }
+  #app.phone small.lit { color: var(--text) !important; }
+  #app.phone .prow.modes button.on { border-color: var(--tab); background: color-mix(in srgb, var(--tab) 22%, #1c1c1c); color: var(--text); }
+  #app.phone .prow.modes button.on small { color: color-mix(in srgb, var(--tab) 70%, #fff); }
+  #app.phone .sync.beat small { color: rgba(0,0,0,.55); }
+  #app.phone .sync.beat small.lit { color: #000 !important; }
   #app.phone .pdeck.d34 { --acc: var(--deck34); }
   #app.phone .prow { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); min-height: 0; flex: none; }
   #app.phone .prow button { font-size: calc(var(--mm) * 2.3); }
@@ -953,6 +966,8 @@ const volumeFader = s => {
 const PHONE_EQ = [["low", "mid"], ["filter", "high"]];   // knob: [normally, with SHIFT]
 const EQ_LABEL = { low: "BASS", mid: "MID", filter: "FILTER", high: "HIGH" };
 const LOOP_PADS = [.5, 1, 2, 4];
+// "MAIN<small>SHIFT</small>": the SHIFT function lights up (and the main one dims) while it applies
+const two = (main, alt, altOn) => `<span class="${altOn ? "dimmed" : ""}">${main}</span><small class="${altOn ? "lit" : ""}">${alt}</small>`;
 function buildPhone() {
   layoutEpoch++;
   const app = document.getElementById("app");
@@ -976,7 +991,7 @@ function buildPhone() {
       const d = deckOf(s); d.mode = d.shift ? shifted : normal; d.shift = false; paintSide(s); paintMixer(); });
     mode(u.mA, "cue", "fx"); mode(u.mB, "loop", "smpl");
     u.deck = u.el = h("div", "pdeck");
-    u.deck.append(row("transport", u.cue, u.play), buildPads(s, u, 4), row("modes", u.mA, u.mB),
+    u.deck.append(buildNudge(s, u), row("transport", u.cue, u.play), buildPads(s, u, 4), row("modes", u.mA, u.mB),
       s ? row("transport", u.sync, u.shiftBtn) : row("transport", u.shiftBtn, u.sync));   // SHIFT on the outside
     u.col = h("div", "tempo pcol");
     ui.sides[s] = u;
@@ -1001,7 +1016,7 @@ function buildPhoneMixer() {
     const knobs = PHONE_EQ.map(([a, b]) => {
       const key = d => d.shift ? b : a;
       const k = knob(EQ_LABEL[a], d => d[key(d)], (v, d) => { const kk = key(d); d[kk] = v; send(kk, d.n, v); }, .5, true, () => deckOf(s));
-      k.label = d => EQ_LABEL[key(d)];
+      k.label = d => two(EQ_LABEL[a], EQ_LABEL[b], d.shift);
       return k;
     });
     const pfl = pflButton(s);
@@ -1148,10 +1163,11 @@ function paintSide(s) {
   u.modes.forEach(b => b.classList.toggle("on", b.dataset.mode === d.mode));
   if (u.mA) {   // phone: two mode buttons, SHIFT shows the other two
     u.deck.classList.toggle("d34", d.n > 2);
-    setText(u.mA, d.shift || d.mode === "fx" ? "FX" : "HOT CUE");
-    setText(u.mB, d.shift || d.mode === "smpl" ? "SAMPLER" : "LOOP");
-    u.mA.classList.toggle("on", !d.shift && (d.mode === "cue" || d.mode === "fx"));
-    u.mB.classList.toggle("on", !d.shift && (d.mode === "loop" || d.mode === "smpl"));
+    setHTML(u.mA, two("HOT CUE", "FX", d.shift || d.mode === "fx"));
+    setHTML(u.mB, two("LOOP", "SAMPLER", d.shift || d.mode === "smpl"));
+    u.mA.classList.toggle("on", d.mode === "cue" || d.mode === "fx");
+    u.mB.classList.toggle("on", d.mode === "loop" || d.mode === "smpl");
+    setHTML(u.sync, two("SYNC", "MASTER", d.shift || d.leader));
   }
   u.shiftBtn.classList.toggle("idle", false);   // SHIFT: hot cue delete, FX units 3-4, sync master, loop in/out adjust, loop move
   u.shiftBtn.classList.toggle("on", d.shift);
@@ -1196,7 +1212,7 @@ function paintMixer() {
     if (!c) return;
     c.el.classList.toggle("d34", d.n > 2);
     ui.faders[s].classList.toggle("d34", d.n > 2);
-    c.knobs.forEach(k => { if (k.label) setText(k.querySelector("span"), k.label(d)); k.paint(); });
+    c.knobs.forEach(k => { if (k.label) setHTML(k.querySelector("span"), k.label(d)); k.paint(); });
     c.pfl.classList.toggle("on", d.pfl);
     c.mute?.classList.toggle("on", d.muted);
     ui.faders[s].classList.toggle("muted", d.muted);
