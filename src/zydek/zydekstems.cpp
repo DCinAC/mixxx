@@ -798,7 +798,6 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
                 pStems->setArtist(pTrack->getArtist());
                 pStems->setTitle(pTrack->getTitle());
                 pStems->setAlbum(pTrack->getAlbum());
-                pStems->setGenre(pTrack->getGenre());
                 pStems->setKeys(pTrack->getKeys());
                 if (const mixxx::BeatsPointer pBeats = pTrack->getBeats()) {
                     pStems->trySetBeats(pBeats);
