@@ -109,6 +109,17 @@
     display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #8a8a8a;
     font-size: calc(var(--mm) * 2.9); font-weight: 800; line-height: 1.05; transition: transform 40ms; }
   .pad small { font-size: calc(var(--mm) * 1.5); font-weight: 600; opacity: .8; margin-top: 2px; }
+  .pad .m { position: absolute; right: calc(var(--mm) * 1); top: calc(var(--mm) * .7); font-size: calc(var(--mm) * 1.7); opacity: .75; }
+  .padveil { position: fixed; inset: 0; z-index: 29; }
+  .padopts { position: fixed; z-index: 30; display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--mm) * .8);
+    padding: calc(var(--mm) * 1.2); width: calc(var(--mm) * 52); background: #151515; border: 1px solid #444;
+    border-radius: calc(var(--mm) * 1.6); box-shadow: 0 10px 28px rgba(0,0,0,.65); }
+  .padopts .t { grid-column: 1 / -1; color: var(--text); font-size: calc(var(--mm) * 2); padding: 0 calc(var(--mm) * .4); }
+  .padopts .t small { color: var(--dim); font-size: calc(var(--mm) * 1.6); margin-left: calc(var(--mm) * 1); font-weight: 500; }
+  .padopts button { height: calc(var(--mm) * 8.5); font-size: calc(var(--mm) * 1.8); }
+  .padopts button.on { border-color: var(--cue); color: var(--cue); background: color-mix(in srgb, var(--cue) 12%, #1c1c1c); }
+  .padopts .wide2 { grid-column: span 2; }
+  .padopts .clear { color: var(--err); }
   .pad .n { position: absolute; left: calc(var(--mm) * 1); top: calc(var(--mm) * .8); font-size: calc(var(--mm) * 1.6); opacity: .6; }
   .pad.lit { background: var(--c); border-color: var(--c); color: var(--fg, #111); }
   .pad.tint { background: color-mix(in srgb, var(--c) 15%, var(--pad)); border-color: color-mix(in srgb, var(--c) 45%, var(--edge)); color: color-mix(in srgb, var(--c) 80%, #ddd); }
@@ -701,7 +712,7 @@ function buildSide(s) {
     u.spads = [];
     for (let k = 0; k < 16; k++) {
       const i = s * 16 + k, p = h("div", "pad");
-      bindPress(p, down => samplerPress(deckOf(s), i, down));
+      bindPress(p, down => samplerPress(deckOf(s), i, down, p));
       pads.appendChild(p); u.spads[k] = { el: p, i };
     }
     el.appendChild(pads);
@@ -798,16 +809,63 @@ function setShift(s, on) {
 // Sampler pads (the samples page, and SAMPLER pad mode). With the deck's SHIFT: an empty pad captures the deck's
 // loop into it (just the stems it's playing); a loaded one starts or stops following the master tempo.
 const samplerSync = new Array(64).fill(false);
-function samplerPress(d, i, down) {
-  if (d.shift) {
+// Pad modes (kept by Zydek's server, the same on every page): "oneshot" plays to the end, a tap restarts it;
+// "hold" plays while held; "loop" starts and stops on alternate taps (in time when it follows the tempo).
+const samplerModes = new Array(64).fill("oneshot");
+const MODE_MARK = { oneshot: "▶", hold: "■", loop: "↻" };
+const push = (g, k) => { setCtl(g, k, 1); setCtl(g, k, 0); };
+function samplerPress(d, i, down, el) {
+  if (d.shift) {   // SHIFT: an empty pad captures the deck's loop; a loaded one opens its options
     if (!down) return;
     if (sidePage[0] === "samples" && sidePage[1] === "samples") setShift(0, false); else d.shift = false;
-    if (!samplers[i].state) captureInto(d, i);
-    else if (live) { samplerSync[i] = !samplerSync[i]; setCtl(`[Sampler${i + 1}]`, "sync_enabled", samplerSync[i] ? 1 : 0); }
+    if (!samplers[i].state) captureInto(d, i); else padOptions(i, el);
     paintAll();
     return;
   }
-  if (live) send("pad", 0, i, down); else if (down) samplerTap(i);
+  if (!live) { if (down) samplerTap(i); return; }
+  const g = `[Sampler${i + 1}]`, mode = samplerModes[i];
+  if (!samplers[i].state) return send("pad", 0, i, down);
+  if (mode === "hold") return push(g, down ? "cue_gotoandplay" : "cue_gotoandstop");
+  if (!down) return;
+  if (mode === "loop" && samplers[i].state === 2) return push(g, "cue_gotoandstop");
+  push(g, "cue_gotoandplay");
+}
+// A loaded pad's options, next to it: its mode, following the master tempo, clearing it.
+function padOptions(i, anchor) {
+  document.querySelector(".padopts")?.remove(); document.querySelector(".padveil")?.remove();
+  const veil = h("div", "padveil"), box = h("div", "padopts"), g = `[Sampler${i + 1}]`;
+  const close = () => { box.remove(); veil.remove(); };
+  veil.addEventListener("pointerdown", e => { e.stopPropagation(); close(); });
+  box.append(h("div", "t", `Pad ${i + 1}<small>${samplers[i].name || ""}</small>`));
+  [["oneshot", "▶ ONE-SHOT"], ["hold", "■ HOLD"], ["loop", "↻ LOOP"]].forEach(([m, label]) => {
+    const b = h("button", samplerModes[i] === m ? "on" : "", label);
+    bindPress(b, down => {
+      if (!down) return;
+      samplerModes[i] = m; paintAll(); close();
+      if (live) fetch(`/api/sampler/mode?slot=${i + 1}&mode=${m}`).catch(() => {});
+    });
+    box.appendChild(b);
+  });
+  const sync = h("button", "wide2" + (samplerSync[i] ? " on" : ""), `⇄ FOLLOW THE TEMPO ${samplerSync[i] ? "ON" : "OFF"}`);
+  bindPress(sync, down => {
+    if (!down) return;
+    samplerSync[i] = !samplerSync[i];
+    if (live) setCtl(g, "sync_enabled", samplerSync[i] ? 1 : 0);
+    paintAll(); close();
+  });
+  const clear = h("button", "clear", "CLEAR");
+  bindPress(clear, down => {
+    if (!down) return;
+    if (live) push(g, "eject"); else { samplers[i].state = 0; }
+    paintAll(); close();
+  });
+  box.append(sync, clear);
+  document.body.append(veil, box);
+  const r = anchor ? anchor.getBoundingClientRect() : { left: innerWidth / 2, top: innerHeight / 2, width: 0, height: 0 };
+  const b = box.getBoundingClientRect();
+  const x = clamp(r.left + r.width / 2 - b.width / 2, 8, innerWidth - b.width - 8);
+  const y = r.top - b.height - 8 > 8 ? r.top - b.height - 8 : Math.min(innerHeight - b.height - 8, r.top + r.height + 8);
+  Object.assign(box.style, { left: x + "px", top: y + "px" });
 }
 async function captureInto(d, i) {
   const sm = samplers[i];
@@ -1337,7 +1395,7 @@ function paintSamplerPad(el, i) {
   const sm = samplers[i];
   if (sm.note) return setPad(el, "tint", `<span class="n">${i + 1}</span><small>${sm.note}</small>`, "var(--err)");
   const cls = sm.state === 2 ? "lit" : sm.state === 1 ? "tint" : "";
-  setPad(el, cls, `<span class="n">${i + 1}</span>${sm.state ? `<small>${samplerSync[i] ? "⇄ " : ""}${sm.name}</small>` : ""}`,
+  setPad(el, cls, `<span class="n">${i + 1}</span>${sm.state ? `<span class="m">${MODE_MARK[samplerModes[i]]}</span><small>${samplerSync[i] ? "⇄ " : ""}${sm.name}</small>` : ""}`,
     sm.state === 2 ? "var(--play)" : "var(--cue)", "#04200e");
 }
 
@@ -1405,7 +1463,7 @@ function padPress(s, k, down) {
     return;
   }
   if (live) {
-    if (d.mode === "smpl") return samplerPress(d, (d.n % 2 ? 0 : 8) + k, down);
+    if (d.mode === "smpl") return samplerPress(d, (d.n % 2 ? 0 : 8) + k, down, ui.sides[s].pads[k]);
     if ((d.mode === "stem" && k >= 4) || (d.mode === "fx" && k === 7)) return;   // unmapped, like the Inpulse
     let m = PAD_MODE[d.mode];
     if (d.shift && d.mode === "cue") { m = 1; if (down) { d.shift = false; setTimeout(() => paintSide(s), 0); } }
@@ -1421,7 +1479,7 @@ function padPress(s, k, down) {
       break;
     case "roll": d.rolls[k] = down ? 1 : 0; break;
     case "stem": if (down && k < 4) d.stems[k] = d.stems[k] ? 0 : 1; break;
-    case "smpl": samplerPress(d, (d.n % 2 ? 0 : 8) + k, down); return;
+    case "smpl": samplerPress(d, (d.n % 2 ? 0 : 8) + k, down, ui.sides[s].pads[k]); return;
     case "jump": if (down) d.pos = clamp(d.pos + [-1, 1, -2, 2, -4, 4, -8, 8][k] * beat, -PREROLL, d.dur); break;
     case "fx": if (down) { if (k < 3) d.fx[k] = d.fx[k] ? 0 : 1; else if (k === 3) d.fxRoute = d.fxRoute ? 0 : 1; } break;
   }
@@ -2058,6 +2116,7 @@ function goLive(init) {
   init.fx.forEach((u, i) => fxLive[i] = u);
   Object.entries(init.cv || {}).forEach(([k, v]) => applyCv(k, v));
   subscribeAll();
+  fetch("/api/sampler/modes").then(r => r.json()).then(j => { (j.modes || []).forEach((m, i) => samplerModes[i] = m); schedulePaint(); }).catch(() => {});
   build();
 }
 
@@ -2077,6 +2136,7 @@ function onMixxx(m) {
     case "roll": d.rolls[m.k] = m.v; return markDirty("deck", d);
     case "stem": d.stems[m.k] = m.v; return markDirty("deck", d);
     case "fx": fxLive[m.u][m.j] = m.v; break;
+    case "smode": samplerModes[m.i] = m.v; break;
     default: return;
   }
   schedulePaint();

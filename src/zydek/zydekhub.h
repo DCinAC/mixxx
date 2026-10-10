@@ -8,6 +8,7 @@
 #include <QMap>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QTimer>
 
 #include "preferences/usersettings.h"
@@ -63,6 +64,10 @@ class Hub : public QObject {
     HttpServer::Response staticFile(const QString& name) const;
     QByteArray waveform(int trackId) const;
     QByteArray beats(int trackId) const;
+    // Sampler pad modes (ZyDeck's own, shared by every page): "oneshot" plays to the end (a tap restarts it),
+    // "hold" plays while held, "loop" starts and stops on alternate taps. Kept in zydek-samplers.json.
+    QJsonObject samplerModes();
+    QJsonObject setSamplerMode(int slot, const QString& mode);
     // audio outputs (the phone page's settings)
     QJsonObject audioStatus() const;
     QJsonObject setAudio(const HttpServer::Query& query);
@@ -100,6 +105,7 @@ class Hub : public QObject {
     UserSettingsPointer m_pConfig;
     HttpServer m_server;
     Library m_library;   // the phone page's library API (/api/...)
+    QStringList m_samplerModes;   // per sampler, 1..64 at 0..63 (empty until read from the file)
     ZydekController* m_pController = nullptr;
 
     int m_samplers[kNumSamplers] = {};

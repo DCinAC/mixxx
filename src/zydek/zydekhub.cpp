@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QNetworkInterface>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QTcpSocket>
 #include <QTimer>
 #include <QtEndian>
@@ -48,6 +49,8 @@ constexpr int kPing = 0x5E;   // F0 7D 5E <seq 3x7 bits> F7, echoed back unchang
 constexpr int kHello = 0x5F;
 
 const QString kSettingsFile = QStringLiteral("zydek-controller-settings.json");
+const QString kSamplersFile = QStringLiteral("zydek-samplers.json");
+constexpr int kSamplerSlots = 64;
 const QString kLatencyFile = QStringLiteral("zydek-latency.log");
 constexpr qint64 kLatencyFileMax = 4 * 1024 * 1024;   // then it moves to .1, replacing the previous one
 
@@ -289,6 +292,7 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         const QString group = r.value(QStringLiteral("group")).toString();
         if (r.value(QStringLiteral("ok")).toBool() && group.startsWith(QLatin1String("[Sampler"))) {
             Library::setSamplerOptions(group, arg("sync") != QLatin1String("0"), false);
+            setSamplerMode(group.mid(8, group.size() - 9).toInt(), QStringLiteral("oneshot"));   // a whole track: plays once
         }
         return result(r);
     }
@@ -337,7 +341,17 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         return result(m_library.analyzeAll(arg("dry") == QLatin1String("1")));
     }
     if (path == QLatin1String("/api/sampler/capture")) {   // ?deck=&slot=&sync=1|0
-        return result(m_library.captureSample(arg("deck").toInt(), arg("slot").toInt(), arg("sync") != QLatin1String("0")));
+        const QJsonObject r = m_library.captureSample(arg("deck").toInt(), arg("slot").toInt(), arg("sync") != QLatin1String("0"));
+        if (r.value(QStringLiteral("ok")).toBool()) {
+            setSamplerMode(arg("slot").toInt(), QStringLiteral("loop"));   // a captured loop loops
+        }
+        return result(r);
+    }
+    if (path == QLatin1String("/api/sampler/modes")) {
+        return json(samplerModes());
+    }
+    if (path == QLatin1String("/api/sampler/mode")) {   // ?slot=1..64&mode=oneshot|hold|loop
+        return result(setSamplerMode(arg("slot").toInt(), arg("mode")));
     }
     if (path == QLatin1String("/api/analyze/status")) {
         return json(m_library.analysisStatus());
@@ -557,6 +571,37 @@ QByteArray Hub::beats(int trackId) const {
                 .toJson(QJsonDocument::Compact);
     }
     return {};
+}
+
+// ---- sampler pad modes ---------------------------------------------------------------------------
+
+QJsonObject Hub::samplerModes() {
+    if (m_samplerModes.isEmpty()) {
+        QFile f(QDir(m_pConfig->getSettingsPath()).filePath(kSamplersFile));
+        const QJsonArray saved = f.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("modes")).toArray()
+                                                            : QJsonArray();
+        for (int i = 0; i < kSamplerSlots; ++i) {
+            m_samplerModes.append(saved.at(i).toString(QStringLiteral("oneshot")));
+        }
+    }
+    return {{"modes", QJsonArray::fromStringList(m_samplerModes)}};
+}
+
+QJsonObject Hub::setSamplerMode(int slot, const QString& mode) {
+    if (slot < 1 || slot > kSamplerSlots || !QStringList{QStringLiteral("oneshot"), QStringLiteral("hold"), QStringLiteral("loop")}.contains(mode)) {
+        return {{"ok", false}, {"error", "No such sampler or mode"}};
+    }
+    samplerModes();
+    m_samplerModes[slot - 1] = mode;
+    QSaveFile f(QDir(m_pConfig->getSettingsPath()).filePath(kSamplersFile));
+    if (f.open(QIODevice::WriteOnly)) {
+        f.write(QJsonDocument(QJsonObject{{"modes", QJsonArray::fromStringList(m_samplerModes)}}).toJson(QJsonDocument::Compact));
+        f.commit();
+    }
+    // a looping pad repeats its clip; the others play it once
+    ControlObject::set(ConfigKey(QStringLiteral("[Sampler%1]").arg(slot), QStringLiteral("repeat")), mode == QLatin1String("loop") ? 1 : 0);
+    emitJson({{"t", "smode"}, {"i", slot - 1}, {"v", mode}});   // every page shows it
+    return {{"ok", true}, {"slot", slot}, {"mode", mode}};
 }
 
 // ---- audio outputs ---------------------------------------------------------------------------------
