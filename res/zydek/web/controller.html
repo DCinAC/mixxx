@@ -759,9 +759,9 @@ function tempoControls(s, u, olLabel) {
     move: (e, st) => {
       const dmm = (e.clientY - st.y) / S.pxmm;
       st.y = e.clientY;
-      // TEMPO BOOST: from -99 % to +300 %, each mm counting for more the further from 0 % (it stays fine near 0)
-      const d = st.deck, gain = d.ol ? Math.max(1, Math.abs(d.tempo) / 8) : 1;
-      d.tempo = clamp(d.tempo + dmm * S.sens * gain * (S.fasterDown ? 1 : -1), d.ol ? -99 : -8, d.ol ? 300 : 8);
+      // linear; TEMPO BOOST widens it to -99 % .. +300 %
+      const d = st.deck;
+      d.tempo = clamp(d.tempo + dmm * S.sens * (S.fasterDown ? 1 : -1), d.ol ? -99 : -8, d.ol ? 300 : 8);
       send("tempo", st.deck.n, st.deck.tempo);
       paintTempo(s);
     },
@@ -778,11 +778,17 @@ function shiftButton(s, u, cls = "shift") {
     const d = deckOf(s);
     if (down) {
       shiftAt = performance.now(); wasOn = d.shift;
-      if (!wasOn) d.shift = true;
-    } else if (wasOn || performance.now() - shiftAt > 350) d.shift = false;
+      if (!wasOn) setShift(s, true);
+    } else if (wasOn || performance.now() - shiftAt > 350) setShift(s, false);
     paintAll();
   });
   return u.shiftBtn;
+}
+
+// On the samples page both SHIFTs are one (its 32 pads are one grid); elsewhere each side has its own.
+function setShift(s, on) {
+  if (page === "samples") [0, 1].forEach(t => deckOf(t).shift = on);
+  else deckOf(s).shift = on;
 }
 
 // Sampler pads (the samples page, and SAMPLER pad mode). With the deck's SHIFT: an empty pad captures the deck's
@@ -791,7 +797,7 @@ const samplerSync = new Array(64).fill(false);
 function samplerPress(d, i, down) {
   if (d.shift) {
     if (!down) return;
-    d.shift = false;
+    if (page === "samples") setShift(0, false); else d.shift = false;
     if (!samplers[i].state) captureInto(d, i);
     else if (live) { samplerSync[i] = !samplerSync[i]; setCtl(`[Sampler${i + 1}]`, "sync_enabled", samplerSync[i] ? 1 : 0); }
     paintAll();
