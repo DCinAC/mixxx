@@ -229,9 +229,16 @@
   #sheet .pvn { position: relative; height: 64px; margin-top: 10px; border-radius: 8px; background: #0b0b0b; border: 1px solid #262626;
     touch-action: none; overflow: hidden; }
   #sheet .pvn canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-  #sheet .pvn .ph { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 4px #000; display: none; }
+  /* the needle: a white line with a marker at the top and bottom; dimmed at the start until it previews */
+  #sheet .pvn .ph { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; margin-left: -1px; background: #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.6); opacity: .45; }
+  #sheet .pvn .ph::before, #sheet .pvn .ph::after { content: ""; position: absolute; left: -6px;
+    border-left: 7px solid transparent; border-right: 7px solid transparent; }
+  #sheet .pvn .ph::before { top: 0; border-top: 9px solid #fff; }
+  #sheet .pvn .ph::after { bottom: 0; border-bottom: 9px solid #fff; }
   #sheet .pvn .played { position: absolute; top: 0; bottom: 0; left: 0; background: rgba(0,0,0,.45); display: none; }
-  #sheet .pvn.on .ph, #sheet .pvn.on .played { display: block; }
+  #sheet .pvn.on .ph { opacity: 1; }
+  #sheet .pvn.on .played { display: block; }
   #sheet .pvn .tm { position: absolute; right: 6px; top: 4px; font-size: 11px; color: #ccc; background: rgba(0,0,0,.6);
     padding: 1px 5px; border-radius: 4px; font-variant-numeric: tabular-nums; pointer-events: none; }
   #sheet .pvn .hint { position: absolute; left: 8px; bottom: 4px; font-size: 11px; color: #888; pointer-events: none; }
@@ -1416,12 +1423,17 @@ function pvPos() {
 // the preview if needed), drag to keep seeking.
 function previewNeedle(box, t) {
   const c = box.querySelector("canvas"), ph = box.querySelector(".ph"), played = box.querySelector(".played"), tm = box.querySelector(".tm");
-  let wf = null;
-  fetch(`/waveform/${t.id}`).then(r => r.ok ? r.arrayBuffer() : null).then(b => {
-    if (!b) return;
-    const buf = new Uint8Array(b), dv = new DataView(b);
-    wf = { n: dv.getUint32(8, true), data: buf.subarray(12) }; draw();
-  }).catch(() => {});
+  // Mixxx has the waveform only while the track is loaded somewhere: ask again once the preview loads it
+  let wf = null, wfBusy = false, wfTried = 0;
+  const getWaveform = () => {
+    wfBusy = true; wfTried = performance.now();
+    fetch(`/waveform/${t.id}`, { cache: "no-store" }).then(r => r.ok ? r.arrayBuffer() : null).then(b => {
+      if (!b) return;
+      const buf = new Uint8Array(b), dv = new DataView(b);
+      wf = { n: dv.getUint32(8, true), data: buf.subarray(12) }; draw();
+    }).catch(() => {}).finally(() => { wfBusy = false; });
+  };
+  getWaveform();
   function draw() {
     sizeCanvas(c);
     const g = c.getContext("2d"), W = c.width, H = c.height;
@@ -1458,12 +1470,16 @@ function previewNeedle(box, t) {
   box.addEventListener("pointermove", e => { if (seeking) seek(e); });
   box.addEventListener("pointerup", e => { if (seeking) seek(e, true); seeking = false; });
   box.addEventListener("pointercancel", () => { seeking = false; });
+  let opened = false;   // the sheet opens just after this; stop once it's closed or shows another track
   (function frame() {
-    if (!box.isConnected || !$("#sheet").classList.contains("on")) return;
+    const open = $("#sheet").classList.contains("on");
+    opened ||= open;
+    if (!box.isConnected || (opened && !open)) return;
     const on = previewing(t);
     box.classList.toggle("on", on);
     const f = on ? pvPos() : 0;
     ph.style.left = played.style.width = (f * 100) + "%";
+    if (on && !wf && !wfBusy && performance.now() - wfTried > 1500) getWaveform();
     tm.textContent = on ? `${fmtTime(f * dur())} / ${fmtTime(dur())}` : fmtTime(dur());
     const btn = $("#sheet .pv");
     if (btn) btn.textContent = on ? "Stop preview" : "Preview (headphones)";
