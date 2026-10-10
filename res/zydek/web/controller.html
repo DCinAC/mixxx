@@ -733,7 +733,7 @@ function buildSide(s) {
   const modes = h("div", "modes");
   u.modes = ["cue", "roll", "stem", "smpl", "jump", "fx", "grid"].map(m => {
     const b = h("button", "", m.toUpperCase()); b.dataset.mode = m;
-    b.addEventListener("click", () => { const d = deckOf(s); d.mode = m; d.shift = false; paintSide(s); });
+    bindPress(b, down => { if (!down) return; const d = deckOf(s); d.mode = m; d.shift = false; paintSide(s); });
     modes.appendChild(b); return b;
   });
   const pads = buildPads(s, u, 8);
@@ -746,7 +746,7 @@ function buildSide(s) {
 // Tempo lane, TEMPO BOOST and SHIFT for side s (both layouts).
 function tempoControls(s, u, olLabel) {
   u.ol = h("button", "ol", olLabel);
-  u.ol.addEventListener("click", () => { const d = deckOf(s); d.ol = !d.ol;
+  bindPress(u.ol, down => { if (!down) return; const d = deckOf(s); d.ol = !d.ol;
     if (!d.ol && Math.abs(d.tempo) > 8) { d.tempo = clamp(d.tempo, -8, 8); send("tempo", d.n, d.tempo); }
     paintSide(s); });
   u.lane = h("div", "lane", `<div class="end t"></div><div class="zero"></div><div class="mark"></div><div class="lock"></div><div class="end b"></div>`);
@@ -859,7 +859,7 @@ function buildStrip(s, u) {
   // header
   const head = h("div", "head");
   u.sw = h("button", "switch");
-  u.sw.addEventListener("click", () => { sides[s] = sides[s] === s ? s + 2 : s; paintAll(); });
+  bindPress(u.sw, down => { if (down) { sides[s] = sides[s] === s ? s + 2 : s; paintAll(); } });
   u.title = h("div", "title"); u.bpm = h("div", "num"); u.time = h("div", "num dim");
   head.append(u.sw, u.title, u.bpm, u.time);
 
