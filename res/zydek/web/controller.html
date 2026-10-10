@@ -176,6 +176,10 @@
   #app.stacked .topbar .knob { width: calc(var(--mm) * 12); }
   #app.stacked .topbar .switch { height: calc(var(--mm) * 10.5); flex: 1; }
   #app.stacked .topbar .switch.narrow { flex: 0 0 calc(var(--mm) * 15); min-width: 0; }
+  .smpbtn { flex: 1; height: calc(var(--mm) * 8); font-size: calc(var(--mm) * 2); letter-spacing: .04em; }
+  .smpbtn span { font-weight: 400; }
+  .smpbtn.on { border-color: var(--cue); color: var(--cue); background: color-mix(in srgb, var(--cue) 14%, #1c1c1c); }
+  #app:not(.stacked) .smpbtn { flex: 0 0 auto; height: calc(var(--mm) * 11); padding: 0 calc(var(--mm) * 2); }
   .topbar .sshift { flex: 1; height: calc(var(--mm) * 10.5); font-size: calc(var(--mm) * 2.2); }
   .sshift.on { background: var(--err); border-color: var(--err); color: #fff; }
   #app.stacked .side.left { grid-template-columns: calc(var(--mm) * 13) minmax(0, 1fr); }
@@ -316,7 +320,6 @@
 <body>
 <div id="app">
   <div class="topbar" id="topL">
-    <button class="tab" data-page="deck">Deck</button><button class="tab" data-page="samples">Samples</button>
     <button id="gear" aria-label="Settings">⚙</button>
     <span class="note">UI test · simulated Mixxx</span>
     <div class="loopbox" id="loop0"></div>
@@ -453,7 +456,9 @@ const decks = DEMO.map(([title, artist, bpm, dur], i) => ({
 const samplers = Array.from({ length: 32 }, (_, i) => ({ state: [0, 1, 2, 3, 5, 8, 9, 12].includes(i) ? 1 : 0, name: `Sample ${i + 1}` }));
 const master = { main: .8, phones: .6, mix: .5, xf: .5 };
 const sides = [0, 1];                    // deck index shown on the left / right side (0↔2, 1↔3)
-let page = "deck";
+// What each side shows: its deck, or sampler pads (left 1-16, right 17-32), switched on its own so the other
+// side stays a deck.
+const sidePage = ["deck", "deck"];
 const deckOf = s => decks[sides[s]];
 // Wired to Mixxx later; for now every event is logged for the Mac's /settings debug view.
 const eventLog = [];
@@ -685,13 +690,12 @@ function buildTop() {
     knob("CUE MIX", () => master.mix, v => { master.mix = v; send("headMix", v); }, .5, true),
   ];
   ui.top.forEach(k => { box.appendChild(k); k.paint(); });
-  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.page === page));
 }
 
 function buildSide(s) {
   const el = h("div", `side ${s ? "right" : "left"}`);
   const u = { el };
-  if (page === "samples") {
+  if (sidePage[s] === "samples") {
     el.classList.add("samples");
     const pads = h("div", "pads grid16");
     u.spads = [];
@@ -785,9 +789,9 @@ function shiftButton(s, u, cls = "shift") {
   return u.shiftBtn;
 }
 
-// On the samples page both SHIFTs are one (its 32 pads are one grid); elsewhere each side has its own.
+// With both sides on sampler pads the two SHIFTs are one (the 32 pads are one grid); otherwise each has its own.
 function setShift(s, on) {
-  if (page === "samples") [0, 1].forEach(t => deckOf(t).shift = on);
+  if (sidePage[0] === "samples" && sidePage[1] === "samples") [0, 1].forEach(t => deckOf(t).shift = on);
   else deckOf(s).shift = on;
 }
 
@@ -797,7 +801,7 @@ const samplerSync = new Array(64).fill(false);
 function samplerPress(d, i, down) {
   if (d.shift) {
     if (!down) return;
-    if (page === "samples") setShift(0, false); else d.shift = false;
+    if (sidePage[0] === "samples" && sidePage[1] === "samples") setShift(0, false); else d.shift = false;
     if (!samplers[i].state) captureInto(d, i);
     else if (live) { samplerSync[i] = !samplerSync[i]; setCtl(`[Sampler${i + 1}]`, "sync_enabled", samplerSync[i] ? 1 : 0); }
     paintAll();
@@ -980,19 +984,19 @@ const topNote = document.querySelector(".topbar .note");
 function placeChrome() {
   const $ = id => document.getElementById(id), st = stacked();
   $("app").classList.toggle("stacked", st);
-  const tabs = [...document.querySelectorAll(".tab")];
+  const smp = s => ui.loops[s].smp;
   if (!st) {
-    $("topL").replaceChildren(...tabs, $("gear"), topNote, $("loop0"));
-    $("topR").replaceChildren($("loop1"), $("topknobs"));
+    $("topL").replaceChildren(smp(0), $("gear"), topNote, $("loop0"));
+    $("topR").replaceChildren($("loop1"), smp(1), $("topknobs"));
     ["sideL", "sideR", "strip0", "strip1", "nudge0", "nudge1"].forEach(id => $(id).replaceChildren());
     return;
   }
   const row = (...els) => { const r = h("div", "topbar"); r.append(...els.filter(Boolean)); return r; };
-  // the samples page has its SHIFTs next to the deck switches (narrower there to make room)
-  const sp = page === "samples", sh = s => sp ? ui.sides[s]?.shiftBtn : null;
-  ui.sides.forEach(u => u?.sw?.classList.toggle("narrow", sp));
-  $("sideL").replaceChildren(row(...tabs, $("gear")), row(ui.loops[0].flags), row($("loop0")), row(ui.sides[0]?.sw, sh(0), ui.chans[0]?.gain));
-  $("sideR").replaceChildren(row($("topknobs")), row(ui.loops[1].flags), row($("loop1")), row(ui.chans[1]?.gain, sh(1), ui.sides[1]?.sw));
+  // a side showing sampler pads has its SHIFT next to its deck switch (narrower there to make room)
+  const sh = s => sidePage[s] === "samples" ? ui.sides[s]?.shiftBtn : null;
+  ui.sides.forEach((u, s) => u?.sw?.classList.toggle("narrow", sidePage[s] === "samples"));
+  $("sideL").replaceChildren(row(smp(0), $("gear")), row(ui.loops[0].flags), row($("loop0")), row(ui.sides[0]?.sw, sh(0), ui.chans[0]?.gain));
+  $("sideR").replaceChildren(row($("topknobs")), row(smp(1)), row(ui.loops[1].flags), row($("loop1")), row(ui.chans[1]?.gain, sh(1), ui.sides[1]?.sw));
 }
 
 function buildMixer() {
@@ -1182,7 +1186,17 @@ function buildLoops() {
     bindPress(kl, down => { if (!down) return; const d = deckOf(s); d.keylock = !d.keylock; send("keylock", d.n, d.keylock ? 1 : 0); paintLoop(s); });
     bindPress(qz, down => { if (!down) return; const d = deckOf(s); d.quantize = !d.quantize; send("quantize", d.n, d.quantize ? 1 : 0); paintLoop(s); });
     flags.append(kl, qz);
-    return { box, loop, half, dbl, flags, kl, qz };
+    // SAMPLES: this side shows sampler pads instead of its deck (and back); only this side is rebuilt
+    const smp = h("button", "smpbtn", `SAMPLES <span>${s ? "17–32" : "1–16"}</span>`);
+    bindPress(smp, down => {
+      if (!down) return;
+      sidePage[s] = sidePage[s] === "samples" ? "deck" : "samples";
+      layoutEpoch++;
+      document.getElementById(s ? "dr" : "dl").replaceChildren(buildSide(s));
+      placeChrome();
+      requestAnimationFrame(paintAll);
+    });
+    return { box, loop, half, dbl, flags, kl, qz, smp };
   });
 }
 
@@ -1257,7 +1271,8 @@ function paintSide(s) {
     setHTML(u.title, `${d.title}<small>${d.artist}</small>`);
     setText(u.strip.querySelector(".label"), `${S.revs} rev · ${stripSeconds().toFixed(1)} s`);
   }
-  if (page === "samples") { u.spads.forEach(({ el, i }) => paintSamplerPad(el, i)); return; }
+  ui.loops?.[s]?.smp.classList.toggle("on", sidePage[s] === "samples");
+  if (sidePage[s] === "samples") { u.spads.forEach(({ el, i }) => paintSamplerPad(el, i)); return; }
   u.play.classList.toggle("on", d.playing);
   u.cue.classList.toggle("on", !d.playing && Math.abs(d.pos - d.cuePoint) < .05);
   u.sync.classList.toggle("beat", !!d.syncMode);
@@ -1799,7 +1814,6 @@ decks.forEach(d => {
 // =====================================================================================================
 // Top bar, settings
 // =====================================================================================================
-document.querySelectorAll(".topbar .tab").forEach(b => b.addEventListener("click", () => { page = b.dataset.page; build(); }));
 document.getElementById("gear").addEventListener("click", () => { paintSettings(); paintFs(); document.getElementById("settings").classList.add("open"); });
 document.getElementById("s-close").addEventListener("click", () => document.getElementById("settings").classList.remove("open"));
 const closeSettings = () => document.getElementById("settings").classList.remove("open");
@@ -2155,7 +2169,7 @@ setInterval(() => {
   if (!(+S.pingHz > 0) || document.hidden) return;
   ctlSend({ type: "latency", n: lat.rtt.length, rtt: latStats(lat.rtt), up: latStats(lat.up), down: latStats(lat.down),
     js: latStats(lat.js), lost: lat.lost, direct: lat.direct, input: latStats(lat.input), frameMax: Math.round(lat.frameMax),
-    loopMax: Math.round(lat.loopMax), bufMax: lat.bufMax, sends: lat.sends, touches: active.size, page, live,
+    loopMax: Math.round(lat.loopMax), bufMax: lat.bufMax, sends: lat.sends, touches: active.size, page: sidePage.join("/"), live,
     spikes: lat.spikes, ...(lat.trace.length ? { strip: lat.trace } : {}) });
   Object.assign(lat, { trace: [], t0: performance.now(), rtt: [], up: [], down: [], js: [], spikes: [], lost: 0, direct: 0, input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0 });
 }, 1000);
@@ -2169,7 +2183,7 @@ setInterval(() => {
   const events = eventLog.filter(e => e[0] > sentUpTo);
   if (eventLog.length) sentUpTo = eventLog[eventLog.length - 1][0];
   ctlSend({ type: "telemetry", t: Date.now(), fps: Math.round(frames / secs), moves: Math.round(moves / secs),
-    touches: active.size, page, fullscreen: !!document.fullscreenElement, viewport: [innerWidth, innerHeight],
+    touches: active.size, page: sidePage.join("/"), fullscreen: !!document.fullscreenElement, viewport: [innerWidth, innerHeight],
     dpr: devicePixelRatio, decks: [0, 1].map(s => { const d = deckOf(s); return { side: s ? "R" : "L", n: d.n,
       pos: +d.pos.toFixed(3), vel: +(d.vel || 0).toFixed(3), playing: d.playing, grabbed: d.grabbed, coast: !!d.coast,
       tempo: +d.tempo.toFixed(2), ol: d.ol, sync: d.syncMode, loop: d.loopOn ? d.loopSize : 0, vol: +d.vol.toFixed(2) }; }), events: events.slice(-60) });
@@ -2195,7 +2209,7 @@ const stats = a => ({ n: a.length, avg: a.length ? +(a.reduce((x, y) => x + y, 0
 
 async function runBench(p) {
   const out = { kind: "bench", id: p.id, live, knobMode: S.knobMode, ua: navigator.userAgent, hz: p.hz || 120 };
-  if (page !== "deck") { page = "deck"; build(); await new Promise(r => setTimeout(r, 300)); }
+  if (sidePage.some(p => p !== "deck")) { sidePage.fill("deck"); build(); await new Promise(r => setTimeout(r, 300)); }
   const realPaint = paintAll, paints = [];
   paintAll = () => { const a = performance.now(); realPaint(); paints.push(performance.now() - a); };
   benchQuiet = true;
