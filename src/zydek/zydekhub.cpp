@@ -661,22 +661,22 @@ QJsonObject Hub::saveKit(const QString& name) {
         return {{"ok", false}, {"error", "Give the kit a name"}};
     }
     samplerModes();
-    QJsonArray slots;
+    QJsonArray padList;
     int pads = 0;
     for (int i = 0; i < kKitSlots; ++i) {
         const QString group = QStringLiteral("[Sampler%1]").arg(i + 1);
         const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group);
         if (!pTrack) {
-            slots.append(QJsonValue());
+            padList.append(QJsonValue());
             continue;
         }
         ++pads;
-        slots.append(QJsonObject{{"path", pTrack->getLocation()},
+        padList.append(QJsonObject{{"path", pTrack->getLocation()},
                 {"mode", m_samplerModes.value(i, QStringLiteral("oneshot"))},
                 {"sync", ControlObject::get(ConfigKey(group, QStringLiteral("sync_enabled"))) > 0}});
     }
     QJsonObject all = readKits(m_pConfig->getSettingsPath());
-    all.insert(kit, QJsonObject{{"slots", slots}, {"saved", QDateTime::currentDateTime().toString(Qt::ISODate)}});
+    all.insert(kit, QJsonObject{{"slots", padList}, {"saved", QDateTime::currentDateTime().toString(Qt::ISODate)}});
     writeKits(m_pConfig->getSettingsPath(), all);
     return {{"ok", true}, {"name", kit}, {"pads", pads}};
 }
@@ -686,11 +686,11 @@ QJsonObject Hub::loadKit(const QString& name) {
     if (kit.isEmpty()) {
         return {{"ok", false}, {"error", "No such kit"}};
     }
-    const QJsonArray slots = kit.value(QStringLiteral("slots")).toArray();
+    const QJsonArray padList = kit.value(QStringLiteral("slots")).toArray();
     int loaded = 0, missing = 0;
     for (int i = 0; i < kKitSlots; ++i) {
         const QString group = QStringLiteral("[Sampler%1]").arg(i + 1);
-        const QJsonObject slot = slots.at(i).toObject();
+        const QJsonObject slot = padList.at(i).toObject();
         const QString path = slot.value(QStringLiteral("path")).toString();
         if (path.isEmpty() || !QFileInfo::exists(path)) {   // empty in the kit (or the file's gone): empty here
             missing += !path.isEmpty();
