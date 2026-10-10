@@ -189,6 +189,7 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
             &PlayerInfo::trackChanged,
             this,
             [this](const QString& group, TrackPointer pNew, TrackPointer) {
+                qInfo() << "Zydek: track changed on" << group << (pNew ? pNew->getLocation() : QStringLiteral("(none)"));
                 if (m_controllerMode) {
                     return;   // the pages show the computer's decks
                 }
@@ -1414,6 +1415,8 @@ bool isStemsFile(const QString& location) {
 } // namespace
 
 void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
+    qInfo() << "Zydek live stems: deck" << deck + 1 << "loaded" << (pTrack ? pTrack->getLocation() : QString())
+            << "live stems" << (m_pLiveStems != nullptr) << "auto" << m_liveStemsAuto;
     const QString group = QStringLiteral("[Channel%1]").arg(deck + 1);
     DeckStems& ds = m_deckStems[deck];
     if (!pTrack) {
