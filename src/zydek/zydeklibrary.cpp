@@ -7,6 +7,7 @@
 #include <QMetaObject>
 #include <QMutex>
 #include <QSaveFile>
+#include <QRegularExpression>
 #include <QSet>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -17,6 +18,11 @@
 #include "analyzer/analyzerscheduledtrack.h"
 #include "control/controlobject.h"
 #include "library/analysis/analysisfeature.h"
+#include "sources/audiosource.h"
+#include "sources/soundsourceproxy.h"
+#include "track/steminfo.h"
+#include "util/samplebuffer.h"
+#include <QTimer>
 #include "library/library.h"
 #include "library/trackcollection.h"
 #include "library/trackset/crate/crate.h"
@@ -714,6 +720,178 @@ void Library::stopAnalysis() {
     if (pFeature) {
         QMetaObject::invokeMethod(pFeature, &AnalysisFeature::stopAnalysis, Qt::QueuedConnection);
     }
+}
+
+} // namespace zydek
+
+namespace zydek {
+
+// ---- sampler capture ------------------------------------------------------------------------------------
+
+namespace {
+
+/// Where ZyDeck keeps its samples: Music/ZyDeck Samples on the shared storage when it can write there.
+QString samplesFolder() {
+    const QString shared = QStringLiteral("/storage/emulated/0/Music");
+    const QString music = QFileInfo(shared).isWritable() ? shared : QStandardPaths::writableLocation(QStandardPaths::MusicLocation);
+    const QString dir = music + QStringLiteral("/ZyDeck Samples");
+    QDir().mkpath(dir);
+    return dir;
+}
+
+QString safeName(QString s) {
+    static const QRegularExpression bad(QStringLiteral(R"([\\/:*?"<>|\x00-\x1f])"));
+    s.replace(bad, QStringLiteral(" "));
+    return s.simplified().left(150);
+}
+
+/// A 32-bit float WAV.
+bool writeWav(const QString& path, const CSAMPLE* data, SINT samples, int channels, int sampleRate) {
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    const quint32 dataBytes = static_cast<quint32>(samples * sizeof(float));
+    QByteArray h;
+    const auto u32 = [&h](quint32 v) { for (int i = 0; i < 4; ++i) h.append(static_cast<char>(v >> (8 * i))); };
+    const auto u16 = [&h](quint16 v) { h.append(static_cast<char>(v)); h.append(static_cast<char>(v >> 8)); };
+    h.append("RIFF"); u32(36 + dataBytes); h.append("WAVE");
+    h.append("fmt "); u32(16); u16(3 /* IEEE float */); u16(static_cast<quint16>(channels)); u32(static_cast<quint32>(sampleRate));
+    u32(static_cast<quint32>(sampleRate * channels * 4)); u16(static_cast<quint16>(channels * 4)); u16(32);
+    h.append("data"); u32(dataBytes);
+    f.write(h);
+    f.write(reinterpret_cast<const char*>(data), dataBytes);
+    return f.error() == QFileDevice::NoError;
+}
+
+} // namespace
+
+void Library::setSamplerOptions(const QString& group, bool sync, bool repeat) {
+    const auto apply = [group, sync, repeat] {
+        ControlObject::set(ConfigKey(group, QStringLiteral("repeat")), repeat ? 1 : 0);
+        ControlObject::set(ConfigKey(group, QStringLiteral("keylock")), 1);
+        ControlObject::set(ConfigKey(group, QStringLiteral("quantize")), 1);
+        ControlObject::set(ConfigKey(group, QStringLiteral("sync_enabled")), sync ? 1 : 0);
+    };
+    apply();
+    QTimer::singleShot(1500, apply);   // again once the clip has loaded (loading resets some of them)
+}
+
+QJsonObject Library::captureSample(int deck, int slot, bool sync) {
+    if (deck < 1 || deck > 4 || slot < 1 || slot > kMaxSamplers) {
+        return error(QStringLiteral("No such deck or sampler"));
+    }
+    const QString group = QStringLiteral("[Channel%1]").arg(deck);
+    const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group);
+    if (!pTrack) {
+        return error(QStringLiteral("Deck %1 is empty").arg(deck));
+    }
+    // Mixxx's positions count samples of the stereo signal: two per frame
+    const double loopIn = control(group, QStringLiteral("loop_start_position"));
+    const double loopOut = control(group, QStringLiteral("loop_end_position"));
+    if (loopIn < 0 || loopOut <= loopIn) {
+        return error(QStringLiteral("Set a loop on deck %1 first").arg(deck));
+    }
+    // the stems this deck plays
+    uint mask = 0;
+    QStringList stems;
+    const int stemCount = static_cast<int>(control(group, QStringLiteral("stem_count")));
+    if (stemCount > 0) {
+        const QList<StemInfo> info = pTrack->getStemInfo();
+        for (int s = 0; s < stemCount && s < 4; ++s) {
+            const QString sg = QStringLiteral("[Channel%1_Stem%2]").arg(deck).arg(s + 1);
+            if (control(sg, QStringLiteral("mute")) == 0 && control(sg, QStringLiteral("volume")) > 0) {
+                mask |= 1u << s;
+                stems.append(s < info.size() && !info[s].getLabel().isEmpty() ? info[s].getLabel() : QStringLiteral("Stem %1").arg(s + 1));
+            }
+        }
+        if (!mask) {
+            return error(QStringLiteral("Every stem on deck %1 is muted").arg(deck));
+        }
+        if (mask == (1u << stemCount) - 1) {
+            stems.clear();   // all of them: just the track
+        }
+    }
+    mixxx::AudioSource::OpenParams params;
+    params.setChannelCount(mixxx::audio::ChannelCount::stereo());
+#ifdef __STEM__
+    if (mask) {
+        params.setStemMask(mixxx::StemChannelSelection::fromInt(mask));
+    }
+#endif
+    const mixxx::AudioSourcePointer pSource = SoundSourceProxy(pTrack).openAudioSource(params);
+    if (!pSource) {
+        return error(QStringLiteral("Couldn't read the track"));
+    }
+    const int channels = pSource->getSignalInfo().getChannelCount();
+    const int rate = pSource->getSignalInfo().getSampleRate();
+    const SINT first = static_cast<SINT>(loopIn / 2), last = static_cast<SINT>(loopOut / 2);
+    mixxx::SampleBuffer buffer((last - first) * channels);
+    const mixxx::ReadableSampleFrames read = pSource->readSampleFrames(mixxx::WritableSampleFrames(
+            mixxx::IndexRange::between(first, last), mixxx::SampleBuffer::WritableSlice(buffer)));
+    if (read.readableLength() <= 0) {
+        return error(QStringLiteral("Couldn't read the loop"));
+    }
+
+    const double bpm = pTrack->getBpm();
+    const double seconds = static_cast<double>(read.frameIndexRange().length()) / rate;
+    const double beats = bpm > 0 ? seconds * bpm / 60 : 0;
+    const QString beatsText = beats > 0 ? QStringLiteral("%1 beats").arg(beats >= 1 ? QString::number(std::round(beats * 100) / 100)
+                                                                                    : QStringLiteral("1/%1").arg(std::round(1 / beats)))
+                                        : QStringLiteral("%1 s").arg(QString::number(seconds, 'f', 1));
+    const QString title = pTrack->getTitle().isEmpty() ? QFileInfo(pTrack->getLocation()).completeBaseName() : pTrack->getTitle();
+    const QString what = beatsText + (stems.isEmpty() ? QString() : QStringLiteral(", ") + stems.join(QStringLiteral(" + ")));
+    const QString base = safeName((pTrack->getArtist().isEmpty() ? QString() : pTrack->getArtist() + QStringLiteral(" - ")) +
+            title + QStringLiteral(" (") + what + QStringLiteral(")"));
+    const QString dir = samplesFolder();
+    QString path = dir + QLatin1Char('/') + base + QStringLiteral(".wav");
+    for (int n = 2; QFileInfo::exists(path); ++n) {
+        path = dir + QLatin1Char('/') + base + QStringLiteral(" %1.wav").arg(n);
+    }
+    if (!writeWav(path, read.readableData(), read.readableLength(), channels, rate)) {
+        return error(QStringLiteral("Couldn't save the sample"));
+    }
+
+    // into the library, with the source's tempo (a beat grid from its start) so it can follow the master
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (!pLibrary) {
+        return error(QStringLiteral("Mixxx isn't ready"));
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    const QString artist = pTrack->getArtist(), sampleTitle = title + QStringLiteral(" · ") + what;
+    const QString comment = QStringLiteral("ZyDeck sample of %1, %2–%3 s").arg(pTrack->getLocation())
+            .arg(first / static_cast<double>(rate), 0, 'f', 2).arg(last / static_cast<double>(rate), 0, 'f', 2);
+    bool added = false;
+    QMetaObject::invokeMethod(
+            pCollection,
+            [pCollection, path, artist, sampleTitle, comment, bpm, &added] {
+                const TrackPointer pSample = pCollection->getOrAddTrack(TrackRef::fromFilePath(path));
+                if (!pSample) {
+                    return;
+                }
+                pSample->setArtist(artist);
+                pSample->setTitle(sampleTitle);
+                pSample->setComment(comment);
+                if (bpm > 0) {
+                    pSample->trySetBpm(bpm);
+                    pSample->setBpmLocked(true);
+                }
+                added = true;
+            },
+            Qt::BlockingQueuedConnection);
+    if (!added) {
+        return error(QStringLiteral("Mixxx couldn't add the sample"));
+    }
+    const QJsonObject loaded = loadLocation(path, QStringLiteral("sampler%1").arg(slot));
+    if (!loaded.value(QStringLiteral("ok")).toBool()) {
+        return loaded;
+    }
+    setSamplerOptions(QStringLiteral("[Sampler%1]").arg(slot), sync, true);   // a captured loop loops
+    QJsonArray stemList;
+    for (const QString& s : std::as_const(stems)) {
+        stemList.append(s);
+    }
+    return {{"ok", true}, {"slot", slot}, {"path", path}, {"name", sampleTitle}, {"beats", beats}, {"stems", stemList}};
 }
 
 } // namespace zydek

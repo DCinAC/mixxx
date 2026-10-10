@@ -284,8 +284,13 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         d.insert(QStringLiteral("live"), m_pController != nullptr);
         return json(d);
     }
-    if (path == QLatin1String("/api/load")) {   // ?track_id=&target=deck1..4|sampler|samplerN
-        return result(m_library.load(arg("track_id").toInt(), arg("target")));
+    if (path == QLatin1String("/api/load")) {   // ?track_id=&target=deck1..4|sampler|samplerN[&sync=1|0 for a sampler]
+        const QJsonObject r = m_library.load(arg("track_id").toInt(), arg("target"));
+        const QString group = r.value(QStringLiteral("group")).toString();
+        if (r.value(QStringLiteral("ok")).toBool() && group.startsWith(QLatin1String("[Sampler"))) {
+            Library::setSamplerOptions(group, arg("sync") != QLatin1String("0"), false);
+        }
+        return result(r);
     }
     if (path == QLatin1String("/api/load-path")) {   // ?path=&target=
         return result(m_library.loadLocation(arg("path"), arg("target")));
@@ -330,6 +335,9 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     }
     if (path == QLatin1String("/api/analyze")) {   // ?dry=1: only count the tracks without BPM or key
         return result(m_library.analyzeAll(arg("dry") == QLatin1String("1")));
+    }
+    if (path == QLatin1String("/api/sampler/capture")) {   // ?deck=&slot=&sync=1|0
+        return result(m_library.captureSample(arg("deck").toInt(), arg("slot").toInt(), arg("sync") != QLatin1String("0")));
     }
     if (path == QLatin1String("/api/analyze/status")) {
         return json(m_library.analysisStatus());

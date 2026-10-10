@@ -345,6 +345,7 @@
     </div>
     <div class="card">
       <h3>Library</h3>
+      <label class="chk"><input type="checkbox" id="samplesync"> Samples follow the master tempo</label>
       <label for="keyfmt">Key notation</label><select id="keyfmt">
         <option value="camelot">Camelot (8A)</option><option value="open">Open Key (1m)</option><option value="musical">Musical (Am)</option></select>
     </div>
@@ -1237,7 +1238,7 @@ $("#scrim").addEventListener("click", closeSheet);
 })();
 async function load(t, target) {
   try {
-    const r = await api(`/api/load?${qs({ track_id: t.id, target })}`);
+    const r = await api(`/api/load?${qs({ track_id: t.id, target, sync: store.get("sampleSync", true) ? 1 : 0 })}`);
     toast(`Loaded into ${r.group.replace(/\[Channel(\d)\]/, "deck $1").replace(/\[Sampler(\d+)\]/, "sampler $1")}`, "ok");
     if (navigator.vibrate) navigator.vibrate(20);
     closeSheet();
@@ -1358,6 +1359,8 @@ $("#introfull").addEventListener("change", () => store.set("introFull", $("#intr
 const INTRO_STYLE_DEFAULT = "gild";   // RELEASE: as in intro.html
 $("#introstyle").value = store.get("introStyle", INTRO_STYLE_DEFAULT);
 $("#introstyle").addEventListener("change", () => { store.set("introStyle", $("#introstyle").value); toast("Shows next time ZyDeck starts", "ok"); });
+$("#samplesync").checked = store.get("sampleSync", true);
+$("#samplesync").addEventListener("change", () => store.set("sampleSync", $("#samplesync").checked));
 $("#keyfmt").value = store.get("keyNotation", "camelot");
 $("#keyfmt").addEventListener("change", () => { store.set("keyNotation", $("#keyfmt").value); loadTracks(); });
 

@@ -175,6 +175,9 @@
   #app.stacked .loopbox button { height: calc(var(--mm) * 10.5); }
   #app.stacked .topbar .knob { width: calc(var(--mm) * 12); }
   #app.stacked .topbar .switch { height: calc(var(--mm) * 10.5); flex: 1; }
+  #app.stacked .topbar .switch.narrow { flex: 0 0 calc(var(--mm) * 15); min-width: 0; }
+  .topbar .sshift { flex: 1; height: calc(var(--mm) * 10.5); font-size: calc(var(--mm) * 2.2); }
+  .sshift.on { background: var(--err); border-color: var(--err); color: #fff; }
   #app.stacked .side.left { grid-template-columns: calc(var(--mm) * 13) minmax(0, 1fr); }
   #app.stacked .side.samples { grid-template-columns: minmax(0, 1fr); }   /* the sampler page: just its 16 pads */
   /* shorter mixer: the EQ columns run the full height, the crossfader sits under the two channel faders */
@@ -343,6 +346,8 @@
     <div class="seg" id="s-knob"></div></div>
   <div class="row"><div>Key notation<small>How the deck shows its current key (after key shift, and tempo when key lock is off)</small></div>
     <div class="seg" id="s-keyfmt"></div></div>
+  <div class="row"><div>Samples follow the master tempo<small>Captured and loaded samples play in time with the decks (SHIFT + a loaded pad changes it for that pad; ⇄ on the pad when it does)</small></div>
+    <div class="seg" id="s-ssync"></div></div>
   <div class="row"><div>Mixer knob size<small>Knob diameter; the mixer widens to fit</small></div>
     <div><input type="range" id="s-knobsize" min="9" max="18" step="0.5"><small><span class="val" id="s-knobsize-v"></span></small></div></div>
   <div class="row"><div>Telemetry<small>Send debug data (touch rate, deck state, events) to the Mac's settings page</small></div>
@@ -365,7 +370,7 @@
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10 };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
 // Android, which knows the screen's real pixel density.
@@ -692,10 +697,11 @@ function buildSide(s) {
     u.spads = [];
     for (let k = 0; k < 16; k++) {
       const i = s * 16 + k, p = h("div", "pad");
-      bindPress(p, down => { if (live) send("pad", 0, i, down); else if (down) samplerTap(i); });
+      bindPress(p, down => samplerPress(deckOf(s), i, down));
       pads.appendChild(p); u.spads[k] = { el: p, i };
     }
     el.appendChild(pads);
+    shiftButton(s, u, "shift sshift");
     if (stacked()) { buildStrip(s, u); placeStrip(s, u); }
     ui.sides[s] = u;
     return el;
@@ -745,18 +751,7 @@ function tempoControls(s, u, olLabel) {
     paintSide(s); });
   u.lane = h("div", "lane", `<div class="end t"></div><div class="zero"></div><div class="mark"></div><div class="lock"></div><div class="end b"></div>`);
   u.tread = h("div", "tread");
-  u.shiftBtn = h("button", "shift", "SHIFT");
-  // Held: a momentary SHIFT, like a controller's. Tapped: it stays on until the next tap (or until it's used).
-  // Only one deck's SHIFT is on at a time.
-  let shiftAt = 0, wasOn = false;
-  bindPress(u.shiftBtn, down => {
-    const d = deckOf(s);
-    if (down) {
-      shiftAt = performance.now(); wasOn = d.shift;
-      if (!wasOn) { decks.forEach(o => o.shift = o === d); }
-    } else if (wasOn || performance.now() - shiftAt > 350) d.shift = false;
-    paintAll();
-  });
+  shiftButton(s, u);
   drag(u.lane, {
     // Touchpad: only the change in finger position counts, wherever you touch.
     down: e => { if (synced(deckOf(s))) return false;   // a synced deck follows the master's tempo
@@ -770,6 +765,49 @@ function tempoControls(s, u, olLabel) {
     },
     up: () => { u.lane.classList.remove("held"); u.laneDeck = null; paintTempo(s); },
   });
+}
+
+// SHIFT for side s. Held: a momentary SHIFT, like a controller's. Tapped: it stays on until the next tap (or
+// until it's used). Each side's SHIFT is its own.
+function shiftButton(s, u, cls = "shift") {
+  u.shiftBtn = h("button", cls, "SHIFT");
+  let shiftAt = 0, wasOn = false;
+  bindPress(u.shiftBtn, down => {
+    const d = deckOf(s);
+    if (down) {
+      shiftAt = performance.now(); wasOn = d.shift;
+      if (!wasOn) d.shift = true;
+    } else if (wasOn || performance.now() - shiftAt > 350) d.shift = false;
+    paintAll();
+  });
+  return u.shiftBtn;
+}
+
+// Sampler pads (the samples page, and SAMPLER pad mode). With the deck's SHIFT: an empty pad captures the deck's
+// loop into it (just the stems it's playing); a loaded one starts or stops following the master tempo.
+const samplerSync = new Array(64).fill(false);
+function samplerPress(d, i, down) {
+  if (d.shift) {
+    if (!down) return;
+    d.shift = false;
+    if (!samplers[i].state) captureInto(d, i);
+    else if (live) { samplerSync[i] = !samplerSync[i]; setCtl(`[Sampler${i + 1}]`, "sync_enabled", samplerSync[i] ? 1 : 0); }
+    paintAll();
+    return;
+  }
+  if (live) send("pad", 0, i, down); else if (down) samplerTap(i);
+}
+async function captureInto(d, i) {
+  const sm = samplers[i];
+  if (!live) { sm.state = 1; sm.name = `Deck ${d.n} loop`; paintAll(); return; }
+  sm.note = "capturing…"; paintAll();
+  try {
+    const r = await (await fetch(`/api/sampler/capture?deck=${d.n}&slot=${i + 1}&sync=${S.sampleSync ? 1 : 0}`)).json();
+    sm.note = r.ok ? "" : r.error || "couldn't capture";
+    if (r.ok) samplerSync[i] = !!S.sampleSync;
+  } catch { sm.note = "couldn't capture"; }
+  paintAll();
+  if (sm.note) setTimeout(() => { sm.note = ""; paintAll(); }, 2500);
 }
 
 // CUE, PLAY and SYNC for side s (both layouts).
@@ -933,8 +971,11 @@ function placeChrome() {
     return;
   }
   const row = (...els) => { const r = h("div", "topbar"); r.append(...els.filter(Boolean)); return r; };
-  $("sideL").replaceChildren(row(...tabs, $("gear")), row(ui.loops[0].flags), row($("loop0")), row(ui.sides[0]?.sw, ui.chans[0]?.gain));
-  $("sideR").replaceChildren(row($("topknobs")), row(ui.loops[1].flags), row($("loop1")), row(ui.chans[1]?.gain, ui.sides[1]?.sw));
+  // the samples page has its SHIFTs next to the deck switches (narrower there to make room)
+  const sp = page === "samples", sh = s => sp ? ui.sides[s]?.shiftBtn : null;
+  ui.sides.forEach(u => u?.sw?.classList.toggle("narrow", sp));
+  $("sideL").replaceChildren(row(...tabs, $("gear")), row(ui.loops[0].flags), row($("loop0")), row(ui.sides[0]?.sw, sh(0), ui.chans[0]?.gain));
+  $("sideR").replaceChildren(row($("topknobs")), row(ui.loops[1].flags), row($("loop1")), row(ui.chans[1]?.gain, sh(1), ui.sides[1]?.sw));
 }
 
 function buildMixer() {
@@ -1228,8 +1269,9 @@ function paintPad(s, k) {
 
 function paintSamplerPad(el, i) {
   const sm = samplers[i];
+  if (sm.note) return setPad(el, "tint", `<span class="n">${i + 1}</span><small>${sm.note}</small>`, "var(--err)");
   const cls = sm.state === 2 ? "lit" : sm.state === 1 ? "tint" : "";
-  setPad(el, cls, `<span class="n">${i + 1}</span>${sm.state ? `<small>${sm.name}</small>` : ""}`,
+  setPad(el, cls, `<span class="n">${i + 1}</span>${sm.state ? `<small>${samplerSync[i] ? "⇄ " : ""}${sm.name}</small>` : ""}`,
     sm.state === 2 ? "var(--play)" : "var(--cue)", "#04200e");
 }
 
@@ -1287,7 +1329,7 @@ function padPress(s, k, down) {
     return;
   }
   if (live) {
-    if (d.mode === "smpl") return send("pad", 0, (d.n % 2 ? 0 : 8) + k, down);
+    if (d.mode === "smpl") return samplerPress(d, (d.n % 2 ? 0 : 8) + k, down);
     if ((d.mode === "stem" && k >= 4) || (d.mode === "fx" && k === 7)) return;   // unmapped, like the Inpulse
     let m = PAD_MODE[d.mode];
     if (d.shift && d.mode === "cue") { m = 1; if (down) { d.shift = false; setTimeout(() => paintSide(s), 0); } }
@@ -1303,7 +1345,7 @@ function padPress(s, k, down) {
       break;
     case "roll": d.rolls[k] = down ? 1 : 0; break;
     case "stem": if (down && k < 4) d.stems[k] = d.stems[k] ? 0 : 1; break;
-    case "smpl": if (down) samplerTap((d.n % 2 ? 0 : 8) + k); break;
+    case "smpl": samplerPress(d, (d.n % 2 ? 0 : 8) + k, down); return;
     case "jump": if (down) d.pos = clamp(d.pos + [-1, 1, -2, 2, -4, 4, -8, 8][k] * beat, -PREROLL, d.dur); break;
     case "fx": if (down) { if (k < 3) d.fx[k] = d.fx[k] ? 0 : 1; else if (k === 3) d.fxRoute = d.fxRoute ? 0 : 1; } break;
   }
@@ -1740,6 +1782,7 @@ function paintSettings(soft) {
   seg("s-keyfmt", [["camelot", "Camelot 8A"], ["open", "Open Key 1m"], ["musical", "Musical Am"]], () => S.keyNotation, v => S.keyNotation = v);
   seg("s-fs-auto", [[true, "On"], [false, "Off"]], () => S.autoFs, v => S.autoFs = v);
   seg("s-tele", [[true, "On"], [false, "Off"]], () => S.telemetry, v => S.telemetry = v);
+  seg("s-ssync", [[true, "On"], [false, "Off"]], () => S.sampleSync, v => S.sampleSync = v);
   if (soft) return;
   slider("s-sens", "sens", v => `${v.toFixed(2)} % per mm · ±8 % over ${(8 / v).toFixed(0)} mm of drag · ${(v * 1.28).toFixed(2)} BPM per mm at 128`);
   slider("s-bar", "bar", v => `${v} mm`);
@@ -1894,6 +1937,8 @@ function applyCv(name, v, ts) {
     const d = decks[m[1] - 1];
     if (!d || isLocal(d, "filter") || d.filter === v) return;
     d.filter = v; markDirty("mixer");
+  } else if ((m = /^\[Sampler(\d+)\]$/.exec(group))) {
+    if (key === "sync_enabled" && samplerSync[m[1] - 1] !== v > 0) { samplerSync[m[1] - 1] = v > 0; markDirty("all"); }
   } else if (group === MAIN_GROUP) {
     const f = Object.keys(MAIN).find(k => MAIN[k] === key);
     if (!f || isLocal(master, f) || master[f] === v) return;
@@ -1912,6 +1957,7 @@ function subscribeAll() {
     for (const f of ["vol", "gain", "high", "mid", "low", "filter"]) sub.push([...MIXER[f](n), 2]);
   }
   for (const k of Object.values(MAIN)) sub.push([MAIN_GROUP, k, 2]);
+  for (let n = 1; n <= samplers.length; n++) sub.push([`[Sampler${n}]`, "sync_enabled", 0]);
   mxSend({ sub });
 }
 

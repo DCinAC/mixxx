@@ -57,6 +57,13 @@ class Library {
     QJsonObject analysisStatus();
     void stopAnalysis();
 
+    /// Sampler capture: the loop on a deck, with only the stems that deck plays (all of them for a normal
+    /// track), cut straight from the file into a WAV in Music/ZyDeck Samples, added to the library with the
+    /// source's BPM, and loaded into sampler `slot` set to loop. sync: it follows the master tempo.
+    QJsonObject captureSample(int deck, int slot, bool sync);
+    /// A sampler's playing options: keep its key, follow the master tempo (or not), loop the whole clip (or not).
+    static void setSamplerOptions(const QString& group, bool sync, bool repeat);
+
   private:
     bool open();
     QJsonObject trackJson(const class QSqlQuery& query) const;
