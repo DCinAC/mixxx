@@ -10,6 +10,7 @@
 
 #include "preferences/usersettings.h"
 #include "track/track_decl.h"
+#include "track/trackid.h"
 
 namespace zydek {
 
@@ -78,6 +79,7 @@ class Library {
 
   private:
     QJsonObject schedule(const QList<int>& ids, bool add);
+    QList<TrackId> trackIdsUnder(const QString& dir, const QString& except, bool hidden);
     QJsonObject renderSample(const TrackPointer& pTrack, double firstFrame, double lastFrame, uint mask, int slot, bool sync);
     bool open();
     QJsonObject trackJson(const class QSqlQuery& query) const;

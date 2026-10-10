@@ -492,7 +492,8 @@ bool isStorageRoot(const QString& path) {
 }
 } // namespace
 
-QJsonObject Library::addFolder(const QString& path) {
+QJsonObject Library::addFolder(const QString& requested) {
+    const QString path = QDir::cleanPath(requested);
     if (isStorageRoot(path)) {
         return error(QStringLiteral("Pick a folder inside the storage, like Music or Download: the whole storage "
                                     "holds every app's files too"));
@@ -501,26 +502,80 @@ QJsonObject Library::addFolder(const QString& path) {
     if (!pLibrary) {
         return error(QStringLiteral("Mixxx isn't ready"));
     }
+    // Mixxx won't watch a folder inside one it watches already. When that one is a whole storage (added
+    // before ZyDeck refused them), the new folder replaces it: the tracks outside it leave the library.
+    QString replaces;
+    for (const QJsonValue& f : folders()) {
+        const QString dir = f.toObject().value(QStringLiteral("path")).toString();
+        if (isStorageRoot(dir) && path.startsWith(QDir::cleanPath(dir) + QLatin1Char('/'))) {
+            replaces = QDir::cleanPath(dir);
+        }
+    }
+    const QList<TrackId> outside = replaces.isEmpty() ? QList<TrackId>() : trackIdsUnder(replaces, path, false);
+    const QList<TrackId> hidden = trackIdsUnder(path, QString(), true);   // removed before: back with their cues
     TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
     DirectoryDAO::AddResult result = DirectoryDAO::AddResult::SqlError;
     // The collection belongs to the main thread; wait for it there (adding a folder is quick).
     QMetaObject::invokeMethod(
             pCollection,
-            [pCollection, path, &result] { result = pCollection->addDirectory(mixxx::FileInfo(path)); },
+            [pCollection, path, replaces, outside, hidden, &result] {
+                if (!replaces.isEmpty()) {
+                    pCollection->removeDirectory(mixxx::FileInfo(replaces));
+                }
+                result = pCollection->addDirectory(mixxx::FileInfo(path));
+                if (result != DirectoryDAO::AddResult::Ok) {
+                    if (!replaces.isEmpty()) {
+                        pCollection->addDirectory(mixxx::FileInfo(replaces));   // put it back
+                    }
+                    return;
+                }
+                if (!outside.isEmpty()) {
+                    pCollection->hideTracks(outside);
+                }
+                if (!hidden.isEmpty()) {
+                    pCollection->unhideTracks(hidden);
+                }
+            },
             Qt::BlockingQueuedConnection);
     switch (result) {
     case DirectoryDAO::AddResult::Ok:
         startScan();
-        return {{"ok", true}};
+        return {{"ok", true}, {"replaced", replaces}};
     case DirectoryDAO::AddResult::AlreadyWatching:
         return error(QStringLiteral("This folder (or one containing it) is already in the library"));
     case DirectoryDAO::AddResult::InvalidOrMissingDirectory:
         return error(QStringLiteral("That folder doesn't exist"));
     case DirectoryDAO::AddResult::UnreadableDirectory:
-        return error(QStringLiteral("Can't read that folder: allow Zydek (Mixxx) \"All files access\" in Android's settings"));
+        return error(QStringLiteral("Can't read that folder: allow ZyDeck to read your music (Folders tab)"));
     default:
         return error(QStringLiteral("Couldn't add the folder"));
     }
+}
+
+/// Tracks whose file is under dir (and not under except); hidden: the ones hidden from the library instead.
+QList<TrackId> Library::trackIdsUnder(const QString& dir, const QString& except, bool hidden) {
+    QList<TrackId> ids;
+    if (!open()) {
+        return ids;
+    }
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT l.id FROM %1 WHERE l.mixxx_deleted = ? AND substr(tl.location, 1, ?) = ?%2")
+                      .arg(kTrackFrom, except.isEmpty() ? QString() : QStringLiteral(" AND substr(tl.location, 1, ?) <> ?")));
+    const QString prefix = dir + QLatin1Char('/');
+    q.addBindValue(hidden ? 1 : 0);
+    q.addBindValue(prefix.size());
+    q.addBindValue(prefix);
+    if (!except.isEmpty()) {
+        const QString exceptPrefix = except + QLatin1Char('/');
+        q.addBindValue(exceptPrefix.size());
+        q.addBindValue(exceptPrefix);
+    }
+    if (q.exec()) {
+        while (q.next()) {
+            ids.append(TrackId(q.value(0)));
+        }
+    }
+    return ids;
 }
 
 QJsonObject Library::removeFolder(const QString& path) {

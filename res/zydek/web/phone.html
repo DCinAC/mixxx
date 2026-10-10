@@ -1661,8 +1661,8 @@ $("#usehere").addEventListener("click", async () => {
     return;
   }
   try {
-    await api(`/api/folders/add?${qs({ path: browsePath })}`);
-    toast("Added; scanning for tracks…", "ok");
+    const r = await api(`/api/folders/add?${qs({ path: browsePath })}`);
+    toast(r.replaced ? `It replaces the whole storage: only tracks in ${browsePath.split("/").pop()} stay; scanning…` : "Added; scanning for tracks…", "ok");
     $("#browser").classList.remove("on");
     loadFolders(); watchScan();
   } catch (e) { toast(e.message, "bad"); }

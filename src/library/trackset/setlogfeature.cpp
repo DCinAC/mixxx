@@ -107,6 +107,13 @@ SetlogFeature::SetlogFeature(
 
     // initialized in a new generic slot(get new history playlist purpose)
     slotGetNewPlaylist();
+
+    // Zydek: listen from the start rather than when the (QWidget) library binds, which the QML/mobile
+    // interface never does: otherwise nothing ever counts as played and History stays empty.
+    connect(&PlayerInfo::instance(),
+            &PlayerInfo::currentPlayingTrackChanged,
+            this,
+            &SetlogFeature::slotPlayingTrackChanged);
 }
 
 SetlogFeature::~SetlogFeature() {
@@ -124,10 +131,6 @@ QVariant SetlogFeature::title() {
 void SetlogFeature::bindLibraryWidget(
         WLibrary* pLibraryWidget, KeyboardEventFilter* pKeyboard) {
     BasePlaylistFeature::bindLibraryWidget(pLibraryWidget, pKeyboard);
-    connect(&PlayerInfo::instance(),
-            &PlayerInfo::currentPlayingTrackChanged,
-            this,
-            &SetlogFeature::slotPlayingTrackChanged);
     m_pLibraryWidget = QPointer(pLibraryWidget);
 }
 
