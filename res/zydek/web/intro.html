@@ -223,12 +223,12 @@ const T = (s, ty = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1) =>
 // ---- camera ---------------------------------------------------------------------------------------------
 // The phone's screen is a window: the eye 35 cm in front of it, the ground 85 cm behind it. Something y cm above
 // the ground looks EYE / (EYE + DROP - y) times the size it would be at the screen.
-const EYE = 35, DROP = 90, HOP = 60;         // cm; HOP: heights for the shadows' softness
+const EYE = 35, DROP = 180, HOP = 60;         // cm; HOP: heights for the shadows' softness
 // The whole intro runs SLOW times slower than real life: the scripted parts take SLOW times longer, and the
 // falls and bounces happen in gravity divided by SLOW², which stretches them in time without changing their shape.
 const SLOW = 2;
 const ms = x => x * SLOW;
-const G = 981 * .5 / (SLOW * SLOW);            // cm/s²
+const G = 981 / (SLOW * SLOW);            // cm/s²
 const E = .62;                                // how much of its speed a thing keeps when it bounces
 const persp = y => EYE / (EYE + DROP - y);
 const fallMs = h => Math.sqrt(2 * h / G) * 1000;
