@@ -250,6 +250,7 @@
     margin: 0 2px 0 8px; background: center / 24px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='11' fill='%23555'/%3E%3Cpath d='M8 8l8 8M16 8l-8 8' stroke='%230b0b0b' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E"); }
   /* Landscape: the deck view (the controller's phone layout), loaded with the page and kept running, so
      turning the phone switches instantly. Portrait: the library. */
+  #gridview { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 120; background: var(--bg); }
   #deckview { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 50; background: var(--bg); visibility: hidden; }
   @media (orientation: landscape) {
     #deckview { visibility: visible; }
@@ -1199,6 +1200,22 @@ function onLongPress(el, fn) {
   el.addEventListener("contextmenu", e => e.preventDefault());
 }
 
+// Beat grid editor (grid.html): the track goes to the headphones' preview deck and the editor opens over the page
+async function editGrid(t) {
+  try { await api(`/api/load?${qs({ track_id: t.id, target: "preview" })}`); } catch (e) { return toast(e.message, "bad"); }
+  document.getElementById("gridview")?.remove();
+  const f = document.createElement("iframe");
+  f.id = "gridview";
+  f.src = `/grid?group=${encodeURIComponent("[PreviewDeck1]")}&track=${t.id}`;
+  document.body.appendChild(f);
+}
+addEventListener("message", e => {
+  if (e.origin !== location.origin || e.data?.zydek !== "grid-close") return;
+  document.getElementById("gridview")?.remove();
+  api("/api/preview/stop").catch(() => {});
+  loadTracks();   // its BPM may have changed
+});
+
 // Crates: long press a track to put it in crates (or take it out); "+ Crate" makes a new one.
 let crateList = [];
 async function openCrateSheet(t) {
@@ -1207,10 +1224,12 @@ async function openCrateSheet(t) {
   if (t) { try { member = await api(`/api/crates/of?${qs({ track: t.id })}`); } catch {} }
   s.innerHTML = `<div class="grip"></div><div class="t">${t ? esc(t.title) : "New crate"}</div>` +
     (t ? `<div class="a">${esc(t.artist || "Unknown artist")} · tap a crate to add or remove</div>` +
-      (stemServer && !t.stems && !t.missing ? `<div class="more"><button class="wide mkstems">Make stems on the PC<small>${esc(STEM_MODELS[stemPreset] || stemPreset)}</small></button></div>` : "") +
+      `<div class="more">${!t.missing ? `<button class="wide editgrid">Edit beat grid<small>in your headphones</small></button>` : ""}` +
+      (stemServer && !t.stems && !t.missing ? `<button class="wide mkstems">Make stems on the PC<small>${esc(STEM_MODELS[stemPreset] || stemPreset)}</small></button>` : "") + `</div>` +
       `<div class="crates"></div>` : "") +
     `<div class="newcrate"><input placeholder="New crate name" enterkeyhint="done"><button>Make crate</button></div>`;
   s.querySelector(".mkstems")?.addEventListener("click", () => { closeSheet(); makeStems(t); });
+  s.querySelector(".editgrid")?.addEventListener("click", () => { closeSheet(); editGrid(t); });
   const box = s.querySelector(".crates");
   if (box) crateList.forEach(c => {
     const on = member.includes(c.id);

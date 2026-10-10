@@ -210,7 +210,7 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         return {200, "text/html; charset=utf-8", kIndexPage, {}};
     }
     if (path == QLatin1String("/controller") || path == QLatin1String("/settings") ||
-            path == QLatin1String("/sizes") || path == QLatin1String("/phone")) {
+            path == QLatin1String("/sizes") || path == QLatin1String("/phone") || path == QLatin1String("/grid")) {
         return staticFile(path.mid(1) + QLatin1String(".html"));
     }
     if (path == QLatin1String("/controller.webmanifest")) {
@@ -348,6 +348,24 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
             setSamplerMode(arg("slot").toInt(), QStringLiteral("loop"));   // a captured loop loops
         }
         return result(r);
+    }
+    if (path == QLatin1String("/api/grid/bpm") || path == QLatin1String("/api/grid/lock")) {   // ?group=&bpm= · ?group=&on=1|0
+        const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(arg("group"));
+        if (!pTrack) {
+            return result({{"ok", false}, {"error", "Nothing loaded there"}});
+        }
+        if (path.endsWith(QLatin1String("lock"))) {
+            pTrack->setBpmLocked(arg("on") != QLatin1String("0"));
+            return result({{"ok", true}, {"locked", pTrack->isBpmLocked()}});
+        }
+        const double bpm = arg("bpm").toDouble();
+        if (pTrack->isBpmLocked()) {
+            return result({{"ok", false}, {"error", "The grid is locked"}});
+        }
+        if (bpm < 30 || bpm > 300 || !pTrack->trySetBpm(bpm)) {
+            return result({{"ok", false}, {"error", "Couldn't set that BPM"}});
+        }
+        return result({{"ok", true}, {"bpm", pTrack->getBpm()}});
     }
     if (path == QLatin1String("/api/kits")) {
         return json(kits());
@@ -581,7 +599,7 @@ QByteArray Hub::beats(int trackId) const {
         for (int n = 0; n < 20000 && it->value() < endFrame; ++n, ++it) {
             times.append(std::round(it->value() / rate * 10000.0) / 10000.0);
         }
-        return QJsonDocument(QJsonObject{{"beats", times}, {"bar", ((firstIndex % 4) + 4) % 4}})
+        return QJsonDocument(QJsonObject{{"beats", times}, {"bar", ((firstIndex % 4) + 4) % 4}, {"locked", pTrack->isBpmLocked()}})
                 .toJson(QJsonDocument::Compact);
     }
     return {};

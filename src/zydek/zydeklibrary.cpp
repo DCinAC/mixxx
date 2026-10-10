@@ -86,6 +86,9 @@ double control(const QString& group, const QString& key) {
 }
 
 QString groupFor(const QString& target, QString* pError) {
+    if (target == QLatin1String("preview")) {   // the headphones' preview deck (the beat grid editor)
+        return QStringLiteral("[PreviewDeck1]");
+    }
     if (target.startsWith(QLatin1String("deck"))) {
         const int n = target.mid(4).toInt();
         if (n >= 1 && n <= 4) {

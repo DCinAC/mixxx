@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Beat grid</title>
+<!--
+  ZyDeck's beat grid editor: /grid?group=[Channel1]|[PreviewDeck1]&track=<id>. Opened over the phone's library
+  (long press a track > Edit beat grid: the track goes to the headphones' preview deck) and over the tablet's
+  decks (tap a deck's BPM). It edits whatever is loaded in `group`, with Mixxx's own beat grid controls, and
+  posts {zydek: "grid-close"} to the page that opened it when done.
+-->
+<style>
+  :root { --bg: #0b0b0b; --panel: #141414; --edge: #2c2c2c; --text: #ececec; --dim: #8a8a8a; --acc: #e2b84a; --play: #3ddc84; --err: #ff5a5f; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 500 14px/1.3 system-ui, "Roboto", sans-serif;
+    overflow: hidden; touch-action: none; }
+  #app { height: 100%; display: grid; grid-template-rows: auto minmax(120px, 1fr) 44px auto; gap: 10px;
+    padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px calc(env(safe-area-inset-bottom, 0px) + 12px); }
+  header { display: flex; gap: 10px; align-items: center; min-width: 0; }
+  header .who { flex: 1; min-width: 0; }
+  header .who b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
+  header .who small { color: var(--dim); font-size: 12px; }
+  button { font: inherit; font-weight: 600; color: #ddd; background: #1c1c1c; border: 1px solid #343434; border-radius: 10px; min-height: 44px; padding: 0 12px; }
+  button.on { border-color: var(--acc); color: var(--acc); background: #2a2414; }
+  button:active, button.down { background: #fff; color: #111; }
+  #done { border-color: var(--acc); color: var(--acc); }
+  #wave { position: relative; border: 1px solid var(--edge); border-radius: 12px; overflow: hidden; background: #0f0f0f; }
+  #wave canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #wave .head { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 8px #fff; pointer-events: none; }
+  #wave .zoom { position: absolute; right: 8px; top: 8px; display: flex; gap: 6px; }
+  #wave .zoom button { min-height: 34px; width: 38px; padding: 0; background: rgba(20,20,20,.8); }
+  #wave .note { position: absolute; left: 10px; bottom: 8px; color: var(--dim); font-size: 12px; pointer-events: none; }
+  #slide { border: 1px solid var(--edge); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #6a6a6a;
+    font-size: 12px; letter-spacing: .1em; background-color: #101010;
+    background-image: repeating-linear-gradient(90deg, #2c2c2c 0 1px, transparent 1px 12px); background-position: var(--off, 0px) 0; }
+  #slide.held { border-color: var(--acc); color: var(--acc); }
+  #pads { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  #pads button { min-height: 52px; line-height: 1.1; }
+  #pads button small { display: block; font-size: 11px; color: var(--dim); font-weight: 500; }
+  #bpmrow { grid-column: 1 / -1; display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; align-items: center; }
+  #bpm { font: 700 30px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; min-width: 4.4ch; }
+  #bpm small { font-size: 12px; color: var(--dim); font-weight: 500; margin-left: 4px; }
+  #bpmin { height: 44px; border-radius: 10px; border: 1px solid #343434; background: #181818; color: var(--text); padding: 0 10px; font: 600 16px system-ui; min-width: 0; }
+  #msg { grid-column: 1 / -1; min-height: 16px; color: var(--dim); font-size: 12px; }
+  #msg.bad { color: var(--err); }
+  .wide { grid-column: span 2; }
+  @media (orientation: landscape) and (min-width: 700px) {
+    #app { grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: auto minmax(0, 1fr) 44px; }
+    header { grid-column: 1 / -1; }
+    #wave { grid-row: 2; } #slide { grid-row: 3; grid-column: 1; }
+    #pads { grid-row: 2 / 4; grid-column: 2; align-content: start; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header><button id="done">Done</button><div class="who"><b id="title">…</b><small id="sub"></small></div><button id="play">▶</button></header>
+  <div id="wave"><canvas></canvas><div class="head"></div>
+    <div class="zoom"><button id="zout">−</button><button id="zin">+</button></div><div class="note" id="znote"></div></div>
+  <div id="slide">◀ EARLIER · DRAG TO SLIDE THE GRID · LATER ▶</div>
+  <div id="pads">
+    <div id="bpmrow"><div id="bpm">—<small>BPM</small></div><input id="bpmin" type="number" inputmode="decimal" step="0.01" placeholder="Type a BPM">
+      <button id="bpmset">Set</button><button id="lock">🔓</button></div>
+    <button data-c="beats_translate_curpos" class="wide">BEAT HERE<small>a beat on the line</small></button>
+    <button data-c="beats_translate_earlier" data-rep>◀<small>earlier</small></button>
+    <button data-c="beats_translate_later" data-rep>▶<small>later</small></button>
+    <button data-c="beats_adjust_slower" data-rep>−0.01<small>BPM</small></button>
+    <button data-c="beats_adjust_faster" data-rep>+0.01<small>BPM</small></button>
+    <button data-c="beats_set_halve">½<small>BPM</small></button>
+    <button data-c="beats_set_double">×2<small>BPM</small></button>
+    <button data-c="bpm_tap" class="wide">TAP<small>tap the tempo</small></button>
+    <button id="first">⇤<small>first beat</small></button>
+    <button data-c="beats_undo_adjustment">UNDO<small>grid</small></button>
+    <div id="msg"></div>
+  </div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const params = new URLSearchParams(location.search);
+const GROUP = params.get("group") || "[PreviewDeck1]", TRACK = +params.get("track") || 0;
+const PREVIEW = GROUP.startsWith("[PreviewDeck");
+const st = { pos: 0, dur: 0, ratio: 1, playing: false, bpm: 0, posAt: 0, wf: null, beats: null, bar: 0, locked: false, zoom: 4 };
+const ZOOMS = [1, 2, 4, 8, 16, 32];   // seconds across the view
+
+// ---- Mixxx: Zydek's /ws (set and subscribe to controls) -----------------------------------------------
+let ws;
+const wsSend = m => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
+const set = (key, v) => wsSend({ set: [GROUP, key, v, 0] });
+const push = key => { set(key, 1); set(key, 0); };
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => wsSend({ sub: ["playposition", "play", "duration", "rate_ratio", "file_bpm"].map(k => [GROUP, k, k === "playposition" ? 1 : 0]) });
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.t !== "cv" || !m.k.startsWith(GROUP + ",")) return;
+    const k = m.k.slice(GROUP.length + 1), v = m.v;
+    if (k === "playposition") { if (!dragging) { st.pos = v * st.dur; st.posAt = performance.now(); } }
+    else if (k === "duration") st.dur = v;
+    else if (k === "rate_ratio") st.ratio = v;
+    else if (k === "play") { st.playing = v > 0; $("#play").textContent = st.playing ? "❚❚" : "▶"; }
+    else if (k === "file_bpm") { st.bpm = v; paintBpm(); }
+  };
+  ws.onclose = () => setTimeout(connect, 1000);
+}
+
+// ---- the track: its waveform and beats (Zydek serves them for loaded tracks) ---------------------------
+async function loadTrack() {
+  try {
+    const t = await (await fetch(`/api/library/track/${TRACK}`)).json();
+    $("#title").textContent = t.title || "Track"; $("#sub").textContent = `${t.artist || ""}${PREVIEW ? " · plays in your headphones" : ""}`;
+  } catch {}
+  for (let i = 0; i < 30 && !st.wf; i++) {
+    try {
+      const r = await fetch(`/waveform/${TRACK}`);
+      if (r.ok) { const b = new Uint8Array(await r.arrayBuffer()), dv = new DataView(b.buffer);
+        st.wf = { rate: dv.getFloat32(4, true), n: dv.getUint32(8, true), data: b.subarray(12) }; break; }
+    } catch {}
+    await new Promise(r => setTimeout(r, 700));
+  }
+  loadBeats();
+}
+let beatsTimer = null;
+async function loadBeats() {
+  try {
+    const r = await fetch(`/beats/${TRACK}`);
+    if (r.ok) { const j = await r.json(); st.beats = j.beats; st.bar = j.bar; st.locked = !!j.locked; paintLock(); }
+  } catch {}
+}
+const refreshBeats = () => { clearTimeout(beatsTimer); beatsTimer = setTimeout(loadBeats, 120); };
+
+// ---- drawing ---------------------------------------------------------------------------------------------
+const cv = $("#wave canvas"), g = cv.getContext("2d");
+function draw(now) {
+  const dpr = devicePixelRatio || 1, r = cv.getBoundingClientRect(), W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const pos = st.playing && !dragging ? st.pos + (now - st.posAt) / 1000 * st.ratio : st.pos;
+  const sec = ZOOMS[zi], pxs = W / sec, start = pos - sec / 2, mid = H / 2;
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = "rgba(255,255,255,.25)"; g.fillRect(0, Math.floor(mid), W, Math.max(1, dpr * .6));
+  const wf = st.wf;
+  if (wf) {   // Mixxx's colours: low red, mid green, high blue
+    const per = wf.rate / pxs;
+    for (let x = 0; x < W; x++) {
+      const i0 = Math.floor((start * pxs + x) * per), i1 = Math.max(i0 + 1, Math.floor((start * pxs + x + 1) * per));
+      if (i1 <= 0 || i0 >= wf.n) continue;
+      let all = 0, lo = 0, mi = 0, hi = 0;
+      for (let i = Math.max(0, i0); i < Math.min(wf.n, i1); i++) { const j = i * 4;
+        all = Math.max(all, wf.data[j]); lo = Math.max(lo, wf.data[j + 1]); mi = Math.max(mi, wf.data[j + 2]); hi = Math.max(hi, wf.data[j + 3]); }
+      const m = Math.max(lo, mi, hi, 1);
+      g.fillStyle = `rgb(${255 * lo / m | 0},${255 * mi / m | 0},${255 * hi / m | 0})`;
+      const h = Math.max(1, all / 255 * mid * .92);
+      g.fillRect(x, mid - h, 1, h * 2);
+    }
+  }
+  const b = st.beats;
+  if (b) {   // beats: bars bright with their number, the others ticks top and bottom
+    g.font = `600 ${11 * dpr}px system-ui`; g.textBaseline = "top";
+    for (let i = 0; i < b.length; i++) {
+      if (b[i] < start - 1 || b[i] > start + sec + 1) continue;
+      const x = Math.round((b[i] - start) * pxs), bar = (i + st.bar) % 4 === 0;
+      if (bar) { g.fillStyle = "rgba(226,184,74,.9)"; g.fillRect(x - dpr, 0, 2 * dpr, H); g.fillText(`${Math.floor((i + st.bar) / 4) + 1}`, x + 3 * dpr, 3 * dpr); }
+      else { g.fillStyle = "rgba(255,255,255,.6)"; g.fillRect(x, 0, dpr, H * .22); g.fillRect(x, H * .78, dpr, H * .22); }
+    }
+  }
+  requestAnimationFrame(draw);
+}
+let zi = 2;
+const paintZoom = () => { $("#znote").textContent = `${ZOOMS[zi]} s across · drag to move through the track`; };
+
+// ---- touch: drag the waveform to move through the track; drag the slide bar to move the grid -------------
+let dragging = false;
+(function scrub() {
+  let x0 = 0, last = 0;
+  cv.addEventListener("pointerdown", e => { dragging = true; x0 = e.clientX; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener("pointermove", e => {
+    if (!dragging || !st.dur) return;
+    const r = cv.getBoundingClientRect(), dx = e.clientX - x0; x0 = e.clientX;
+    st.pos = Math.max(0, Math.min(st.dur, st.pos - dx / r.width * ZOOMS[zi]));
+    const now = performance.now();
+    if (now - last > 30) { last = now; set("playposition", st.pos / st.dur); }
+  });
+  const up = () => { if (!dragging) return; dragging = false; if (st.dur) set("playposition", st.pos / st.dur); st.posAt = performance.now(); };
+  cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+})();
+(function slide() {
+  const el = $("#slide");
+  let x0 = 0, acc = 0, off = 0, on = false;
+  el.addEventListener("pointerdown", e => { on = true; x0 = e.clientX; acc = 0; el.classList.add("held"); el.setPointerCapture(e.pointerId); });
+  el.addEventListener("pointermove", e => {
+    if (!on) return;
+    const dx = e.clientX - x0; x0 = e.clientX; acc += dx; off += dx; el.style.setProperty("--off", off + "px");
+    const step = 7, q = Math.trunc(acc / step);
+    for (let n = 0; n < Math.abs(q); n++) push(q > 0 ? "beats_translate_later" : "beats_translate_earlier");
+    if (q) { acc -= q * step; refreshBeats(); }
+  });
+  const up = () => { on = false; el.classList.remove("held"); };
+  el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
+})();
+
+// ---- buttons ---------------------------------------------------------------------------------------------
+const msg = (t, bad) => { $("#msg").textContent = t || ""; $("#msg").className = bad ? "bad" : ""; };
+document.querySelectorAll("#pads button[data-c]").forEach(b => {
+  let rep = null;
+  b.addEventListener("pointerdown", e => {
+    e.preventDefault(); b.classList.add("down");
+    if (st.locked && b.dataset.c !== "bpm_tap") { msg("The grid is locked: unlock it first", true); return; }
+    push(b.dataset.c); refreshBeats(); msg("");
+    if (b.hasAttribute("data-rep")) rep = setInterval(() => { push(b.dataset.c); refreshBeats(); }, 90);
+  });
+  const up = () => { b.classList.remove("down"); clearInterval(rep); rep = null; };
+  b.addEventListener("pointerup", up); b.addEventListener("pointercancel", up); b.addEventListener("pointerleave", up);
+});
+$("#play").addEventListener("click", () => set("play", st.playing ? 0 : 1));
+$("#first").addEventListener("click", () => { if (st.beats && st.dur) { set("playposition", st.beats[0] / st.dur); st.pos = st.beats[0]; } });
+$("#zin").addEventListener("click", () => { zi = Math.max(0, zi - 1); paintZoom(); });
+$("#zout").addEventListener("click", () => { zi = Math.min(ZOOMS.length - 1, zi + 1); paintZoom(); });
+$("#bpmset").addEventListener("click", async () => {
+  const bpm = parseFloat($("#bpmin").value);
+  if (!(bpm > 0)) return msg("Type a BPM first", true);
+  try {
+    const r = await (await fetch(`/api/grid/bpm?group=${encodeURIComponent(GROUP)}&bpm=${bpm}`)).json();
+    if (!r.ok) return msg(r.error, true);
+    $("#bpmin").value = ""; msg(`Set to ${r.bpm.toFixed(2)} BPM`); refreshBeats();
+  } catch { msg("Couldn't set it", true); }
+});
+$("#lock").addEventListener("click", async () => {
+  try {
+    const r = await (await fetch(`/api/grid/lock?group=${encodeURIComponent(GROUP)}&on=${st.locked ? 0 : 1}`)).json();
+    if (r.ok) { st.locked = r.locked; paintLock(); msg(st.locked ? "Locked: the grid can't change (analysis leaves it alone too)" : "Unlocked"); }
+  } catch {}
+});
+$("#done").addEventListener("click", () => {
+  if (PREVIEW) set("play", 0);
+  parent.postMessage({ zydek: "grid-close" }, location.origin);
+});
+function paintBpm() { $("#bpm").innerHTML = `${st.bpm ? st.bpm.toFixed(2) : "—"}<small>BPM</small>`; }
+function paintLock() { $("#lock").textContent = st.locked ? "🔒" : "🔓"; $("#lock").classList.toggle("on", st.locked); }
+
+connect(); loadTrack(); paintZoom(); requestAnimationFrame(draw);
+</script>
+</body>
+</html>
