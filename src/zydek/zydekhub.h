@@ -111,6 +111,11 @@ class Hub : public QObject {
     HttpServer m_server;
     Library m_library;   // the phone page's library API (/api/...)
     QStringList m_samplerModes;   // per sampler, 1..64 at 0..63 (empty until read from the file)
+    // "Last session": the pads as they are, saved as a kit a moment after they change and loaded again when
+    // ZyDeck starts (Mixxx on Android doesn't keep its samplers between runs)
+    QTimer m_lastSessionTimer;
+    bool m_lastSessionRestored = false;
+    void restoreLastSession(int tries);
     ZydekController* m_pController = nullptr;
 
     int m_samplers[kNumSamplers] = {};

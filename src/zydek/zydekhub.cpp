@@ -52,6 +52,7 @@ const QString kSettingsFile = QStringLiteral("zydek-controller-settings.json");
 const QString kSamplersFile = QStringLiteral("zydek-samplers.json");
 const QString kKitsFile = QStringLiteral("zydek-kits.json");
 constexpr int kKitSlots = 32;   // the pads ZyDeck shows
+const QString kLastSession = QStringLiteral("Last session");
 constexpr int kSamplerSlots = 64;
 const QString kLatencyFile = QStringLiteral("zydek-latency.log");
 constexpr qint64 kLatencyFileMax = 4 * 1024 * 1024;   // then it moves to .1, replacing the previous one
@@ -179,6 +180,9 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
                     updateName(false, n - 1);
                 } else if (group.startsWith(QLatin1String("[Sampler")) && n >= 1 && n <= kNumSamplers) {
                     updateName(true, n - 1);
+                    if (m_lastSessionRestored) {
+                        m_lastSessionTimer.start();
+                    }
                 }
             });
 
@@ -189,6 +193,10 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
 }
 
 void Hub::start() {
+    m_lastSessionTimer.setSingleShot(true);
+    m_lastSessionTimer.setInterval(2000);
+    connect(&m_lastSessionTimer, &QTimer::timeout, this, [this] { saveKit(kLastSession); });
+    QTimer::singleShot(5000, this, [this] { restoreLastSession(0); });
     if (m_server.listen(kPort)) {
         qInfo() << "Zydek: tablet controller at" << lanUrl();
     } else {
@@ -640,6 +648,9 @@ QJsonObject Hub::setSamplerMode(int slot, const QString& mode) {
     }
     samplerModes();
     m_samplerModes[slot - 1] = mode;
+    if (m_lastSessionRestored) {
+        m_lastSessionTimer.start();
+    }
     QSaveFile f(QDir(m_pConfig->getSettingsPath()).filePath(kSamplersFile));
     if (f.open(QIODevice::WriteOnly)) {
         f.write(QJsonDocument(QJsonObject{{"modes", QJsonArray::fromStringList(m_samplerModes)}}).toJson(QJsonDocument::Compact));
@@ -649,6 +660,24 @@ QJsonObject Hub::setSamplerMode(int slot, const QString& mode) {
     ControlObject::set(ConfigKey(QStringLiteral("[Sampler%1]").arg(slot), QStringLiteral("repeat")), mode == QLatin1String("loop") ? 1 : 0);
     emitJson({{"t", "smode"}, {"i", slot - 1}, {"v", mode}});   // every page shows it
     return {{"ok", true}, {"slot", slot}, {"mode", mode}};
+}
+
+// ---- Last session --------------------------------------------------------------------------------
+
+void Hub::restoreLastSession(int tries) {
+    // wait for Mixxx's samplers (the controller mapping asks for 64 of them when it starts)
+    if (ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("num_samplers"))) < kKitSlots && tries < 12) {
+        QTimer::singleShot(2500, this, [this, tries] { restoreLastSession(tries + 1); });
+        return;
+    }
+    bool anyLoaded = false;
+    for (int i = 0; i < kKitSlots && !anyLoaded; ++i) {
+        anyLoaded = static_cast<bool>(PlayerInfo::instance().getTrackInfo(QStringLiteral("[Sampler%1]").arg(i + 1)));
+    }
+    if (!anyLoaded) {
+        loadKit(kLastSession);   // nothing if there's no such kit yet
+    }
+    QTimer::singleShot(4000, this, [this] { m_lastSessionRestored = true; });   // after the loads have landed
 }
 
 // ---- sampler kits ----------------------------------------------------------------------------------
