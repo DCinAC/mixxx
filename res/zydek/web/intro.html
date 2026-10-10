@@ -54,61 +54,52 @@
   .end.t i { position: absolute; top: 24px; width: 30px; height: 30px; border-radius: 50%; background: radial-gradient(#050505 0 40%, #6b4c15 42%, #e7c46b 70%); }
   #screen { position: absolute; left: 19px; top: 43px; width: 248px; height: 400px; border-radius: 4px; overflow: hidden; background: #000; }
 
-  /* vaporwave backdrop on the player's screen */
-  .sky { position: absolute; inset: 0; opacity: 0;
-    background: linear-gradient(180deg, #12002b 0%, #2d0b5a 38%, #8a1d7a 60%, #ff4fa0 72%, #12002b 72.2%); }
-  .sun { position: absolute; left: 50%; top: 66%; width: 150px; height: 150px; margin: -150px 0 0 -75px; border-radius: 50%;
-    background: linear-gradient(180deg, #ffe66b 0%, #ff9a5a 45%, #ff3c9e 100%);
-    -webkit-mask: linear-gradient(180deg, #000 0 52%, transparent 52% 56%, #000 56% 66%, transparent 66% 71%, #000 71% 79%,
-      transparent 79% 85%, #000 85% 91%, transparent 91%);
-    mask: linear-gradient(180deg, #000 0 52%, transparent 52% 56%, #000 56% 66%, transparent 66% 71%, #000 71% 79%,
-      transparent 79% 85%, #000 85% 91%, transparent 91%); }
-  .floor { position: absolute; left: -60%; right: -60%; top: 72%; height: 60%; transform-origin: 50% 0;
-    transform: perspective(160px) rotateX(62deg);
-    background: repeating-linear-gradient(90deg, rgba(1,205,254,.85) 0 1.5px, transparent 1.5px 22px),
-      repeating-linear-gradient(0deg, rgba(255,113,206,.8) 0 1.5px, transparent 1.5px 22px), #1a0030;
-    animation: floor 1.2s linear infinite; }
-  @keyframes floor { to { background-position: 0 0, 0 22px, 0 0; } }
-
-  /* the player UI: everything builds in from left to right (.ui), glitching on */
+  /* the player's screen: dark, like the real one; the vaporwave lives inside the album cover */
+  #screen { background: linear-gradient(180deg, #171717 0%, #0c0c0c 55%, #070707 100%); }
   .ui { position: absolute; clip-path: inset(0 100% 0 0); }
   .bar { left: 10px; right: 10px; top: 7px; height: 12px; display: flex; justify-content: space-between; align-items: center;
-    font: 600 8px/1 ui-monospace, "Roboto Mono", monospace; color: #fff; letter-spacing: .06em; }
-  .cover { left: 44px; top: 30px; width: 160px; height: 160px; background: rgba(20,0,40,.7);
-    border: 1.5px solid var(--pink); box-shadow: 0 0 14px rgba(255,113,206,.7), inset 0 0 18px rgba(185,103,255,.5);
-    display: grid; place-items: center; }
-  .cover b { font: 900 120px/1 "Noto Serif CJK TC", "Noto Serif CJK SC", "Source Han Serif", serif;
-    background: linear-gradient(180deg, #fff 0%, var(--pink) 55%, var(--cyan) 100%); -webkit-background-clip: text; background-clip: text;
-    color: transparent; filter: drop-shadow(0 0 8px rgba(255,113,206,.8)); }
-  .corner { position: absolute; width: 12px; height: 12px; border: 2px solid var(--cyan); }
-  .corner.a { left: -5px; top: -5px; border-right: 0; border-bottom: 0; } .corner.b { right: -5px; bottom: -5px; border-left: 0; border-top: 0; }
-  .fmt { left: 0; right: 0; top: 200px; text-align: center; font: 700 8px/1 ui-monospace, monospace; color: #ffd36b; letter-spacing: .08em; }
-  .fmt span { border: 1px solid #ffd36b; padding: 0 2px; margin-left: 4px; }
-  .title { left: 10px; right: 10px; top: 214px; text-align: center; font: 800 14px/1.2 system-ui, sans-serif; color: #fff;
-    text-shadow: 1.5px 0 rgba(255,0,110,.8), -1.5px 0 rgba(1,205,254,.8); }
-  .album { left: 10px; right: 10px; top: 234px; text-align: center; font: 700 9.5px/1.2 ui-monospace, "Roboto Mono", monospace;
-    color: var(--cyan); letter-spacing: .14em; }
-  .artist { left: 10px; right: 10px; top: 248px; text-align: center; font: 500 9px/1.2 system-ui, sans-serif; color: rgba(255,255,255,.7); }
-  .prog { left: 14px; right: 14px; top: 270px; height: 18px; }
-  .prog .line { position: absolute; left: 0; right: 0; top: 4px; height: 2px; background: rgba(255,255,255,.22); }
-  .prog .fill { position: absolute; left: 0; top: 4px; height: 2px; width: 4%; background: var(--pink); box-shadow: 0 0 6px var(--pink); }
-  .prog .t { position: absolute; top: 10px; font: 600 7.5px/1 ui-monospace, monospace; color: rgba(255,255,255,.75); }
+    font: 600 8px/1 ui-monospace, "Roboto Mono", monospace; color: #d0d0d0; letter-spacing: .06em; }
+  .cover { left: 40px; top: 28px; width: 168px; height: 168px; overflow: hidden; border-radius: 2px;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 8px 20px rgba(0,0,0,.7); }
+  .cover .sky { position: absolute; inset: 0;
+    background: linear-gradient(180deg, #12002b 0%, #2d0b5a 40%, #8a1d7a 62%, #ff4fa0 70%, #12002b 70.4%); }
+  .cover .sun { position: absolute; left: 50%; top: 70%; width: 100px; height: 100px; margin: -100px 0 0 -50px; border-radius: 50%;
+    background: linear-gradient(180deg, #ffe66b 0%, #ff9a5a 45%, #ff3c9e 100%);
+    -webkit-mask: linear-gradient(180deg, #000 0 52%, transparent 52% 57%, #000 57% 67%, transparent 67% 72%, #000 72% 80%,
+      transparent 80% 86%, #000 86% 92%, transparent 92%);
+    mask: linear-gradient(180deg, #000 0 52%, transparent 52% 57%, #000 57% 67%, transparent 67% 72%, #000 72% 80%,
+      transparent 80% 86%, #000 86% 92%, transparent 92%); }
+  .cover .floor { position: absolute; left: -70%; right: -70%; top: 70%; height: 70%; transform-origin: 50% 0;
+    transform: perspective(110px) rotateX(62deg);
+    background: repeating-linear-gradient(90deg, rgba(1,205,254,.9) 0 1.5px, transparent 1.5px 16px),
+      repeating-linear-gradient(0deg, rgba(255,113,206,.85) 0 1.5px, transparent 1.5px 16px), #1a0030;
+    animation: floor 1s linear infinite; }
+  @keyframes floor { to { background-position: 0 0, 0 16px, 0 0; } }
+  .cover b { position: absolute; inset: 0; display: grid; place-items: center; padding-bottom: 14px;
+    font: 900 112px/1 "Noto Serif CJK TC", "Noto Serif CJK SC", "Source Han Serif", serif; color: #fff;
+    text-shadow: 3px 0 rgba(255,0,140,.75), -3px 0 rgba(1,205,254,.75), 0 0 18px rgba(255,113,206,.8); }
+  .cover .scan { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(0,0,0,.25) 0 1px, transparent 1px 3px); }
+  .fmt { left: 0; right: 0; top: 207px; text-align: center; font: 700 8px/1 ui-monospace, monospace; color: #c9a45c; letter-spacing: .08em; }
+  .fmt span { border: 1px solid #c9a45c; padding: 0 2px; margin-left: 4px; }
+  .title { left: 10px; right: 10px; top: 221px; text-align: center; font: 700 13.5px/1.2 system-ui, sans-serif; color: #f2f2f2; }
+  .album { left: 10px; right: 10px; top: 240px; text-align: center; font: 600 9.5px/1.2 ui-monospace, "Roboto Mono", monospace;
+    color: #a8a8a8; letter-spacing: .12em; }
+  .artist { left: 10px; right: 10px; top: 254px; text-align: center; font: 500 9px/1.2 system-ui, sans-serif; color: #777; }
+  .prog { left: 16px; right: 16px; top: 276px; height: 18px; }
+  .prog .line { position: absolute; left: 0; right: 0; top: 4px; height: 2px; background: #333; }
+  .prog .fill { position: absolute; left: 0; top: 4px; height: 2px; width: 4%; background: #e9e9e9; }
+  .prog .fill::after { content: ""; position: absolute; right: -4px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: #fff;
+    box-shadow: 0 0 6px var(--pink); }
+  .prog .t { position: absolute; top: 10px; font: 600 7.5px/1 ui-monospace, monospace; color: #8a8a8a; }
   .prog .t.m { left: 50%; transform: translateX(-50%); } .prog .t.r { right: 0; }
-  .ctl { left: 40px; right: 40px; top: 298px; height: 40px; display: flex; justify-content: space-between; align-items: center; }
-  .ctl span { width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid #fff; display: grid; place-items: center;
-    box-shadow: 0 0 6px rgba(185,103,255,.9); }
-  .ctl span.big { width: 40px; height: 40px; border-color: var(--pink); box-shadow: 0 0 8px var(--pink); }
-  .ctl svg { width: 13px; height: 13px; fill: #fff; } .ctl .big svg { width: 16px; height: 16px; fill: var(--pink); }
-  .eq { left: 18px; right: 18px; top: 352px; height: 22px; display: flex; gap: 3px; align-items: flex-end; }
-  .eq i { flex: 1; background: linear-gradient(0deg, var(--cyan), var(--purple)); height: 30%; animation: eq .5s ease-in-out infinite alternate; }
-  @keyframes eq { to { height: 100%; } }
-  .scan { position: absolute; inset: 0; pointer-events: none;
-    background: repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px); mix-blend-mode: multiply; }
-
-  /* ---- the 80s cassette player (top view, lying on the ground) ---- */
-  /* the cassette player, upright like the 1979 original: 300 × 452 px in the brick's 300 × 524 */
-  #walkman { position: absolute; left: 0; top: 36px; width: 300px; height: 452px; opacity: 0; }
-  #walkman svg { width: 100%; height: 100%; overflow: visible; }
+  .ctl { left: 40px; right: 40px; top: 304px; height: 40px; display: flex; justify-content: space-between; align-items: center; }
+  .ctl span { width: 30px; height: 30px; border-radius: 50%; border: 1.3px solid #cfcfcf; display: grid; place-items: center; }
+  .ctl span.big { width: 40px; height: 40px; border-color: #f2f2f2; }
+  .ctl svg { width: 12px; height: 12px; fill: #e6e6e6; } .ctl .big svg { width: 15px; height: 15px; fill: #fff; }
+  .nav { left: 60px; right: 60px; top: 370px; height: 12px; display: flex; justify-content: space-between; align-items: center; }
+  .nav i { display: block; background: #6a6a6a; }
+  .nav i.b { width: 0; height: 0; background: none; border: 5px solid transparent; border-right: 7px solid #6a6a6a; border-left: 0; }
+  .nav i.h { width: 9px; height: 9px; border-radius: 50%; } .nav i.s { width: 8px; height: 8px; border-radius: 1px; }
 
   /* ---- open-reel decks (the two decks), heads facing each other ---- */
   .deck { position: absolute; left: 50%; top: 50%; width: 360px; height: 260px; margin: -130px 0 0 -180px; opacity: 0; }
@@ -131,11 +122,10 @@
       <div class="face end t gold"><i style="left:70px"></i><i style="left:178px"></i></div>
       <div class="face end b gold"></div>
       <div class="face front gold"><div class="glass">
-        <div class="brand">ZYUNDECK</div>
+        <div class="brand">ZYDECK</div>
         <div id="screen">
-          <div class="sky"></div><div class="floor"></div><div class="sun"></div>
           <div class="ui bar"><span>7:71</span><span>◉ ▮▮▮</span></div>
-          <div class="ui cover"><b>磚</b><i class="corner a"></i><i class="corner b"></i></div>
+          <div class="ui cover"><div class="sky"></div><div class="floor"></div><div class="sun"></div><b>磚</b><div class="scan"></div></div>
           <div class="ui fmt">DSD 771MHz<span>HR</span></div>
           <div class="ui title">ZyunDeck (Extended Mix)</div>
           <div class="ui album">BS EN 771-1</div>
@@ -146,42 +136,11 @@
             <span class="big"><svg viewBox="0 0 24 24"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg></span>
             <span><svg viewBox="0 0 24 24"><path d="M16.5 5H19v14h-2.5zM4 5l11.5 7L4 19z"/></svg></span>
           </div>
-          <div class="ui eq"></div>
-          <div class="scan"></div>
+          <div class="ui nav"><i class="b"></i><i class="h"></i><i class="s"></i></div>
         </div>
         <div class="mark">磚</div>
       </div></div>
     </div>
-    <div id="walkman"><svg viewBox="0 0 300 452">
-      <defs>
-        <linearGradient id="wb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5a97d8"/><stop offset=".45" stop-color="#3270b8"/>
-          <stop offset="1" stop-color="#22528f"/></linearGradient>
-        <linearGradient id="ws" x1="0" x2="1"><stop offset="0" stop-color="#a8aeb7"/><stop offset=".35" stop-color="#f1f3f6"/>
-          <stop offset=".7" stop-color="#d4d8de"/><stop offset="1" stop-color="#9ea4ad"/></linearGradient>
-        <linearGradient id="wg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a3f48"/><stop offset=".5" stop-color="#15171b"/>
-          <stop offset="1" stop-color="#2a2e35"/></linearGradient>
-      </defs>
-      <rect x="3" y="9" width="300" height="444" rx="9" fill="#14345e"/>
-      <rect x="0" y="0" width="300" height="444" rx="9" fill="url(#wb)"/>
-      <rect x="230" y="0" width="70" height="444" rx="8" fill="url(#ws)"/>
-      <rect x="230" y="0" width="4" height="444" fill="#7d838c" opacity=".7"/>
-      <g fill="#8f959e"><rect x="292" y="40" width="8" height="54" rx="2"/><rect x="292" y="150" width="8" height="30" rx="2"/>
-        <rect x="292" y="300" width="8" height="70" rx="2"/></g>
-      <rect x="0" y="58" width="230" height="2" fill="#1d4a85" opacity=".8"/>
-      <rect x="44" y="-9" width="34" height="13" rx="3" fill="#ff7a1a"/>
-      <text x="115" y="108" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="21" font-weight="700"
-        fill="#f2f5f9" letter-spacing="3">ZYUNDECK</text>
-      <rect x="52" y="140" width="100" height="196" rx="14" fill="url(#wg)" stroke="#173a66" stroke-width="3"/>
-      <circle cx="102" cy="188" r="30" fill="#3a2616"/><circle cx="102" cy="288" r="19" fill="#3a2616"/>
-      <g fill="#e9e3d4"><circle cx="102" cy="188" r="10"/><circle cx="102" cy="288" r="10"/></g>
-      <g stroke="#3a2616" stroke-width="3"><path d="M102 178v6M92 188h6M112 188h-6M102 198v-6M102 278v6M92 288h6M112 288h-6M102 298v-6"/></g>
-      <rect x="80" y="220" width="44" height="38" rx="3" fill="#ecebe6"/><rect x="84" y="226" width="36" height="5" fill="#ff71ce"/>
-      <path d="M58 150q20-6 40 0" stroke="rgba(255,255,255,.28)" stroke-width="5" fill="none" stroke-linecap="round"/>
-      <path d="M186 296v-56h-11l18-24 18 24h-11v56z" fill="none" stroke="#e9eef6" stroke-width="2.4" stroke-linejoin="round"/>
-      <circle cx="212" cy="334" r="4" fill="#173a66"/>
-      <text x="115" y="404" text-anchor="middle" font-family="system-ui,sans-serif" font-size="25" font-weight="800" font-style="italic"
-        fill="#eef2f8" letter-spacing="2">ZY-771</text>
-    </svg></div>
   </div>
   <div class="deck" id="deck0"></div>
   <div class="deck" id="deck1"></div>
@@ -236,7 +195,6 @@ function deckSvg(i) {
   </svg>`;
 }
 document.querySelectorAll(".deck").forEach((d, i) => d.innerHTML = deckSvg(i));
-const eq = $(".eq"); for (let i = 0; i < 18; i++) { const b = document.createElement("i"); b.style.animationDelay = `${-i * 137 % 500}ms`; eq.appendChild(b); }
 
 // ---- geometry ------------------------------------------------------------------------------------------
 const W = () => innerWidth, H = () => innerHeight;
@@ -249,123 +207,144 @@ const smallScale = () => Math.min(.3 * Math.max(W(), H()) / 524, .55 * W() / 300
 const T = (s, ty = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1) =>
   `translate(0px, ${ty}px) scale(${s * sx}, ${s * sy}) rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(${rz}deg)`;
 
+// ---- camera ---------------------------------------------------------------------------------------------
+// The phone's screen is a window: the eye 35 cm in front of it, the ground 85 cm behind it. Something y cm above
+// the ground looks EYE / (EYE + DROP - y) times the size it would be at the screen.
+const EYE = 35, DROP = 85, HOP = 26;          // cm; HOP: how high the two decks bounce
+const G = 981 * .6;                           // cm/s², a little slower than real: easier to follow
+const persp = y => EYE / (EYE + DROP - y);
+const fallMs = h => Math.sqrt(2 * h / G) * 1000;
+
 // ---- timeline -------------------------------------------------------------------------------------------
 const anims = [];
 const anim = (el, frames, opts) => { const a = el.animate(frames, { fill: "forwards", ...opts }); anims.push(a); return a; };
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const world = $("#world"), shadow = $("#shadow");
+const decks = [$("#deck0"), $("#deck1")];
+const D = (x, y, r, sx, sy = sx) => `translate(${x}px, ${y}px) rotate(${r}deg) scale(${sx}, ${sy})`;
+const deckShadow = (y, sc) => `drop-shadow(${(4 + y * .5) * sc}px ${(8 + y * .9) * sc}px ${(6 + y * .8) * sc}px rgba(0,0,0,${(.75 - y / HOP * .4).toFixed(2)}))`;
 
-async function intro() {
-  const s0 = startScale(), s1 = midScale(), s2 = smallScale();
-  world.style.transform = T(s0, -SCREEN.dy * s0);
-  // 1: the player UI builds from left to right, glitching on
-  anim($(".sky"), [{ opacity: 0 }, { opacity: 1 }], { duration: 350 });
-  const uis = [...document.querySelectorAll(".ui")];
-  uis.forEach((el, i) => {
-    anim(el, [{ clipPath: "inset(0 100% 0 0)", opacity: 1 }, { clipPath: "inset(0 0% 0 0)", opacity: 1 }],
-      { duration: 380, delay: 250 + i * 150, easing: "steps(6, end)" });
-    anim(el, [{ transform: "translateX(-3px)", opacity: .4 }, { transform: "translateX(2px)", opacity: 1 }, { transform: "translateX(-1px)", opacity: .7 },
-      { transform: "none", opacity: 1 }], { duration: 260, delay: 600 + i * 150, easing: "steps(4)" });
-  });
-  anim($(".prog .fill"), [{ width: "4%" }, { width: "34%" }], { duration: 3200, delay: 400 });
-  await wait(1900);
-  // 2: zoom out: the gold frame comes into view
-  anim(world, [{ transform: T(s0, -SCREEN.dy * s0) }, { transform: T(s1) }], { duration: 850, easing: "cubic-bezier(.5,0,.2,1)" });
-  anim(shadow, [{ opacity: 0, transform: `scale(${s1 * 1.6}) translate(30px, 60px)` }, { opacity: .25, transform: `scale(${s1 * 1.4}) translate(24px, 50px)` }],
-    { duration: 850 });
-  await wait(900);
-  // 3: free fall onto the ground, spinning on every axis; lands flat, face up
-  anim(world, [{ transform: T(s1) }, { transform: T(s2, 0, 720, 360, 360) }], { duration: 1250, easing: "cubic-bezier(.45,0,.85,.55)" });
-  anim(shadow, [{ opacity: .25, transform: `scale(${s1 * 1.4}) translate(24px, 50px)` }, { opacity: .85, transform: `scale(${s2 * 1.05}) translate(6px, 10px)` }],
-    { duration: 1250, easing: "cubic-bezier(.45,0,.85,.55)" });
-  await wait(1250);
-  anim(world, [{ transform: T(s2, 0, 720, 360, 360, 1.06, .9) }, { transform: T(s2, 0, 720, 360, 360) }], { duration: 220, easing: "ease-out" });
-  await wait(320);
-  // 4: squash, and pop into the cassette player
-  const flat = (sx, sy) => T(s2, 0, 720, 360, 360, sx, sy);
-  anim(world, [{ transform: flat(1, 1) }, { transform: flat(1.14, .78) }], { duration: 180, easing: "ease-in" });
-  await wait(180);
-  $("#brick").style.opacity = 0; $("#walkman").style.opacity = 1;
-  shadow.animate([{ borderRadius: "40px", height: "524px", marginTop: "-262px" }, { borderRadius: "24px", height: "452px", marginTop: "-226px" }],
-    { duration: 200, fill: "forwards" });
-  anim(world, [{ transform: flat(.86, 1.2) }, { transform: flat(1.06, .96) }, { transform: flat(1, 1) }], { duration: 360, easing: "ease-out" });
-  await wait(420);
-  // 5: bounce up towards you, land, split in two
-  anim(world, [{ transform: flat(1, 1) }, { transform: flat(1.32, 1.32) }], { duration: 300, easing: "cubic-bezier(.2,.7,.4,1)" });
-  anim(shadow, [{ opacity: .85 }, { opacity: .3 }], { duration: 300 });
-  await wait(300);
-  anim(world, [{ transform: flat(1.32, 1.32) }, { transform: flat(1, 1) }], { duration: 260, easing: "cubic-bezier(.6,0,.9,.6)" });
-  anim(shadow, [{ opacity: .3 }, { opacity: .85 }], { duration: 260 });
-  await wait(260);
-  return split(s2);
-}
-
-// Where the two decks go: stacked in portrait, side by side in landscape; their heads face each other.
+// Where the two decks land: stacked in portrait, side by side in landscape, their heads facing each other.
 function deckLayout() {
   if (H() >= W()) {
     const sc = Math.min(.92 * W() / 360, (.86 * H() / 2 - 10) / 260);
-    return { sc, rot: [0, 180], pos: [[0, -(130 * sc + 12)], [0, 130 * sc + 12]] };
+    return { sc, rot: [360, 180], pos: [[0, -(130 * sc + 12)], [0, 130 * sc + 12]] };
   }
   const sc = Math.min(.9 * H() / 360, (.86 * W() / 2 - 10) / 260);
-  return { sc, rot: [-90, 90], pos: [[-(130 * sc + 14), 0], [130 * sc + 14, 0]] };
+  return { sc, rot: [270, 90], pos: [[-(130 * sc + 14), 0], [130 * sc + 14, 0]] };
 }
-const placeDeck = (L, i, s = L.sc) => `translate(${L.pos[i][0]}px, ${L.pos[i][1]}px) rotate(${L.rot[i]}deg) scale(${s})`;
 
-// 5b-6: two cassette players move apart to where the decks go, then each opens into an open-reel deck
-async function split(s2) {
-  const L = deckLayout(), decks = [$("#deck0"), $("#deck1")];
-  const clone = world.cloneNode(true); clone.id = "world2"; world.after(clone);
-  const at = (i, sx = 1, sy = 1) => `translate(${L.pos[i][0]}px, ${L.pos[i][1]}px) ` + T(s2, 0, 720, 360, 360, sx, sy).replace("translate(0px, 0px) ", "");
-  anim(world, [{ transform: T(s2, 0, 720, 360, 360, 1.1, .85) }, { transform: at(0) }], { duration: 380, easing: "cubic-bezier(.2,.8,.3,1)" });
-  anim(clone, [{ transform: T(s2, 0, 720, 360, 360, 1.1, .85) }, { transform: at(1) }], { duration: 380, easing: "cubic-bezier(.2,.8,.3,1)" });
-  anim(shadow, [{ opacity: .85 }, { opacity: 0 }], { duration: 300 });
-  await wait(440);
-  // open up: each player fades as its deck grows out of it, reels spinning up
-  [world, clone].forEach((w, i) => anim(w, [{ opacity: 1, transform: at(i) }, { opacity: 0, transform: at(i, 1.25, 1.25) }],
-    { duration: 420, easing: "ease-in" }));
-  decks.forEach((d, i) => {
-    d.querySelector("text").setAttribute("transform", `rotate(${-L.rot[i]} 20 20)`);   // the deck number stays upright
-    anim(d, [{ opacity: 0, transform: placeDeck(L, i, L.sc * .45) }, { opacity: 1, transform: placeDeck(L, i, L.sc * 1.04), offset: .75 },
-      { opacity: 1, transform: placeDeck(L, i) }], { duration: 620, easing: "cubic-bezier(.2,.8,.2,1)" });
-    d.querySelectorAll(".spin").forEach(r => anim(r, [{ transform: "rotate(-300deg)" }, { transform: "rotate(0deg)" }],
-      { duration: 700, easing: "cubic-bezier(.1,.6,.3,1)" }));
+async function intro() {
+  const s0 = startScale(), s1 = midScale(), L = deckLayout();
+  world.style.transform = T(s0, -SCREEN.dy * s0);
+  // 1: the player UI builds from left to right, glitching on
+  const uis = [...document.querySelectorAll(".ui")];
+  uis.forEach((el, i) => {
+    anim(el, [{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)" }], { duration: 380, delay: 200 + i * 140, easing: "steps(6, end)" });
+    anim(el, [{ transform: "translateX(-3px)", opacity: .4 }, { transform: "translateX(2px)", opacity: 1 }, { transform: "translateX(-1px)", opacity: .7 },
+      { transform: "none", opacity: 1 }], { duration: 260, delay: 520 + i * 140, easing: "steps(4)" });
   });
-  await wait(760);
-  return scratchLoop();
+  anim($(".prog .fill"), [{ width: "4%" }, { width: "30%" }], { duration: 3000, delay: 400 });
+  await wait(1900);
+  // 2: zoom out: the gold frame comes into view (the brick is now at the screen)
+  anim(world, [{ transform: T(s0, -SCREEN.dy * s0) }, { transform: T(s1) }], { duration: 850, easing: "cubic-bezier(.5,0,.2,1)" });
+  await wait(950);
+
+  // 3: it drops 85 cm onto the ground, turning half a round; on the way it opens out into an open-reel deck
+  const tf = fallMs(DROP), N = 16, morphAt = .6;
+  const fall = [], deckFall = [], shadowFall = [];
+  const brickPx = 300 * s1;                                  // the brick's width at the screen
+  for (let k = 0; k <= N; k++) {
+    const t = k / N * tf / 1000, y = DROP - G * t * t / 2, f = persp(y) / persp(DROP), q = k / N;
+    const rz = 180 * q, rx = 16 * Math.sin(Math.PI * q), ry = -12 * Math.sin(Math.PI * q);
+    fall.push({ offset: q, transform: T(s1 * f, 0, rx, ry, rz) });
+    shadowFall.push({ offset: q, opacity: .15 + .7 * q * q, transform: `scale(${s1 * persp(0) / persp(DROP) * 1.05}) translate(${30 * (1 - q * q)}px, ${50 * (1 - q * q)}px)` });
+    if (q >= morphAt) {   // the deck grows out of the brick as it unfolds, landing full size
+      const u = (q - morphAt) / (1 - morphAt), from = brickPx * f / 360, ease = 1 - (1 - u) ** 2;
+      deckFall.push({ offset: u, transform: D(0, 0, rz, from + (L.sc - from) * ease), opacity: Math.min(1, u * 4), filter: deckShadow(y * (1 - u), L.sc) });
+    }
+  }
+  anim(world, fall, { duration: tf, easing: "linear" });
+  anim(shadow, shadowFall, { duration: tf, easing: "linear" });
+  anim(world, [{ opacity: 1 }, { opacity: 0 }], { duration: tf * .12, delay: tf * morphAt });
+  anim(decks[0], deckFall, { duration: tf * (1 - morphAt), delay: tf * morphAt, easing: "linear" });
+  anim(shadow, [{ opacity: .85 }, { opacity: 0 }], { duration: 120, delay: tf * morphAt + 60 });
+  await wait(tf);
+
+  // impact: squash
+  anim(decks[0], [{ transform: D(0, 0, 180, L.sc * 1.07, L.sc * .9) }, { transform: D(0, 0, 180, L.sc) }], { duration: 120, easing: "ease-out" });
+  await wait(90);
+
+  // 4: it bounces back up as two decks, which turn to face each other and land in their places
+  const tb = 2 * fallMs(HOP), v = Math.sqrt(2 * G * HOP);
+  decks.forEach((d, i) => {
+    const frames = [];
+    for (let k = 0; k <= N; k++) {
+      const q = k / N, t = q * tb / 1000, y = Math.max(0, v * t - G * t * t / 2);
+      const sc = L.sc * persp(y) / persp(0), ease = q * q * (3 - 2 * q);
+      frames.push({ offset: q, opacity: 1, filter: deckShadow(y, L.sc),
+        transform: D(L.pos[i][0] * ease, L.pos[i][1] * ease, 180 + (L.rot[i] - 180) * ease, sc) });
+    }
+    anim(d, frames, { duration: tb, easing: "linear" });
+  });
+  await wait(tb);
+  decks.forEach((d, i) => anim(d, [{ transform: D(...L.pos[i], L.rot[i], L.sc * 1.05, L.sc * .93) }, { transform: D(...L.pos[i], L.rot[i], L.sc) }],
+    { duration: 140, easing: "ease-out" }));
+  decks.forEach((d, i) => d.querySelector("text").setAttribute("transform", `rotate(${-L.rot[i]} 20 20)`));   // the numbers stay upright
+  await wait(260);
+  return play(L);
 }
 
-// 7: scratches. A baby scratch, another, then a chirp; the second deck answers. Both reels of a deck turn
-// together and the tape slides across the heads. Loops until Mixxx is ready.
-const BABY = [0, 150, 0, 150, 0, 90, -20, 180, 0];
-function scratch(deck, delay) {
-  const frames = BABY.map((a, i) => ({ offset: i / (BABY.length - 1), a }));
-  deck.querySelectorAll(".spin").forEach(r => anim(r, frames.map(f => ({ offset: f.offset, transform: `rotate(${f.a}deg)` })),
-    { duration: 1100, delay, easing: "ease-in-out", fill: "none" }));
-  anim(deck.querySelector(".tape"), frames.map(f => ({ offset: f.offset, strokeDashoffset: -f.a * .35 })),
-    { duration: 1100, delay, easing: "ease-in-out", fill: "none" });
+// 5: deck 1 plays, deck 2 joins in, both at normal speed; then deck 2 scratches a little (about 30° of the reel)
+// while deck 1 carries on. Loops until Mixxx is ready.
+const PLAY_DEG_S = 160;                      // the full reel at normal speed; the emptier one turns faster
+const reels = decks.map(d => ({ spins: [...d.querySelectorAll(".spin")], tape: d.querySelector(".tape"), angle: 0, mode: "stop", t0: 0, base: 0 }));
+let lastFrame = 0;
+function turn(now) {
+  const dt = lastFrame ? Math.min(.05, (now - lastFrame) / 1000) : 0;
+  lastFrame = now;
+  reels.forEach(r => {
+    if (r.mode === "play") r.angle += PLAY_DEG_S * dt * Math.min(1, (now - r.t0) / 250);   // a quick spin-up
+    else if (r.mode === "scratch") {          // a baby scratch: pull back 30° and push it forward again, twice a second
+      const t = (now - r.t0) / 1000;
+      r.angle = r.base - 30 * (1 - Math.cos(2 * Math.PI * t * 2)) / 2;
+    }
+    r.spins[0].style.transform = `rotate(${r.angle}deg)`;
+    r.spins[1].style.transform = `rotate(${r.angle * 60 / 38}deg)`;   // same tape speed on a smaller pack
+    r.tape.style.strokeDashoffset = (-r.angle * Math.PI / 180 * 60).toFixed(1);
+  });
+  if (!stopTurning) requestAnimationFrame(turn);
 }
-async function scratchLoop() {
-  const decks = [$("#deck0"), $("#deck1")];
+let stopTurning = false;
+const setMode = (r, mode) => { r.mode = mode; r.t0 = performance.now(); r.base = r.angle; };
+
+async function play(L) {
+  requestAnimationFrame(turn);
+  setMode(reels[0], "play");
+  await wait(900);
+  setMode(reels[1], "play");
   let first = true;
   do {
-    scratch(decks[0], 0);
-    scratch(decks[1], 550);
-    await wait(1700);
+    await wait(1100);
+    setMode(reels[1], "scratch");
+    await wait(2000);                          // four pulls
+    setMode(reels[1], "play");
     if (first) { first = false; if (!ready) $("#wait").style.opacity = 1; }
   } while (!ready);
-  return outro();
+  await wait(500);
+  return outro(L);
 }
 
-// 8: the decks settle back and the app takes over
-async function outro() {
+// 6: the decks settle back and the app takes over
+async function outro(L = deckLayout()) {
   if (leaving) return;
   leaving = true;
   $("#wait").style.opacity = 0;
-  const L = deckLayout();
-  [$("#deck0"), $("#deck1")].forEach((d, i) => anim(d, [{ opacity: 1, transform: placeDeck(L, i) }, { opacity: 0, transform: placeDeck(L, i, L.sc * .9) }],
-    { duration: 480, delay: i * 70, easing: "cubic-bezier(.5,0,.3,1)" }));
-  anim($("#fade"), [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 280 });
+  decks.forEach((d, i) => anim(d, [{ opacity: 1, transform: D(...L.pos[i], L.rot[i], L.sc) }, { opacity: 0, transform: D(...L.pos[i], L.rot[i], L.sc * .92) }],
+    { duration: 460, delay: i * 70, easing: "cubic-bezier(.5,0,.3,1)" }));
+  anim($("#fade"), [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 260 });
   await wait(600);
+  stopTurning = true;
   if (!params.has("ready")) location.replace("/phone");
 }
 
