@@ -1332,8 +1332,8 @@ async function loadAudio() {
 }
 function paintLatency(a) {
   $("#a-lat").textContent = a.measuredMs >= 0
-    ? `Measured ${a.measuredMs} ms${a.route ? " on " + a.route : ""} · drawing ${a.totalMs} ms later`
-    : `Not measured yet · drawing ${a.totalMs} ms later (the buffer)`;
+    ? `${Math.round(a.latencyMs)} ms buffer + ${a.measuredMs} ms output${a.route ? " (" + a.route + ")" : ""} · drawing ${a.totalMs} ms later`
+    : `Output not measured yet · drawing ${a.totalMs} ms later (the buffer)`;
   $("#a-off").value = a.offsetMs; $("#a-off-v").textContent = `${a.offsetMs > 0 ? "+" : ""}${a.offsetMs} ms`;
 }
 $("#a-off").addEventListener("input", () => { $("#a-off-v").textContent = `${+$("#a-off").value > 0 ? "+" : ""}${$("#a-off").value} ms`; });

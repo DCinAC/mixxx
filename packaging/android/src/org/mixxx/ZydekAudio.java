@@ -121,8 +121,12 @@ public class ZydekAudio {
         // the later half, once the route has settled; the median of those
         ArrayList<Double> late = new ArrayList<>(samples.subList(samples.size() / 2, samples.size()));
         Collections.sort(late);
-        int ms = (int) Math.round(late.get(late.size() / 2));
-        Log.i(TAG, "output latency " + ms + " ms on " + route);
+        // That includes this track's own buffer (about full, as the writes block): take it off, so the hub
+        // can add Mixxx's buffer instead and get what Mixxx's sound goes through
+        double ownBufferMs = (minBytes / 4.0 - silence.length / 4.0) * 1000.0 / RATE;
+        int ms = (int) Math.round(Math.max(0, late.get(late.size() / 2) - ownBufferMs));
+        Log.i(TAG, "output path latency " + ms + " ms on " + route + " (measured " + Math.round(late.get(late.size() / 2))
+                + " ms, own buffer " + Math.round(ownBufferMs) + " ms)");
         nativeLatency(ms, route);
     }
 

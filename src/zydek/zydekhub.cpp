@@ -996,17 +996,15 @@ void Hub::outputLatencyMeasured(int ms, const QString& route) {
     emitLatency();
 }
 
-/// How far behind Mixxx's reported play positions the sound is: the output's measured latency (which
-/// covers a buffer like Mixxx's) or, until it's measured, Mixxx's buffer; plus the user's offset. Nothing
-/// in controller mode: the sound comes from the computer.
+/// How far behind Mixxx's reported play positions the sound is: Mixxx's buffer, plus the output path after
+/// it as measured (ZydekAudio.java; Bluetooth is most of it), plus the user's offset. Nothing in controller
+/// mode: the sound comes from the computer.
 double Hub::latencySeconds() const {
     if (m_controllerMode) {
         return 0;
     }
-    const double base = m_measuredLatencyMs >= 0
-            ? m_measuredLatencyMs
-            : ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms")));
-    return std::max(0.0, base + m_latencyOffsetMs) / 1000.0;
+    const double buffer = ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms")));
+    return std::max(0.0, buffer + std::max(0, m_measuredLatencyMs) + m_latencyOffsetMs) / 1000.0;
 }
 
 void Hub::emitLatency() {
