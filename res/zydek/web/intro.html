@@ -227,6 +227,8 @@ function reel(cx, cy, pack) {
     <circle r="16" fill="#d7dbe0" stroke="#959ba3" stroke-width="1.5"/><circle r="5" fill="#2e2e2e"/>
     <path d="M0-16v8M13.9 8l-6.9-4M-13.9 8l6.9-4" stroke="#5a5f66" stroke-width="3"/></g></g>`;
 }
+// the tape counters (the loading bar in the Gold leaf intro): deck 1 rolls on to 852, deck 2 to 771 (BS EN 771-1)
+const COUNTERS = ["8512", "7701"];
 function deckSvg(i) {
   const c = i ? "#38b6ff" : "#ff8a1e";
   return `<svg viewBox="0 0 360 260" width="360" height="260">
@@ -247,10 +249,10 @@ function deckSvg(i) {
       <g fill="#232323"><rect x="4" y="3" width="15" height="16" rx="1"/><rect x="20.5" y="3" width="15" height="16" rx="1"/>
         <rect x="37" y="3" width="15" height="16" rx="1"/></g>
       <g font-family="ui-monospace,'Roboto Mono',monospace" font-size="14" font-weight="700" fill="#f1ede4" text-anchor="middle">
-        <text x="11.5" y="16">7</text><text x="28" y="16">7</text>
+        <text x="11.5" y="16">${COUNTERS[i][0]}</text><text x="28" y="16">${COUNTERS[i][1]}</text>
         <clipPath id="cw${i}"><rect x="37" y="3" width="15" height="16"/></clipPath>
-        <g clip-path="url(#cw${i})"><g class="wheel" style="transform: translateY(-16px)"><text x="44.5" y="16">0</text>
-          <text x="44.5" y="32">1</text></g></g></g>
+        <g clip-path="url(#cw${i})"><g class="wheel" style="transform: translateY(-16px)"><text x="44.5" y="16">${COUNTERS[i][2]}</text>
+          <text x="44.5" y="32">${COUNTERS[i][3]}</text></g></g></g>
       <rect x="0" y="0" width="56" height="22" rx="3" fill="url(#cg${i})"/>
       <linearGradient id="cg${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity=".55"/>
         <stop offset=".3" stop-color="#000" stop-opacity="0"/><stop offset=".7" stop-color="#000" stop-opacity="0"/>
