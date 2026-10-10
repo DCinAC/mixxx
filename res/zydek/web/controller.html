@@ -1006,7 +1006,7 @@ function buildPhone() {
     u.mA = h("button"); u.mB = h("button"); u.mC = h("button");
     const mode = (el, normal, shifted) => bindPress(el, down => { if (!down) return;
       const d = deckOf(s); d.mode = d.shift ? shifted : normal; d.shift = false; paintSide(s); paintMixer(); });
-    mode(u.mA, "cue", "fx"); mode(u.mB, "loop", "smpl"); mode(u.mC, "stem", "jump");
+    mode(u.mA, "cue", "fx"); mode(u.mB, "loop", "smpl"); mode(u.mC, "stem", "key");
     u.deck = u.el = h("div", "pdeck");
     u.deck.append(buildNudge(s, u), row("transport", u.cue, u.play), buildPads(s, u, 4), row("modes", u.mA, u.mB, u.mC),
       s ? row("transport", u.sync, u.shiftBtn) : row("transport", u.shiftBtn, u.sync));   // SHIFT on the outside
@@ -1184,8 +1184,8 @@ function paintSide(s) {
     setHTML(u.mB, two("LOOP", "SAMPLER", d.shift || d.mode === "smpl"));
     u.mA.classList.toggle("on", d.mode === "cue" || d.mode === "fx");
     u.mB.classList.toggle("on", d.mode === "loop" || d.mode === "smpl");
-    setHTML(u.mC, two("STEM", "JUMP", d.shift || d.mode === "jump"));
-    u.mC.classList.toggle("on", d.mode === "stem" || d.mode === "jump");
+    setHTML(u.mC, two("STEM", "KEY", d.shift || d.mode === "key"));
+    u.mC.classList.toggle("on", d.mode === "stem" || d.mode === "key");
     setHTML(u.sync, two("SYNC", "MASTER", d.shift || d.leader));
   }
   u.shiftBtn.classList.toggle("idle", false);   // SHIFT: hot cue delete, FX units 3-4, sync master, loop in/out adjust, loop move
@@ -1200,6 +1200,13 @@ function paintPad(s, k) {
     case "cue": { const c = d.cues[k];
       setPad(el, (c ? "lit" : "") + (d.shift && c ? " armed" : ""), `${k + 1}`, c && rgb(c.c), c && fgFor(c.c)); break; }
     case "roll": setPad(el, d.rolls[k] ? "lit" : "tint", ["⅛", "¼", "½", "1", "2", "4", "8", "16"][k], "var(--roll)"); break;
+    case "key": {   // the phone's KEY pads: −1, +1 (SHIFT: reset), MATCH (key sync), KEY LOCK
+      const name = keyName(d.curKey);
+      if (k < 2) setPad(el, "tint", d.shift ? `RESET<small>${name}</small>` : `${k ? "+1" : "−1"}<small>${name}</small>`, "var(--jump)");
+      else if (k === 2) setPad(el, "tint", "MATCH<small>key sync</small>", "var(--jump)");
+      else setPad(el, d.keylock ? "lit" : "tint", "LOCK<small>key lock</small>", "var(--jump)");
+      break;
+    }
     case "loop": setPad(el, d.loopOn && Math.abs(d.loopSize - LOOP_PADS[k]) < 1e-6 ? "lit" : "tint",
       `${fmtBeats(LOOP_PADS[k])}<small>LOOP</small>`, "var(--play)", "#04200e"); break;
     case "stem": if (k >= 4) { setPad(el, "off", ""); break; }
@@ -1257,6 +1264,21 @@ const PAD_MODE = { cue: 0, roll: 2, stem: 3, jump: 4, fx: 5 };
 function padPress(s, k, down) {
   const d = deckOf(s), beat = 60 / d.bpm;
   k = padIndex(d, k);
+  if (d.mode === "key") {
+    if (!down) { if (k === 2 && live) send("keyAction", d.n, "sync_key", 0); return; }
+    if (k < 2 && d.shift) {   // back to the track's own key
+      d.shift = false;
+      if (live) { send("keyAction", d.n, "reset_key", 1); send("keyAction", d.n, "reset_key", 0); }
+      d.curKey = keyShift(d.curKey, -d.key); d.key = 0; markLocal(d, "curKey");
+    } else if (k < 2) {
+      const n = k ? 1 : -1, nk = clamp(d.key + n, -6, 6);
+      if (live) send("key", d.n, n);
+      if (nk !== d.key) { d.curKey = keyShift(d.curKey, nk - d.key); d.key = nk; markLocal(d, "curKey"); }
+    } else if (k === 2) { if (live) send("keyAction", d.n, "sync_key", 1); }
+    else { d.keylock = !d.keylock; send("keylock", d.n, d.keylock ? 1 : 0); }
+    paintAll();
+    return;
+  }
   if (d.mode === "loop") {
     const size = LOOP_PADS[k];
     if (live) return send("loop", d.n, `beatloop_${size}_toggle`, down);
@@ -1795,6 +1817,7 @@ function toMixxx(name, ...a) {
       return setCtl(ch(d.n), a[1] === "in" ? "loop_start_position" : "loop_end_position", smp);
     }
     case "keylock": markLocal(d, "keylock"); return setCtl(ch(d.n), "keylock", a[1]);
+    case "keyAction": return setCtl(ch(d.n), a[1], a[2] ? 1 : 0);   // sync_key, reset_key: press and release
     case "quantize": markLocal(d, "quantize"); return setCtl(ch(d.n), "quantize", a[1]);
     case "scratchOn": d.tickAcc = 0; return mxSend({ scratch: [d.n - 1, 1, 0] });
     case "scratch": return scratchBy(d, a[1] * deckSpan(d));

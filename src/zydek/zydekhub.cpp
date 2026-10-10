@@ -623,6 +623,17 @@ QJsonObject Hub::setAudio(const HttpServer::Query& query) {
                     out = {{"ok", false}, {"error", QStringLiteral("That output isn't connected any more")}};
                     return;
                 }
+#ifdef Q_OS_ANDROID
+                // Android plays an app's media to one output at a time: two outputs (speaker and Bluetooth, say)
+                // take turns, each one cutting the other off many times a second.
+                if (pHeadphones && pHeadphones != pMain) {
+                    out = {{"ok", false},
+                            {"error", QStringLiteral("Android plays to one output at a time: for headphones, use a USB "
+                                                     "audio interface with 4 outputs as both (main on 1-2, headphones on 3-4), "
+                                                     "or leave Headphones empty")}};
+                    return;
+                }
+#endif
                 // Both on one device: the headphones take its outputs 3-4.
                 if (pHeadphones == pMain && pMain->getNumOutputChannels() < 4) {
                     out = {{"ok", false},
