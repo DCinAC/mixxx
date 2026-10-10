@@ -350,7 +350,7 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         const QJsonObject r = m_library.load(arg("track_id").toInt(), arg("target"));
         const QString group = r.value(QStringLiteral("group")).toString();
         if (r.value(QStringLiteral("ok")).toBool() && group.startsWith(QLatin1String("[Sampler"))) {
-            Library::setSamplerOptions(group, arg("sync") != QLatin1String("0"), false);
+            Library::setSamplerOptions(group, arg("sync") != QLatin1String("0"), false, arg("keylock") != QLatin1String("0"));
             setSamplerMode(group.mid(8, group.size() - 9).toInt(), QStringLiteral("oneshot"));   // a whole track: plays once
         }
         return result(r);
@@ -430,7 +430,8 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         return result(m_library.analyzeAll(arg("dry") == QLatin1String("1")));
     }
     if (path == QLatin1String("/api/sampler/capture")) {   // ?deck=&slot=&sync=1|0
-        const QJsonObject r = m_library.captureSample(arg("deck").toInt(), arg("slot").toInt(), arg("sync") != QLatin1String("0"));
+        const QJsonObject r = m_library.captureSample(arg("deck").toInt(), arg("slot").toInt(), arg("sync") != QLatin1String("0"),
+                arg("keylock") != QLatin1String("0"));
         if (r.value(QStringLiteral("ok")).toBool()) {
             setSamplerMode(arg("slot").toInt(), QStringLiteral("loop"));   // a captured loop loops
         }
@@ -469,7 +470,7 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/sampler/cut")) {   // ?group=&start=&end= (s)&stems=<mask>&slot=&sync=&mode=
         const int slot = arg("slot").toInt();
         const QJsonObject r = m_library.cutSample(arg("group"), arg("start").toDouble(), arg("end").toDouble(),
-                arg("stems").toUInt(), slot, arg("sync") != QLatin1String("0"));
+                arg("stems").toUInt(), slot, arg("sync") != QLatin1String("0"), arg("keylock") != QLatin1String("0"));
         if (r.value(QStringLiteral("ok")).toBool()) {
             setSamplerMode(slot, arg("mode").isEmpty() ? QStringLiteral("loop") : arg("mode"));
         }

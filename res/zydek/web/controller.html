@@ -381,8 +381,10 @@
     <div class="seg" id="s-remote"></div></div>
   <div class="row"><div>Sampler kits<small>Load a set of pads (with their modes) or save what's on them now</small></div>
     <div class="seg" id="s-kits"></div></div>
-  <div class="row"><div>Samples follow the master tempo<small>Captured and loaded samples play in time with the decks (SHIFT + a loaded pad changes it for that pad; ⇄ on the pad when it does)</small></div>
+  <div class="row"><div>Default behaviour on assignment: follow the master tempo<small>What a pad gets when a track, capture or cut sample goes on it: playing in time with the decks. SHIFT + a loaded pad changes it for that pad (⇄ on the pad)</small></div>
     <div class="seg" id="s-ssync"></div></div>
+  <div class="row"><div>Default behaviour on assignment: keylock<small>The sample keeps its pitch when its tempo changes. SHIFT + a loaded pad changes it for that pad</small></div>
+    <div class="seg" id="s-skl"></div></div>
   <div class="row"><div>Mixer knob size<small>Knob diameter; the mixer widens to fit</small></div>
     <div><input type="range" id="s-knobsize" min="9" max="18" step="0.5"><small><span class="val" id="s-knobsize-v"></span></small></div></div>
   <div class="row"><div>Telemetry<small>Send debug data (touch rate, deck state, events) to the Mac's settings page</small></div>
@@ -405,7 +407,7 @@
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
 // Android, which knows the screen's real pixel density.
@@ -924,9 +926,9 @@ async function captureInto(d, i) {
   if (!live) { sm.state = 1; sm.name = `Deck ${d.n} loop`; paintAll(); return; }
   sm.note = "capturing…"; paintAll();
   try {
-    const r = await (await fetch(`/api/sampler/capture?deck=${d.n}&slot=${i + 1}&sync=${S.sampleSync ? 1 : 0}`)).json();
+    const r = await (await fetch(`/api/sampler/capture?deck=${d.n}&slot=${i + 1}&sync=${S.sampleSync ? 1 : 0}&keylock=${S.sampleKeylock !== false ? 1 : 0}`)).json();
     sm.note = r.ok ? "" : r.error || "couldn't capture";
-    if (r.ok) samplerSync[i] = !!S.sampleSync;
+    if (r.ok) { samplerSync[i] = !!S.sampleSync; samplerKeylock[i] = S.sampleKeylock !== false; }
   } catch { sm.note = "couldn't capture"; }
   paintAll();
   if (sm.note) setTimeout(() => { sm.note = ""; paintAll(); }, 2500);
@@ -1963,6 +1965,7 @@ function paintSettings(soft) {
   seg("s-fs-auto", [[true, "On"], [false, "Off"]], () => S.autoFs, v => S.autoFs = v);
   seg("s-tele", [[true, "On"], [false, "Off"]], () => S.telemetry, v => S.telemetry = v);
   seg("s-ssync", [[true, "On"], [false, "Off"]], () => S.sampleSync, v => S.sampleSync = v);
+  seg("s-skl", [[true, "On"], [false, "Off"]], () => S.sampleKeylock !== false, v => S.sampleKeylock = v);
   seg("s-remote", [[true, "On"], [false, "Off"]], () => !!REMOTE.on, v => { fetch(`/api/controller?on=${v ? 1 : 0}`).catch(() => {}); REMOTE.on = v; });
   if (!soft) paintKits();
   if (soft) return;

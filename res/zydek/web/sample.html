@@ -265,10 +265,11 @@ $("#save").addEventListener("click", async () => {
   if (!r) return msg("Pick where it starts first (START HERE)", "bad");
   msg("Cutting…");
   const sync = (() => { try { return JSON.parse(localStorage.getItem("zphone.sampleSync") ?? "true"); } catch { return true; } })();
+  const keylock = (() => { try { return JSON.parse(localStorage.getItem("zphone.sampleKeylock") ?? "true"); } catch { return true; } })();
   const stems = st.isStem && sel.stems !== 15 ? sel.stems : 0;
   try {
     const j = await (await fetch(`/api/sampler/cut?group=${encodeURIComponent(GROUP)}&start=${r[0]}&end=${r[1]}&stems=${stems}` +
-      `&slot=${sel.slot}&mode=${sel.mode}&sync=${sync ? 1 : 0}`)).json();
+      `&slot=${sel.slot}&mode=${sel.mode}&sync=${sync ? 1 : 0}&keylock=${keylock ? 1 : 0}`)).json();
     if (!j.ok) return msg(j.error || "Couldn't cut it", "bad");
     msg(`On pad ${sel.slot}: ${j.name}`, "ok");
     sel.slot = 0; loadPads();

@@ -70,17 +70,17 @@ class Library {
     /// Sampler capture: the loop on a deck, with only the stems that deck plays (all of them for a normal
     /// track), cut straight from the file into a WAV in Music/ZyDeck Samples, added to the library with the
     /// source's BPM, and loaded into sampler `slot` set to loop. sync: it follows the master tempo.
-    QJsonObject captureSample(int deck, int slot, bool sync);
+    QJsonObject captureSample(int deck, int slot, bool sync, bool keylock = true);
     /// The sample editor's cut: [start, end) seconds of what's loaded in `group` (the preview deck), with the
     /// stems in stemMask (bit 0 = stem 1; 0 = the whole track), into sampler `slot`.
-    QJsonObject cutSample(const QString& group, double start, double end, uint stemMask, int slot, bool sync);
+    QJsonObject cutSample(const QString& group, double start, double end, uint stemMask, int slot, bool sync, bool keylock = true);
     /// A sampler's playing options: keep its key, follow the master tempo (or not), loop the whole clip (or not).
     static void setSamplerOptions(const QString& group, bool sync, bool repeat, bool keylock = true);
 
   private:
     QJsonObject schedule(const QList<int>& ids, bool add);
     QList<TrackId> trackIdsUnder(const QString& dir, const QString& except, bool hidden);
-    QJsonObject renderSample(const TrackPointer& pTrack, double firstFrame, double lastFrame, uint mask, int slot, bool sync);
+    QJsonObject renderSample(const TrackPointer& pTrack, double firstFrame, double lastFrame, uint mask, int slot, bool sync, bool keylock);
     bool open();
     QJsonObject trackJson(const class QSqlQuery& query) const;
     /// SQL condition leaving out the excluded folders; its values are appended to pArgs.

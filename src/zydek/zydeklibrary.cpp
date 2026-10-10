@@ -940,7 +940,7 @@ void Library::setSamplerOptions(const QString& group, bool sync, bool repeat, bo
     QTimer::singleShot(1500, apply);   // again once the clip has loaded (loading resets some of them)
 }
 
-QJsonObject Library::captureSample(int deck, int slot, bool sync) {
+QJsonObject Library::captureSample(int deck, int slot, bool sync, bool keylock) {
     if (deck < 1 || deck > 4 || slot < 1 || slot > kMaxSamplers) {
         return error(QStringLiteral("No such deck or sampler"));
     }
@@ -970,10 +970,10 @@ QJsonObject Library::captureSample(int deck, int slot, bool sync) {
     if (stemCount > 0 && mask == (1u << stemCount) - 1) {
         mask = 0;   // all of them: just the track
     }
-    return renderSample(pTrack, loopIn / 2, loopOut / 2, mask, slot, sync);
+    return renderSample(pTrack, loopIn / 2, loopOut / 2, mask, slot, sync, keylock);
 }
 
-QJsonObject Library::cutSample(const QString& group, double start, double end, uint stemMask, int slot, bool sync) {
+QJsonObject Library::cutSample(const QString& group, double start, double end, uint stemMask, int slot, bool sync, bool keylock) {
     if (slot < 1 || slot > kMaxSamplers) {
         return error(QStringLiteral("No such sampler"));
     }
@@ -985,10 +985,10 @@ QJsonObject Library::cutSample(const QString& group, double start, double end, u
     if (!(end > start) || start < 0 || rate <= 0) {
         return error(QStringLiteral("Pick a stretch of the track first"));
     }
-    return renderSample(pTrack, start * rate, end * rate, stemMask & 15, slot, sync);
+    return renderSample(pTrack, start * rate, end * rate, stemMask & 15, slot, sync, keylock);
 }
 
-QJsonObject Library::renderSample(const TrackPointer& pTrack, double firstFrame, double lastFrame, uint mask, int slot, bool sync) {
+QJsonObject Library::renderSample(const TrackPointer& pTrack, double firstFrame, double lastFrame, uint mask, int slot, bool sync, bool keylock) {
     QStringList stems;
     if (mask) {
         const QList<StemInfo> info = pTrack->getStemInfo();
@@ -1072,7 +1072,7 @@ QJsonObject Library::renderSample(const TrackPointer& pTrack, double firstFrame,
     if (!loaded.value(QStringLiteral("ok")).toBool()) {
         return loaded;
     }
-    setSamplerOptions(QStringLiteral("[Sampler%1]").arg(slot), sync, true);   // a captured loop loops
+    setSamplerOptions(QStringLiteral("[Sampler%1]").arg(slot), sync, true, keylock);   // a captured loop loops
     QJsonArray stemList;
     for (const QString& s : std::as_const(stems)) {
         stemList.append(s);
