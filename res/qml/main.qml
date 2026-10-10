@@ -11,7 +11,10 @@ ApplicationWindow {
     readonly property bool isMobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
     readonly property int designWidth: 1792
     readonly property int designHeight: 1008
-    // Zydek: Mixxx's interface is shown in landscape only on phones and tablets (see the content Loader).
+    // Zydek: on phones and tablets ZyDeck's own pages (a WebView, see MainActivity.java) cover the screen in both
+    // orientations, so Mixxx's window is never shown or built there: nothing to draw under them (that saves the
+    // GPU and battery, and Android's renderer sometimes crashed when this window's surface appeared under the
+    // WebView during start-up). The audio engine, library and controllers don't need it.
     property bool showMainWindow: !isMobile
     // Built the first time it's needed and then kept: Mixxx's interface can't be destroyed and built again
     // (a second instance crashes in QQmlConnections), so in portrait it's only hidden.
@@ -25,7 +28,7 @@ ApplicationWindow {
         // second, and the interface follows once a new orientation has held for two checks.
         interval: 500
         repeat: true
-        running: root.isMobile
+        running: false   // Zydek: was root.isMobile, see showMainWindow
         triggeredOnStart: true
         onTriggered: {
             const landscape = Screen.width >= Screen.height;
@@ -42,11 +45,11 @@ ApplicationWindow {
     menuBar: content.item ? content.item.menuBar : null
     minimumHeight: isMobile ? 0 : 300
     minimumWidth: isMobile ? 0 : 680
-    visible: true
+    visible: !isMobile
     width: isMobile ? Screen.width : designWidth
 
     function updateVisibility() {
-        if (!Mixxx.Core.ready) {
+        if (!Mixxx.Core.ready || isMobile) {   // Zydek: stays hidden on mobile
             return;
         }
         root.visibility = Mixxx.Config.configStartInFullscreenKey || isMobile
