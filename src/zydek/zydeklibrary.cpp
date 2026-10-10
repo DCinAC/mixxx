@@ -1,14 +1,22 @@
 #include "zydek/zydeklibrary.h"
 
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFileInfo>
+#include <QJsonDocument>
 #include <QMetaObject>
+#include <QMutex>
+#include <QSaveFile>
+#include <QSet>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStandardPaths>
 #include <QStringList>
 
+#include "analyzer/analyzerprogress.h"
+#include "analyzer/analyzerscheduledtrack.h"
 #include "control/controlobject.h"
+#include "library/analysis/analysisfeature.h"
 #include "library/library.h"
 #include "library/trackcollection.h"
 #include "library/trackset/crate/crate.h"
@@ -28,7 +36,7 @@ namespace {
 const QString kConnection = QStringLiteral("zydek-library");
 const QString kTrackColumns = QStringLiteral(
         "l.id, l.artist, l.title, l.album, l.genre, l.duration, l.bpm, l.key, l.rating, l.color, "
-        "l.timesplayed, l.datetime_added, l.filetype, l.bitrate, tl.location, tl.fs_deleted");
+        "l.timesplayed, l.datetime_added, l.filetype, l.bitrate, tl.location, tl.fs_deleted, l.key_id");
 const QString kTrackFrom = QStringLiteral("library l JOIN track_locations tl ON tl.id = l.location");
 const QString kStemsWhere = QStringLiteral(
         "(lower(tl.location) LIKE '%.stem.mp4' OR lower(tl.location) LIKE '%.stem.m4a')");
@@ -36,6 +44,7 @@ const QString kStemsWhere = QStringLiteral(
 constexpr int kAutoDj = 1;
 constexpr int kHistory = 2;
 constexpr int kMaxSamplers = 64;
+const QString kExcludedFile = QStringLiteral("zydek-excluded.json");
 
 const QStringList kAudioSuffixes = {"mp3", "flac", "wav", "aiff", "aif", "m4a", "mp4", "ogg", "opus", "wv", "alac"};
 
@@ -141,6 +150,7 @@ QJsonObject Library::trackJson(const QSqlQuery& q) const {
             {"duration", q.value(5).toDouble()},
             {"bpm", bpm > 0 ? QJsonValue(std::round(bpm * 10) / 10) : QJsonValue()},
             {"key", q.value(7).toString()},
+            {"keyId", q.value(16).toInt()},   // Mixxx's ChromaticKey: 1-12 C..B major, 13-24 minor, 0 none
             {"rating", q.value(8).toInt()},
             {"color", q.value(9).isNull() ? QJsonValue() : QJsonValue(q.value(9).toLongLong())},
             {"played", q.value(10).toInt()},
@@ -159,10 +169,17 @@ QJsonObject Library::views() {
         return {{"total", 0}, {"stems", 0}, {"crates", QJsonArray()}, {"playlists", QJsonArray()}, {"history", QJsonArray()}};
     }
     QSqlQuery q(m_db);
-    q.exec(QStringLiteral("SELECT count(*) FROM %1 WHERE l.mixxx_deleted = 0").arg(kTrackFrom));
-    const int total = q.next() ? q.value(0).toInt() : 0;
-    q.exec(QStringLiteral("SELECT count(*) FROM %1 WHERE l.mixxx_deleted = 0 AND %2").arg(kTrackFrom, kStemsWhere));
-    const int stems = q.next() ? q.value(0).toInt() : 0;
+    const auto count = [this, &q](const QString& where) {
+        QVariantList args;
+        q.prepare(QStringLiteral("SELECT count(*) FROM %1 WHERE l.mixxx_deleted = 0 AND %2 AND %3")
+                          .arg(kTrackFrom, where, notExcluded(&args)));
+        for (const QVariant& a : std::as_const(args)) {
+            q.addBindValue(a);
+        }
+        return q.exec() && q.next() ? q.value(0).toInt() : 0;
+    };
+    const int total = count(QStringLiteral("1"));
+    const int stems = count(kStemsWhere);
 
     QJsonArray crates;
     q.exec(QStringLiteral(
@@ -217,6 +234,7 @@ QJsonArray Library::tracks(const QString& search, const QString& view, const QSt
             order = QStringLiteral("pt.position");   // a playlist's own order
         }
     }
+    where.append(notExcluded(&args));
     const QStringList words = search.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     for (const QString& word : words) {
         where.append(QStringLiteral(
@@ -527,6 +545,177 @@ void Library::startScan() {
 bool Library::scanning() const {
     ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
     return pLibrary && pLibrary->trackCollectionManager()->isLibraryScanActive();
+}
+
+} // namespace zydek
+
+namespace zydek {
+
+// ---- excluded folders ---------------------------------------------------------------------------------
+
+void Library::loadExcluded() {
+    if (m_excludedLoaded) {
+        return;
+    }
+    m_excludedLoaded = true;
+    QFile f(QDir(m_pConfig->getSettingsPath()).filePath(kExcludedFile));
+    if (f.open(QIODevice::ReadOnly)) {
+        for (const QJsonValue& v : QJsonDocument::fromJson(f.readAll()).array()) {
+            m_excluded.append(v.toString());
+        }
+    }
+}
+
+void Library::saveExcluded() {
+    QSaveFile f(QDir(m_pConfig->getSettingsPath()).filePath(kExcludedFile));
+    if (f.open(QIODevice::WriteOnly)) {
+        f.write(QJsonDocument(QJsonArray::fromStringList(m_excluded)).toJson(QJsonDocument::Compact));
+        f.commit();
+    }
+}
+
+QString Library::notExcluded(QVariantList* pArgs) {
+    loadExcluded();
+    QStringList parts;
+    for (const QString& dir : std::as_const(m_excluded)) {
+        // a plain prefix compare: LIKE would treat _ and % in folder names as wildcards
+        const QString prefix = dir + QLatin1Char('/');
+        parts.append(QStringLiteral("substr(tl.location, 1, ?) <> ?"));
+        pArgs->append(prefix.size());
+        pArgs->append(prefix);
+    }
+    return parts.isEmpty() ? QStringLiteral("1") : parts.join(QStringLiteral(" AND "));
+}
+
+QJsonArray Library::excludedFolders() {
+    loadExcluded();
+    QJsonArray out;
+    for (const QString& dir : std::as_const(m_excluded)) {
+        out.append(dir);
+    }
+    return out;
+}
+
+QJsonObject Library::setExcluded(const QString& path, bool excluded) {
+    loadExcluded();
+    QString dir = QDir::cleanPath(path);
+    if (dir.isEmpty() || dir == QLatin1String("/")) {
+        return error(QStringLiteral("Pick a folder"));
+    }
+    if (excluded) {
+        if (!m_excluded.contains(dir)) {
+            m_excluded.append(dir);
+            m_excluded.sort();
+        }
+    } else {
+        m_excluded.removeAll(dir);
+    }
+    saveExcluded();
+    return {{"ok", true}, {"excluded", excludedFolders()}};
+}
+
+// ---- analysis -----------------------------------------------------------------------------------------
+
+/// Progress of an "Analyze all" run, updated from Mixxx's analysis (main thread), read by the hub.
+struct Library::Analysis {
+    QMutex mutex;
+    QSet<int> pending;
+    int total = 0;
+    bool active = false;
+    bool connected = false;
+    QElapsedTimer timer;
+};
+
+QJsonObject Library::analyzeAll(bool dryRun) {
+    if (!open()) {
+        return error(QStringLiteral("Can't read the library"));
+    }
+    QVariantList args;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+            "SELECT l.id FROM %1 WHERE l.mixxx_deleted = 0 AND tl.fs_deleted = 0 "
+            "AND (l.bpm IS NULL OR l.bpm <= 0 OR l.key_id IS NULL OR l.key_id = 0) AND %2")
+                      .arg(kTrackFrom, notExcluded(&args)));
+    for (const QVariant& a : std::as_const(args)) {
+        q.addBindValue(a);
+    }
+    if (!q.exec()) {
+        return error(QStringLiteral("Can't read the library"));
+    }
+    QList<int> ids;
+    while (q.next()) {
+        ids.append(q.value(0).toInt());
+    }
+    if (dryRun || ids.isEmpty()) {
+        return {{"ok", true}, {"count", ids.size()}};
+    }
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    AnalysisFeature* pFeature = pLibrary ? pLibrary->findChild<AnalysisFeature*>() : nullptr;
+    if (!pFeature) {
+        return error(QStringLiteral("Mixxx isn't ready"));
+    }
+    if (!m_pAnalysis) {
+        m_pAnalysis = std::make_shared<Analysis>();
+    }
+    std::shared_ptr<Analysis> a = m_pAnalysis;
+    {
+        QMutexLocker lock(&a->mutex);
+        for (int id : std::as_const(ids)) {
+            a->pending.insert(id);
+        }
+        a->total = a->active ? a->total + ids.size() : ids.size();
+        if (!a->active) {
+            a->timer.start();
+        }
+        a->active = true;
+    }
+    QList<AnalyzerScheduledTrack> tracks;
+    for (int id : std::as_const(ids)) {
+        tracks.append(AnalyzerScheduledTrack(TrackId(QVariant(id))));
+    }
+    QMetaObject::invokeMethod(
+            pLibrary,
+            [pLibrary, pFeature, a, tracks] {
+                if (!a->connected) {
+                    a->connected = true;
+                    QObject::connect(pFeature, &AnalysisFeature::trackProgress, pFeature, [a](TrackId id, AnalyzerProgress progress) {
+                        if (progress >= kAnalyzerProgressDone) {
+                            QMutexLocker lock(&a->mutex);
+                            a->pending.remove(id.toVariant().toInt());
+                        }
+                    });
+                    QObject::connect(pFeature, &AnalysisFeature::analysisActive, pFeature, [a](bool active) {
+                        if (!active) {
+                            QMutexLocker lock(&a->mutex);
+                            a->active = false;
+                            a->pending.clear();
+                        }
+                    });
+                }
+                emit pLibrary->analyzeTracks(tracks);
+            },
+            Qt::QueuedConnection);
+    return {{"ok", true}, {"count", ids.size()}};
+}
+
+QJsonObject Library::analysisStatus() {
+    if (!m_pAnalysis) {
+        return {{"active", false}};
+    }
+    QMutexLocker lock(&m_pAnalysis->mutex);
+    const int done = m_pAnalysis->total - m_pAnalysis->pending.size();
+    return {{"active", m_pAnalysis->active},
+            {"total", m_pAnalysis->total},
+            {"done", done},
+            {"seconds", m_pAnalysis->active ? m_pAnalysis->timer.elapsed() / 1000.0 : 0.0}};
+}
+
+void Library::stopAnalysis() {
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    AnalysisFeature* pFeature = pLibrary ? pLibrary->findChild<AnalysisFeature*>() : nullptr;
+    if (pFeature) {
+        QMetaObject::invokeMethod(pFeature, &AnalysisFeature::stopAnalysis, Qt::QueuedConnection);
+    }
 }
 
 } // namespace zydek

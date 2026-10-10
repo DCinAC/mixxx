@@ -322,6 +322,22 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         m_library.startScan();
         return json(QJsonObject{{"ok", true}});
     }
+    if (path == QLatin1String("/api/folders/excluded")) {
+        return json(m_library.excludedFolders());
+    }
+    if (path == QLatin1String("/api/folders/exclude")) {   // ?path=&on=1|0
+        return result(m_library.setExcluded(arg("path"), arg("on") != QLatin1String("0")));
+    }
+    if (path == QLatin1String("/api/analyze")) {   // ?dry=1: only count the tracks without BPM or key
+        return result(m_library.analyzeAll(arg("dry") == QLatin1String("1")));
+    }
+    if (path == QLatin1String("/api/analyze/status")) {
+        return json(m_library.analysisStatus());
+    }
+    if (path == QLatin1String("/api/analyze/stop")) {
+        m_library.stopAnalysis();
+        return json(QJsonObject{{"ok", true}});
+    }
     if (path == QLatin1String("/api/scan/status")) {
         return json(QJsonObject{{"scanning", m_library.scanning()}});
     }

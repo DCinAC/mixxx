@@ -4,6 +4,9 @@
 #include <QJsonObject>
 #include <QSqlDatabase>
 #include <QString>
+#include <QStringList>
+#include <QVariantList>
+#include <memory>
 
 #include "preferences/usersettings.h"
 
@@ -44,9 +47,28 @@ class Library {
     void startScan();
     bool scanning() const;
 
+    /// Folders the phone hides, and "Analyze all" skips. Mixxx has no such setting, so Zydek keeps its own
+    /// list (zydek-excluded.json in Mixxx's settings folder).
+    QJsonArray excludedFolders();
+    QJsonObject setExcluded(const QString& path, bool excluded);
+    /// Mixxx's own analysis (BPM, key, beat grid, waveform) of every track the phone shows that has no BPM
+    /// or key yet, in the background. dryRun: only count them.
+    QJsonObject analyzeAll(bool dryRun);
+    QJsonObject analysisStatus();
+    void stopAnalysis();
+
   private:
     bool open();
     QJsonObject trackJson(const class QSqlQuery& query) const;
+    /// SQL condition leaving out the excluded folders; its values are appended to pArgs.
+    QString notExcluded(QVariantList* pArgs);
+    void loadExcluded();
+    void saveExcluded();
+
+    QStringList m_excluded;
+    bool m_excludedLoaded = false;
+    struct Analysis;
+    std::shared_ptr<Analysis> m_pAnalysis;
 
     UserSettingsPointer m_pConfig;
     QSqlDatabase m_db;
