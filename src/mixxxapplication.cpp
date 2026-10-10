@@ -229,8 +229,11 @@ bool MixxxApplication::notify(QObject* pTarget, QEvent* pEvent) {
               << "for object";
         if (pEvent->type() == QEvent::DeferredDelete ||
                 pEvent->type() == QEvent::ChildRemoved ||
-                pEvent->type() == QEvent::Timer) {
-            // pTarget can be already dangling in case of DeferredDelete
+                pEvent->type() == QEvent::Timer ||
+                pEvent->type() == QEvent::SockAct ||
+                pEvent->type() == QEvent::SockClose) {
+            // pTarget can be already dangling in case of DeferredDelete, and a socket's notifier is deleted
+            // while handling its own event when the socket gets closed or aborted there (Zydek's server)
             debug << static_cast<void*>(pTarget); // will print dangling address
         } else {
             debug << pTarget // will print address, class and object name

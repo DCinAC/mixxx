@@ -156,8 +156,10 @@ void HttpServer::handleRequest(QTcpSocket* pSocket, Connection& conn) {
         conn.webSocket = true;
         conn.path = path;
         emit wsOpened(pSocket, path, query);
-        if (!conn.buffer.isEmpty()) {
-            handleFrames(pSocket, conn);
+        // The handler may have closed it (and with it this Connection): look it up again.
+        auto it = m_connections.find(pSocket);
+        if (it != m_connections.end() && !it->buffer.isEmpty()) {
+            handleFrames(pSocket, *it);
         }
         return;
     }
@@ -227,7 +229,13 @@ void HttpServer::handleFrames(QTcpSocket* pSocket, Connection& conn) {
                 const QByteArray message = std::move(conn.fragments);
                 conn.fragments.clear();
                 if (conn.fragmentOpcode == kText) {
-                    emit wsText(pSocket, conn.path, message);
+                    const QString path = conn.path;
+                    emit wsText(pSocket, path, message);
+                    // The handler may have closed the socket, which removes `conn`: stop if so.
+                    auto it = m_connections.find(pSocket);
+                    if (it == m_connections.end() || &*it != &conn) {
+                        return;
+                    }
                 }
             }
             break;
