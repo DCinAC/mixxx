@@ -348,6 +348,12 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/folders/exclude")) {   // ?path=&on=1|0
         return result(m_library.setExcluded(arg("path"), arg("on") != QLatin1String("0")));
     }
+    if (path == QLatin1String("/api/analyze/track")) {   // ?id=&fresh=1 (start over: new beat grid and key)
+        return result(m_library.analyzeTrack(arg("id").toInt(), arg("fresh") == QLatin1String("1")));
+    }
+    if (path == QLatin1String("/api/grid/save")) {   // ?group=: the beat grid editor is done
+        return result(m_library.saveLoaded(arg("group")));
+    }
     if (path == QLatin1String("/api/analyze")) {   // ?dry=1: only count the tracks without BPM or key
         return result(m_library.analyzeAll(arg("dry") == QLatin1String("1")));
     }

@@ -55,7 +55,13 @@ class Library {
     /// Mixxx's own analysis (BPM, key, beat grid, waveform) of every track the phone shows that has no BPM
     /// or key yet, in the background. dryRun: only count them.
     QJsonObject analyzeAll(bool dryRun);
+    /// The same for one track (the track menu's "Analyze"). Mixxx skips what a track already has, so fresh
+    /// clears its beat grid and key first (refused while the grid is locked).
+    QJsonObject analyzeTrack(int trackId, bool fresh);
     QJsonObject analysisStatus();
+    /// Writes the track loaded in group (a deck, or the preview deck) to the library now, so beat grid edits
+    /// show in the library without waiting for it to be ejected.
+    QJsonObject saveLoaded(const QString& group);
     void stopAnalysis();
 
     /// Sampler capture: the loop on a deck, with only the stems that deck plays (all of them for a normal
@@ -69,6 +75,7 @@ class Library {
     static void setSamplerOptions(const QString& group, bool sync, bool repeat);
 
   private:
+    QJsonObject schedule(const QList<int>& ids, bool add);
     QJsonObject renderSample(const TrackPointer& pTrack, double firstFrame, double lastFrame, uint mask, int slot, bool sync);
     bool open();
     QJsonObject trackJson(const class QSqlQuery& query) const;

@@ -222,6 +222,9 @@
   #stemsrv .st { font-size: 12px; color: var(--dim); margin-top: 8px; }
   #stemsrv .st.on { color: var(--play); }
   #sheet .more .wide { grid-column: 1 / -1; }
+  #sheet hr { border: 0; border-top: 1px solid #333; margin: 14px 0 6px; }
+  #sheet .sub { font-size: 12px; color: var(--dim); margin: 12px 0 0; }
+  #sheet .more button.armed { border-color: var(--warn, #e0a000); color: var(--warn, #e0a000); }
   #sheet .more button small { display: block; font-size: 11px; color: var(--dim); margin-top: 2px; }
 
   /* track sheet */
@@ -374,7 +377,7 @@
       <div class="st" id="ss-st"></div>
       <label for="ss-model">Separation model</label><select id="ss-model">
         <option value="best">Best — BS-RoFormer SW (large)</option><option value="fast">Fast — HTDemucs FT</option></select>
-      <div class="hint">Long press a track and choose "Make stems on the PC". A PC running Zydek's stem server splits tracks into vocals, drums, bass and other; they come back as
+      <div class="hint">Tap a track and choose "Make stems on the PC". A PC running Zydek's stem server splits tracks into vocals, drums, bass and other; they come back as
         .stem.mp4 files in Music/Zydek Web. Type its address and port (8770 if you leave it out).</div>
     </div>
     <div class="card">
@@ -823,7 +826,7 @@ async function loadTracks(more = false) {
       `${t.missing ? '<span class="badge miss">MISSING</span>' : ""}${esc(t.artist || "Unknown artist")}</div>`));
     li.appendChild(h("div", "num", `<div class="bpm">${t.bpm ? t.bpm.toFixed(t.bpm % 1 ? 1 : 0) : "—"}${keyChip(t)}</div><div>${fmtTime(t.duration)}</div>`));
     li.addEventListener("click", () => { if (!li._long) openSheet(t); li._long = false; });
-    onLongPress(li, () => { li._long = true; openCrateSheet(t); });
+    onLongPress(li, () => { li._long = true; openSheet(t); });
     ul.appendChild(li);
   });
   $("#libnote").textContent = libShown ? (libMore ? "Loading more…" : `${libShown} tracks`) :
@@ -1209,16 +1212,25 @@ $("#a-apply").addEventListener("click", async () => {
   loadAudio();
 });
 
-// Track sheet: load into a deck or sampler, preview on the headphones.
+// Track sheet (a tap or a long press): load it into a deck or sampler and preview it; under the line, the
+// tools (sample, beat grid, analysis, stems) and its crates.
 let sheetTrack = null;
-function openSheet(t) {
+async function openSheet(t) {
   sheetTrack = t;
   const s = $("#sheet");
+  const analyzed = t.bpm > 0 && t.keyId > 0;
+  const tools = !t.missing ? `<button class="mksample">Make a sample<small>cut it into a pad</small></button>` +
+    `<button class="editgrid">Edit beat grid<small>in your headphones</small></button>` +
+    `<button class="analyze${stemServer && !t.stems ? "" : " wide"}">${analyzed ? "Analyze again<small>new beat grid and key</small>" : "Analyze<small>BPM, key and waveform</small>"}</button>` +
+    (stemServer && !t.stems ? `<button class="mkstems">Make stems on the PC<small>${esc(STEM_MODELS[stemPreset] || stemPreset)}</small></button>` : "") : "";
   s.innerHTML = `<div class="grip"></div><div class="t">${esc(t.title)}</div>` +
     `<div class="a">${esc(t.artist || "Unknown artist")}${t.album ? " · " + esc(t.album) : ""}</div>` +
     `<div class="facts"><div><b>${t.bpm ? t.bpm.toFixed(1) : "—"}</b>BPM</div><div><b>${esc(keyText(t) || "—")}</b>Key</div>` +
     `<div><b>${fmtTime(t.duration)}</b>Length</div><div><b>${t.played || 0}</b>Played</div></div>` +
-    `<div class="loads"></div><div class="more"><button class="pv">Preview (headphones)</button><button class="smp">Load to sampler</button></div>`;
+    `<div class="loads"></div><div class="more"><button class="pv">Preview (headphones)</button><button class="smp">Load to sampler</button></div>` +
+    `<hr>${tools ? `<div class="more">${tools}</div>` : ""}` +
+    `<div class="sub">Crates · tap one to add or remove</div><div class="crates"></div>` +
+    `<div class="newcrate"><input placeholder="New crate name" enterkeyhint="done"><button>Make crate</button></div>`;
   [1, 2, 3, 4].forEach(n => {
     const d = decks[n - 1];
     const b = h("button", n > 2 ? "d34" : "d12", `Deck ${n}<small>${d.playing ? "playing" : d.loaded ? esc(d.title || "loaded") : "empty"}</small>`);
@@ -1230,7 +1242,32 @@ function openSheet(t) {
   s.querySelector(".pv").addEventListener("click", () => preview(t));
   s.querySelector(".smp").disabled = t.missing;
   s.querySelector(".smp").addEventListener("click", () => load(t, "sampler"));
+  s.querySelector(".mkstems")?.addEventListener("click", () => { closeSheet(); makeStems(t); });
+  s.querySelector(".editgrid")?.addEventListener("click", () => { closeSheet(); openEditor("grid", t); });
+  s.querySelector(".mksample")?.addEventListener("click", () => { closeSheet(); openEditor("sample", t); });
+  const an = s.querySelector(".analyze");
+  // Analyzing again replaces the beat grid (and any edits to it): the first tap only asks
+  an?.addEventListener("click", () => {
+    if (analyzed && !an.classList.contains("armed")) {
+      an.classList.add("armed"); an.innerHTML = "Tap again to replace<small>the beat grid and key</small>";
+      setTimeout(() => { if (an.isConnected && an.classList.contains("armed")) { an.classList.remove("armed"); an.innerHTML = "Analyze again<small>new beat grid and key</small>"; } }, 4000);
+      return;
+    }
+    closeSheet(); analyzeTrack(t, analyzed);
+  });
+  fillCrates(s, t);
   $("#scrim").classList.add("on"); s.classList.add("on");
+}
+async function analyzeTrack(t, fresh) {
+  try { await api(`/api/analyze/track?${qs({ id: t.id, fresh: fresh ? 1 : 0 })}`); } catch (e) { return toast(e.message, "bad"); }
+  toast(`Analyzing ${t.title}…`);
+  for (let i = 0; i < 90; i++) {   // up to 3 minutes; it usually takes a few seconds
+    await new Promise(r => setTimeout(r, 2000));
+    let st; try { st = await api("/api/analyze/status"); } catch { continue; }
+    if (!st.active) break;
+  }
+  toast(`Analyzed ${t.title}`, "ok");
+  loadTracks();
 }
 // Long press (450 ms without moving): fn(). A long press doesn't also count as a tap.
 function onLongPress(el, fn) {
@@ -1259,27 +1296,17 @@ addEventListener("message", e => {
   if (e.origin !== location.origin || !["grid-close", "sample-close"].includes(e.data?.zydek)) return;
   document.getElementById("gridview")?.remove();
   api("/api/preview/stop").catch(() => {});
-  loadViews(); loadTracks();   // a BPM may have changed, a sample may have been added
+  loadViews(); loadTracks();   // a BPM may have changed (the editor saved it), a sample may have been added
 });
 
-// Crates: long press a track to put it in crates (or take it out); "+ Crate" makes a new one.
+// Crates: the track sheet lists them (tap to add the track or take it out); "+ Crate" makes a new one.
 let crateList = [];
-async function openCrateSheet(t) {
-  const s = $("#sheet");
+async function fillCrates(s, t) {
   let member = [];
-  if (t) { try { member = await api(`/api/crates/of?${qs({ track: t.id })}`); } catch {} }
-  s.innerHTML = `<div class="grip"></div><div class="t">${t ? esc(t.title) : "New crate"}</div>` +
-    (t ? `<div class="a">${esc(t.artist || "Unknown artist")} · tap a crate to add or remove</div>` +
-      `<div class="more">${!t.missing ? `<button class="mksample">Make a sample<small>cut it into a pad</small></button>` +
-        `<button class="editgrid">Edit beat grid<small>in your headphones</small></button>` : ""}` +
-      (stemServer && !t.stems && !t.missing ? `<button class="wide mkstems">Make stems on the PC<small>${esc(STEM_MODELS[stemPreset] || stemPreset)}</small></button>` : "") + `</div>` +
-      `<div class="crates"></div>` : "") +
-    `<div class="newcrate"><input placeholder="New crate name" enterkeyhint="done"><button>Make crate</button></div>`;
-  s.querySelector(".mkstems")?.addEventListener("click", () => { closeSheet(); makeStems(t); });
-  s.querySelector(".editgrid")?.addEventListener("click", () => { closeSheet(); openEditor("grid", t); });
-  s.querySelector(".mksample")?.addEventListener("click", () => { closeSheet(); openEditor("sample", t); });
+  try { member = await api(`/api/crates/of?${qs({ track: t.id })}`); } catch {}
   const box = s.querySelector(".crates");
-  if (box) crateList.forEach(c => {
+  if (!box || sheetTrack !== t) return;
+  crateList.forEach(c => {
     const on = member.includes(c.id);
     const b = h("button", on ? "on" : "", `<span class="box">${on ? "✓" : ""}</span>${esc(c.name)}<small>${c.count}</small>`);
     b.addEventListener("click", async () => {
@@ -1293,6 +1320,9 @@ async function openCrateSheet(t) {
     });
     box.appendChild(b);
   });
+  newCrateInput(s, t);
+}
+function newCrateInput(s, t) {
   const inp = s.querySelector(".newcrate input"), make = async () => {
     try {
       const r = await api(`/api/crates/create?${qs({ name: inp.value })}`);
@@ -1303,8 +1333,15 @@ async function openCrateSheet(t) {
   };
   s.querySelector(".newcrate button").addEventListener("click", make);
   inp.addEventListener("keydown", e => { if (e.key === "Enter") make(); });
+}
+function openCrateSheet() {   // "+ Crate"
+  const s = $("#sheet");
+  sheetTrack = null;
+  s.innerHTML = `<div class="grip"></div><div class="t">New crate</div>` +
+    `<div class="newcrate"><input placeholder="New crate name" enterkeyhint="done"><button>Make crate</button></div>`;
+  newCrateInput(s, null);
   $("#scrim").classList.add("on"); s.classList.add("on");
-  if (!t) setTimeout(() => inp.focus(), 250);
+  setTimeout(() => s.querySelector(".newcrate input").focus(), 250);
 }
 
 function closeSheet() { $("#scrim").classList.remove("on"); $("#sheet").classList.remove("on"); sheetTrack = null; }

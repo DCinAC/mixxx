@@ -658,6 +658,40 @@ QJsonObject Library::analyzeAll(bool dryRun) {
     if (dryRun || ids.isEmpty()) {
         return {{"ok", true}, {"count", ids.size()}};
     }
+    return schedule(ids, false);
+}
+
+QJsonObject Library::analyzeTrack(int trackId, bool fresh) {
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (trackId <= 0 || !pLibrary) {
+        return error(QStringLiteral("No such track"));
+    }
+    if (fresh) {
+        TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+        QString problem;
+        QMetaObject::invokeMethod(
+                pLibrary,
+                [pCollection, trackId, &problem] {
+                    const TrackPointer pTrack = pCollection->getTrackById(TrackId(QVariant(trackId)));
+                    if (!pTrack) {
+                        problem = QStringLiteral("No such track");
+                    } else if (pTrack->isBpmLocked()) {
+                        problem = QStringLiteral("The beat grid is locked: unlock it in the beat grid editor first");
+                    } else {
+                        pTrack->trySetBeats(mixxx::BeatsPointer());
+                        pTrack->resetKeys();
+                    }
+                },
+                Qt::BlockingQueuedConnection);
+        if (!problem.isEmpty()) {
+            return error(problem);
+        }
+    }
+    return schedule({trackId}, true);
+}
+
+/// Hands ids to Mixxx's analysis. add: join an analysis that's already running instead of refusing.
+QJsonObject Library::schedule(const QList<int>& ids, bool add) {
     ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
     AnalysisFeature* pFeature = pLibrary ? pLibrary->findChild<AnalysisFeature*>() : nullptr;
     if (!pFeature) {
@@ -669,13 +703,20 @@ QJsonObject Library::analyzeAll(bool dryRun) {
     std::shared_ptr<Analysis> a = m_pAnalysis;
     {
         QMutexLocker lock(&a->mutex);
-        if (a->active) {
+        if (a->active && !add) {
             return error(QStringLiteral("Already analyzing"));
         }
-        a->pending = QSet<int>(ids.begin(), ids.end());
-        a->total = ids.size();
-        a->timer.start();
-        a->active = true;
+        if (a->active) {
+            for (int id : ids) {
+                a->total += a->pending.contains(id) ? 0 : 1;
+                a->pending.insert(id);
+            }
+        } else {
+            a->pending = QSet<int>(ids.begin(), ids.end());
+            a->total = ids.size();
+            a->timer.start();
+            a->active = true;
+        }
     }
     QList<AnalyzerScheduledTrack> tracks;
     for (int id : std::as_const(ids)) {
@@ -715,6 +756,23 @@ QJsonObject Library::analysisStatus() {
             {"total", m_pAnalysis->total},
             {"done", done},
             {"seconds", m_pAnalysis->active ? m_pAnalysis->timer.elapsed() / 1000.0 : 0.0}};
+}
+
+QJsonObject Library::saveLoaded(const QString& group) {
+    const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group);
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (!pTrack || !pLibrary) {
+        return error(QStringLiteral("Nothing loaded there"));
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    bool saved = false;
+    QMetaObject::invokeMethod(
+            pLibrary,
+            [pCollection, pTrack, &saved] {
+                saved = pCollection->saveTrack(pTrack) != TrackCollectionManager::SaveTrackResult::Failed;
+            },
+            Qt::BlockingQueuedConnection);
+    return saved ? QJsonObject{{"ok", true}, {"bpm", pTrack->getBpm()}} : error(QStringLiteral("Couldn't save the track"));
 }
 
 void Library::stopAnalysis() {
