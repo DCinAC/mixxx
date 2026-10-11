@@ -90,6 +90,8 @@
   .transport { flex: 0 0 calc(var(--mm) * 13); display: grid; grid-template-columns: 1fr 1fr 1fr calc(var(--mm) * 24); gap: var(--gap); }
   .transport button { font-size: calc(var(--mm) * 2.6); }
   .transport .play.on { background: var(--play); border-color: var(--play); color: #04200e; }
+  .play.on.preview { animation: cueblink .5s steps(1) infinite; }
+  @keyframes cueblink { 50% { background: transparent; color: var(--play); } }
   .transport .cuebtn.on { background: var(--cue); border-color: var(--cue); color: #1b1206; }
   /* sync: off (glows white as tempos converge) → TEMPO (outlined) → BEAT (filled) */
   .transport .sync { --glow: 0; border-color: rgba(255,255,255, calc(.2 + .8 * var(--glow)));
@@ -442,6 +444,7 @@
     <div><input type="range" id="s-pxmm" min="3.5" max="8.5" step="0.01"><small><span class="val" id="s-pxmm-v"></span></small><div id="ruler"></div></div></div>
   <div class="row"><div>Palm rejection<small>Ignore touches wider than this</small></div>
     <div><input type="range" id="s-palm" min="0" max="30" step="1"><small><span class="val" id="s-palm-v"></span></small></div></div>
+  <button class="close" id="s-back" style="display:none">◀ Back to this device</button>
   <button class="close" id="s-fs">Fullscreen</button>
   <button class="close" id="s-reset">Reset to defaults</button>
   <button class="close" id="s-close" style="float:right">Done</button>
@@ -1503,6 +1506,8 @@ function paintSide(s) {
   paintSamplesButtons();
   if (sidePage[s] === "samples") { u.spads.forEach(({ el, i }) => paintSamplerPad(el, i)); return; }
   u.play.classList.toggle("on", d.playing);
+  // playing only while CUE is held (it stops when CUE is let go): blinking, not lit
+  u.play.classList.toggle("preview", d.playing && live && d.latched === false);
   u.cue.classList.toggle("on", !d.playing && Math.abs(d.pos - d.cuePoint) < .05);
   u.sync.classList.toggle("beat", !!d.syncMode);
   setHTML(u.sync, d.syncMode ? (d.leader ? "SYNC<small>MASTER</small>" : "SYNC<small>ON</small>") : d.shift ? "SYNC<small>MASTER?</small>" : "SYNC");
@@ -2370,6 +2375,7 @@ function applyCv(name, v, ts) {
         if (!(v > 0) && d.pt !== undefined) posSeed(d, posModel(d, performance.now()), 0, performance.now());   // stopped: freeze here
         return upd("playing", v > 0);
       case "track_loaded": return upd("loaded", v > 0);
+      case "play_latched": return upd("latched", v > 0);
       case "duration": d.dur = v; return;                                   // shown by the animation loop
       case "rate_ratio": d.ratio = v; if (!isLocal(d, "tempo") && ui.sides.every(u => u?.laneDeck !== d)) upd("tempo", (v - 1) * 100); return;
       case "file_bpm": if (v > 0) upd("bpm", v); return;
@@ -2427,7 +2433,7 @@ function subscribeAll() {
     for (let j = 0; j < 3; j++) for (const k of ["enabled", "meta", "loaded_effect"]) sub.push([fxSlotG(u, j), k, 0]);
   }
   for (let n = 1; n <= 4; n++) {
-    for (const k of ["play", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch_adjust", "key", "sync_enabled", "sync_mode", "keylock", "quantize",
+    for (const k of ["play", "play_latched", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch_adjust", "key", "sync_enabled", "sync_mode", "keylock", "quantize",
       "pfl", "mute", "loop_enabled", "beatloop_size",
       "loop_start_position", "loop_end_position", "track_samples", "cue_point",
       ...[1, 2, 3, 4, 5, 6, 7, 8].map(k => `hotcue_${k}_position`)]) sub.push([ch(n), k, 0]);
@@ -2467,7 +2473,15 @@ function goLive(init) {
   build();
 }
 
+// This page from another ZyDeck, in this device's app (Link devices): a way back, and which device it is
+const LINKED = !!window.ZydekAndroid && !["127.0.0.1", "localhost"].includes(location.hostname);
+if (LINKED) {
+  const b = document.getElementById("s-back");
+  b.style.display = "";
+  b.addEventListener("click", () => window.ZydekAndroid.linkClose());
+}
 function liveText() {
+  if (LINKED) return `Linked · ${location.hostname}`;
   if (!REMOTE.on) return "Live · Mixxx";
   const app = REMOTE.layout === "standard" ? "MIDI" : "Mixxx";
   return REMOTE.via === "wifi" ? `${app} on ${REMOTE.computer || "the computer"} · Wi-Fi` : `${app} on the computer · USB`;

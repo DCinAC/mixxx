@@ -142,6 +142,29 @@ public class MainActivity extends QtActivityBase {
             MainActivity.openAllFilesAccess(MainActivity.this);
         }
 
+        // Linking to another ZyDeck: scan, the devices found, open its controller here, and back
+        @JavascriptInterface
+        public void linkScan() {
+            ZydekLink.scan();
+        }
+
+        @JavascriptInterface
+        public String linkDevices() {
+            return ZydekLink.devices();
+        }
+
+        @JavascriptInterface
+        public void linkOpen(String url) {
+            if (url != null && url.startsWith("http://") && url.contains(":8766/")) {
+                runOnUiThread(() -> m_phoneView.loadUrl(url));
+            }
+        }
+
+        @JavascriptInterface
+        public void linkClose() {
+            runOnUiThread(() -> m_phoneView.loadUrl(PHONE_PAGE));
+        }
+
         @JavascriptInterface
         public String storageAccess() {
             return MainActivity.storageAccess(MainActivity.this);
@@ -571,6 +594,7 @@ public class MainActivity extends QtActivityBase {
 
         ZydekMidi.init(this);   // controller mode's USB MIDI link (the hub turns it on)
         ZydekAudio.init(this);  // output latency, for drawing the waveforms in time with what you hear
+        ZydekLink.init(this);   // other ZyDecks on the Wi-Fi find this one
         createPhoneView();
         updateMode(getResources().getConfiguration().orientation);
         applyOrientationExtra(getIntent());

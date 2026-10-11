@@ -236,6 +236,9 @@
   #a-warn { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.4;
     background: #3a2a00; border: 1px solid #a07800; color: #ffd75e; }
   #a-warn.on { display: block; }
+  #ld-list .dev { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #1d1d1d; }
+  #ld-list .dev span { flex: 1; min-width: 0; color: var(--text); font-size: 15px; }
+  #ld-list .dev small { display: block; color: var(--dim); font-size: 12px; }
   #kitlist .kit { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #1d1d1d; }
   #kitlist .kit span { flex: 1; min-width: 0; color: var(--text); font-size: 14px; }
   #kitlist .kit small { display: block; color: var(--dim); font-size: 12px; }
@@ -366,6 +369,13 @@
   </section>
 
   <section class="page" id="p-set">
+    <div class="card" id="linkdev">
+      <h3>Link devices</h3>
+      <div class="hint" style="margin-top:0">Control another ZyDeck on the same Wi-Fi (or this phone's hotspot) from here, like a
+        Bluetooth controller: the tablet as the phone's decks, say. Back returns to this device.</div>
+      <div class="row2"><span id="ld-st"></span><button id="ld-scan">Scan</button></div>
+      <div id="ld-list"></div>
+    </div>
     <div class="card">
       <h3>Controller mode</h3>
       <label class="chk"><input type="checkbox" id="cm-on"> Control DJ software on a computer</label>
@@ -657,6 +667,33 @@ function paintCtlMode() {
   box.querySelector(".forget")?.addEventListener("click", () => api("/api/controller?forget=1").catch(() => {}));
   box.querySelector(".off").addEventListener("click", () => api("/api/controller?on=0").catch(() => {}));
 }
+// Link devices: the other ZyDecks nearby (Android's network service discovery), and opening one's controller
+$("#ld-scan").addEventListener("click", async () => {
+  const bridge = window.ZydekAndroid;
+  if (!bridge || !bridge.linkScan) return toast("Only in the ZyDeck app", "bad");
+  bridge.linkScan();
+  $("#ld-st").textContent = "Looking…"; $("#ld-list").innerHTML = "";
+  for (let i = 0; i < 30; i++) {
+    await sleep(500);
+    let r; try { r = JSON.parse(bridge.linkDevices()); } catch { continue; }
+    const list = $("#ld-list"), seen = new Set([...list.children].map(x => x.dataset.key));
+    for (const d of r.devices) {
+      const key = d.host + ":" + d.port;
+      if (seen.has(key)) continue;
+      const row = h("div", "dev", `<span>${esc(d.name)}<small>${esc(d.host)}</small></span><button>Connect</button>`);
+      row.dataset.key = key;
+      row.querySelector("button").addEventListener("click", () => {
+        // the tablet controller on a tablet, the phone layout on a phone
+        const page = Math.min(screen.width, screen.height) >= 600 ? "/controller" : "/controller?phone=1";
+        bridge.linkOpen(`http://${d.host}:${d.port}${page}`);
+      });
+      list.appendChild(row);
+    }
+    $("#ld-st").textContent = list.children.length ? `${list.children.length} found${r.scanning ? " · still looking" : ""}` :
+      r.scanning ? "Looking…" : "None found: is the other ZyDeck open, on the same Wi-Fi?";
+    if (!r.scanning && i > 4) break;
+  }
+});
 $("#cm-layout").addEventListener("change", () => api(`/api/controller?layout=${$("#cm-layout").value}`).catch(e => toast(e.message, "bad")));
 $("#cm-on").addEventListener("change", () => api(`/api/controller?on=${$("#cm-on").checked ? 1 : 0}`).catch(e => toast(e.message, "bad")));
 
