@@ -1471,18 +1471,18 @@ QJsonObject Hub::fxStatus() const {
                 QJsonArray units;
                 for (int u = 0; u < 4; ++u) {
                     const EffectChainPointer pChain = pEffects->getStandardEffectChain(u);
-                    QJsonArray slots;
+                    QJsonArray slotList;
                     if (pChain) {
                         for (const EffectSlotPointer& pSlot : pChain->getEffectSlots()) {
                             double min = 0, max = 0, value = 0;
                             const int k = beatsKnob(pSlot, &min, &max, &value);
                             const EffectManifestPointer pManifest = pSlot->getManifest();
-                            slots.append(QJsonObject{
+                            slotList.append(QJsonObject{
                                     {"name", pManifest ? (pManifest->displayName().isEmpty() ? pManifest->name() : pManifest->displayName()) : QString()},
                                     {"beats", k ? QJsonValue(QJsonObject{{"min", min}, {"max", max}, {"value", value}}) : QJsonValue()}});
                         }
                     }
-                    units.append(QJsonObject{{"unit", u + 1}, {"slots", slots}});
+                    units.append(QJsonObject{{"unit", u + 1}, {"slots", slotList}});
                 }
                 out = {{"ok", true}, {"effects", names}, {"units", units}};
             },
