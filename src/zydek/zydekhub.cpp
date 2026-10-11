@@ -534,6 +534,14 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/livestems/swap")) {   // ?deck=1..4: load its stems, where it is
         return result(swapToStems(arg("deck").toInt() - 1, true));
     }
+    if (path == QLatin1String("/api/library/remove")) {   // ?id=&delete=1: the file too
+        const bool deleteFile = arg("delete") == QLatin1String("1");
+        const QJsonObject r = m_library.removeTrack(arg("id").toInt(), deleteFile);
+        if (r.value(QStringLiteral("ok")).toBool() && deleteFile && m_pLiveStems) {
+            m_pLiveStems->forget(arg("id").toInt());
+        }
+        return result(r);
+    }
     if (path == QLatin1String("/api/library/rename")) {   // ?id=&title=
         const QJsonObject r = m_library.renameTrack(arg("id").toInt(), arg("title"));
         for (int i = 0; i < kNumSamplers && r.value(QStringLiteral("ok")).toBool(); ++i) {

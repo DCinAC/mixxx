@@ -538,6 +538,18 @@ QString LiveStems::stemFileFor(int trackId) const {
     return QFileInfo::exists(path) ? path : QString();
 }
 
+void LiveStems::forget(int trackId) {
+    QString path;
+    {
+        QMutexLocker lock(&m_mutex);
+        path = m_files.take(trackId);
+    }
+    if (!path.isEmpty()) {
+        QFile::remove(path);
+        remember(0, QString());   // rewrites the list without it
+    }
+}
+
 QJsonObject LiveStems::status() const {
     QMutexLocker lock(&m_mutex);
     return {{"busy", m_busyId}, {"progress", m_progress}, {"queued", static_cast<int>(m_queue.size())}};
@@ -547,7 +559,9 @@ void LiveStems::remember(int trackId, const QString& path) {
     QJsonObject j;
     {
         QMutexLocker lock(&m_mutex);
-        m_files.insert(trackId, path);
+        if (trackId > 0) {
+            m_files.insert(trackId, path);
+        }
         for (auto it = m_files.cbegin(); it != m_files.cend(); ++it) {
             j.insert(QString::number(it.key()), it.value());
         }

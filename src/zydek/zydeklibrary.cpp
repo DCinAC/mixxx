@@ -861,6 +861,37 @@ QJsonObject Library::analysisStatus() {
             {"seconds", m_pAnalysis->active ? m_pAnalysis->timer.elapsed() / 1000.0 : 0.0}};
 }
 
+QJsonObject Library::removeTrack(int trackId, bool deleteFile) {
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    const QString path = location(trackId);
+    if (!pLibrary || path.isEmpty()) {
+        return error(QStringLiteral("No such track"));
+    }
+    for (const TrackPointer& pLoaded : PlayerInfo::instance().getLoadedTracks()) {
+        if (pLoaded && pLoaded->getId().toVariant().toInt() == trackId) {
+            return error(QStringLiteral("It's loaded on a deck or pad: eject it first"));
+        }
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    bool ok = true;
+    QMetaObject::invokeMethod(
+            pLibrary,
+            [pCollection, trackId, path, deleteFile, &ok] {
+                if (deleteFile) {   // forgotten by the library (cues, grid, plays), then gone from the storage
+                    pCollection->purgeTracks({TrackRef::fromFilePath(path, TrackId(QVariant(trackId)))});
+                    ok = !QFileInfo::exists(path) || QFile::remove(path);
+                } else {   // like Mixxx's "Hide": out of the library, back if its folder is added again
+                    ok = pCollection->hideTracks({TrackId(QVariant(trackId))});
+                }
+            },
+            Qt::BlockingQueuedConnection);
+    if (!ok) {
+        return error(deleteFile ? QStringLiteral("Couldn't delete the file (it may need All files access)")
+                                : QStringLiteral("Couldn't remove it"));
+    }
+    return {{"ok", true}};
+}
+
 QJsonObject Library::renameTrack(int trackId, const QString& title) {
     ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
     const QString name = title.trimmed().left(200);

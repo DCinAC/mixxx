@@ -67,6 +67,8 @@ class Library {
     QJsonObject saveLoaded(const QString& group);
     /// A track's title in the library (samples are named after their track and length until renamed).
     QJsonObject renameTrack(int trackId, const QString& title);
+    /// Takes a track out of the library (hidden, like Mixxx's Hide), or with deleteFile deletes its file too.
+    QJsonObject removeTrack(int trackId, bool deleteFile);
     void stopAnalysis();
 
     /// Sampler capture: the loop on a deck, with only the stems that deck plays (all of them for a normal

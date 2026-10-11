@@ -1394,6 +1394,8 @@ async function openSheet(t) {
     `<button class="analyze${stemServer && !t.stems ? "" : " wide"}">${analyzed ? "Analyze again<small>new beat grid and key</small>" : "Analyze<small>BPM, key and waveform</small>"}</button>` +
     (stemServer && !t.stems ? `<button class="mkstems">Make stems on the PC<small>${esc(STEM_MODELS[stemPreset] || stemPreset)}</small></button>` : "") +
     `<button class="rename wide">Rename<small>the title in the library</small></button>` : "";
+  const removal = `<button class="hide">Remove from library<small>the file stays</small></button>` +
+    `<button class="delete">Delete the file<small>from the phone, for good</small></button>`;
   s.innerHTML = `<div class="grip"></div><div class="t">${esc(t.title)}</div>` +
     `<div class="a">${esc(t.artist || "Unknown artist")}${t.album ? " · " + esc(t.album) : ""}</div>` +
     `<div class="facts"><div><b>${t.bpm ? t.bpm.toFixed(1) : "—"}</b>BPM</div><div><b>${esc(keyText(t) || "—")}</b>Key</div>` +
@@ -1402,6 +1404,7 @@ async function openSheet(t) {
     (!t.missing ? `<div class="pvn"><canvas></canvas><div class="played"></div><div class="ph"></div><span class="tm"></span>` +
       `<span class="hint">Touch the waveform to preview from there</span></div>` : "") +
     `<hr>${tools ? `<div class="more">${tools}</div>` : ""}` +
+    `<div class="more">${removal}</div>` +
     `<div class="sub">Crates · tap one to add or remove</div><div class="crates"></div>` +
     `<div class="newcrate"><input placeholder="New crate name" enterkeyhint="done"><button>Make crate</button></div>`;
   [1, 2, 3, 4].forEach(n => {
@@ -1417,6 +1420,23 @@ async function openSheet(t) {
   s.querySelector(".smp").disabled = t.missing;
   s.querySelector(".smp").addEventListener("click", () => load(t, "sampler"));
   s.querySelector(".mkstems")?.addEventListener("click", () => { closeSheet(); makeStems(t); });
+  // Removing or deleting: the first tap only asks
+  [[".hide", 0, "Tap again to remove it"], [".delete", 1, "Tap again: delete for good"]].forEach(([sel, del, ask]) => {
+    const b = s.querySelector(sel);
+    b.addEventListener("click", async () => {
+      if (!b.classList.contains("armed")) {
+        const was = b.innerHTML;
+        b.classList.add("armed"); b.innerHTML = ask;
+        setTimeout(() => { if (b.isConnected) { b.classList.remove("armed"); b.innerHTML = was; } }, 4000);
+        return;
+      }
+      try {
+        await api(`/api/library/remove?${qs({ id: t.id, delete: del })}`);
+        toast(del ? `Deleted ${t.title}` : `Removed ${t.title} from the library`, "ok");
+        closeSheet(); loadViews(); loadTracks();
+      } catch (e) { toast(e.message, "bad"); }
+    });
+  });
   s.querySelector(".rename")?.addEventListener("click", () => {
     const b = s.querySelector(".rename");
     b.outerHTML = `<div class="newcrate renamebox" style="grid-column:1/-1;margin:0"><input value="${esc(t.title)}" maxlength="200" enterkeyhint="done"><button>Rename</button></div>`;
