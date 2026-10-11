@@ -2591,12 +2591,29 @@ function onMixxx(m) {
   schedulePaint();
 }
 
+let mxRx = 0;   // when /ws last brought anything
 function mxConnect() {
-  mxWs = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
-  mxWs.onmessage = ev => { const m = JSON.parse(ev.data); if (m.t === "pong") onPong(m); else onMixxx(m); };
-  mxWs.onclose = () => setTimeout(mxConnect, 1500);
+  const ws = mxWs = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  mxRx = performance.now();
+  ws.onmessage = ev => { mxRx = performance.now(); const m = JSON.parse(ev.data); if (m.t === "pong") onPong(m); else onMixxx(m); };
+  ws.onclose = () => { if (ws === mxWs) setTimeout(mxConnect, 1500); };
 }
 mxConnect();
+// A connection that died without closing (the Wi-Fi or hotspot gone, a device asleep) would leave the decks
+// frozen and the controls going nowhere for minutes: when /ws has been quiet a while, ask the hub (it always
+// answers a ping); still nothing, start over.
+setInterval(() => {
+  if (document.hidden || !mxWs || mxWs.readyState > 1) return;
+  const quiet = performance.now() - mxRx;
+  if (quiet > 9000) {
+    const old = mxWs;
+    old.onclose = old.onmessage = null;
+    try { old.close(); } catch {}
+    mxConnect();
+  } else if (quiet > 3000 && mxWs.readyState === 1) {
+    mxWs.send(JSON.stringify({ ping: [0x1FFFFF, performance.now()] }));   // not one of latPing's: onPong skips it
+  }
+}, 3000);
 
 let ctlWs = null;
 function ctlSend(msg) { if (ctlWs && ctlWs.readyState === 1) ctlWs.send(JSON.stringify(msg)); }
