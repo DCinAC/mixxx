@@ -12,6 +12,10 @@
 #include <QStandardPaths>
 #include <QtEndian>
 
+#ifdef Q_OS_ANDROID
+#include <sched.h>
+#endif
+
 #include "library/library.h"
 #include "library/trackcollectionmanager.h"
 #include "moc_zydekstems.cpp"
@@ -551,6 +555,16 @@ void LiveStems::remember(int trackId, const QString& path) {
 }
 
 void LiveStems::run() {
+#ifdef Q_OS_ANDROID
+    // Threads inherit their creator's CPU affinity: whatever pinned it, let this one (and ONNX Runtime's threads,
+    // made from it) use every core
+    cpu_set_t all;
+    CPU_ZERO(&all);
+    for (int i = 0; i < CPU_SETSIZE && i < 64; ++i) {
+        CPU_SET(i, &all);
+    }
+    sched_setaffinity(0, sizeof(all), &all);
+#endif
     while (true) {
         TrackPointer pTrack;
         {

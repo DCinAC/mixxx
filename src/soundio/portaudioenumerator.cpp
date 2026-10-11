@@ -190,21 +190,9 @@ void PortAudioEnumerator::initialize() {
     }).waitForFinished();
     PaOboe_SetNumberOfBuffers(4);
 
-    // The following snippets pins the audio thread to a performance core
-    int32_t thread32 = gettid();
-    uint mask = 0b10000;
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    for (uint32_t i = 0; i < 32; ++i) {
-        if ((mask >> i) & 1) {
-            CPU_SET(i, &cpuset);
-        }
-    }
-    if (sched_setaffinity(thread32, sizeof(cpu_set_t), &cpuset) != 0) {
-        __android_log_print(ANDROID_LOG_WARN, "mixxx", "Error setting CPU affinity: %d", errno);
-    } else {
-        __android_log_print(ANDROID_LOG_VERBOSE, "mixxx", "CPU affinity set");
-    }
+    // Zydek: upstream pinned "the audio thread" to CPU 4 here, but this runs on the main thread: it pinned the
+    // main thread, and every thread made after it (track readers, the analyzer, controllers, live stems) to
+    // that one core. Oboe's own callback thread gets real-time priority from Android; leave the rest alone.
 #endif
     err = Pa_Initialize();
     m_initialized = true;
