@@ -503,10 +503,12 @@ function keyName(k) {
   if (S.keyNotation === "musical") return minor ? `${MINOR_NAMES[p]}m` : MAJOR_NAMES[p];
   return `${(open + 6) % 12 + 1}${minor ? "A" : "B"}`;   // Camelot: C major = 8B, A minor = 8A
 }
-// The key a press is about to give, shown straight away; Mixxx's own values replace it as they come.
+// The key a press is about to give, shown straight away; Mixxx's own values replace it as they come. Only
+// within ±6: Mixxx's limit is near there (+7 up), and a wrong guess at its limit would stay, as Mixxx sends
+// nothing when its value doesn't change.
 function guessKey(d, n) {
-  const k = clamp(d.key + n, -6, 6);
-  if (k !== d.key) { d.curKey = keyShift(d.curKey, k - d.key); d.key = k; }
+  const k = d.key + n;
+  if (Math.abs(k) <= 6) { d.curKey = keyShift(d.curKey, k - d.key); d.key = k; }
 }
 const keyShift = (k, n) => k >= 1 && k <= 24 ? (k > 12 ? 13 : 1) + (((k - 1) % 12 + n) % 12 + 12) % 12 : k;
 // Element sizes are measured once per layout (reading them while painting forces the browser to lay out the
