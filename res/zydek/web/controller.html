@@ -61,11 +61,12 @@
     border-color: var(--acc); color: var(--acc); font-size: calc(var(--mm) * 3.4); }
   .switch small { font-size: calc(var(--mm) * 1.8); color: var(--dim); }
   /* tablet: both decks named in their own colours, in fixed places; the one on this side bright */
-  .switch.pair { flex-direction: row; align-items: baseline; gap: calc(var(--mm) * .5); white-space: nowrap; }
-  .switch.pair em { font-style: normal; font-size: calc(var(--mm) * 2.1); color: var(--text); font-weight: 600; }
-  .switch.pair i { font-style: normal; font-size: calc(var(--mm) * 2); color: var(--dim); }
-  .switch.pair span { font-size: calc(var(--mm) * 2.6); font-weight: 600; opacity: .3; }
-  .switch.pair span.on { opacity: 1; font-weight: 800; font-size: calc(var(--mm) * 3.2); }
+  .switch.pair { flex-direction: row; align-items: center; justify-content: center; gap: calc(var(--mm) * .6);
+    white-space: nowrap; line-height: 1; font-size: calc(var(--mm) * 3.6); }
+  .switch.pair em { font-style: normal; font-size: 1em; color: var(--text); font-weight: 800; }
+  .switch.pair i { font-style: normal; font-size: .7em; color: var(--dim); }
+  .switch.pair span { font-size: 1em; font-weight: 700; opacity: .3; }
+  .switch.pair span.on { opacity: 1; font-weight: 800; }
   .switch.pair .k12 { color: var(--deck12); }
   .switch.pair .k34 { color: var(--deck34); }
   .title { flex: 1; min-width: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: calc(var(--mm) * 2.3); }

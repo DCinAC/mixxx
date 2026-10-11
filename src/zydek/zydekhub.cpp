@@ -267,6 +267,10 @@ void Hub::start() {
         }
     }
     loadRemote();
+    // Mixxx clones a playing deck (or a held sampler) when a deck is loaded twice within half a second, a
+    // "double tap" on a controller's LOAD button. Live stems loads a track's stems right after the track, and
+    // a quick second tap on the pages' deck buttons is easy: both got some other player's audio. Off in ZyDeck.
+    m_pConfig->setValue(ConfigKey(QStringLiteral("[Controls]"), QStringLiteral("CloneDeckOnLoadDoubleTap")), false);
     if (LiveStems::available()) {
         m_pLiveStems = new LiveStems(m_pConfig, this);
         connect(m_pLiveStems, &LiveStems::progress, this, &Hub::liveStemsProgress);
@@ -1517,11 +1521,17 @@ QJsonObject Hub::swapToStems(int deck, bool keepPosition) {
     } else {
         m_stemsSeek.remove(group);
     }
-    const QJsonObject r = m_library.loadLocation(path, QStringLiteral("deck%1").arg(deck + 1), true);
-    if (!r.value(QStringLiteral("ok")).toBool()) {
-        m_stemsSeek.remove(group);
-    }
-    return r;
+    // Not within half a second of the deck's last load either (see CloneDeckOnLoadDoubleTap in start())
+    const int expectId = m_deckStems[deck].trackId;
+    QTimer::singleShot(keepPosition ? 0 : 700, this, [this, deck, path, group, expectId] {
+        if (m_deckStems[deck].trackId != expectId) {
+            return;   // something else was loaded meanwhile
+        }
+        if (!m_library.loadLocation(path, QStringLiteral("deck%1").arg(deck + 1), true).value(QStringLiteral("ok")).toBool()) {
+            m_stemsSeek.remove(group);
+        }
+    });
+    return {{"ok", true}};
 }
 
 void Hub::emitDeckStems(int deck) {
