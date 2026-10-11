@@ -2197,7 +2197,22 @@ async function fxSetBeats(u, slot, b) {
     if (!r.ok) toast(r.error || "No beat length for this effect");
   } catch {}
 }
-function loadFxNames() { if (!REMOTE.on) fetch("/api/fx").then(r => r.json()).then(j => { fxNames = j.effects || []; schedulePaint(); }).catch(() => {}); }
+function loadFxNames() {
+  if (REMOTE.on) return;
+  fetch("/api/fx").then(r => r.json()).then(j => {
+    fxNames = j.effects || [];
+    schedulePaint();
+    setTimeout(fillFxDefaults, 1500);   // once the units' state has come in
+  }).catch(() => {});
+}
+// Mixxx's units can start out empty: Echo, Reverb and Flanger in empty slots (loaded, not switched on)
+function fillFxDefaults() {
+  const want = ["Echo", "Reverb", "Flanger"];
+  for (const u of [1, 2]) for (let j = 0; j < 3; j++) {
+    const i = fxNames.indexOf(want[j]);
+    if (!fxState[u - 1].loaded[j] && i >= 0) setCtl(fxSlotG(u, j), "loaded_effect", i + 1);
+  }
+}
 let mxWs = null;
 const mxSend = m => { if (mxWs && mxWs.readyState === 1) mxWs.send(typeof m === "string" ? m : JSON.stringify(m)); };
 const setCtl = (group, key, value, param) => mxSend({ set: [group, key, value, param ? 1 : 0] });
