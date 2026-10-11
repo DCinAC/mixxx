@@ -1,5 +1,6 @@
 #include "zydek/zydekhub.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -20,6 +21,14 @@
 #include "controllers/zydek/zydekcontroller.h"
 #include "mixer/playerinfo.h"
 #include "moc_zydekhub.cpp"
+#include "effects/backends/effectmanifest.h"
+#include "effects/backends/effectmanifestparameter.h"
+#include "effects/effectchain.h"
+#include "effects/effectparameterslotbase.h"
+#include "effects/effectsmanager.h"
+#include "effects/effectslot.h"
+#include "effects/visibleeffectslist.h"
+#include "qml/qmleffectsmanagerproxy.h"
 #include "qml/qmlsoundmanagerproxy.h"
 #include "soundio/sounddevice.h"
 #include "soundio/soundmanager.h"
@@ -516,6 +525,12 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
             return result({{"ok", false}, {"error", "Couldn't set that BPM"}});
         }
         return result({{"ok", true}, {"bpm", pTrack->getBpm()}});
+    }
+    if (path == QLatin1String("/api/fx")) {
+        return json(fxStatus());
+    }
+    if (path == QLatin1String("/api/fx/beats")) {   // ?unit=1..4&slot=1..3 (0: every slot)&beats=0.5
+        return result(setFxBeats(arg("unit").toInt(), arg("slot").toInt(), arg("beats").toDouble()));
     }
     if (path == QLatin1String("/api/livestems")) {   // ?auto=0|1: make stems whenever a deck loads a track
         if (query.contains(QStringLiteral("auto"))) {
@@ -1414,6 +1429,96 @@ void Hub::setControl(const QString& group, const QString& key, double value) {
     parts.append(0);
     parts += encodeValue(value);
     sysex(parts);
+}
+
+// ---- FX panel ----------------------------------------------------------------------------------------
+// Mixxx's effects belong to the main thread: these wait for it there.
+
+namespace {
+/// The effect's knob measured in beats: its slot number (1-based) and range, or 0.
+int beatsKnob(const EffectSlotPointer& pSlot, double* pMin, double* pMax, double* pValue) {
+    if (!pSlot || !pSlot->getManifest()) {
+        return 0;
+    }
+    const unsigned int knobs = pSlot->numParameters(EffectParameterType::Knob);
+    for (unsigned int k = 0; k < knobs; ++k) {
+        const EffectParameterSlotBasePointer pParam = pSlot->getEffectParameterSlot(EffectParameterType::Knob, k);
+        const EffectManifestParameterPointer pManifest = pParam ? pParam->getManifest() : EffectManifestParameterPointer();
+        if (pManifest && pManifest->unitsHint() == EffectManifestParameter::UnitsHint::Beats) {
+            *pMin = pManifest->getMinimum();
+            *pMax = pManifest->getMaximum();
+            *pValue = ControlObject::get(ConfigKey(pSlot->getGroup(), QStringLiteral("parameter%1").arg(k + 1)));
+            return static_cast<int>(k) + 1;
+        }
+    }
+    return 0;
+}
+} // namespace
+
+QJsonObject Hub::fxStatus() const {
+    const std::shared_ptr<EffectsManager> pEffects = mixxx::qml::QmlEffectsManagerProxy::registeredManager();
+    if (!pEffects) {
+        return {{"ok", false}, {"error", "Mixxx isn't ready"}};
+    }
+    QJsonObject out;
+    QMetaObject::invokeMethod(
+            qApp,
+            [&] {
+                QJsonArray names;
+                for (const EffectManifestPointer& pManifest : pEffects->getVisibleEffectsList()->getList()) {
+                    names.append(pManifest->displayName().isEmpty() ? pManifest->name() : pManifest->displayName());
+                }
+                QJsonArray units;
+                for (int u = 0; u < 4; ++u) {
+                    const EffectChainPointer pChain = pEffects->getStandardEffectChain(u);
+                    QJsonArray slots;
+                    if (pChain) {
+                        for (const EffectSlotPointer& pSlot : pChain->getEffectSlots()) {
+                            double min = 0, max = 0, value = 0;
+                            const int k = beatsKnob(pSlot, &min, &max, &value);
+                            const EffectManifestPointer pManifest = pSlot->getManifest();
+                            slots.append(QJsonObject{
+                                    {"name", pManifest ? (pManifest->displayName().isEmpty() ? pManifest->name() : pManifest->displayName()) : QString()},
+                                    {"beats", k ? QJsonValue(QJsonObject{{"min", min}, {"max", max}, {"value", value}}) : QJsonValue()}});
+                        }
+                    }
+                    units.append(QJsonObject{{"unit", u + 1}, {"slots", slots}});
+                }
+                out = {{"ok", true}, {"effects", names}, {"units", units}};
+            },
+            Qt::BlockingQueuedConnection);
+    return out;
+}
+
+QJsonObject Hub::setFxBeats(int unit, int slot, double beats) {
+    const std::shared_ptr<EffectsManager> pEffects = mixxx::qml::QmlEffectsManagerProxy::registeredManager();
+    if (!pEffects || unit < 1 || unit > 4 || beats <= 0) {
+        return {{"ok", false}, {"error", "No such effect unit"}};
+    }
+    int done = 0;
+    QMetaObject::invokeMethod(
+            qApp,
+            [&] {
+                const EffectChainPointer pChain = pEffects->getStandardEffectChain(unit - 1);
+                if (!pChain) {
+                    return;
+                }
+                const QList<EffectSlotPointer>& slotList = pChain->getEffectSlots();
+                for (int i = 0; i < slotList.size(); ++i) {
+                    if (slot > 0 && i != slot - 1) {
+                        continue;
+                    }
+                    double min = 0, max = 0, value = 0;
+                    if (const int k = beatsKnob(slotList[i], &min, &max, &value)) {
+                        ControlObject::set(ConfigKey(slotList[i]->getGroup(), QStringLiteral("parameter%1").arg(k)),
+                                std::clamp(beats, min, max));
+                        ++done;
+                    }
+                }
+            },
+            Qt::BlockingQueuedConnection);
+    return done ? QJsonObject{{"ok", true}, {"set", done}}
+                : QJsonObject{{"ok", false}, {"error", "This effect has no beat length"}};
 }
 
 // ---- live stems --------------------------------------------------------------------------------------

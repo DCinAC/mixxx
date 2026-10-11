@@ -84,6 +84,10 @@ class Hub : public QObject {
     QJsonObject audioStatus() const;
     QJsonObject setAudio(const HttpServer::Query& query);
     QJsonObject setAudioBuffer(int index);
+    // FX panel: the effects Mixxx shows (by name, in its order) and what units 1-4 have loaded; beat lengths
+    // go to whichever parameter of the effect is measured in beats (Echo's Time, Flanger's period...)
+    QJsonObject fxStatus() const;
+    QJsonObject setFxBeats(int unit, int slot, double beats);
     // Output latency compensation: measured (or Mixxx's buffer until then) + the user's fine-tune offset
     int m_measuredLatencyMs = -1;
     QString m_latencyRoute;

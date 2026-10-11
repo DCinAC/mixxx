@@ -120,6 +120,13 @@
   .pad small { font-size: calc(var(--mm) * 1.5); font-weight: 600; opacity: .8; margin-top: 2px; }
   .pad .m { position: absolute; right: calc(var(--mm) * 1); top: calc(var(--mm) * .7); font-size: calc(var(--mm) * 1.7); opacity: .75; }
   .padveil { position: fixed; inset: 0; z-index: 29; }
+  .pad.asknob { display: flex; align-items: center; justify-content: center; background: #121212; }
+  .pad.asknob .knob { --knob: calc(var(--mm) * 9); }
+  .pad.asknob .knob { --acc: #777; }
+  .pad.asknob .knob.fxon { --acc: var(--fx); }
+  .pad.asknob .knob span { color: var(--text); font-weight: 700; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pad .fxname { display: block; font-size: calc(var(--mm) * 1.5); font-weight: 600; max-width: 95%; margin: 0 auto; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
   .padopts { position: fixed; z-index: 30; display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--mm) * .8);
     padding: calc(var(--mm) * 1.2); width: calc(var(--mm) * 52); background: #151515; border: 1px solid #444;
     border-radius: calc(var(--mm) * 1.6); box-shadow: 0 10px 28px rgba(0,0,0,.65); }
@@ -398,6 +405,8 @@
     <div class="seg" id="s-knob"></div></div>
   <div class="row"><div>Key notation<small>How the deck shows its current key (after key shift, and tempo when key lock is off)</small></div>
     <div class="seg" id="s-keyfmt"></div></div>
+  <div class="row"><div>FX layout<small>Beat FX: one effect per side with its beat length, LEVEL and ON, like Pioneer's. Multi-FX: three effects at once, a knob each (tap it: on/off; SHIFT + tap: next effect) and MIX, like Serato's</small></div>
+    <div class="seg" id="s-fxlayout"></div></div>
   <div class="row"><div>Live stems<small>When a deck loads a track without stems, the phone separates it (about half a minute) and swaps in the stems version; STEM pads show how far it is</small></div>
     <div class="seg" id="s-lstems"></div></div>
   <div class="row"><div>Controller mode<small>Control Mixxx on a computer instead: over the USB cable (set it to MIDI in Android's USB notification, then pick the ZyDeck mapping for it in Mixxx), or over Wi-Fi with ZyDeck Link running on the computer</small></div>
@@ -432,7 +441,7 @@
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3 };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat" };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
 // Android, which knows the screen's real pixel density.
@@ -648,7 +657,7 @@ function strokeDelta(st, ddx, ddy) {
   return ddx * st.axis[0] + ddy * st.axis[1];
 }
 
-function knob(label, get, set, def, bipolar, target = () => null) {
+function knob(label, get, set, def, bipolar, target = () => null, onTap = null) {
   const el = h("div", "knob", `<svg viewBox="0 0 40 40"><path class="ktrack" d="${arc(-135, 135)}"/><circle class="kbg" cx="20" cy="20" r="11"/>` +
     `<path class="karc"/><line class="kptr" x1="20" y1="20" x2="20" y2="11"/></svg><span>${label}</span>`);
   let lastTap = 0;
@@ -665,13 +674,13 @@ function knob(label, get, set, def, bipolar, target = () => null) {
   drag(el, {
     down: e => {
       const now = performance.now(), ctx = target();
-      if (now - lastTap < 300) { set(def, ctx); el.paint(); lastTap = 0; return false; }
+      if (def != null && now - lastTap < 300) { set(def, ctx); el.paint(); lastTap = 0; return false; }
       lastTap = now;
       el.classList.add("held");
       el.hold = { ctx };
       const r = cachedRect(el.querySelector("svg"));
       const st = { x: e.clientX, y: e.clientY, v: get(ctx), ctx, cx: r.left + r.width / 2, cy: r.top + r.height / 2, a: null,
-        trail: [[e.clientX, e.clientY]], axis: null, pend: [0, 0] };
+        trail: [[e.clientX, e.clientY]], axis: null, pend: [0, 0], t0: now, x0: e.clientX, y0: e.clientY };
       if (S.knobMode === "spin") {
         const d = ctx || deckOf(0), bpm = d.bpm * (1 + d.tempo / 100);     // beat of the knob's deck
         st.pr = protractor(60 / bpm);
@@ -702,7 +711,11 @@ function knob(label, get, set, def, bipolar, target = () => null) {
       }
       set(st.v, st.ctx); el.paint();
     },
-    up: (e, st) => { el.classList.remove("held"); el.hold = null; el.paint(); if (st.pr) st.pr.remove(); },
+    up: (e, st) => {
+      el.classList.remove("held"); el.hold = null; el.paint(); if (st.pr) st.pr.remove();
+      // a short touch without moving: the knob's tap action (FX: on/off)
+      if (onTap && performance.now() - st.t0 < 300 && Math.hypot(e.clientX - st.x0, e.clientY - st.y0) < mm(2)) onTap(st.ctx);
+    },
   });
   return el;
 }
@@ -1355,10 +1368,25 @@ function setPad(el, cls, html, color, fg) {
   const key = `${cls}|${el.dataset.down || ""}|${color}|${fg}|${html}`;
   if (el._key === key) return;
   el._key = key;
+  el._knob = null;
   el.className = "pad " + cls + (el.dataset.down ? " down" : "");
   if (color) el.style.setProperty("--c", color); else el.style.removeProperty("--c");
   if (fg) el.style.setProperty("--fg", fg); else el.style.removeProperty("--fg");
   el.innerHTML = html;
+}
+
+// A pad cell holding a knob instead (the FX panel): made once per cell and purpose, repainted after
+function knobCell(el, id, make) {
+  if (el._knob?.id !== id) {
+    el._key = "knob:" + id;
+    el.className = "pad asknob";
+    el.style.removeProperty("--c");
+    el.innerHTML = "";
+    el._knob = make();
+    el._knob.id = id;
+    el.appendChild(el._knob);
+  }
+  el._knob.paint();
 }
 
 function paintTempo(s) {
@@ -1471,15 +1499,77 @@ function paintPad(s, k) {
     }
     case "smpl": paintSamplerPad(el, (d.n % 2 ? 0 : 8) + k); break;
     case "jump": setPad(el, "tint", ["−1", "+1", "−2", "+2", "−4", "+4", "−8", "+8"][padIndex(d, k)], "var(--jump)"); break;
-    case "fx": {
-      const u = (d.n % 2 ? 1 : 2) + (d.shift ? 2 : 0);
-      const fxOn = j => live ? fxLive[u - 1][j] : (j < 3 ? d.fx[j] : d.fxRoute);
-      if (k < 3) setPad(el, fxOn(k) ? "lit" : "tint", `FX ${k + 1}<small>unit ${u}</small>`, "var(--fx)");
-      else if (k === 3) setPad(el, fxOn(3 + d.n - 1) ? "lit" : "tint", `→ ${d.n}<small>route ${u}</small>`, "var(--fx)");
-      else if (k < 7) setPad(el, "tint", `NEXT ${k - 3}<small>unit ${u}</small>`, "var(--fx)");
-      else setPad(el, "off", "");
-    }
+    case "fx": paintFxCell(el, s, k); break;
   }
+}
+
+// The FX panel's cells: tablet 8 (two rows), phone 4
+function fxCell(d, k) {
+  const beat = S.fxLayout !== "multi", n = PHONE ? 4 : 8;
+  if (beat) {
+    if (PHONE) return ["name", "beat", "on", "level"][k];
+    return k < 4 ? "beat" + k : ["prev", "name", "on", "level"][k - 4];
+  }
+  if (PHONE) return k < 3 ? "knob" + k : "mix";
+  return k < 3 ? "knob" + k : k === 3 ? "mix" : k < 7 ? "next" + (k - 4) : "beat";
+}
+function paintFxCell(el, s, k) {
+  const d = deckOf(s), u = fxUnitOf(d), f = fxState[u - 1], cell = fxCell(d, k), esc = t => String(t).replace(/</g, "&lt;");
+  if (cell === "level" || cell === "mix")
+    return knobCell(el, `mix${u}${cell}`, () => knob(cell === "level" ? "LEVEL" : "MIX", () => fxState[u - 1].mix,
+      v => { fxState[u - 1].mix = v; setCtl(fxUnitG(u), "mix", v); }, null));
+  if (cell.startsWith("knob")) {
+    const j = +cell.slice(4);
+    knobCell(el, `meta${u}${j}`, () => knob(`FX ${j + 1}`, () => fxState[u - 1].meta[j],
+      v => { fxState[u - 1].meta[j] = v; setCtl(fxSlotG(u, j), "meta", v); }, null, false, () => null,
+      () => fxTapEffect(deckOf(s), u, j)));
+    el._knob.classList.toggle("fxon", !!f.enabled[j]);
+    el._knob.querySelector("span").innerHTML = `${f.enabled[j] ? "● " : ""}${esc(fxName(u, j))}`;
+    return;
+  }
+  if (cell.startsWith("beat")) {
+    if (cell === "beat") return setPad(el, "tint", `BEAT ${beatText(fxBeat[u - 1])}<small>${PHONE ? "tap: next" : "all three"}</small>`, "var(--fx)");
+    const b = (d.shift ? FX_BEATS_SHIFT : FX_BEATS)[+cell.slice(4)];
+    return setPad(el, fxBeat[u - 1] === b ? "lit" : "tint", `${beatText(b)}<small>beat${b > 1 ? "s" : ""}</small>`, "var(--fx)");
+  }
+  if (cell === "prev") return setPad(el, "tint", `◀<small>effect</small>`, "var(--fx)");
+  if (cell === "name") return setPad(el, "tint", `<span class="fxname">${esc(fxName(u, 0))}</span><small>${d.shift ? "◀ previous" : "next ▶"}</small>`, "var(--fx)");
+  if (cell === "on") return setPad(el, f.enabled[0] ? "lit" : "tint", `${f.enabled[0] ? "ON" : "OFF"}<small>${esc(fxName(u, 0))}</small>`, "var(--fx)", "#1a0a00");
+  if (cell.startsWith("next")) {
+    const j = +cell.slice(4);
+    return setPad(el, f.enabled[j] ? "lit" : "tint", `<span class="fxname">${esc(fxName(u, j))}</span><small>${d.shift ? "◀" : "▶"} FX ${j + 1}</small>`, "var(--fx)", "#1a0a00");
+  }
+}
+// Multi-FX: a tap on an effect's knob turns it on or off (SHIFT: the next effect instead)
+function fxTapEffect(d, u, j) {
+  const f = fxState[u - 1];
+  if (d.shift) { push(fxSlotG(u, j), "next_effect"); return; }
+  f.enabled[j] = f.enabled[j] ? 0 : 1;
+  setCtl(fxSlotG(u, j), "enabled", f.enabled[j]);
+  if (f.enabled[j]) fxRoute(d, u);
+  schedulePaint();
+}
+function fxPress(d, k, down) {
+  if (!down) return;
+  const u = fxUnitOf(d), f = fxState[u - 1], cell = fxCell(d, k);
+  if (cell === "level" || cell === "mix" || cell.startsWith("knob")) return;   // knobs handle their own touches
+  if (cell === "beat") {   // cycles (SHIFT: backwards); Multi-FX sets all three
+    const i = FX_BEATS.indexOf(fxBeat[u - 1]), next = FX_BEATS[(i + (d.shift ? FX_BEATS.length - 1 : 1)) % FX_BEATS.length] ?? 1;
+    return fxSetBeats(u, S.fxLayout === "multi" ? 0 : 1, next);
+  }
+  if (cell.startsWith("beat")) return fxSetBeats(u, 1, (d.shift ? FX_BEATS_SHIFT : FX_BEATS)[+cell.slice(4)]);
+  if (cell === "prev") return push(fxSlotG(u, 0), "prev_effect");
+  if (cell === "name") return push(fxSlotG(u, 0), d.shift ? "prev_effect" : "next_effect");
+  if (cell === "on") {   // Beat FX: this one effect, on this deck
+    f.enabled[0] = f.enabled[0] ? 0 : 1;
+    setCtl(fxSlotG(u, 0), "enabled", f.enabled[0]);
+    if (f.enabled[0]) {
+      fxRoute(d, u);
+      for (const j of [1, 2]) if (f.enabled[j]) { f.enabled[j] = 0; setCtl(fxSlotG(u, j), "enabled", 0); }
+    }
+    return schedulePaint();
+  }
+  if (cell.startsWith("next")) return push(fxSlotG(u, +cell.slice(4)), d.shift ? "prev_effect" : "next_effect");
 }
 
 function paintSamplerPad(el, i) {
@@ -1549,7 +1639,8 @@ function padPress(s, k, down) {
       if (down) fetch(`/api/livestems/${d.lstem?.s === "ready" ? "swap" : "make"}?deck=${d.n}`).catch(() => {});
       return;
     }
-    if ((d.mode === "stem" && k >= 4) || (d.mode === "fx" && k === 7)) return;   // unmapped, like the Inpulse
+    if (d.mode === "fx") return fxPress(d, k, down);
+    if (d.mode === "stem" && k >= 4) return;   // unmapped, like the Inpulse
     let m = PAD_MODE[d.mode];
     if (d.shift && d.mode === "cue") {
       // SHIFT + tap: clear the cue. SHIFT + hold (half a second): rename it.
@@ -2049,6 +2140,7 @@ function paintSettings(soft) {
   seg("s-tele", [[true, "On"], [false, "Off"]], () => S.telemetry, v => S.telemetry = v);
   seg("s-ssync", [[true, "On"], [false, "Off"]], () => S.sampleSync, v => S.sampleSync = v);
   seg("s-skl", [[true, "On"], [false, "Off"]], () => S.sampleKeylock !== false, v => S.sampleKeylock = v);
+  seg("s-fxlayout", [["beat", "Beat FX"], ["multi", "Multi-FX"]], () => S.fxLayout || "beat", v => S.fxLayout = v);
   seg("s-lstems", [[true, "On load"], [false, "Off"]], () => liveStemsAuto, v => { liveStemsAuto = v; fetch(`/api/livestems?auto=${v ? 1 : 0}`).catch(() => {}); });
   seg("s-midilayout", [["zydeck", "ZyDeck"], ["standard", "Standard"]], () => REMOTE.layout || "zydeck",
     v => { fetch(`/api/controller?layout=${v}`).catch(() => {}); REMOTE.layout = v; });
@@ -2085,6 +2177,27 @@ addEventListener("pointerdown", () => {
 // =====================================================================================================
 const TICKS_PER_REV = 3600;              // must match TabletPads.TICKS_PER_REV
 const fxLive = Array.from({ length: 4 }, () => new Array(7).fill(0));
+// The FX panel (FX pad mode): Beat FX (one effect: beat length, LEVEL, ON) or Multi-FX (three effects with a knob
+// each, MIX), S.fxLayout. Decks 1/3 use effect unit 1, decks 2/4 unit 2.
+const fxState = Array.from({ length: 4 }, () => ({ mix: 1, enabled: [0, 0, 0], meta: [.5, .5, .5], loaded: [0, 0, 0], route: [0, 0, 0, 0] }));
+let fxNames = [];
+const fxBeat = [1, 1, 1, 1];
+const FX_BEATS = [.5, 1, 2, 4], FX_BEATS_SHIFT = [.125, .25, 8, 16];
+const fxUnitOf = d => d.n % 2 ? 1 : 2;
+const fxUnitG = u => `[EffectRack1_EffectUnit${u}]`;
+const fxSlotG = (u, j) => `[EffectRack1_EffectUnit${u}_Effect${j + 1}]`;
+const fxName = (u, j) => { const i = fxState[u - 1].loaded[j]; return i > 0 && fxNames[i - 1] ? fxNames[i - 1] : REMOTE.on ? `FX ${j + 1}` : "—"; };
+const beatText = b => b < 1 ? (b === .5 ? "½" : b === .25 ? "¼" : "⅛") : String(b);
+function fxRoute(d, u) { setCtl(fxUnitG(u), `group_${ch(d.n)}_enable`, 1); fxState[u - 1].route[d.n - 1] = 1; }
+async function fxSetBeats(u, slot, b) {
+  fxBeat[u - 1] = b; schedulePaint();
+  if (REMOTE.on) return;
+  try {
+    const r = await (await fetch(`/api/fx/beats?unit=${u}&slot=${slot}&beats=${b}`)).json();
+    if (!r.ok) toast(r.error || "No beat length for this effect");
+  } catch {}
+}
+function loadFxNames() { if (!REMOTE.on) fetch("/api/fx").then(r => r.json()).then(j => { fxNames = j.effects || []; schedulePaint(); }).catch(() => {}); }
 let mxWs = null;
 const mxSend = m => { if (mxWs && mxWs.readyState === 1) mxWs.send(typeof m === "string" ? m : JSON.stringify(m)); };
 const setCtl = (group, key, value, param) => mxSend({ set: [group, key, value, param ? 1 : 0] });
@@ -2212,6 +2325,18 @@ function applyCv(name, v, ts) {
   } else if ((m = /^\[Sampler(\d+)\]$/.exec(group))) {
     if (key === "sync_enabled" && samplerSync[m[1] - 1] !== v > 0) { samplerSync[m[1] - 1] = v > 0; markDirty("all"); }
     if (key === "keylock") samplerKeylock[m[1] - 1] = v > 0;
+  } else if ((m = /^\[EffectRack1_EffectUnit([1-4])(?:_Effect([1-3]))?\]$/.exec(group))) {
+    const f = fxState[m[1] - 1];
+    if (!m[2]) {
+      if (key === "mix") f.mix = v;
+      else { const r = /^group_\[Channel(\d)\]_enable$/.exec(key); if (r) f.route[r[1] - 1] = v > 0 ? 1 : 0; }
+    } else {
+      const j = m[2] - 1;
+      if (key === "enabled") f.enabled[j] = v > 0 ? 1 : 0;
+      else if (key === "meta") f.meta[j] = v;
+      else if (key === "loaded_effect") f.loaded[j] = Math.round(v);
+    }
+    markDirty("all");
   } else if (group === MAIN_GROUP) {
     const f = Object.keys(MAIN).find(k => MAIN[k] === key);
     if (!f || isLocal(master, f) || master[f] === v) return;
@@ -2221,6 +2346,10 @@ function applyCv(name, v, ts) {
 
 function subscribeAll() {
   const sub = [];
+  for (const u of [1, 2]) {   // the FX panel's units
+    sub.push([fxUnitG(u), "mix", 0], ...[1, 2, 3, 4].map(n => [fxUnitG(u), `group_${ch(n)}_enable`, 0]));
+    for (let j = 0; j < 3; j++) for (const k of ["enabled", "meta", "loaded_effect"]) sub.push([fxSlotG(u, j), k, 0]);
+  }
   for (let n = 1; n <= 4; n++) {
     for (const k of ["play", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch_adjust", "key", "sync_enabled", "sync_mode", "keylock", "quantize",
       "pfl", "mute", "loop_enabled", "beatloop_size",
@@ -2257,6 +2386,7 @@ function goLive(init) {
   init.fx.forEach((u, i) => fxLive[i] = u);
   Object.entries(init.cv || {}).forEach(([k, v]) => applyCv(k, v));
   subscribeAll();
+  loadFxNames();
   fetch("/api/sampler/modes").then(r => r.json()).then(j => { (j.modes || []).forEach((m, i) => samplerModes[i] = m); schedulePaint(); }).catch(() => {});
   build();
 }

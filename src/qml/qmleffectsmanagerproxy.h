@@ -37,6 +37,10 @@ class QmlEffectsManagerProxy : public QObject {
     static void registerEffectsManager(std::shared_ptr<EffectsManager> pEffectsManager) {
         s_pEffectManager = std::move(pEffectsManager);
     }
+    // Zydek: the hub's FX panel reads the effects list and the loaded effects' parameters
+    static std::shared_ptr<EffectsManager> registeredManager() {
+        return s_pEffectManager;
+    }
 
   private:
     static inline std::shared_ptr<EffectsManager> s_pEffectManager;
