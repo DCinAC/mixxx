@@ -571,6 +571,22 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         }
         return result(r);
     }
+    if (path == QLatin1String("/api/library/cues")) {   // ?id=: the track's hot cues
+        return result(m_library.trackCues(arg("id").toInt()));
+    }
+    if (path == QLatin1String("/api/library/cues/edit")) {   // ?id=&n=&label= | &color=%23rrggbb | &clear=1
+        QJsonObject change;
+        if (query.contains(QStringLiteral("label"))) {
+            change.insert(QStringLiteral("label"), arg("label"));
+        }
+        if (query.contains(QStringLiteral("color"))) {
+            change.insert(QStringLiteral("color"), arg("color"));
+        }
+        if (arg("clear") == QLatin1String("1")) {
+            change.insert(QStringLiteral("clear"), true);
+        }
+        return result(m_library.editTrackCue(arg("id").toInt(), arg("n").toInt(), change));
+    }
     if (path == QLatin1String("/api/cues")) {   // ?group=[ChannelN] -> {"labels": [8 hot cue names]}
         QJsonArray labels;
         for (int i = 0; i < 8; ++i) {

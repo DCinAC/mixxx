@@ -263,6 +263,21 @@
     padding: 1px 5px; border-radius: 4px; font-variant-numeric: tabular-nums; pointer-events: none; }
   #sheet .pvn .hint { position: absolute; left: 8px; bottom: 4px; font-size: 11px; color: #888; pointer-events: none; }
   #sheet .pvn.on .hint { display: none; }
+  #sheet .cuelist { display: grid; gap: 8px; margin-top: 12px; }
+  #sheet .cuerow { display: flex; gap: 10px; align-items: flex-start; }
+  #sheet .cuerow > b { flex: none; width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; font-size: 16px;
+    background: #222; color: var(--dim); }
+  #sheet .cuerow.empty { align-items: center; color: var(--dim); font-size: 13px; }
+  #sheet .cuerow .body { flex: 1; min-width: 0; }
+  #sheet .cuerow .top { display: flex; gap: 6px; align-items: center; }
+  #sheet .cuerow input { flex: 1; min-width: 0; height: 36px; box-sizing: border-box; border-radius: 8px; border: 1px solid #333;
+    background: #181818; padding: 0 10px; color: var(--text); font: 15px system-ui, sans-serif; }
+  #sheet .cuerow .tm { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  #sheet .cuerow .x { height: 36px; min-width: 36px; padding: 0 8px; }
+  #sheet .cuerow .x.armed { border-color: var(--err, #e5484d); color: var(--err, #e5484d); }
+  #sheet .cuerow .sw { display: flex; gap: 6px; margin-top: 6px; }
+  #sheet .cuerow .sw i { flex: 1; height: 22px; border-radius: 5px; border: 2px solid transparent; }
+  #sheet .cuerow .sw i.on { border-color: #fff; }
   #sheet hr { border: 0; border-top: 1px solid #333; margin: 14px 0 6px; }
   #sheet .sub { font-size: 12px; color: var(--dim); margin: 12px 0 0; }
   #sheet .more button.armed { border-color: var(--warn, #e0a000); color: var(--warn, #e0a000); }
@@ -1432,7 +1447,8 @@ async function openSheet(t) {
     `<button class="editgrid">Edit beat grid<small>in your headphones</small></button>` +
     `<button class="analyze${stemServer && !t.stems ? "" : " wide"}">${analyzed ? "Analyze again<small>new beat grid and key</small>" : "Analyze<small>BPM, key and waveform</small>"}</button>` +
     (stemServer && !t.stems ? `<button class="mkstems">Make stems on the PC<small>${esc(STEM_MODELS[stemPreset] || stemPreset)}</small></button>` : "") +
-    `<button class="rename wide">Rename<small>the title in the library</small></button>` : "";
+    `<button class="cues">Edit hot cues<small>names and colours</small></button>` +
+    `<button class="rename">Rename<small>the title in the library</small></button>` : "";
   const removal = `<button class="hide">Remove from library<small>the file stays</small></button>` +
     `<button class="delete">Delete the file<small>from the phone, for good</small></button>`;
   s.innerHTML = `<div class="grip"></div><div class="t">${esc(t.title)}</div>` +
@@ -1476,6 +1492,7 @@ async function openSheet(t) {
       } catch (e) { toast(e.message, "bad"); }
     });
   });
+  s.querySelector(".cues")?.addEventListener("click", () => openCueEditor(t));
   s.querySelector(".rename")?.addEventListener("click", () => {
     const b = s.querySelector(".rename");
     b.outerHTML = `<div class="newcrate renamebox" style="grid-column:1/-1;margin:0"><input value="${esc(t.title)}" maxlength="200" enterkeyhint="done"><button>Rename</button></div>`;
@@ -1503,6 +1520,47 @@ async function openSheet(t) {
   fillCrates(s, t);
   $("#scrim").classList.add("on"); s.classList.add("on");
 }
+// Hot cue editor (track menu › Edit hot cues): each hot cue's name and colour, or remove it. Works whether
+// or not the track is on a deck; setting new cues happens on the decks.
+const CUE_PALETTE = ["#c50a08", "#32be44", "#42d4f4", "#f8d200", "#0044ff", "#af00cc", "#fca6d7", "#f2f2ff"];   // Mixxx's
+async function openCueEditor(t) {
+  let r;
+  try { r = await api(`/api/library/cues?${qs({ id: t.id })}`); } catch (e) { return toast(e.message, "bad"); }
+  const s = $("#sheet"), byN = Object.fromEntries(r.cues.map(c => [c.n, c]));
+  const ink = hex => { const v = parseInt(hex.slice(1), 16); return ((v >> 16 & 255) * .299 + (v >> 8 & 255) * .587 + (v & 255) * .114) > 140 ? "#111" : "#fff"; };
+  s.innerHTML = `<div class="grip"></div><div class="t">Hot cues</div><div class="a">${esc(t.title)}</div>` +
+    `<div class="cuelist">${[1, 2, 3, 4, 5, 6, 7, 8].map(n => {
+      const c = byN[n];
+      if (!c) return `<div class="cuerow empty"><b>${n}</b><span>no cue: set it on a deck</span></div>`;
+      return `<div class="cuerow" data-n="${n}"><b style="background:${c.color};color:${ink(c.color)}">${n}</b>` +
+        `<div class="body"><div class="top"><input value="${esc(c.label)}" placeholder="Name" maxlength="60" enterkeyhint="done">` +
+        `<span class="tm">${fmtTime(c.seconds)}</span><button class="x" title="Remove">✕</button></div>` +
+        `<div class="sw">${CUE_PALETTE.map(col => `<i data-c="${col}" style="background:${col}"${col === c.color ? ' class="on"' : ""}></i>`).join("")}</div></div></div>`;
+    }).join("")}</div><div class="more" style="margin-top:12px"><button class="done wide">Done</button></div>`;
+  const edit = async (n, change) => {
+    try { await api(`/api/library/cues/edit?${qs({ id: t.id, n, ...change })}`); return true; } catch (e) { toast(e.message, "bad"); return false; }
+  };
+  s.querySelectorAll(".cuerow[data-n]").forEach(row => {
+    const n = +row.dataset.n, inp = row.querySelector("input"), badge = row.querySelector("b");
+    let saved = inp.value;
+    const saveName = async () => { if (inp.value.trim() !== saved && await edit(n, { label: inp.value.trim() })) { saved = inp.value.trim(); toast(`Cue ${n} renamed`, "ok"); } };
+    inp.addEventListener("blur", saveName);
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") inp.blur(); });
+    row.querySelectorAll(".sw i").forEach(sw => sw.addEventListener("click", async () => {
+      if (!(await edit(n, { color: sw.dataset.c }))) return;
+      row.querySelectorAll(".sw i").forEach(x => x.classList.toggle("on", x === sw));
+      badge.style.background = sw.dataset.c; badge.style.color = ink(sw.dataset.c);
+    }));
+    const x = row.querySelector(".x");
+    x.addEventListener("click", async () => {   // the first tap only asks
+      if (!x.classList.contains("armed")) { x.classList.add("armed"); x.textContent = "Remove?"; setTimeout(() => { if (x.isConnected) { x.classList.remove("armed"); x.textContent = "✕"; } }, 3000); return; }
+      if (await edit(n, { clear: 1 })) { row.outerHTML = `<div class="cuerow empty"><b>${n}</b><span>removed</span></div>`; }
+    });
+  });
+  s.querySelector(".done").addEventListener("click", closeSheet);
+  $("#scrim").classList.add("on"); s.classList.add("on");
+}
+
 async function analyzeTrack(t, fresh) {
   try { await api(`/api/analyze/track?${qs({ id: t.id, fresh: fresh ? 1 : 0 })}`); } catch (e) { return toast(e.message, "bad"); }
   toast(`Analyzing ${t.title}…`);

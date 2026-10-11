@@ -31,6 +31,7 @@
 #include "mixer/playermanager.h"
 #include "qml/qmllibraryproxy.h"
 #include "qml/qmlplayermanagerproxy.h"
+#include "track/cue.h"
 #include "track/track.h"
 #include "track/trackref.h"
 #include "util/fileinfo.h"
@@ -890,6 +891,77 @@ QJsonObject Library::removeTrack(int trackId, bool deleteFile) {
                                 : QStringLiteral("Couldn't remove it"));
     }
     return {{"ok", true}};
+}
+
+QJsonObject Library::trackCues(int trackId) {
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (!pLibrary || trackId <= 0) {
+        return error(QStringLiteral("No such track"));
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    QJsonObject out;
+    QMetaObject::invokeMethod(
+            pLibrary,
+            [pCollection, trackId, &out] {
+                const TrackPointer pTrack = pCollection->getTrackById(TrackId(QVariant(trackId)));
+                if (!pTrack) {
+                    return;
+                }
+                const double rate = pTrack->getSampleRate().toDouble();
+                QJsonArray cues;
+                for (const CuePointer& pCue : pTrack->getCuePoints()) {
+                    if (pCue->getType() != mixxx::CueType::HotCue || pCue->getHotCue() < 0) {
+                        continue;
+                    }
+                    cues.append(QJsonObject{{"n", pCue->getHotCue() + 1},
+                            {"seconds", rate > 0 ? pCue->getPosition().value() / rate : 0},
+                            {"label", pCue->getLabel()},
+                            {"color", QStringLiteral("#%1").arg(static_cast<uint>(pCue->getColor()), 6, 16, QLatin1Char('0'))}});
+                }
+                out = {{"ok", true}, {"title", pTrack->getTitle()}, {"duration", pTrack->getDuration()}, {"cues", cues}};
+            },
+            Qt::BlockingQueuedConnection);
+    return out.isEmpty() ? error(QStringLiteral("No such track")) : out;
+}
+
+QJsonObject Library::editTrackCue(int trackId, int n, const QJsonObject& change) {
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (!pLibrary || trackId <= 0 || n < 1) {
+        return error(QStringLiteral("No such hot cue"));
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    bool found = false;
+    QMetaObject::invokeMethod(
+            pLibrary,
+            [pCollection, trackId, n, change, &found] {
+                const TrackPointer pTrack = pCollection->getTrackById(TrackId(QVariant(trackId)));
+                if (!pTrack) {
+                    return;
+                }
+                for (const CuePointer& pCue : pTrack->getCuePoints()) {
+                    if (pCue->getType() != mixxx::CueType::HotCue || pCue->getHotCue() != n - 1) {
+                        continue;
+                    }
+                    found = true;
+                    if (change.value(QStringLiteral("clear")).toBool()) {
+                        pTrack->removeCue(pCue);
+                    } else {
+                        if (change.contains(QStringLiteral("label"))) {
+                            pCue->setLabel(change.value(QStringLiteral("label")).toString().trimmed().left(60));
+                        }
+                        const QString color = change.value(QStringLiteral("color")).toString();
+                        bool ok = false;
+                        const uint rgb = QStringView(color).mid(color.startsWith(QLatin1Char('#')) ? 1 : 0).toUInt(&ok, 16);
+                        if (ok && rgb <= 0xFFFFFF) {
+                            pCue->setColor(mixxx::RgbColor(rgb));
+                        }
+                    }
+                    pCollection->saveTrack(pTrack);
+                    break;
+                }
+            },
+            Qt::BlockingQueuedConnection);
+    return found ? QJsonObject{{"ok", true}} : error(QStringLiteral("No such hot cue"));
 }
 
 QJsonObject Library::renameTrack(int trackId, const QString& title) {

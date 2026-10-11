@@ -67,6 +67,10 @@ class Library {
     QJsonObject saveLoaded(const QString& group);
     /// A track's title in the library (samples are named after their track and length until renamed).
     QJsonObject renameTrack(int trackId, const QString& title);
+    /// A track's hot cues (loaded or not): [{n: 1..8, seconds, label, color "#rrggbb"}]
+    QJsonObject trackCues(int trackId);
+    /// Renames or recolours hot cue n ({"label"}, {"color"}), or removes it ({"clear": true})
+    QJsonObject editTrackCue(int trackId, int n, const QJsonObject& change);
     /// Takes a track out of the library (hidden, like Mixxx's Hide), or with deleteFile deletes its file too.
     QJsonObject removeTrack(int trackId, bool deleteFile);
     void stopAnalysis();
