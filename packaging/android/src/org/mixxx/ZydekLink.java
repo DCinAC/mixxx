@@ -38,6 +38,9 @@ public class ZydekLink {
     }
 
     public static void init(Context context) {
+        if (s_nsd != null) {
+            return;   // announced once per app, not per activity
+        }
         s_nsd = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
         NsdServiceInfo info = new NsdServiceInfo();
         info.setServiceName(deviceName(context));

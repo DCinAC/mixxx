@@ -13,6 +13,9 @@ namespace {
 
 constexpr int kMaxHeaderBytes = 16 * 1024;
 constexpr qint64 kMaxMessageBytes = 4 * 1024 * 1024;
+// A client this far behind has stopped reading (a tablet asleep, or gone from the Wi-Fi without closing):
+// everything sent to it piles up in memory until the system gives up on it, many minutes later
+constexpr qint64 kMaxUnsentBytes = 8 * 1024 * 1024;
 const QByteArray kWebSocketGuid = QByteArrayLiteral("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
 
 enum Opcode {
@@ -265,10 +268,16 @@ void HttpServer::writeFrame(QTcpSocket* pSocket, int opcode, const QByteArray& p
     }
     frame.append(payload);
     pSocket->write(frame);
+    if (pSocket->bytesToWrite() > kMaxUnsentBytes && !pSocket->property("zydekDropping").toBool()) {
+        pSocket->setProperty("zydekDropping", true);
+        // not now: a broadcast may be going through the connections
+        QMetaObject::invokeMethod(pSocket, [pSocket] { pSocket->abort(); }, Qt::QueuedConnection);
+    }
 }
 
 void HttpServer::sendText(QTcpSocket* pClient, const QByteArray& utf8) {
-    if (pClient && m_connections.contains(pClient) && m_connections.value(pClient).webSocket) {
+    const auto it = pClient ? m_connections.constFind(pClient) : m_connections.cend();
+    if (it != m_connections.cend() && it->webSocket) {
         writeFrame(pClient, kText, utf8);
     }
 }

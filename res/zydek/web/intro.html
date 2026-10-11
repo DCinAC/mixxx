@@ -208,7 +208,9 @@ let ready = params.has("ready"), skipping = false, leaving = false;
 // Mixxx's server: the app moves on to the phone page once it answers.
 (function poll() {
   if (ready) return;
-  fetch("/phone", { cache: "no-store" }).then(r => { if (r.ok) ready = true; else setTimeout(poll, 400); })
+  // (a timeout: a request that never answers would otherwise keep this page waiting for good)
+  const signal = window.AbortSignal && AbortSignal.timeout ? AbortSignal.timeout(3000) : undefined;
+  fetch("/phone", { cache: "no-store", signal }).then(r => { if (r.ok) ready = true; else setTimeout(poll, 400); })
     .catch(() => setTimeout(poll, 400));
 })();
 

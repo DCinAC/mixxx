@@ -6,6 +6,7 @@
 #include <QObject>
 #include <QString>
 #include <QWaitCondition>
+#include <atomic>
 #include <deque>
 #include <thread>
 
@@ -60,7 +61,7 @@ class LiveStems : public QObject {
     std::deque<TrackPointer> m_queue;
     int m_busyId = 0;
     double m_progress = 0;
-    bool m_stop = false;
+    std::atomic<bool> m_stop{false};   // read by the worker outside the mutex
     QHash<int, QString> m_files;   // track id -> stems file, kept in zydek-livestems.json
     std::thread m_thread;
 };

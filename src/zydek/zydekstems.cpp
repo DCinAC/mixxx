@@ -18,6 +18,7 @@
 
 #include "library/library.h"
 #include "library/trackcollectionmanager.h"
+#include "zydek/zydekmain.h"
 #include "moc_zydekstems.cpp"
 #include "qml/qmllibraryproxy.h"
 #include "sources/audiosource.h"
@@ -700,7 +701,7 @@ bool LiveStems::addStemsTrack(const QString& path, const TrackPointer& pTrack, Q
     }
     TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
     bool added = false;
-    QMetaObject::invokeMethod(
+    runOnMain(
             pCollection,
             [pCollection, path, pTrack, &added] {
                 const TrackPointer pStems = pCollection->getOrAddTrack(TrackRef::fromFilePath(path));
@@ -730,8 +731,7 @@ bool LiveStems::addStemsTrack(const QString& path, const TrackPointer& pTrack, Q
                     }
                 }
                 added = pCollection->saveTrack(pStems) != TrackCollectionManager::SaveTrackResult::Failed;
-            },
-            Qt::BlockingQueuedConnection);
+            }, 60000, &m_stop);
     if (!added) {
         *pError = QStringLiteral("Mixxx couldn't add the stems file");
         return false;

@@ -105,7 +105,7 @@ public class ZydekAnalysisService extends Service {
 
     @Override
     public void onTimeout(int startId, int fgsType) {   // Android 15 limits background data work to 6 h a day
-        request("/api/analyze/stop");
+        new Thread(() -> request("/api/analyze/stop")).start();   // (no network on the main thread)
         stopSelf();
     }
 

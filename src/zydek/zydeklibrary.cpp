@@ -1,4 +1,5 @@
 #include "zydek/zydeklibrary.h"
+#include "zydek/zydekmain.h"
 
 #include <QDir>
 #include <QElapsedTimer>
@@ -454,14 +455,13 @@ QJsonObject Library::createCrate(const QString& name) {
     TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
     bool ok = false;
     CrateId id;
-    QMetaObject::invokeMethod(
+    runOnMain(
             pCollection,
             [pCollection, trimmed, &ok, &id] {
                 Crate crate;
                 crate.setName(trimmed);
                 ok = pCollection->internalCollection()->insertCrate(crate, &id);
-            },
-            Qt::BlockingQueuedConnection);
+            });
     if (!ok) {
         return error(QStringLiteral("Couldn't make the crate: is there one with that name already?"));
     }
@@ -475,15 +475,14 @@ QJsonObject Library::setCrateTrack(int crateId, int trackId, bool member) {
     }
     TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
     bool ok = false;
-    QMetaObject::invokeMethod(
+    runOnMain(
             pCollection,
             [pCollection, crateId, trackId, member, &ok] {
                 TrackCollection* pTracks = pCollection->internalCollection();
                 const CrateId crate{QVariant(crateId)};
                 const QList<TrackId> tracks{TrackId(QVariant(trackId))};
                 ok = member ? pTracks->addCrateTracks(crate, tracks) : pTracks->removeCrateTracks(crate, tracks);
-            },
-            Qt::BlockingQueuedConnection);
+            });
     if (!ok) {
         return error(QStringLiteral("Couldn't change the crate"));
     }
@@ -516,15 +515,14 @@ QJsonObject Library::addTrack(const QString& path) {
     }
     TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
     int id = -1;
-    QMetaObject::invokeMethod(
+    runOnMain(
             pCollection,
             [pCollection, path, &id] {
                 const TrackPointer pTrack = pCollection->getOrAddTrack(TrackRef::fromFilePath(path));
                 if (pTrack) {
                     id = pTrack->getId().toVariant().toInt();
                 }
-            },
-            Qt::BlockingQueuedConnection);
+            });
     if (id < 0) {
         return error(QStringLiteral("Mixxx couldn't add the file"));
     }
@@ -567,7 +565,7 @@ QJsonObject Library::addFolder(const QString& requested) {
     TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
     DirectoryDAO::AddResult result = DirectoryDAO::AddResult::SqlError;
     // The collection belongs to the main thread; wait for it there (adding a folder is quick).
-    QMetaObject::invokeMethod(
+    runOnMain(
             pCollection,
             [pCollection, path, replaces, outside, hidden, &result] {
                 if (!replaces.isEmpty()) {
@@ -586,8 +584,7 @@ QJsonObject Library::addFolder(const QString& requested) {
                 if (!hidden.isEmpty()) {
                     pCollection->unhideTracks(hidden);
                 }
-            },
-            Qt::BlockingQueuedConnection);
+            });
     switch (result) {
     case DirectoryDAO::AddResult::Ok:
         startScan();
@@ -641,15 +638,14 @@ QJsonObject Library::removeFolder(const QString& path) {
     bool ok = false;
     // Like Mixxx's "Hide tracks": its tracks leave the library, but keep their cues and beat grids in case
     // the folder comes back
-    QMetaObject::invokeMethod(
+    runOnMain(
             pCollection,
             [pCollection, path, &ok] {
                 ok = pCollection->removeDirectory(mixxx::FileInfo(path)) == DirectoryDAO::RemoveResult::Ok;
                 if (ok) {
                     pCollection->hideAllTracks(QDir(path));
                 }
-            },
-            Qt::BlockingQueuedConnection);
+            });
     return ok ? QJsonObject{{"ok", true}} : error(QStringLiteral("Couldn't remove that folder"));
 }
 
@@ -822,8 +818,8 @@ QJsonObject Library::analyzeTrack(int trackId, bool fresh) {
     }
     if (fresh) {
         TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
-        QString problem;
-        QMetaObject::invokeMethod(
+        QString problem = QStringLiteral("Mixxx is busy: try again");
+        runOnMain(
                 pLibrary,
                 [pCollection, trackId, &problem] {
                     const TrackPointer pTrack = pCollection->getTrackById(TrackId(QVariant(trackId)));
@@ -834,9 +830,9 @@ QJsonObject Library::analyzeTrack(int trackId, bool fresh) {
                     } else {
                         pTrack->trySetBeats(mixxx::BeatsPointer());
                         pTrack->resetKeys();
+                        problem.clear();
                     }
-                },
-                Qt::BlockingQueuedConnection);
+                });
         if (!problem.isEmpty()) {
             return error(problem);
         }
@@ -924,8 +920,8 @@ QJsonObject Library::removeTrack(int trackId, bool deleteFile) {
         }
     }
     TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
-    bool ok = true;
-    QMetaObject::invokeMethod(
+    bool ok = false;
+    runOnMain(
             pLibrary,
             [pCollection, trackId, path, deleteFile, &ok] {
                 if (deleteFile) {   // forgotten by the library (cues, grid, plays), then gone from the storage
@@ -934,8 +930,7 @@ QJsonObject Library::removeTrack(int trackId, bool deleteFile) {
                 } else {   // like Mixxx's "Hide": out of the library, back if its folder is added again
                     ok = pCollection->hideTracks({TrackId(QVariant(trackId))});
                 }
-            },
-            Qt::BlockingQueuedConnection);
+            });
     if (!ok) {
         return error(deleteFile ? QStringLiteral("Couldn't delete the file (it may need All files access)")
                                 : QStringLiteral("Couldn't remove it"));
@@ -950,7 +945,7 @@ QJsonObject Library::trackCues(int trackId) {
     }
     TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
     QJsonObject out;
-    QMetaObject::invokeMethod(
+    runOnMain(
             pLibrary,
             [pCollection, trackId, &out] {
                 const TrackPointer pTrack = pCollection->getTrackById(TrackId(QVariant(trackId)));
@@ -969,8 +964,7 @@ QJsonObject Library::trackCues(int trackId) {
                             {"color", QStringLiteral("#%1").arg(static_cast<uint>(pCue->getColor()), 6, 16, QLatin1Char('0'))}});
                 }
                 out = {{"ok", true}, {"title", pTrack->getTitle()}, {"duration", pTrack->getDuration()}, {"cues", cues}};
-            },
-            Qt::BlockingQueuedConnection);
+            });
     return out.isEmpty() ? error(QStringLiteral("No such track")) : out;
 }
 
@@ -981,7 +975,7 @@ QJsonObject Library::editTrackCue(int trackId, int n, const QJsonObject& change)
     }
     TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
     bool found = false;
-    QMetaObject::invokeMethod(
+    runOnMain(
             pLibrary,
             [pCollection, trackId, n, change, &found] {
                 const TrackPointer pTrack = pCollection->getTrackById(TrackId(QVariant(trackId)));
@@ -1009,8 +1003,7 @@ QJsonObject Library::editTrackCue(int trackId, int n, const QJsonObject& change)
                     pCollection->saveTrack(pTrack);
                     break;
                 }
-            },
-            Qt::BlockingQueuedConnection);
+            });
     return found ? QJsonObject{{"ok", true}} : error(QStringLiteral("No such hot cue"));
 }
 
@@ -1022,7 +1015,7 @@ QJsonObject Library::renameTrack(int trackId, const QString& title) {
     }
     TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
     bool ok = false;
-    QMetaObject::invokeMethod(
+    runOnMain(
             pLibrary,
             [pCollection, trackId, name, &ok] {
                 const TrackPointer pTrack = pCollection->getTrackById(TrackId(QVariant(trackId)));
@@ -1030,8 +1023,7 @@ QJsonObject Library::renameTrack(int trackId, const QString& title) {
                     pTrack->setTitle(name);
                     ok = pCollection->saveTrack(pTrack) != TrackCollectionManager::SaveTrackResult::Failed;
                 }
-            },
-            Qt::BlockingQueuedConnection);
+            });
     return ok ? QJsonObject{{"ok", true}} : error(QStringLiteral("Couldn't rename it"));
 }
 
@@ -1043,12 +1035,11 @@ QJsonObject Library::saveLoaded(const QString& group) {
     }
     TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
     bool saved = false;
-    QMetaObject::invokeMethod(
+    runOnMain(
             pLibrary,
             [pCollection, pTrack, &saved] {
                 saved = pCollection->saveTrack(pTrack) != TrackCollectionManager::SaveTrackResult::Failed;
-            },
-            Qt::BlockingQueuedConnection);
+            });
     return saved ? QJsonObject{{"ok", true}, {"bpm", pTrack->getBpm()}} : error(QStringLiteral("Couldn't save the track"));
 }
 
@@ -1186,7 +1177,14 @@ QJsonObject Library::renderSample(const TrackPointer& pTrack, double firstFrame,
     }
     const int channels = pSource->getSignalInfo().getChannelCount();
     const int rate = pSource->getSignalInfo().getSampleRate();
-    const SINT first = static_cast<SINT>(firstFrame), last = static_cast<SINT>(lastFrame);
+    // A sample is read into memory whole (8 bytes a frame): two minutes at most (~45 MB at 48 kHz), and
+    // only what the track has.
+    const mixxx::IndexRange frames = pSource->frameIndexRange();
+    const SINT first = std::clamp(static_cast<SINT>(firstFrame), frames.start(), frames.end());
+    const SINT last = std::clamp(static_cast<SINT>(lastFrame), first, std::min<SINT>(frames.end(), first + 120 * rate));
+    if (last <= first) {
+        return error(QStringLiteral("Pick a stretch of the track first"));
+    }
     mixxx::SampleBuffer buffer((last - first) * channels);
     const mixxx::ReadableSampleFrames read = pSource->readSampleFrames(mixxx::WritableSampleFrames(
             mixxx::IndexRange::between(first, last), mixxx::SampleBuffer::WritableSlice(buffer)));
@@ -1223,7 +1221,7 @@ QJsonObject Library::renderSample(const TrackPointer& pTrack, double firstFrame,
     const QString comment = QStringLiteral("ZyDeck sample of %1, %2–%3 s").arg(pTrack->getLocation())
             .arg(first / static_cast<double>(rate), 0, 'f', 2).arg(last / static_cast<double>(rate), 0, 'f', 2);
     bool added = false;
-    QMetaObject::invokeMethod(
+    runOnMain(
             pCollection,
             [pCollection, path, artist, sampleTitle, comment, bpm, &added] {
                 const TrackPointer pSample = pCollection->getOrAddTrack(TrackRef::fromFilePath(path));
@@ -1238,8 +1236,7 @@ QJsonObject Library::renderSample(const TrackPointer& pTrack, double firstFrame,
                     pSample->setBpmLocked(true);
                 }
                 added = true;
-            },
-            Qt::BlockingQueuedConnection);
+            });
     if (!added) {
         return error(QStringLiteral("Mixxx couldn't add the sample"));
     }

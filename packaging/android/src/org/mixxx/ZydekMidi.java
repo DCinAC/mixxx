@@ -47,6 +47,9 @@ public class ZydekMidi {
 
     /// MainActivity, at start-up.
     public static void init(Context context) {
+        if (s_handler != null) {
+            return;   // once per app, not per activity
+        }
         s_context = context.getApplicationContext();
         s_manager = (MidiManager) s_context.getSystemService(Context.MIDI_SERVICE);
         HandlerThread thread = new HandlerThread("ZydekMidi");
@@ -86,20 +89,30 @@ public class ZydekMidi {
         });
     }
 
-    /// The hub: MIDI bytes for the computer (any thread). false when there's no USB MIDI link.
+    /// The hub: MIDI bytes for the computer (any thread). false when there's no USB MIDI link, or the computer
+    /// has stopped taking them. Sent from the MIDI thread: a write blocks when the computer doesn't read, and
+    /// the hub's thread (the pages' controls) mustn't wait for that.
     public static boolean send(byte[] data) {
-        MidiInputPort port = s_toComputer;
-        if (port == null) {
+        if (s_toComputer == null || s_pending.get() > 4000) {
             return false;
         }
-        try {
-            port.send(data, 0, data.length);
-            return true;
-        } catch (IOException e) {
-            Log.w(TAG, "send failed", e);
-            return false;
-        }
+        s_pending.incrementAndGet();
+        s_handler.post(() -> {
+            s_pending.decrementAndGet();
+            MidiInputPort port = s_toComputer;
+            if (port == null) {
+                return;
+            }
+            try {
+                port.send(data, 0, data.length);
+            } catch (IOException e) {
+                Log.w(TAG, "send failed", e);
+            }
+        });
+        return true;
     }
+
+    private static final java.util.concurrent.atomic.AtomicInteger s_pending = new java.util.concurrent.atomic.AtomicInteger();
 
     /// The computer's port shows as a USB device without a USB device behind it (a USB host's keyboard
     /// or controller plugged into the phone has one).

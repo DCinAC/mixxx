@@ -42,6 +42,7 @@ class Hub : public QObject {
     static constexpr int kNumDecks = 4;
 
     Hub(UserSettingsPointer pConfig, QObject* pParent);
+    ~Hub() override;
 
     void start();
     /// The open controller (nullptr while it's closed: the pages then show their offline simulation).

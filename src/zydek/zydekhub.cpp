@@ -14,12 +14,14 @@
 #include <QTimer>
 #include <QtEndian>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 
 #include "control/controlobject.h"
 #include "controllers/zydek/zydekcontroller.h"
 #include "mixer/playerinfo.h"
+#include "zydek/zydekmain.h"
 #include "moc_zydekhub.cpp"
 #include "effects/backends/effectmanifest.h"
 #include "effects/backends/effectmanifestparameter.h"
@@ -223,7 +225,8 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
 
 #ifdef Q_OS_ANDROID
 namespace {
-Hub* s_pHub = nullptr;   // for ZydekMidi.java's callbacks
+// cleared by ~Hub: Java keeps calling in until the app is gone
+std::atomic<Hub*> s_pHub{nullptr};   // for ZydekMidi.java's and ZydekAudio.java's callbacks
 
 void JNICALL jniMidiReceive(JNIEnv* env, jclass, jbyteArray data) {
     const jsize n = env->GetArrayLength(data);
@@ -250,6 +253,18 @@ void JNICALL jniMidiState(JNIEnv*, jclass, jint state) {
 }
 } // namespace
 #endif
+
+Hub::~Hub() {
+#ifdef Q_OS_ANDROID
+    s_pHub = nullptr;
+    if (m_controllerMode) {
+        QJniObject::callStaticMethod<void>("org/mixxx/ZydekMidi", "setEnabled", "(Z)V", static_cast<jboolean>(false));
+    }
+#endif
+    // its worker first, while everything it reports to is still here
+    delete m_pLiveStems;
+    m_pLiveStems = nullptr;
+}
 
 void Hub::start() {
 #ifdef Q_OS_ANDROID
@@ -1044,7 +1059,7 @@ QJsonObject Hub::audioStatus() const {
         return {{"ok", false}, {"error", "Mixxx isn't ready"}};
     }
     QJsonObject out;
-    QMetaObject::invokeMethod(
+    runOnMain(
             pManager.get(),
             [&out, &pManager] {
                 const SoundManagerConfig config = pManager->getConfig();
@@ -1083,8 +1098,7 @@ QJsonObject Hub::audioStatus() const {
                         {"mainChannels", mainChannels},
                         {"headphones", headphones},
                         {"headphonesChannels", headphonesChannels}};
-            },
-            Qt::BlockingQueuedConnection);
+            });
     out.insert(QStringLiteral("latencyMs"),
             ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms"))));
     out.insert(QStringLiteral("measuredMs"), m_measuredLatencyMs);
@@ -1103,8 +1117,8 @@ QJsonObject Hub::setAudioBuffer(int index) {
     if (!pManager || index < 1 || index > 7) {
         return {{"ok", false}, {"error", "No such buffer size"}};
     }
-    QJsonObject out;
-    QMetaObject::invokeMethod(
+    QJsonObject out{{"ok", false}, {"error", "Mixxx is busy: try again"}};
+    runOnMain(
             pManager.get(),
             [&] {
                 SoundManagerConfig config = pManager->getConfig();
@@ -1113,8 +1127,7 @@ QJsonObject Hub::setAudioBuffer(int index) {
                 out = status == SoundDeviceStatus::Ok
                         ? QJsonObject{{"ok", true}}
                         : QJsonObject{{"ok", false}, {"error", pManager->getLastErrorMessage(status)}};
-            },
-            Qt::BlockingQueuedConnection);
+            });
 #ifdef Q_OS_ANDROID
     QJniObject::callStaticMethod<void>("org/mixxx/ZydekAudio", "measureNow", "()V");
 #endif
@@ -1171,8 +1184,8 @@ QJsonObject Hub::setAudio(const HttpServer::Query& query) {
     const int mainBase = mainChannels.first;
     const int mainCount = mainChannels.second;
     const QString headphonesChannels = query.value(QStringLiteral("headphonesChannels"));
-    QJsonObject out;
-    QMetaObject::invokeMethod(
+    QJsonObject out{{"ok", false}, {"error", "Mixxx is busy: try again"}};
+    runOnMain(
             pManager.get(),
             [&] {
                 SoundManagerConfig config = pManager->getConfig();
@@ -1238,8 +1251,7 @@ QJsonObject Hub::setAudio(const HttpServer::Query& query) {
                 out = status == SoundDeviceStatus::Ok
                         ? QJsonObject{{"ok", true}, {"shared", shared}}
                         : QJsonObject{{"ok", false}, {"error", pManager->getLastErrorMessage(status)}};
-            },
-            Qt::BlockingQueuedConnection);
+            });
     return out;
 }
 
@@ -1422,6 +1434,10 @@ void Hub::sendMidi(const QByteArray& data) {
     }
     if (m_linkUp && m_pLink) {
         m_pLink->write("M " + data.toHex() + '\n');
+        if (m_pLink->bytesToWrite() > 4 * 1024 * 1024) {
+            // the computer stopped taking it (gone from the Wi-Fi without closing): start over, later
+            QTimer::singleShot(0, this, [this] { linkDrop(true); });
+        }
         return;
     }
 #ifdef Q_OS_ANDROID
@@ -1476,8 +1492,8 @@ QJsonObject Hub::fxStatus() const {
     if (!pEffects) {
         return {{"ok", false}, {"error", "Mixxx isn't ready"}};
     }
-    QJsonObject out;
-    QMetaObject::invokeMethod(
+    QJsonObject out{{"ok", false}, {"error", "Mixxx is busy: try again"}};
+    runOnMain(
             qApp,
             [&] {
                 QJsonArray names;
@@ -1501,8 +1517,7 @@ QJsonObject Hub::fxStatus() const {
                     units.append(QJsonObject{{"unit", u + 1}, {"slots", slotList}});
                 }
                 out = {{"ok", true}, {"effects", names}, {"units", units}};
-            },
-            Qt::BlockingQueuedConnection);
+            });
     return out;
 }
 
@@ -1512,7 +1527,7 @@ QJsonObject Hub::setFxBeats(int unit, int slot, double beats) {
         return {{"ok", false}, {"error", "No such effect unit"}};
     }
     int done = 0;
-    QMetaObject::invokeMethod(
+    runOnMain(
             qApp,
             [&] {
                 const EffectChainPointer pChain = pEffects->getStandardEffectChain(unit - 1);
@@ -1531,8 +1546,7 @@ QJsonObject Hub::setFxBeats(int unit, int slot, double beats) {
                         ++done;
                     }
                 }
-            },
-            Qt::BlockingQueuedConnection);
+            });
     return done ? QJsonObject{{"ok", true}, {"set", done}}
                 : QJsonObject{{"ok", false}, {"error", "This effect has no beat length"}};
 }
@@ -1703,7 +1717,12 @@ void Hub::MidiParser::feed(const QByteArray& data, F&& onMessage) {
                 sysex = false;   // a broken SysEx: drop it, start over with this status byte
                 message.clear();
             } else {
-                message.append(c);
+                if (message.size() < 65536) {   // a SysEx without its end can't grow without bounds
+                    message.append(c);
+                } else {
+                    sysex = false;
+                    message.clear();
+                }
                 continue;
             }
             if (!(b & 0x80) || b == 0xF7) {
@@ -1966,6 +1985,10 @@ void Hub::linkConnect(const QJsonObject& computer) {
             return;
         }
         m_linkBuffer += pLink->readAll();
+        if (m_linkBuffer.size() > 4 * 1024 * 1024 && m_linkBuffer.indexOf('\n') < 0) {
+            linkDrop(true);   // not ZyDeck Link talking
+            return;
+        }
         for (int nl; (nl = m_linkBuffer.indexOf('\n')) >= 0;) {
             const QByteArray line = m_linkBuffer.left(nl);
             m_linkBuffer.remove(0, nl + 1);
@@ -2132,7 +2155,7 @@ void Hub::standardFromPage(const QJsonObject& m) {
         if (op == 1 || op == 0) {
             note(deck, kStdJogTouch, op == 1);
         } else {
-            for (int left = a[2].toInt(); left != 0;) {
+            for (int left = std::clamp(a[2].toInt(), -63 * 64, 63 * 64); left != 0;) {
                 const int step = std::clamp(left, -63, 63);
                 stdSend(0xB0 | deck, kStdCcJog, 64 + step);
                 left -= step;

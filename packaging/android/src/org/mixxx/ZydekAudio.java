@@ -31,6 +31,9 @@ public class ZydekAudio {
     static native void nativeLatency(int ms, String route);
 
     public static void init(Context context) {
+        if (s_context != null) {
+            return;   // once per app, not per activity
+        }
         s_context = context.getApplicationContext();
         AudioManager am = (AudioManager) s_context.getSystemService(Context.AUDIO_SERVICE);
         am.registerAudioDeviceCallback(new AudioDeviceCallback() {
@@ -94,27 +97,31 @@ public class ZydekAudio {
         short[] silence = new short[Math.max(256, minBytes / 8) * 2];   // a quarter of the buffer per write
         AudioTimestamp ts = new AudioTimestamp();
         ArrayList<Double> samples = new ArrayList<>();
+        String route;
         long written = 0;
-        track.play();
-        long until = System.nanoTime() + 1_400_000_000L;
-        while (System.nanoTime() < until) {
-            int n = track.write(silence, 0, silence.length);
-            if (n <= 0) {
-                break;
-            }
-            written += n / 2;
-            if (track.getTimestamp(ts) && ts.framePosition > 0) {
-                // frames not yet heard, less the time since the timestamp was taken
-                double ms = (written - ts.framePosition) * 1000.0 / RATE - (System.nanoTime() - ts.nanoTime) / 1e6;
-                if (ms > 0 && ms < 1000) {
-                    samples.add(ms);
+        try {
+            track.play();
+            long until = System.nanoTime() + 1_400_000_000L;
+            while (System.nanoTime() < until) {
+                int n = track.write(silence, 0, silence.length);
+                if (n <= 0) {
+                    break;
+                }
+                written += n / 2;
+                if (track.getTimestamp(ts) && ts.framePosition > 0) {
+                    // frames not yet heard, less the time since the timestamp was taken
+                    double ms = (written - ts.framePosition) * 1000.0 / RATE - (System.nanoTime() - ts.nanoTime) / 1e6;
+                    if (ms > 0 && ms < 1000) {
+                        samples.add(ms);
+                    }
                 }
             }
+            AudioDeviceInfo device = track.getRoutedDevice();
+            route = device == null ? "" : device.getProductName() + " · " + typeName(device.getType());
+            track.stop();
+        } finally {
+            track.release();   // even when it failed half-way: a process gets few of these
         }
-        AudioDeviceInfo device = track.getRoutedDevice();
-        String route = device == null ? "" : device.getProductName() + " · " + typeName(device.getType());
-        track.stop();
-        track.release();
         if (samples.size() < 5) {
             return;
         }
