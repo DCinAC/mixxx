@@ -2,6 +2,7 @@
 
 #include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QMetaObject>
@@ -230,6 +231,16 @@ QJsonArray Library::tracks(const QString& search, const QString& view, const QSt
     QVariantList args;
     QString join;
     QString order = orderFor(sort);
+    if (sort == QLatin1String("loaded")) {
+        readLoaded();
+        if (!m_loaded.isEmpty()) {
+            QString rank = QStringLiteral("CASE l.id");
+            for (int i = 0; i < m_loaded.size(); ++i) {
+                rank += QStringLiteral(" WHEN %1 THEN %2").arg(m_loaded[i]).arg(i);
+            }
+            order = rank + QStringLiteral(" ELSE 1000000 END, l.datetime_added DESC, l.id DESC");
+        }
+    }
     const QString kind = view.section(QLatin1Char(':'), 0, 0);
     const int viewId = view.section(QLatin1Char(':'), 1).toInt();
     if (kind == QLatin1String("stems")) {
@@ -296,6 +307,45 @@ QJsonObject Library::track(int trackId) {
 
 QString Library::location(int trackId) {
     return track(trackId).value(QStringLiteral("location")).toString();
+}
+
+void Library::readLoaded() {
+    if (m_loadedRead) {
+        return;
+    }
+    m_loadedRead = true;
+    QFile file(QDir(m_pConfig->getSettingsPath()).filePath(QStringLiteral("zydek-loaded.json")));
+    if (file.open(QIODevice::ReadOnly)) {
+        for (const QJsonValue& v : QJsonDocument::fromJson(file.readAll()).array()) {
+            if (v.toInt() > 0) {
+                m_loaded.append(v.toInt());
+            }
+        }
+    }
+}
+
+void Library::noteLoaded(int trackId) {
+    if (trackId <= 0) {
+        return;
+    }
+    readLoaded();
+    if (!m_loaded.isEmpty() && m_loaded.first() == trackId) {
+        return;
+    }
+    m_loaded.removeAll(trackId);
+    m_loaded.prepend(trackId);
+    while (m_loaded.size() > 300) {
+        m_loaded.removeLast();
+    }
+    QJsonArray ids;
+    for (int id : std::as_const(m_loaded)) {
+        ids.append(id);
+    }
+    QSaveFile file(QDir(m_pConfig->getSettingsPath()).filePath(QStringLiteral("zydek-loaded.json")));
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(QJsonDocument(ids).toJson(QJsonDocument::Compact));
+        file.commit();
+    }
 }
 
 QJsonObject Library::load(int trackId, const QString& target) {

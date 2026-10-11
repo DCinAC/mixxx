@@ -503,6 +503,11 @@ function keyName(k) {
   if (S.keyNotation === "musical") return minor ? `${MINOR_NAMES[p]}m` : MAJOR_NAMES[p];
   return `${(open + 6) % 12 + 1}${minor ? "A" : "B"}`;   // Camelot: C major = 8B, A minor = 8A
 }
+// The key a press is about to give, shown straight away; Mixxx's own values replace it as they come.
+function guessKey(d, n) {
+  const k = clamp(d.key + n, -6, 6);
+  if (k !== d.key) { d.curKey = keyShift(d.curKey, k - d.key); d.key = k; }
+}
 const keyShift = (k, n) => k >= 1 && k <= 24 ? (k > 12 ? 13 : 1) + (((k - 1) % 12 + n) % 12 + 12) % 12 : k;
 // Element sizes are measured once per layout (reading them while painting forces the browser to lay out the
 // page again, which is slow on the tablet). Anything that changes the layout bumps layoutEpoch.
@@ -823,16 +828,14 @@ function buildSide(s) {
   const kd = h("button", "", "−"), ku = h("button", "", "+"); u.key = h("span");
   kb.append(kd, u.key, ku);
   tr.append(u.cue, u.play, u.sync, kb);
-  const shiftKey = n => { const d = deckOf(s), k = clamp(d.key + n, -6, 6);
-    if (live) send("key", d.n, n);
-    if (k !== d.key) { d.curKey = keyShift(d.curKey, k - d.key); d.key = k; markLocal(d, "curKey"); }
-    paintSide(s); };
+  const shiftKey = n => { const d = deckOf(s); if (live) send("key", d.n, n); guessKey(d, n); paintSide(s); };
   bindPress(kd, down => { if (down) shiftKey(-1); });
   bindPress(ku, down => { if (down) shiftKey(1); });
 
   // pad modes + pads
   const modes = h("div", "modes");
-  u.modes = ["cue", "roll", "stem", "smpl", "jump", "fx"].map(m => {
+  // (no FX mode: the FX strip under the pads has it all)
+  u.modes = ["cue", "roll", "stem", "smpl", "jump"].map(m => {
     const b = h("button", "", m.toUpperCase()); b.dataset.mode = m;
     bindPress(b, down => { if (!down) return; const d = deckOf(s); d.mode = m; d.shift = false; paintSide(s); });
     modes.appendChild(b); return b;
@@ -1699,11 +1702,11 @@ function padPress(s, k, down) {
     if (k < 2 && d.shift) {   // back to the track's own key
       d.shift = false;
       if (live) { send("keyAction", d.n, "reset_key", 1); send("keyAction", d.n, "reset_key", 0); }
-      d.curKey = keyShift(d.curKey, -d.key); d.key = 0; markLocal(d, "curKey");
+      guessKey(d, -d.key);
     } else if (k < 2) {
-      const n = k ? 1 : -1, nk = clamp(d.key + n, -6, 6);
+      const n = k ? 1 : -1;
       if (live) send("key", d.n, n);
-      if (nk !== d.key) { d.curKey = keyShift(d.curKey, nk - d.key); d.key = nk; markLocal(d, "curKey"); }
+      guessKey(d, n);
     } else if (k === 2) { if (live) send("keyAction", d.n, "sync_key", 1); }
     else { d.keylock = !d.keylock; send("keylock", d.n, d.keylock ? 1 : 0); }
     paintAll();
@@ -2333,7 +2336,10 @@ function toMixxx(name, ...a) {
     case "pfl": markLocal(d, "pfl"); return setCtl(ch(d.n), "pfl", a[1]);
     case "play": return setCtl(ch(d.n), "play", a[1]);
     case "cue": return setCtl(ch(d.n), "cue_default", a[1] ? 1 : 0);
-    case "key": markLocal(d, "key"); return setCtl(ch(d.n), "pitch_adjust", clamp(Math.round(d.key) + a[1], -6, 6));
+    case "key": {   // a semitone up or down from where Mixxx is (its "pitch", up to 6 either way)
+      const g = ch(d.n), k = a[1] > 0 ? "pitch_up" : "pitch_down";
+      setCtl(g, k, 1); return setCtl(g, k, 0);
+    }
     case "sync": return mxSend({ sync: [d.n - 1, a[1]] });
     case "tempo": markLocal(d, "tempo"); return mxSend({ tempo: [d.n - 1, d.ol ? 1 : 0, a[1]] });
     case "nudge": return setCtl(ch(d.n), "wheel", a[1]);
@@ -2396,8 +2402,8 @@ function applyCv(name, v, ts) {
       case "duration": d.dur = v; return;                                   // shown by the animation loop
       case "rate_ratio": d.ratio = v; if (!isLocal(d, "tempo") && ui.sides.every(u => u?.laneDeck !== d)) upd("tempo", (v - 1) * 100); return;
       case "file_bpm": if (v > 0) upd("bpm", v); return;
-      case "pitch_adjust": if (!isLocal(d, "key")) upd("key", Math.round(v)); return;   // key shift only, without the tempo's effect
-      case "key": if (!isLocal(d, "curKey")) upd("curKey", v); return;      // the key you hear: file key + shift (+ tempo without key lock)
+      case "pitch": upd("key", Math.round(v)); return;   // semitones from the track's own key
+      case "key": upd("curKey", v); return;      // the key you hear: file key + shift (+ tempo without key lock)
       case "sync_enabled": return upd("syncMode", v ? 2 : 0);
       case "sync_mode": return upd("leader", v >= 2);                     // 2/3: soft/explicit leader
       case "keylock": return upd("keylock", v > 0);
@@ -2450,7 +2456,7 @@ function subscribeAll() {
     for (let j = 0; j < 3; j++) for (const k of ["enabled", "meta", "loaded_effect"]) sub.push([fxSlotG(u, j), k, 0]);
   }
   for (let n = 1; n <= 4; n++) {
-    for (const k of ["play", "play_latched", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch_adjust", "key", "sync_enabled", "sync_mode", "keylock", "quantize",
+    for (const k of ["play", "play_latched", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch", "key", "sync_enabled", "sync_mode", "keylock", "quantize",
       "pfl", "mute", "loop_enabled", "beatloop_size",
       "loop_start_position", "loop_end_position", "track_samples", "cue_point",
       ...[1, 2, 3, 4, 5, 6, 7, 8].map(k => `hotcue_${k}_position`)]) sub.push([ch(n), k, 0]);

@@ -26,9 +26,12 @@ class Library {
 
     QJsonObject views();
     /// view: all | stems | crate:<id> | playlist:<id>. Every word of q must appear in artist/title/album/genre.
+    /// sort: added | artist | title | bpm | key | played | loaded (recently loaded on a deck first).
     QJsonArray tracks(const QString& q, const QString& view, const QString& sort, int limit, int offset);
     QJsonObject track(int trackId);
     QString location(int trackId);
+    /// A deck loaded the track: it goes to the top of "Recently loaded" (zydek-loaded.json).
+    void noteLoaded(int trackId);
 
     /// target: deck1..deck4, sampler (first empty), samplerN. Returns {ok, group} or {error}.
     QJsonObject load(int trackId, const QString& target);
@@ -96,6 +99,10 @@ class Library {
     void loadExcluded();
     void saveExcluded();
 
+    void readLoaded();
+
+    QList<int> m_loaded;   // track ids, most recently loaded first
+    bool m_loadedRead = false;
     QStringList m_excluded;
     bool m_excludedLoaded = false;
     struct Analysis;

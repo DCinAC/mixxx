@@ -1555,6 +1555,9 @@ void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
         return;
     }
     const QString location = pTrack->getLocation();
+    if (!location.contains(QLatin1String("/ZyDeck Stems/"))) {   // (its stems stand in for the original)
+        m_library.noteLoaded(pTrack->getId().toVariant().toInt());
+    }
     const auto seek = m_stemsSeek.find(group);
     if (location.contains(QLatin1String("/ZyDeck Stems/"))) {   // our stems took over: back where it was
         if (seek != m_stemsSeek.end()) {
@@ -2212,6 +2215,12 @@ void Hub::standardFromPage(const QJsonObject& m) {
         while (m_stdKeyShift[deck] > target) {
             pulse(deck, kStdKeyDown);
             m_stdKeyShift[deck]--;
+        }
+    } else if (key == QLatin1String("pitch_up") || key == QLatin1String("pitch_down")) {   // a key step
+        if (down) {
+            const bool up = key == QLatin1String("pitch_up");
+            pulse(deck, up ? kStdKeyUp : kStdKeyDown);
+            m_stdKeyShift[deck] += up ? 1 : -1;
         }
     } else if (key == QLatin1String("reset_key") || key == QLatin1String("sync_key")) {
         if (key == QLatin1String("reset_key") && down) {
