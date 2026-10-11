@@ -1173,7 +1173,9 @@ async function loadStemServer() {
   } catch {}
 }
 $("#ss-save").addEventListener("click", async () => {
-  const server = $("#ss-addr").value.trim();
+  // nothing typed: the address shown dimmed in the box
+  const server = $("#ss-addr").value.trim() || $("#ss-addr").placeholder.trim();
+  $("#ss-addr").value = server;
   try {
     await webApi(`/api/web/prefs?${qs({ stemServer: server })}`);
     stemServer = server; store.set("stemServer", server);

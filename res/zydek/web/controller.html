@@ -118,7 +118,8 @@
   .fxstrip .beats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; }
   .fxstrip .beats button { font-size: calc(var(--mm) * 1.9); padding: 0; }
   .fxstrip .knob { --knob: calc(var(--mm) * 8.5); --acc: #777; justify-content: center; }
-  .fxstrip .knob.fxon { --acc: var(--fx); }
+  .fxstrip .knob.fxon, .fxstrip .knob.stepped { --acc: var(--fx); }
+  .knob .ktick { stroke: #555; stroke-width: 1.4; }
   .fxstrip .knob span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
   .modes button { flex: 1; font-size: calc(var(--mm) * 2.3); letter-spacing: .02em; }
   .modes button.on { border-color: var(--acc); color: var(--acc); }
@@ -866,10 +867,24 @@ function buildFxStrip(s, u) {
       mix.paint();
     };
   } else {
-    const name = h("button"), on = h("button"), beats = h("div", "beats");
+    const name = h("button"), on = h("button");
     const level = knob("LEVEL", () => fxState[unit() - 1].mix, v => { fxState[unit() - 1].mix = v; setCtl(fxUnitG(unit()), "mix", v); }, null);
     bindPress(name, down => { if (down) push(fxSlotG(unit(), 0), deckOf(s).shift ? "prev_effect" : "next_effect"); });
-    const bs = FX_BEATS.map(b => { const x = h("button", "", beatText(b)); bindPress(x, down => { if (down) fxSetBeats(unit(), 1, b); }); beats.appendChild(x); return x; });
+    // BEAT: a knob that snaps from ⅛ to 8 beats, a tick for each step
+    const beatIdx = () => Math.max(0, FX_BEAT_STEPS.indexOf(fxBeat[unit() - 1]));
+    let lastStep = -1;
+    const beats = knob("BEAT", () => beatIdx() / (FX_BEAT_STEPS.length - 1), v => {
+      const i = Math.round(v * (FX_BEAT_STEPS.length - 1));
+      if (i !== lastStep) { lastStep = i; fxSetBeats(unit(), 1, FX_BEAT_STEPS[i]); }
+    }, null);
+    beats.classList.add("stepped");
+    const svg = beats.querySelector("svg");
+    FX_BEAT_STEPS.forEach((_, i) => {
+      const a = -135 + i / (FX_BEAT_STEPS.length - 1) * 270, [x1, y1] = polar(a, 15), [x2, y2] = polar(a, 18);
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      t.setAttribute("x1", x1); t.setAttribute("y1", y1); t.setAttribute("x2", x2); t.setAttribute("y2", y2); t.setAttribute("class", "ktick");
+      svg.appendChild(t);
+    });
     bindPress(on, down => {
       if (!down) return;
       const d = deckOf(s), un = unit(), f = fxState[un - 1];
@@ -882,7 +897,8 @@ function buildFxStrip(s, u) {
     u.fx.paint = () => {
       const un = unit(), f = fxState[un - 1];
       setHTML(name, `${fxName(un, 0).replace(/</g, "&lt;")}<small>${deckOf(s).shift ? "◀ previous" : "next effect ▶"}</small>`);
-      bs.forEach((x, i) => x.classList.toggle("on", fxBeat[un - 1] === FX_BEATS[i]));
+      setHTML(beats.querySelector("span"), `BEAT ${beatText(fxBeat[un - 1])}`);
+      beats.paint();
       on.classList.toggle("on", !!f.enabled[0]);
       setHTML(on, `${f.enabled[0] ? "FX ON" : "FX OFF"}<small>unit ${un}</small>`);
       level.paint();
@@ -2249,6 +2265,7 @@ const fxState = Array.from({ length: 4 }, () => ({ mix: 1, enabled: [0, 0, 0], m
 let fxNames = [];
 const fxBeat = [1, 1, 1, 1];
 const FX_BEATS = [.5, 1, 2, 4], FX_BEATS_SHIFT = [.125, .25, 8, 16];
+const FX_BEAT_STEPS = [.125, .25, .5, 1, 2, 4, 8];   // the strip's BEAT knob
 const fxUnitOf = d => d.n % 2 ? 1 : 2;
 const fxUnitG = u => `[EffectRack1_EffectUnit${u}]`;
 const fxSlotG = (u, j) => `[EffectRack1_EffectUnit${u}_Effect${j + 1}]`;
