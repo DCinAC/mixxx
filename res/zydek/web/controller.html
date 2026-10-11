@@ -65,8 +65,8 @@
     white-space: nowrap; line-height: 1; font-size: calc(var(--mm) * 3.6); }
   .switch.pair em { font-style: normal; font-size: 1em; color: var(--text); font-weight: 800; }
   .switch.pair i { font-style: normal; font-size: .7em; color: var(--dim); }
-  .switch.pair span { font-size: 1em; font-weight: 700; opacity: .3; }
-  .switch.pair span.on { opacity: 1; font-weight: 800; }
+  .switch.pair span { font-size: calc(1em - 2pt); font-weight: 400; opacity: .3; }
+  .switch.pair span.on { font-size: 1em; opacity: 1; font-weight: 800; }
   .switch.pair .k12 { color: var(--deck12); }
   .switch.pair .k34 { color: var(--deck34); }
   .title { flex: 1; min-width: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: calc(var(--mm) * 2.3); }
@@ -105,7 +105,19 @@
   .keybox span.shifted { color: var(--acc); }   /* key shifted */
   .keybox span small { display: block; color: var(--dim); font-size: calc(var(--mm) * 1.5); }
 
-  .modes { flex: 0 0 calc(var(--mm) * 17); display: flex; gap: calc(var(--mm) * .8); }
+  .modes { flex: 0 0 calc(var(--mm) * 8.5); display: flex; gap: calc(var(--mm) * .8); }
+  /* the FX strip: always there under the pads, so pads and FX work together */
+  .fxstrip { flex: 0 0 calc(var(--mm) * 14); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap);
+    border-top: 1px solid #262626; padding-top: calc(var(--mm) * .6); }
+  .fxstrip > * { min-width: 0; }
+  .fxstrip button { font-size: calc(var(--mm) * 1.8); padding: 0 calc(var(--mm) * .5); overflow: hidden; }
+  .fxstrip button small { display: block; font-size: calc(var(--mm) * 1.35); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fxstrip button.on { border-color: var(--fx); color: var(--fx); background: color-mix(in srgb, var(--fx) 14%, #1c1c1c); }
+  .fxstrip .beats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; }
+  .fxstrip .beats button { font-size: calc(var(--mm) * 1.9); padding: 0; }
+  .fxstrip .knob { --knob: calc(var(--mm) * 8.5); --acc: #777; justify-content: center; }
+  .fxstrip .knob.fxon { --acc: var(--fx); }
+  .fxstrip .knob span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
   .modes button { flex: 1; font-size: calc(var(--mm) * 2.3); letter-spacing: .02em; }
   .modes button.on { border-color: var(--acc); color: var(--acc); }
   .tempo .shift { flex: 0 0 calc(var(--mm) * 11); font-size: calc(var(--mm) * 1.7); }
@@ -822,9 +834,57 @@ function buildSide(s) {
     modes.appendChild(b); return b;
   });
   const pads = buildPads(s, u, 8);
-  if (stacked()) { deck.append(tr, modes, pads); placeStrip(s, u); } else deck.append(head, u.strip, tr, modes, pads);
+  const fx = buildFxStrip(s, u);
+  if (stacked()) { deck.append(tr, modes, pads, fx); placeStrip(s, u); } else deck.append(head, u.strip, tr, modes, pads, fx);
   if (s === 0) el.append(tempo, deck); else el.append(deck, tempo);
   ui.sides[s] = u;
+  return el;
+}
+
+// The tablet's FX strip for side s (its deck's effect unit), Beat FX or Multi-FX as in Settings: the same
+// controls as the FX pad mode, always at hand.
+function buildFxStrip(s, u) {
+  const el = h("div", "fxstrip");
+  const unit = () => fxUnitOf(deckOf(s));
+  u.fx = { el, paint: () => {} };
+  if (S.fxLayout === "multi") {
+    const knobs = [0, 1, 2].map(j => knob("FX", () => fxState[unit() - 1].meta[j],
+      v => { fxState[unit() - 1].meta[j] = v; setCtl(fxSlotG(unit(), j), "meta", v); }, null, false, () => null,
+      () => fxTapEffect(deckOf(s), unit(), j)));
+    const mix = knob("MIX", () => fxState[unit() - 1].mix, v => { fxState[unit() - 1].mix = v; setCtl(fxUnitG(unit()), "mix", v); }, null);
+    el.append(...knobs, mix);
+    u.fx.paint = () => {
+      const f = fxState[unit() - 1];
+      knobs.forEach((k, j) => {
+        k.classList.toggle("fxon", !!f.enabled[j]);
+        setHTML(k.querySelector("span"), `${f.enabled[j] ? "● " : ""}${fxName(unit(), j).replace(/</g, "&lt;")}`);
+        k.paint();
+      });
+      mix.paint();
+    };
+  } else {
+    const name = h("button"), on = h("button"), beats = h("div", "beats");
+    const level = knob("LEVEL", () => fxState[unit() - 1].mix, v => { fxState[unit() - 1].mix = v; setCtl(fxUnitG(unit()), "mix", v); }, null);
+    bindPress(name, down => { if (down) push(fxSlotG(unit(), 0), deckOf(s).shift ? "prev_effect" : "next_effect"); });
+    const bs = FX_BEATS.map(b => { const x = h("button", "", beatText(b)); bindPress(x, down => { if (down) fxSetBeats(unit(), 1, b); }); beats.appendChild(x); return x; });
+    bindPress(on, down => {
+      if (!down) return;
+      const d = deckOf(s), un = unit(), f = fxState[un - 1];
+      f.enabled[0] = f.enabled[0] ? 0 : 1;
+      setCtl(fxSlotG(un, 0), "enabled", f.enabled[0]);
+      if (f.enabled[0]) { fxRoute(d, un); for (const j of [1, 2]) if (f.enabled[j]) { f.enabled[j] = 0; setCtl(fxSlotG(un, j), "enabled", 0); } }
+      schedulePaint();
+    });
+    el.append(name, beats, on, level);
+    u.fx.paint = () => {
+      const un = unit(), f = fxState[un - 1];
+      setHTML(name, `${fxName(un, 0).replace(/</g, "&lt;")}<small>${deckOf(s).shift ? "◀ previous" : "next effect ▶"}</small>`);
+      bs.forEach((x, i) => x.classList.toggle("on", fxBeat[un - 1] === FX_BEATS[i]));
+      on.classList.toggle("on", !!f.enabled[0]);
+      setHTML(on, `${f.enabled[0] ? "FX ON" : "FX OFF"}<small>unit ${un}</small>`);
+      level.paint();
+    };
+  }
   return el;
 }
 
@@ -1425,6 +1485,7 @@ function paintSide(s) {
   paintLoop(s);
   const u = ui.sides[s];
   if (!u) return;
+  u.fx?.paint();
   const d = deckOf(s);
   u.el.classList.toggle("d34", d.n > 2);
   u.strip?.classList.toggle("d34", d.n > 2); u.nudge?.classList.toggle("d34", d.n > 2);

@@ -27,6 +27,9 @@
 #include "track/track.h"
 #include "track/trackref.h"
 #include "util/samplebuffer.h"
+#include "zydek/zydekpython.h"
+
+#include <QThread>
 
 #ifdef ZYDEK_LIVESTEMS
 #include <fftw3.h>
@@ -613,7 +616,139 @@ void LiveStems::run() {
     }
 }
 
+namespace {
+QJsonObject pythonCall(const QString& name, const QJsonObject& args) {
+    return QJsonDocument::fromJson(python::call(name, QJsonDocument(args).toJson(QJsonDocument::Compact))).object();
+}
+} // namespace
+
+/// The PC stem server first (Settings › Stem server: better models, the PC's GPU), through the Web tab's
+/// Python, which uploads the track and brings the .stem file back. Empty when there's no server, it doesn't
+/// answer, or its job fails: the phone makes them itself then.
+QString LiveStems::separateOnPc(const TrackPointer& pTrack, int id) {
+    QJsonObject prefs;
+    for (int i = 0; i < 60; ++i) {   // Python may still be starting (up to 30 s the first time)
+        prefs = pythonCall(QStringLiteral("prefs"), {});
+        if (!prefs.value(QStringLiteral("starting")).toBool() || m_stop) {
+            break;
+        }
+        QThread::msleep(500);
+    }
+    if (prefs.value(QStringLiteral("stemServer")).toString().isEmpty() || m_stop) {
+        return {};
+    }
+    const auto runJob = [this, id](const QString& name, const QJsonObject& args, double from, double span, int timeoutMs) {
+        const QString job = pythonCall(name, args).value(QStringLiteral("job")).toString();
+        if (job.isEmpty()) {
+            return QJsonObject();
+        }
+        QElapsedTimer waited;
+        waited.start();
+        while (!m_stop && waited.elapsed() < timeoutMs) {
+            const QJsonObject j = pythonCall(QStringLiteral("job"), {{"id", job}});
+            const QString state = j.value(QStringLiteral("state")).toString();
+            if (state == QLatin1String("done")) {
+                return j;
+            }
+            if (state != QLatin1String("running")) {
+                qInfo() << "Zydek live stems: the PC said" << j.value(QStringLiteral("error")).toString();
+                return QJsonObject();
+            }
+            if (span > 0) {
+                QMutexLocker lock(&m_mutex);
+                m_progress = from + span * j.value(QStringLiteral("progress")).toDouble();
+                const double fraction = m_progress;
+                lock.unlock();
+                emit progress(id, fraction);
+            }
+            QThread::msleep(500);
+        }
+        if (m_stop || waited.elapsed() >= timeoutMs) {
+            pythonCall(QStringLiteral("cancel"), {{"id", job}});
+        }
+        return QJsonObject();
+    };
+    if (runJob(QStringLiteral("stemcheck"), {}, 0, 0, 8000).isEmpty()) {   // is it there at all?
+        qInfo() << "Zydek live stems: the PC stem server doesn't answer: making them here";
+        return {};
+    }
+    const QJsonObject done = runJob(QStringLiteral("stems"), {{"path", pTrack->getLocation()}}, 0, 0.99, 15 * 60 * 1000);
+    const QString got = done.value(QStringLiteral("result")).toObject().value(QStringLiteral("path")).toString();
+    if (got.isEmpty() || !QFileInfo::exists(got)) {
+        return {};
+    }
+    // with the other live stems (hidden from the library list, found again next time)
+    QString path = stemsFolder() + QLatin1Char('/') + QFileInfo(got).fileName();
+    for (int n = 2; QFileInfo::exists(path); ++n) {
+        path = stemsFolder() + QLatin1Char('/') + QFileInfo(got).completeBaseName().section(QLatin1Char('.'), 0, -2) +
+                QStringLiteral(" %1.stem.").arg(n) + QFileInfo(got).suffix();
+    }
+    if (!QFile::rename(got, path)) {
+        path = got;
+    }
+    qInfo() << "Zydek live stems: made on the PC:" << path;
+    return path;
+}
+/// The stems file into the library as the same track: its beat grid, key, cues and loops (same sample rate,
+/// same frames), with the original's title.
+bool LiveStems::addStemsTrack(const QString& path, const TrackPointer& pTrack, QString* pError) {
+    // Into the library as the same track: its beat grid, key, cues and loops (same sample rate, same frames)
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (!pLibrary) {
+        *pError = QStringLiteral("Mixxx isn't ready");
+        return false;
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    bool added = false;
+    QMetaObject::invokeMethod(
+            pCollection,
+            [pCollection, path, pTrack, &added] {
+                const TrackPointer pStems = pCollection->getOrAddTrack(TrackRef::fromFilePath(path));
+                if (!pStems) {
+                    return;
+                }
+                pStems->setArtist(pTrack->getArtist());
+                pStems->setTitle(pTrack->getTitle());
+                pStems->setAlbum(pTrack->getAlbum());
+                pStems->setKeys(pTrack->getKeys());
+                if (const mixxx::BeatsPointer pBeats = pTrack->getBeats()) {
+                    pStems->trySetBeats(pBeats);
+                }
+                pStems->setBpmLocked(pTrack->isBpmLocked());
+                pStems->setMainCuePosition(pTrack->getMainCuePosition());
+                for (const CuePointer& pCue : pTrack->getCuePoints()) {
+                    if (pCue->getType() == mixxx::CueType::MainCue) {
+                        continue;
+                    }
+                    const CuePointer pCopy = pStems->createAndAddCue(pCue->getType(),
+                            pCue->getHotCue(),
+                            pCue->getPosition(),
+                            pCue->getEndPosition(),
+                            pCue->getColor());
+                    if (pCopy) {
+                        pCopy->setLabel(pCue->getLabel());
+                    }
+                }
+                added = pCollection->saveTrack(pStems) != TrackCollectionManager::SaveTrackResult::Failed;
+            },
+            Qt::BlockingQueuedConnection);
+    if (!added) {
+        *pError = QStringLiteral("Mixxx couldn't add the stems file");
+        return false;
+    }
+    return true;
+}
+
 QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
+    const int trackId = pTrack->getId().toVariant().toInt();
+    const QString onPc = separateOnPc(pTrack, trackId);
+    if (!onPc.isEmpty()) {
+        return addStemsTrack(onPc, pTrack, pError) ? onPc : QString();
+    }
+    return separateHere(pTrack, pError);
+}
+
+QString LiveStems::separateHere(const TrackPointer& pTrack, QString* pError) {
 #ifndef ZYDEK_LIVESTEMS
     Q_UNUSED(pTrack);
     *pError = QStringLiteral("This build can't make stems on the phone");
@@ -874,48 +1009,7 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
     qInfo() << "Zydek live stems:" << path << "in" << timer.elapsed() << "ms: reading" << msRead << "model" << msModel
             << "stems and encoding them" << msSynth;
 
-    // Into the library as the same track: its beat grid, key, cues and loops (same sample rate, same frames)
-    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
-    if (!pLibrary) {
-        *pError = QStringLiteral("Mixxx isn't ready");
-        return {};
-    }
-    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
-    bool added = false;
-    QMetaObject::invokeMethod(
-            pCollection,
-            [pCollection, path, pTrack, &added] {
-                const TrackPointer pStems = pCollection->getOrAddTrack(TrackRef::fromFilePath(path));
-                if (!pStems) {
-                    return;
-                }
-                pStems->setArtist(pTrack->getArtist());
-                pStems->setTitle(pTrack->getTitle());
-                pStems->setAlbum(pTrack->getAlbum());
-                pStems->setKeys(pTrack->getKeys());
-                if (const mixxx::BeatsPointer pBeats = pTrack->getBeats()) {
-                    pStems->trySetBeats(pBeats);
-                }
-                pStems->setBpmLocked(pTrack->isBpmLocked());
-                pStems->setMainCuePosition(pTrack->getMainCuePosition());
-                for (const CuePointer& pCue : pTrack->getCuePoints()) {
-                    if (pCue->getType() == mixxx::CueType::MainCue) {
-                        continue;
-                    }
-                    const CuePointer pCopy = pStems->createAndAddCue(pCue->getType(),
-                            pCue->getHotCue(),
-                            pCue->getPosition(),
-                            pCue->getEndPosition(),
-                            pCue->getColor());
-                    if (pCopy) {
-                        pCopy->setLabel(pCue->getLabel());
-                    }
-                }
-                added = pCollection->saveTrack(pStems) != TrackCollectionManager::SaveTrackResult::Failed;
-            },
-            Qt::BlockingQueuedConnection);
-    if (!added) {
-        *pError = QStringLiteral("Mixxx couldn't add the stems file");
+    if (!addStemsTrack(path, pTrack, pError)) {
         return {};
     }
     Q_UNUSED(id);

@@ -17,7 +17,8 @@ namespace zydek {
 /// Live stems: splits a track into drums, bass, other and vocals on the phone itself, like Serato's stems,
 /// so a deck can mute them a few seconds after the track loads.
 ///
-/// The model is Open-Unmix UMX-HQ (sigsep, MIT), four small BiLSTM networks quantized to 8 bits and run with
+/// With a PC stem server set up (Settings), the PC makes them first, with its better models; otherwise, or
+/// when it doesn't answer, the phone does. The phone's model is Open-Unmix UMX-HQ (sigsep, MIT), four small BiLSTM networks quantized to 8 bits and run with
 /// ONNX Runtime on the CPU: about 0.2 s for 12 s of music on a recent phone, ~5 s for a whole track. Each one
 /// estimates its instrument's spectrum; their shares of the mixture (soft masks) make the four stems, which add
 /// up to the original. The result is an NI Stems file (.stem.m4a: the mix and four AAC stems, ~40 MB for four
@@ -48,6 +49,9 @@ class LiveStems : public QObject {
   private:
     void run();
     QString separate(const TrackPointer& pTrack, QString* pError);
+    QString separateOnPc(const TrackPointer& pTrack, int id);
+    QString separateHere(const TrackPointer& pTrack, QString* pError);
+    bool addStemsTrack(const QString& path, const TrackPointer& pTrack, QString* pError);
     void remember(int trackId, const QString& path);
 
     UserSettingsPointer m_pConfig;
