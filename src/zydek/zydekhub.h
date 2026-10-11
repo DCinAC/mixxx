@@ -199,7 +199,7 @@ class Hub : public QObject {
     void deckTrackLoaded(int deck, const TrackPointer& pTrack);
     void liveStemsProgress(int trackId, double fraction);
     void liveStemsFinished(int trackId, const QString& path, const QString& error);
-    QJsonObject swapToStems(int deck);
+    QJsonObject swapToStems(int deck, bool keepPosition);
     void emitDeckStems(int deck);
     QJsonArray deckStemsJson() const;
     QJsonObject liveStemsStatus() const;

@@ -484,6 +484,11 @@ LiveStems::LiveStems(UserSettingsPointer pConfig, QObject* pParent)
             }
         }
     }
+    // separations cut short (the app closed): their half-written files
+    const QFileInfoList parts = QDir(stemsFolder()).entryInfoList({QStringLiteral("*.part")}, QDir::Files);
+    for (const QFileInfo& part : parts) {
+        QFile::remove(part.absoluteFilePath());
+    }
     m_thread = std::thread([this] { run(); });
 }
 

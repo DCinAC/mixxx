@@ -532,7 +532,7 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         return result({{"ok", true}});
     }
     if (path == QLatin1String("/api/livestems/swap")) {   // ?deck=1..4: load its stems, where it is
-        return result(swapToStems(arg("deck").toInt() - 1));
+        return result(swapToStems(arg("deck").toInt() - 1, true));
     }
     if (path == QLatin1String("/api/library/rename")) {   // ?id=&title=
         const QJsonObject r = m_library.renameTrack(arg("id").toInt(), arg("title"));
@@ -1442,10 +1442,15 @@ void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
         emitDeckStems(deck);
         return;
     }
+    // samples (and anything this short) don't need stems
+    if (location.contains(QLatin1String("/ZyDeck Samples/")) || pTrack->getDuration() < 45) {
+        emitDeckStems(deck);
+        return;
+    }
     const QString cached = m_pLiveStems->stemFileFor(ds.trackId);
-    if (!cached.isEmpty()) {   // made before: straight in
+    if (!cached.isEmpty()) {   // made before: straight in, from its start (the deck has no position of its own yet)
         ds.state = QStringLiteral("ready");
-        swapToStems(deck);
+        swapToStems(deck, false);
         return;
     }
     if (m_liveStemsAuto) {
@@ -1483,12 +1488,12 @@ void Hub::liveStemsFinished(int trackId, const QString& path, const QString& err
         if (playing) {
             emitDeckStems(i);   // the pages offer the swap: it makes a short gap
         } else {
-            swapToStems(i);
+            swapToStems(i, true);
         }
     }
 }
 
-QJsonObject Hub::swapToStems(int deck) {
+QJsonObject Hub::swapToStems(int deck, bool keepPosition) {
     if (deck < 0 || deck >= kNumDecks || !m_pLiveStems) {
         return {{"ok", false}, {"error", "No such deck"}};
     }
@@ -1497,9 +1502,13 @@ QJsonObject Hub::swapToStems(int deck) {
         return {{"ok", false}, {"error", "Its stems aren't ready"}};
     }
     const QString group = QStringLiteral("[Channel%1]").arg(deck + 1);
-    m_stemsSeek.insert(group,
-            {ControlObject::get(ConfigKey(group, QStringLiteral("playposition"))),
-                    ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0});
+    if (keepPosition) {   // where the deck is now, playing or not, once the stems load
+        m_stemsSeek.insert(group,
+                {ControlObject::get(ConfigKey(group, QStringLiteral("playposition"))),
+                        ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0});
+    } else {
+        m_stemsSeek.remove(group);
+    }
     const QJsonObject r = m_library.loadLocation(path, QStringLiteral("deck%1").arg(deck + 1), true);
     if (!r.value(QStringLiteral("ok")).toBool()) {
         m_stemsSeek.remove(group);
