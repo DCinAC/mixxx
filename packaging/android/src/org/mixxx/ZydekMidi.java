@@ -12,7 +12,7 @@ import android.media.midi.MidiOutputPort;
 import android.media.midi.MidiReceiver;
 import android.os.Build;
 import android.os.Handler;
-import android.os.Looper;
+import android.os.HandlerThread;
 import android.util.Log;
 import java.io.IOException;
 
@@ -31,10 +31,13 @@ public class ZydekMidi {
 
     private static Context s_context;
     private static MidiManager s_manager;
-    private static final Handler s_handler = new Handler(Looper.getMainLooper());
+    // All of it runs on its own thread: opening the port is a call into Android's MIDI service, which can hang
+    // (it did when the app was replaced while the old one still had the port open), and on the main thread that
+    // froze the whole app at start-up.
+    private static Handler s_handler;
     private static boolean s_enabled;
     private static MidiDevice s_device;
-    private static MidiInputPort s_toComputer;
+    private static volatile MidiInputPort s_toComputer;
     private static MidiOutputPort s_fromComputer;
     private static int s_state = -1;
     private static boolean s_usbPlugged;
@@ -46,10 +49,16 @@ public class ZydekMidi {
     public static void init(Context context) {
         s_context = context.getApplicationContext();
         s_manager = (MidiManager) s_context.getSystemService(Context.MIDI_SERVICE);
+        HandlerThread thread = new HandlerThread("ZydekMidi");
+        thread.start();
+        s_handler = new Handler(thread.getLooper());
     }
 
     /// The hub, when controller mode is turned on or off.
     public static void setEnabled(boolean on) {
+        if (s_handler == null) {
+            return;
+        }
         s_handler.post(() -> {
             if (s_manager == null || on == s_enabled) {
                 return;
@@ -57,9 +66,10 @@ public class ZydekMidi {
             s_enabled = on;
             if (on) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    s_context.registerReceiver(s_usbReceiver, new IntentFilter(USB_STATE), Context.RECEIVER_NOT_EXPORTED);
+                    s_context.registerReceiver(s_usbReceiver, new IntentFilter(USB_STATE), null, s_handler,
+                            Context.RECEIVER_NOT_EXPORTED);
                 } else {
-                    s_context.registerReceiver(s_usbReceiver, new IntentFilter(USB_STATE));
+                    s_context.registerReceiver(s_usbReceiver, new IntentFilter(USB_STATE), null, s_handler);
                 }
                 s_manager.registerDeviceCallback(s_deviceCallback, s_handler);
                 findPort();
