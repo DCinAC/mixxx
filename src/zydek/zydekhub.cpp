@@ -405,6 +405,16 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
 
 HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query& query) {
     auto arg = [&query](const char* name) { return query.value(QLatin1String(name)); };
+    if (path == QLatin1String("/api/whoami")) {   // ZydekLink.java's network scan: "a ZyDeck, called ..."
+        QString name = deviceName();
+#ifdef Q_OS_ANDROID
+        const QString shown = QJniObject::callStaticObjectMethod("org/mixxx/ZydekLink", "displayName", "()Ljava/lang/String;").toString();
+        if (!shown.isEmpty()) {
+            name = shown;
+        }
+#endif
+        return json(QJsonObject{{"zydeck", true}, {"name", name}});
+    }
     if (path == QLatin1String("/api/library/views")) {
         return json(m_library.views());
     }

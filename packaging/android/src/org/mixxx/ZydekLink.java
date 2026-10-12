@@ -6,16 +6,35 @@ import android.net.nsd.NsdServiceInfo;
 import android.os.Build;
 import android.provider.Settings;
 import android.util.Log;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.InterfaceAddress;
+import java.net.NetworkInterface;
+import java.net.URL;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /// Zydek: ZyDecks on the same Wi-Fi find each other, like Bluetooth devices. Each one announces its server
 /// (port 8766) as a "_zydeck._tcp" service under the device's name; Scan lists the others, and Connect opens
 /// the other one's controller page here (the tablet controlling the phone's decks, say).
+///
+/// Android doesn't announce services on its own hotspot, though (nor do some routers pass the announcements
+/// on), so Scan also asks every address of this device's Wi-Fi networks directly: GET /api/whoami on port
+/// 8766, which only a ZyDeck answers.
 public class ZydekLink {
     private static final String TAG = "ZydekLink";
     private static final String TYPE = "_zydeck._tcp.";
@@ -27,6 +46,13 @@ public class ZydekLink {
     private static final ArrayDeque<NsdServiceInfo> s_toResolve = new ArrayDeque<>();
     private static boolean s_resolving;
     private static boolean s_discovering;
+    private static boolean s_probing;
+    private static Context s_context;
+
+    /// This device's name, for /api/whoami (the hub)
+    public static String displayName() {
+        return s_context == null ? Build.MODEL : deviceName(s_context);
+    }
 
     /// The name other devices see: the one set in Android's settings ("About phone"), or the model.
     static String deviceName(Context context) {
@@ -41,6 +67,7 @@ public class ZydekLink {
         if (s_nsd != null) {
             return;   // announced once per app, not per activity
         }
+        s_context = context.getApplicationContext();
         s_nsd = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
         NsdServiceInfo info = new NsdServiceInfo();
         info.setServiceName(deviceName(context));
@@ -75,6 +102,10 @@ public class ZydekLink {
             return;
         }
         s_found.clear();
+        if (!s_probing) {
+            s_probing = true;
+            new Thread(ZydekLink::probeNetworks, "zydeck-scan").start();
+        }
         if (s_discovering) {
             return;
         }
@@ -167,11 +198,98 @@ public class ZydekLink {
         });
     }
 
+    /// Every address of this device's Wi-Fi networks (its own hotspot's too), at most 254 per network, asked
+    /// at once in batches: about 10 s at worst.
+    private static void probeNetworks() {
+        try {
+            Set<String> mine = new HashSet<>();
+            List<String> hosts = new ArrayList<>();
+            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                String name = ni.getName();
+                if (!ni.isUp() || ni.isLoopback() || !(name.startsWith("wlan") || name.startsWith("swlan")
+                        || name.startsWith("ap") || name.startsWith("eth"))) {
+                    continue;
+                }
+                for (InterfaceAddress a : ni.getInterfaceAddresses()) {
+                    if (!(a.getAddress() instanceof Inet4Address)) {
+                        continue;
+                    }
+                    mine.add(a.getAddress().getHostAddress());
+                    byte[] b = a.getAddress().getAddress();
+                    int ip = ((b[0] & 255) << 24) | ((b[1] & 255) << 16) | ((b[2] & 255) << 8) | (b[3] & 255);
+                    int prefix = Math.max(a.getNetworkPrefixLength(), 24);
+                    int net = ip & (-1 << (32 - prefix));
+                    int count = (1 << (32 - prefix)) - 2;
+                    for (int i = 1; i <= count; i++) {
+                        int h = net + i;
+                        hosts.add(((h >>> 24) & 255) + "." + ((h >>> 16) & 255) + "." + ((h >>> 8) & 255) + "." + (h & 255));
+                    }
+                }
+            }
+            hosts.removeAll(mine);
+            ExecutorService pool = Executors.newFixedThreadPool(48);
+            for (String host : hosts) {
+                pool.execute(() -> probe(host));
+            }
+            pool.shutdown();
+            pool.awaitTermination(20, TimeUnit.SECONDS);
+            pool.shutdownNow();
+        } catch (Exception e) {
+            Log.w(TAG, "network scan failed", e);
+        } finally {
+            synchronized (ZydekLink.class) {
+                s_probing = false;
+            }
+        }
+    }
+
+    private static void probe(String host) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL("http://" + host + ":" + PORT + "/api/whoami").openConnection();
+            c.setConnectTimeout(600);
+            c.setReadTimeout(1500);
+            if (c.getResponseCode() != 200) {
+                return;
+            }
+            ByteArrayOutputStream body = new ByteArrayOutputStream();
+            try (InputStream in = c.getInputStream()) {
+                byte[] buf = new byte[1024];
+                for (int n; (n = in.read(buf)) > 0 && body.size() < 4096;) {
+                    body.write(buf, 0, n);
+                }
+            }
+            JSONObject j = new JSONObject(body.toString("UTF-8"));
+            if (!j.optBoolean("zydeck")) {
+                return;
+            }
+            String name = j.optString("name", host);
+            JSONObject d = new JSONObject();
+            d.put("name", name);
+            d.put("host", host);
+            d.put("port", PORT);
+            synchronized (ZydekLink.class) {
+                for (JSONObject other : s_found.values()) {
+                    if (host.equals(other.optString("host"))) {
+                        return;   // found by its announcement already
+                    }
+                }
+                s_found.put(s_found.containsKey(name) ? name + " (" + host + ")" : name, d);
+            }
+        } catch (Exception e) {
+            // nothing there, or not a ZyDeck
+        } finally {
+            if (c != null) {
+                c.disconnect();
+            }
+        }
+    }
+
     /// [{name, host, port}], and whether it's still looking
     public static synchronized String devices() {
         try {
             JSONObject out = new JSONObject();
-            out.put("scanning", s_discovering);
+            out.put("scanning", s_discovering || s_probing);
             out.put("me", s_myName);
             out.put("devices", new JSONArray(s_found.values()));
             return out.toString();
