@@ -222,6 +222,7 @@
   #app.stacked .topbar .knob { width: calc(var(--mm) * 12); }
   #app.stacked .topbar .switch { height: calc(var(--mm) * 10.5); flex: 1; }
   #app.stacked .topbar .switch.narrow { flex: 0 0 calc(var(--mm) * 15); min-width: 0; }
+  #app .switch.pair.narrow { font-size: calc(var(--mm) * 2.5); gap: calc(var(--mm) * .35); }   /* "Deck 1⇆3" in 15 mm */
   .smpbtn { flex: 1; height: calc(var(--mm) * 9); line-height: 1.05; font-size: calc(var(--mm) * 2); letter-spacing: .04em; }
   .smpbtn i { font-style: normal; font-weight: 400; }
   .smpbtn small { display: block; font-size: calc(var(--mm) * 1.4); font-weight: 500; color: var(--dim); margin-top: 1px; }
@@ -371,6 +372,18 @@
     font-size: calc(var(--mm) * 2.2); background: #0d0d0d; color: var(--text); border: 1px solid #444; border-radius: calc(var(--mm) * 1); padding: 0 calc(var(--mm) * 1.2); }
   #asktext .b { display: flex; gap: calc(var(--mm) * 1.2); margin-top: calc(var(--mm) * 1.6); }
   #asktext .b button { flex: 1; height: calc(var(--mm) * 7); }
+  #fxmenu { position: fixed; z-index: 47; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(94vw, calc(var(--mm) * 110));
+    max-height: 88vh; display: flex; flex-direction: column; gap: calc(var(--mm) * 1.2); background: #151515; border: 1px solid var(--fx);
+    border-radius: calc(var(--mm) * 1.6); padding: calc(var(--mm) * 2); box-shadow: 0 12px 36px rgba(0,0,0,.7); color: var(--text);
+    font-size: calc(var(--mm) * 2); }
+  #fxmenu .t { font-weight: 700; }
+  #fxmenu .seg { display: flex; gap: calc(var(--mm) * .8); }
+  #fxmenu .seg button { flex: 1; height: calc(var(--mm) * 6.5); }
+  #fxmenu .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--mm) * 24), 1fr)); gap: calc(var(--mm) * .8);
+    overflow-y: auto; min-height: 0; }
+  #fxmenu .list button { height: calc(var(--mm) * 6.5); font-size: calc(var(--mm) * 1.9); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #fxmenu button.on { border-color: var(--fx); color: var(--fx); background: color-mix(in srgb, var(--fx) 14%, #1c1c1c); }
+  #fxmenu small { color: var(--dim); }
   .pad .lbl { display: block; font-size: calc(var(--mm) * 1.5); font-weight: 600; opacity: .85; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; max-width: 95%; margin: 0 auto; }
   #linkask { position: fixed; z-index: 45; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(92vw, calc(var(--mm) * 80));
@@ -874,7 +887,7 @@ function buildFxStrip(s, u) {
   } else {
     const name = h("button"), on = h("button");
     const level = knob("LEVEL", () => fxState[unit() - 1].mix, v => { fxState[unit() - 1].mix = v; setCtl(fxUnitG(unit()), "mix", v); }, null);
-    bindPress(name, down => { if (down) push(fxSlotG(unit(), 0), deckOf(s).shift ? "prev_effect" : "next_effect"); });
+    bindPress(name, holdOrTap(() => fxMenu(s), () => push(fxSlotG(unit(), 0), deckOf(s).shift ? "prev_effect" : "next_effect")));
     // BEAT: a knob that snaps from ⅛ to 8 beats, a tick for each step
     const beatIdx = () => Math.max(0, FX_BEAT_STEPS.indexOf(fxBeat[unit() - 1]));
     let lastStep = -1;
@@ -1323,9 +1336,16 @@ function buildPhone() {
     strips[s] = u.strip;
     transportControls(s, u);
     u.mA = h("button"); u.mB = h("button"); u.mC = h("button");
-    const mode = (el, normal, shifted) => bindPress(el, down => { if (!down) return;
-      const d = deckOf(s); d.mode = d.shift ? shifted : normal; d.shift = false; paintSide(s); paintMixer(); });
-    mode(u.mA, "cue", "fx"); mode(u.mB, "loop", "smpl"); mode(u.mC, "stem", "key");
+    const mode = (el, normal, shifted, onHold) => {
+      let hold = null;
+      bindPress(el, down => {
+        clearTimeout(hold);
+        if (!down) return;
+        if (onHold) hold = setTimeout(onHold, HOLD_MS);
+        const d = deckOf(s); d.mode = d.shift ? shifted : normal; d.shift = false; paintSide(s); paintMixer();
+      });
+    };
+    mode(u.mA, "cue", "fx", () => fxMenu(s)); mode(u.mB, "loop", "smpl"); mode(u.mC, "stem", "key");
     u.deck = u.el = h("div", "pdeck");
     u.deck.append(buildNudge(s, u), row("transport", u.cue, u.play), buildPads(s, u, 4), row("modes", u.mA, u.mB, u.mC),
       s ? row("transport", u.sync, u.shiftBtn) : row("transport", u.shiftBtn, u.sync));   // SHIFT on the outside
@@ -1626,6 +1646,52 @@ function paintFxCell(el, s, k) {
     const j = +cell.slice(4);
     return setPad(el, f.enabled[j] ? "lit" : "tint", `<span class="fxname">${esc(fxName(u, j))}</span><small>${d.shift ? "◀" : "▶"} FX ${j + 1}</small>`, "var(--fx)", "#1a0a00");
   }
+}
+// A button that does one thing when tapped and another when held for HOLD_MS (then not the tap's), for bindPress
+const HOLD_MS = 2000;
+function holdOrTap(onHold, onTap) {
+  let timer = null, held = false;
+  return down => {
+    if (down) { held = false; timer = setTimeout(() => { held = true; onHold(); }, HOLD_MS); return; }
+    clearTimeout(timer);
+    if (!held) onTap();
+  };
+}
+// The FX menu (hold the effect's name, or the phone's HOT CUE/FX button): Beat FX or Multi-FX, and any effect
+// straight from the list for this side's unit
+function fxMenu(s) {
+  document.getElementById("fxmenu")?.remove();
+  const u = fxUnitOf(deckOf(s)), esc = t => String(t).replace(/</g, "&lt;");
+  let slot = 0;
+  const box = h("div", "");
+  box.id = "fxmenu";
+  const render = () => {
+    const f = fxState[u - 1], multi = S.fxLayout === "multi";
+    if (!multi) slot = 0;
+    box.innerHTML = `<div class="t">FX · unit ${u}</div>
+      <div class="seg">${[["beat", "Beat FX"], ["multi", "Multi-FX"]].map(([v, l]) =>
+        `<button data-layout="${v}" class="${(S.fxLayout || "beat") === v ? "on" : ""}">${l}</button>`).join("")}</div>
+      ${multi ? `<div class="seg">${[0, 1, 2].map(j =>
+        `<button data-slot="${j}" class="${slot === j ? "on" : ""}">FX ${j + 1}: ${esc(fxName(u, j))}</button>`).join("")}</div>` : ""}
+      <div class="list">${fxNames.length ? fxNames.map((n, i) =>
+        `<button data-fx="${i + 1}" class="${f.loaded[slot] === i + 1 ? "on" : ""}">${esc(n)}</button>`).join("")
+        : `<small>${REMOTE.on ? "The computer's effects can't be listed here: tap the effect's name to go through them" : "Loading the effects…"}</small>`}</div>
+      <div class="seg"><button class="close">Close</button></div>`;
+  };
+  box.addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.layout) { S.fxLayout = b.dataset.layout; saveSettings(); build(); render(); }
+    else if (b.dataset.slot) { slot = +b.dataset.slot; render(); }
+    else if (b.dataset.fx) {
+      fxState[u - 1].loaded[slot] = +b.dataset.fx;
+      setCtl(fxSlotG(u, slot), "loaded_effect", +b.dataset.fx);
+      schedulePaint();
+      box.remove();
+    } else if (b.classList.contains("close")) box.remove();
+  });
+  render();
+  document.body.appendChild(box);
 }
 // Multi-FX: a tap on an effect's knob turns it on or off (SHIFT: the next effect instead)
 function fxTapEffect(d, u, j) {
