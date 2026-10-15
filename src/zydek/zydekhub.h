@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QMap>
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -88,6 +89,16 @@ class Hub : public QObject {
     // FX panel: the effects Mixxx shows (by name, in its order) and what units 1-4 have loaded; beat lengths
     // go to whichever parameter of the effect is measured in beats (Echo's Time, Flanger's period...)
     QJsonObject fxStatus() const;
+    // Stem FX (the STEM pads' second row, like Serato's): 0 echo out the vocals, 1 the instrumental, 2 brake
+    // the instrumental, 3 echo out the drums; again: the stems back. Effect unit 3 (decks 1/3) or 4 (2/4).
+    QJsonObject stemFx(int deck, int fx);
+    void stemFxEnd(int deck, int unit);
+    struct StemFxRun {
+        int fx = -1;     // running, or its stems out
+        int serial = 0;  // timers of an earlier run see a newer serial and stop
+    };
+    StemFxRun m_stemFx[kNumDecks];
+    QJsonArray stemFxJson() const;
     QJsonObject setFxBeats(int unit, int slot, double beats);
     // Output latency compensation: measured (or Mixxx's buffer until then) + the user's fine-tune offset
     int m_measuredLatencyMs = -1;
@@ -207,6 +218,14 @@ class Hub : public QObject {
     };
     QHash<QString, PendingSeek> m_pendingSeek;   // by group
     void deckTrackLoaded(int deck, const TrackPointer& pTrack);
+    // The Stems crate, like Serato's: every track in the crate called "Stems" gets its stems made in the
+    // background (the PC's when there is one), whatever live stems is set to; taking it out deletes them.
+    QTimer m_stemsCrateTimer;
+    QSet<int> m_stemsCrate;
+    QSet<int> m_stemsCrateAsked;   // asked for this run (a failing one isn't asked every 15 s)
+    bool m_stemsCrateRead = false;
+    void checkStemsCrate();
+    QJsonObject stemsCrateStatus(int trackId);
     /// A file standing in for a track on the decks: our live stems, or the PC's adopted for it.
     bool isLiveStems(const QString& location) const;
     void liveStemsProgress(int trackId, double fraction);

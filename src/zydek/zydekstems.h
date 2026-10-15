@@ -33,17 +33,22 @@ class LiveStems : public QObject {
 
     /// Built with ONNX Runtime and the models.
     static bool available();
-    /// Queues the track (once). Results come as progress() and finished().
-    void request(const TrackPointer& pTrack);
+    /// Queues the track (once): a deck's first (urgent), the Stems crate's behind. Results come as progress()
+    /// and finished().
+    void request(const TrackPointer& pTrack, bool urgent = true);
     /// The stems file made from this track before, or empty.
     QString stemFileFor(int trackId) const;
     /// The track a stems file was made from, or 0.
     int originalFor(const QString& stemsPath) const;
     /// Stems made for the track elsewhere (the PC's, from the library's "Make stems"): from now on its stems on
-    /// the decks. The quick ones made here before are deleted.
-    void adopt(int trackId, const QString& path);
+    /// the decks, with the track's beat grid, key, cues and loudness. The quick ones made here before are deleted.
+    void adopt(int trackId, const QString& path, bool copyFromOriginal = false);
+    /// Gives stems files made before the loudness copy their original's ReplayGain (they played louder).
+    void repairLoudness();
     /// Deletes the stems file made from this track (its original was deleted).
     void forget(int trackId);
+    /// The Stems crate let go of the track: the stems made here go (the PC's, a library track, stay).
+    void forgetOurs(int trackId);
     /// {"busy": track id or 0, "progress": 0..1, "queued": n}
     QJsonObject status() const;
 

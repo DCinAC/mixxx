@@ -12,6 +12,7 @@
 #include <QSet>
 #include <QStandardPaths>
 #include <QtEndian>
+#include <algorithm>
 
 #ifdef Q_OS_ANDROID
 #include <sched.h>
@@ -535,7 +536,7 @@ bool LiveStems::available() {
 #endif
 }
 
-void LiveStems::request(const TrackPointer& pTrack) {
+void LiveStems::request(const TrackPointer& pTrack, bool urgent) {
     if (!pTrack) {
         return;
     }
@@ -550,7 +551,11 @@ void LiveStems::request(const TrackPointer& pTrack) {
                 return;
             }
         }
-        m_queue.push_back(pTrack);
+        if (urgent) {
+            m_queue.push_front(pTrack);
+        } else {
+            m_queue.push_back(pTrack);
+        }
     }
     m_wake.wakeAll();
 }
@@ -561,9 +566,23 @@ QString LiveStems::stemFileFor(int trackId) const {
     return QFileInfo::exists(path) ? path : QString();
 }
 
-void LiveStems::adopt(int trackId, const QString& path) {
+void LiveStems::adopt(int trackId, const QString& path, bool copyFromOriginal) {
     if (trackId <= 0 || path.isEmpty()) {
         return;
+    }
+    if (copyFromOriginal) {   // the PC's file came in as a track of its own: give it the original's details
+        ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+        TrackPointer pOriginal;
+        if (pLibrary) {
+            TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+            runOnMain(pCollection, [pCollection, trackId, &pOriginal] {
+                pOriginal = pCollection->getTrackById(TrackId(QVariant(trackId)));
+            });
+        }
+        QString error;
+        if (!pOriginal || !addStemsTrack(path, pOriginal, &error)) {
+            qWarning() << "Zydek live stems: couldn't copy the track's details to" << path << error;
+        }
     }
     QString old;
     {
@@ -598,6 +617,35 @@ void LiveStems::removeReplaced(const QString& path) {
     qInfo() << "Zydek live stems: replaced by better stems, deleted" << path;
 }
 
+void LiveStems::repairLoudness() {
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (!pLibrary) {
+        return;
+    }
+    QHash<int, QString> files;
+    {
+        QMutexLocker lock(&m_mutex);
+        files = m_files;
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    int fixed = 0;
+    runOnMain(pCollection, [pCollection, files, &fixed] {
+        for (auto it = files.cbegin(); it != files.cend(); ++it) {
+            const TrackPointer pOriginal = pCollection->getTrackById(TrackId(QVariant(it.key())));
+            const QList<TrackId> ids = pCollection->resolveTrackIdsFromLocations({it.value()});
+            const TrackPointer pStems = ids.isEmpty() ? TrackPointer() : pCollection->getTrackById(ids.first());
+            if (pOriginal && pStems && pStems->getReplayGain() != pOriginal->getReplayGain()) {
+                pStems->setReplayGain(pOriginal->getReplayGain());
+                pCollection->saveTrack(pStems);
+                ++fixed;
+            }
+        }
+    }, 60000, &m_stop);
+    if (fixed) {
+        qInfo() << "Zydek live stems: gave" << fixed << "stems tracks their original's loudness";
+    }
+}
+
 int LiveStems::originalFor(const QString& stemsPath) const {
     const QString wanted = QFileInfo(stemsPath).canonicalFilePath();
     QMutexLocker lock(&m_mutex);
@@ -607,6 +655,24 @@ int LiveStems::originalFor(const QString& stemsPath) const {
         }
     }
     return 0;
+}
+
+void LiveStems::forgetOurs(int trackId) {
+    QString path;
+    {
+        QMutexLocker lock(&m_mutex);
+        // still waiting its turn: not any more (one being made finishes)
+        m_queue.erase(std::remove_if(m_queue.begin(), m_queue.end(),
+                              [trackId](const TrackPointer& p) { return p->getId().toVariant().toInt() == trackId; }),
+                m_queue.end());
+        path = m_files.value(trackId);
+        if (!path.contains(QLatin1String("/ZyDeck Stems/"))) {
+            return;
+        }
+        m_files.remove(trackId);
+    }
+    remember(0, QString());   // rewrites the list without it
+    removeReplaced(path);     // (later if a deck has it)
 }
 
 void LiveStems::forget(int trackId) {
@@ -779,6 +845,8 @@ bool LiveStems::addStemsTrack(const QString& path, const TrackPointer& pTrack, Q
                 pStems->setTitle(pTrack->getTitle());
                 pStems->setAlbum(pTrack->getAlbum());
                 pStems->setKeys(pTrack->getKeys());
+                // its loudness too: without it Mixxx plays the stems un-normalized, louder than the original
+                pStems->setReplayGain(pTrack->getReplayGain());
                 if (const mixxx::BeatsPointer pBeats = pTrack->getBeats()) {
                     pStems->trySetBeats(pBeats);
                 }

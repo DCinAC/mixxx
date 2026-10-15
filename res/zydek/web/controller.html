@@ -548,6 +548,14 @@ function applySettings() {
 // =====================================================================================================
 const CUE_COLORS = [0xc50a08, 0x32be44, 0x0044ff, 0xf8d200, 0x42d4f4, 0xaf00cc, 0xfca6d7, 0xf2f2ff];
 const STEMS = [{ n: "Vocals", c: "#56B4E9" }, { n: "Other", c: "#CC79A7" }, { n: "Bass", c: "#D55E00" }, { n: "Drums", c: "#009E73" }];
+// Stem FX, like Serato's (the hub's stemFx): the tablet's STEM pads 5-8, the phone's SHIFT + STEM pads
+const STEM_FX = [["VOCALS", "echo out"], ["INSTR", "echo out"], ["INSTR", "brake"], ["DRUMS", "echo out"]];
+const stemFxPad = (d, k) => d.mode === "stem" && d.sc >= 4 && live && !REMOTE.on && (PHONE ? d.shift && k < 4 : k >= 4)
+  ? (PHONE ? k : k - 4) : -1;
+function stemFx(d, i) {
+  fetch(`/api/stemfx?deck=${d.n}&fx=${i}`).then(r => r.json()).then(j => { if (!j.ok) toast(j.error || "Stem FX failed"); })
+    .catch(() => {});
+}
 const DEMO = [["Demo track one", "Artist A", 128, 245], ["Second demo", "Artist B", 126, 312],
               ["Third demo", "Artist C", 124, 280], ["Fourth demo", "Artist D", 130, 198]];
 const decks = DEMO.map(([title, artist, bpm, dur], i) => ({
@@ -1600,6 +1608,12 @@ function paintPad(s, k) {
         else setPad(el, "tint", `MAKE STEMS<small>on the phone</small>`, "var(--play)");
         break;
       }
+      const sf = stemFxPad(d, k);
+      if (sf >= 0) {
+        const on = d.sfx === sf;
+        setPad(el, on ? "lit" : "tint", `${STEM_FX[sf][0]}<small>${on ? "tap: back" : STEM_FX[sf][1]}</small>`, "var(--fx)", "#1a0a00");
+        break;
+      }
       if (k >= 4) { setPad(el, "off", ""); break; }
       if (live && !d.sc) { setPad(el, "off", `${STEMS[k].n}<small>${ls.s === "making" ? "making…" : "no stems"}</small>`); break; }
       setPad(el, d.stems[k] ? "lit" : "tint", `${STEMS[k].n}<small>${d.stems[k] ? "on" : "muted"}</small>`, STEMS[k].c, "#fff"); break;
@@ -1793,6 +1807,8 @@ function padPress(s, k, down) {
       return;
     }
     if (d.mode === "fx") return fxPress(d, k, down);
+    const sf = stemFxPad(d, k);
+    if (sf >= 0) { if (down) stemFx(d, sf); return; }
     if (d.mode === "stem" && k >= 4) return;   // unmapped, like the Inpulse
     let m = PAD_MODE[d.mode];
     if (d.shift && d.mode === "cue") {
@@ -2555,6 +2571,7 @@ function goLive(init) {
     loadWaveform(d, x.n ? x.n.id : null); loadBeats(d, x.n ? x.n.id : null); loadCueLabels(d);
   });
   (init.lstems || []).forEach((x, i) => { if (decks[i]) decks[i].lstem = x; });
+  (init.sfx || []).forEach((x, i) => { if (decks[i]) decks[i].sfx = x; });
   init.s.slice(0, samplers.length).forEach((v, i) => { samplers[i].state = v; if (init.sn[i]) samplers[i].name = init.sn[i].t; });
   init.fx.forEach((u, i) => fxLive[i] = u);
   Object.entries(init.cv || {}).forEach(([k, v]) => applyCv(k, v));
@@ -2651,6 +2668,7 @@ function onMixxx(m) {
     case "stem": d.stems[m.k] = m.v; return markDirty("deck", d);
     case "fx": fxLive[m.u][m.j] = m.v; break;
     case "smode": samplerModes[m.i] = m.v; break;
+    case "sfx": if (decks[m.d]) { decks[m.d].sfx = m.f; markDirty("deck", decks[m.d]); } return;
     case "lstem": if (decks[m.d]) { decks[m.d].lstem = { s: m.s, p: m.p, e: m.e }; markDirty("deck", decks[m.d]); } return;
     default: return;
   }

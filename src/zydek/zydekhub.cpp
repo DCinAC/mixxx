@@ -20,13 +20,17 @@
 
 #include "control/controlobject.h"
 #include "controllers/zydek/zydekcontroller.h"
+#include "library/library.h"
+#include "library/trackcollectionmanager.h"
 #include "mixer/playerinfo.h"
+#include "qml/qmllibraryproxy.h"
 #include "zydek/zydekmain.h"
 #include "moc_zydekhub.cpp"
 #include "effects/backends/effectmanifest.h"
 #include "effects/backends/effectmanifestparameter.h"
 #include "effects/effectchain.h"
 #include "effects/effectparameterslotbase.h"
+#include "effects/backends/effectsbackendmanager.h"
 #include "effects/effectsmanager.h"
 #include "effects/effectslot.h"
 #include "effects/visibleeffectslist.h"
@@ -299,6 +303,15 @@ void Hub::start() {
         m_pLiveStems = new LiveStems(m_pConfig, this);
         connect(m_pLiveStems, &LiveStems::progress, this, &Hub::liveStemsProgress);
         connect(m_pLiveStems, &LiveStems::finished, this, &Hub::liveStemsFinished);
+        m_stemsCrateTimer.setInterval(15000);
+        connect(&m_stemsCrateTimer, &QTimer::timeout, this, &Hub::checkStemsCrate);
+        QTimer::singleShot(25000, this, [this] { checkStemsCrate(); m_stemsCrateTimer.start(); });
+        // stems made before they copied their original's loudness (once Mixxx's library is up)
+        QTimer::singleShot(20000, this, [this] {
+            if (m_pLiveStems) {
+                m_pLiveStems->repairLoudness();
+            }
+        });
     }
     m_lastSessionTimer.setSingleShot(true);
     m_lastSessionTimer.setInterval(2000);
@@ -554,6 +567,9 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/fx")) {
         return json(fxStatus());
     }
+    if (path == QLatin1String("/api/stemfx")) {   // ?deck=1..4&fx=0..3
+        return result(stemFx(arg("deck").toInt() - 1, arg("fx").toInt()));
+    }
     if (path == QLatin1String("/api/fx/beats")) {   // ?unit=1..4&slot=1..3 (0: every slot)&beats=0.5
         return result(setFxBeats(arg("unit").toInt(), arg("slot").toInt(), arg("beats").toDouble()));
     }
@@ -580,11 +596,28 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         emitDeckStems(deck);
         return result({{"ok", true}});
     }
+    if (path == QLatin1String("/api/stemscrate")) {   // ?track=[&on=1|0]: in the Stems crate (made if needed)
+        const int track = arg("track").toInt();
+        if (query.contains(QStringLiteral("on")) && track > 0) {
+            int crate = 0;
+            m_library.crateTrackIds(QStringLiteral("Stems"), &crate);
+            if (!crate) {
+                crate = m_library.createCrate(QStringLiteral("Stems")).value(QStringLiteral("id")).toInt();
+            }
+            const QJsonObject r = crate ? m_library.setCrateTrack(crate, track, arg("on") != QLatin1String("0"))
+                                        : QJsonObject{{"ok", false}, {"error", "Couldn't make the Stems crate"}};
+            if (!r.value(QStringLiteral("ok")).toBool()) {
+                return result(r);
+            }
+            checkStemsCrate();
+        }
+        return json(stemsCrateStatus(track));
+    }
     if (path == QLatin1String("/api/livestems/adopt")) {   // ?id=&path=: the PC made this track's stems
         if (!m_pLiveStems || arg("id").toInt() <= 0 || !QFileInfo::exists(arg("path"))) {
             return result({{"ok", false}, {"error", "No such track or file"}});
         }
-        m_pLiveStems->adopt(arg("id").toInt(), arg("path"));
+        m_pLiveStems->adopt(arg("id").toInt(), arg("path"), true);
         return result({{"ok", true}});
     }
     if (path == QLatin1String("/api/livestems/swap")) {   // ?deck=1..4: load its stems, where it is
@@ -1573,6 +1606,241 @@ QJsonObject Hub::setFxBeats(int unit, int slot, double beats) {
                 : QJsonObject{{"ok", false}, {"error", "This effect has no beat length"}};
 }
 
+// ---- stem FX -----------------------------------------------------------------------------------------
+// Mixxx applies a stem's volume and mute before its effects: muted, an echo on it rings on. A stem is
+// [ChannelN_StemS]: 1 drums, 2 bass, 3 other, 4 vocals. The unit's slot 1 holds Echo, slot 2 Pitch Shift.
+
+namespace {
+const QList<int> kStemFxStems[4] = {{4}, {1, 2, 3}, {1, 2, 3}, {1}};
+QString stemGroup(int deck, int stem) {
+    return QStringLiteral("[Channel%1_Stem%2]").arg(deck + 1).arg(stem);
+}
+QString unitSlot(int unit, int slot) {
+    return QStringLiteral("[EffectRack1_EffectUnit%1_Effect%2]").arg(unit).arg(slot);
+}
+/// The slot's knob for the effect's parameter id: its parameterK number, or 0.
+int knobFor(const EffectSlotPointer& pSlot, const QString& id) {
+    const unsigned int knobs = pSlot ? pSlot->numParameters(EffectParameterType::Knob) : 0;
+    for (unsigned int k = 0; k < knobs; ++k) {
+        const EffectParameterSlotBasePointer pParam = pSlot->getEffectParameterSlot(EffectParameterType::Knob, k);
+        if (pParam && pParam->getManifest() && pParam->getManifest()->id() == id) {
+            return static_cast<int>(k) + 1;
+        }
+    }
+    return 0;
+}
+} // namespace
+
+void Hub::checkStemsCrate() {
+    if (!m_pLiveStems) {
+        return;
+    }
+    int crate = 0;
+    const QList<int> ids = m_library.crateTrackIds(QStringLiteral("Stems"), &crate);
+    const QSet<int> now(ids.cbegin(), ids.cend());
+    if (m_stemsCrateRead) {
+        for (int id : std::as_const(m_stemsCrate)) {
+            if (!now.contains(id)) {   // taken out
+                m_pLiveStems->forgetOurs(id);
+                m_stemsCrateAsked.remove(id);
+            }
+        }
+    }
+    m_stemsCrate = now;
+    m_stemsCrateRead = true;
+    QList<int> wanted;
+    for (int id : now) {
+        if (!m_stemsCrateAsked.contains(id) && m_pLiveStems->stemFileFor(id).isEmpty()) {
+            wanted.append(id);
+            m_stemsCrateAsked.insert(id);
+        }
+    }
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (wanted.isEmpty() || !pLibrary) {
+        return;
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    QList<TrackPointer> tracks;
+    runOnMain(pCollection, [pCollection, wanted, &tracks] {
+        for (int id : wanted) {
+            if (const TrackPointer pTrack = pCollection->getTrackById(TrackId(QVariant(id)))) {
+                tracks.append(pTrack);
+            }
+        }
+    });
+    for (const TrackPointer& pTrack : std::as_const(tracks)) {
+        m_pLiveStems->request(pTrack, false);
+    }
+}
+
+QJsonObject Hub::stemsCrateStatus(int trackId) {
+    int crate = 0;
+    const QList<int> ids = m_library.crateTrackIds(QStringLiteral("Stems"), &crate);
+    int ready = 0;
+    for (int id : ids) {
+        ready += m_pLiveStems && !m_pLiveStems->stemFileFor(id).isEmpty();
+    }
+    return {{"ok", true}, {"crate", crate}, {"inCrate", ids.contains(trackId)},
+            {"hasStems", m_pLiveStems && trackId > 0 && !m_pLiveStems->stemFileFor(trackId).isEmpty()},
+            {"tracks", ids.size()}, {"ready", ready},
+            {"job", m_pLiveStems ? m_pLiveStems->status() : QJsonObject()}};
+}
+
+QJsonArray Hub::stemFxJson() const {
+    QJsonArray out;
+    for (const StemFxRun& run : m_stemFx) {
+        out.append(run.fx);
+    }
+    return out;
+}
+
+void Hub::stemFxEnd(int deck, int unit) {
+    StemFxRun& run = m_stemFx[deck];
+    ++run.serial;
+    run.fx = -1;
+    for (int s = 1; s <= 4; ++s) {
+        ControlObject::set(ConfigKey(QStringLiteral("[EffectRack1_EffectUnit%1]").arg(unit),
+                                   QStringLiteral("group_%1_enable").arg(stemGroup(deck, s))),
+                0);
+    }
+    ControlObject::set(ConfigKey(unitSlot(unit, 1), QStringLiteral("enabled")), 0);
+    ControlObject::set(ConfigKey(unitSlot(unit, 2), QStringLiteral("enabled")), 0);
+    emitJson({{"t", "sfx"}, {"d", deck}, {"f", -1}});
+}
+
+QJsonObject Hub::stemFx(int deck, int fx) {
+    if (deck < 0 || deck >= kNumDecks || fx < 0 || fx > 3) {
+        return {{"ok", false}, {"error", "No such deck or effect"}};
+    }
+    const QString group = QStringLiteral("[Channel%1]").arg(deck + 1);
+    if (ControlObject::get(ConfigKey(group, QStringLiteral("stem_count"))) < 4) {
+        return {{"ok", false}, {"error", "This track has no stems"}};
+    }
+    const int unit = deck % 2 == 0 ? 3 : 4;
+    const QString unitGroup = QStringLiteral("[EffectRack1_EffectUnit%1]").arg(unit);
+    const QList<int>& stems = kStemFxStems[fx];
+    if (m_stemFx[deck].fx >= 0) {   // a second tap (this pad or another): the stems back, the effect off
+        const int was = m_stemFx[deck].fx;
+        stemFxEnd(deck, unit);
+        for (int s : kStemFxStems[was]) {
+            ControlObject::set(ConfigKey(stemGroup(deck, s), QStringLiteral("volume")), 1);
+            ControlObject::set(ConfigKey(stemGroup(deck, s), QStringLiteral("mute")), 0);
+        }
+        return {{"ok", true}, {"back", true}};
+    }
+    const std::shared_ptr<EffectsManager> pEffects = mixxx::qml::QmlEffectsManagerProxy::registeredManager();
+    if (!pEffects) {
+        return {{"ok", false}, {"error", "Mixxx isn't ready"}};
+    }
+    int delayK = 0, feedbackK = 0, sendK = 0, quantizeK = 0, pitchK = 0, rangeK = 0;
+    const bool loaded = runOnMain(qApp, [&] {
+        const EffectChainPointer pChain = pEffects->getStandardEffectChain(unit - 1);
+        const QList<EffectSlotPointer> slotList = pChain ? pChain->getEffectSlots() : QList<EffectSlotPointer>();
+        if (slotList.size() < 2) {
+            return;
+        }
+        const auto ensure = [&](const EffectSlotPointer& pSlot, const QString& id) {
+            if (!pSlot->getManifest() || pSlot->getManifest()->id() != id) {
+                pSlot->loadEffectWithDefaults(pEffects->getBackendManager()->getManifest(id, EffectBackendType::BuiltIn));
+            }
+        };
+        ensure(slotList[0], QStringLiteral("org.mixxx.effects.echo"));
+        ensure(slotList[1], QStringLiteral("org.mixxx.effects.pitchshift"));
+        delayK = knobFor(slotList[0], QStringLiteral("delay_time"));
+        feedbackK = knobFor(slotList[0], QStringLiteral("feedback_amount"));
+        sendK = knobFor(slotList[0], QStringLiteral("send_amount"));
+        quantizeK = knobFor(slotList[0], QStringLiteral("quantize"));
+        pitchK = knobFor(slotList[1], QStringLiteral("pitch"));
+        rangeK = knobFor(slotList[1], QStringLiteral("range"));
+    });
+    const bool brake = fx == 2;
+    if (!loaded || (brake ? !pitchK : !(delayK && feedbackK && sendK))) {
+        return {{"ok", false}, {"error", "Couldn't set up the effect"}};
+    }
+    const auto param = [](int unitNumber, int slot, int k, double v) {
+        if (k) {
+            ControlObject::set(ConfigKey(unitSlot(unitNumber, slot), QStringLiteral("parameter%1").arg(k)), v);
+        }
+    };
+    StemFxRun& run = m_stemFx[deck];
+    run.fx = fx;
+    const int serial = ++run.serial;
+    const double bpm = ControlObject::get(ConfigKey(group, QStringLiteral("bpm")));
+    const int beatMs = static_cast<int>(60000.0 / (bpm > 40 && bpm < 300 ? bpm : 120.0));
+    // the unit plays just these stems: their dry sound on (echo) or replaced (the brake's pitch dive)
+    ControlObject::set(ConfigKey(unitGroup, QStringLiteral("enabled")), 1);
+    ControlObject::set(ConfigKey(unitGroup, QStringLiteral("mix")), 1);
+    ControlObject::set(ConfigKey(unitGroup, QStringLiteral("mix_mode")), brake ? 0 : 1);   // D/W : D+W
+    for (int s = 1; s <= 4; ++s) {
+        ControlObject::set(ConfigKey(unitGroup, QStringLiteral("group_%1_enable").arg(stemGroup(deck, s))),
+                stems.contains(s) ? 1 : 0);
+    }
+    emitJson({{"t", "sfx"}, {"d", deck}, {"f", fx}});
+    if (!brake) {
+        // Echo, half a beat apart, quantized: a beat of it, then the stems drop out and their echo rings on
+        param(unit, 1, delayK, 0.5);
+        param(unit, 1, feedbackK, 0.6);
+        param(unit, 1, sendK, 1.0);
+        param(unit, 1, quantizeK, 1);
+        ControlObject::set(ConfigKey(unitSlot(unit, 2), QStringLiteral("enabled")), 0);
+        ControlObject::set(ConfigKey(unitSlot(unit, 1), QStringLiteral("enabled")), 1);
+        QTimer::singleShot(beatMs, this, [this, deck, stems, serial] {
+            if (m_stemFx[deck].serial != serial) {
+                return;
+            }
+            for (int s : stems) {
+                ControlObject::set(ConfigKey(stemGroup(deck, s), QStringLiteral("mute")), 1);
+            }
+        });
+        QTimer::singleShot(beatMs * 9, this, [this, deck, unit, serial] {   // 0.6^8: the echo has faded
+            if (m_stemFx[deck].serial != serial) {
+                return;
+            }
+            ++m_stemFx[deck].serial;   // the stems stay out (fx stays set: the next tap brings them back)
+            ControlObject::set(ConfigKey(unitSlot(unit, 1), QStringLiteral("enabled")), 0);
+            for (int s = 1; s <= 4; ++s) {
+                ControlObject::set(ConfigKey(QStringLiteral("[EffectRack1_EffectUnit%1]").arg(unit),
+                                           QStringLiteral("group_%1_enable").arg(stemGroup(deck, s))),
+                        0);
+            }
+        });
+    } else {
+        // The brake: over a beat, the pitch dives an octave as the stems fade, then they're out
+        param(unit, 2, rangeK, 1.0);   // the knob's ends = one octave
+        param(unit, 2, pitchK, 0);
+        ControlObject::set(ConfigKey(unitSlot(unit, 1), QStringLiteral("enabled")), 0);
+        ControlObject::set(ConfigKey(unitSlot(unit, 2), QStringLiteral("enabled")), 1);
+        const int steps = std::max(4, beatMs / 25);
+        for (int i = 1; i <= steps; ++i) {
+            QTimer::singleShot(beatMs * i / steps, this, [this, deck, unit, stems, serial, i, steps, pitchK, param] {
+                if (m_stemFx[deck].serial != serial) {
+                    return;
+                }
+                const double t = static_cast<double>(i) / steps;
+                param(unit, 2, pitchK, -t);
+                for (int s : stems) {
+                    ControlObject::set(ConfigKey(stemGroup(deck, s), QStringLiteral("volume")), 1 - t);
+                }
+                if (i == steps) {   // out: muted, back at full volume for when they return
+                    ++m_stemFx[deck].serial;
+                    for (int s : stems) {
+                        ControlObject::set(ConfigKey(stemGroup(deck, s), QStringLiteral("mute")), 1);
+                        ControlObject::set(ConfigKey(stemGroup(deck, s), QStringLiteral("volume")), 1);
+                    }
+                    param(unit, 2, pitchK, 0);
+                    ControlObject::set(ConfigKey(unitSlot(unit, 2), QStringLiteral("enabled")), 0);
+                    for (int s = 1; s <= 4; ++s) {
+                        ControlObject::set(ConfigKey(QStringLiteral("[EffectRack1_EffectUnit%1]").arg(unit),
+                                                   QStringLiteral("group_%1_enable").arg(stemGroup(deck, s))),
+                                0);
+                    }
+                }
+            });
+        }
+    }
+    return {{"ok", true}, {"fx", fx}};
+}
+
 // ---- live stems --------------------------------------------------------------------------------------
 
 namespace {
@@ -1589,6 +1857,9 @@ bool Hub::isLiveStems(const QString& location) const {
 
 void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
     const QString group = QStringLiteral("[Channel%1]").arg(deck + 1);
+    if (m_stemFx[deck].fx >= 0) {   // a new track: its stems start un-muted (Mixxx's stem_auto_reset)
+        stemFxEnd(deck, deck % 2 == 0 ? 3 : 4);
+    }
     DeckStems& ds = m_deckStems[deck];
     if (!pTrack) {
         ds = {};
@@ -2567,6 +2838,7 @@ QJsonObject Hub::snapshot() const {
                     {"remote", remoteStatus()},
                     {"lat", latencySeconds()},
                     {"lstems", deckStemsJson()},
+                    {"sfx", stemFxJson()},
                     {"cv", m_controlValues}}}};
 }
 

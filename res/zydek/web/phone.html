@@ -1451,6 +1451,7 @@ async function openSheet(t) {
     `<button class="analyze${stemServer && !t.stems ? "" : " wide"}">${analyzed ? "Analyze again<small>new beat grid and key</small>" : "Analyze<small>BPM, key and waveform</small>"}</button>` +
     (stemServer && !t.stems ? `<button class="mkstems">Make stems on the PC<small>${esc(STEM_MODELS[stemPreset] || stemPreset)}</small></button>` : "") +
     `<button class="cues">Edit hot cues<small>names and colours</small></button>` +
+    `<button class="scrate">Prepare stems<small>…</small></button>` +
     `<button class="rename">Rename<small>the title in the library</small></button>` : "";
   const removal = `<button class="hide">Remove from library<small>the file stays</small></button>` +
     `<button class="delete">Delete the file<small>from the phone, for good</small></button>`;
@@ -1478,6 +1479,23 @@ async function openSheet(t) {
   s.querySelector(".smp").disabled = t.missing;
   s.querySelector(".smp").addEventListener("click", () => load(t, "sampler"));
   s.querySelector(".mkstems")?.addEventListener("click", () => { closeSheet(); makeStems(t); });
+  // The Stems crate (like Serato's): stems made ahead, in the background; taking it out deletes them
+  const sc = s.querySelector(".scrate");
+  if (sc) {
+    const show = st => {
+      sc.dataset.on = st.inCrate ? "1" : "";
+      sc.innerHTML = st.inCrate
+        ? `In the Stems crate<small>${st.hasStems ? "stems ready" : "stems on the way"} · tap: take out</small>`
+        : `Prepare stems<small>${st.hasStems ? "has stems · keep them in the Stems crate" : "made ahead, in the Stems crate"}</small>`;
+    };
+    api(`/api/stemscrate?${qs({ track: t.id })}`).then(show).catch(() => sc.remove());
+    sc.addEventListener("click", async () => {
+      try {
+        show(await api(`/api/stemscrate?${qs({ track: t.id, on: sc.dataset.on ? 0 : 1 })}`));
+        loadViews();
+      } catch (e) { toast(e.message, "bad"); }
+    });
+  }
   // Removing or deleting: the first tap only asks
   [[".hide", 0, "Tap again to remove it"], [".delete", 1, "Tap again: delete for good"]].forEach(([sel, del, ask]) => {
     const b = s.querySelector(sel);

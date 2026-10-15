@@ -505,6 +505,30 @@ QJsonArray Library::cratesOf(int trackId) {
     return out;
 }
 
+QList<int> Library::crateTrackIds(const QString& name, int* pCrateId) {
+    QList<int> ids;
+    *pCrateId = 0;
+    if (!open()) {
+        return ids;
+    }
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT id FROM crates WHERE name = ?"));
+    q.addBindValue(name);
+    if (!q.exec() || !q.next()) {
+        return ids;
+    }
+    *pCrateId = q.value(0).toInt();
+    QSqlQuery t(m_db);
+    t.prepare(QStringLiteral("SELECT track_id FROM crate_tracks WHERE crate_id = ?"));
+    t.addBindValue(*pCrateId);
+    if (t.exec()) {
+        while (t.next()) {
+            ids.append(t.value(0).toInt());
+        }
+    }
+    return ids;
+}
+
 QJsonObject Library::addTrack(const QString& path) {
     if (!QFileInfo(path).isFile()) {
         return error(QStringLiteral("File not found"));
