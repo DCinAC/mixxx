@@ -18,7 +18,6 @@
 #endif
 
 #include "library/library.h"
-#include "library/trackcollection.h"
 #include "mixer/playerinfo.h"
 #include "library/trackcollectionmanager.h"
 #include "zydek/zydekmain.h"
@@ -588,9 +587,11 @@ void LiveStems::removeReplaced(const QString& path) {
         TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
         runOnMain(pCollection, [pCollection, path] {
             const QList<TrackId> ids = pCollection->resolveTrackIdsFromLocations({path});
-            if (!ids.isEmpty()) {
-                pCollection->internalCollection()->purgeTracks(ids);
+            QList<TrackRef> refs;
+            for (const TrackId& id : ids) {
+                refs.append(TrackRef::fromFilePath(path, id));
             }
+            pCollection->purgeTracks(refs);
         });
     }
     QFile::remove(path);
