@@ -1181,6 +1181,9 @@ function buildStrip(s, u) {
       if (e.clientX < sr.left || e.clientX > sr.right || e.clientY < sr.top || e.clientY > sr.bottom) d.easeMs = 150;
       latTrace(e.type === "pointercancel" ? "c" : "u", s, Math.round(d.vel * 100) / 100);
       d.coast = S.catchup > 0 || d.easeMs > 0;
+      // Let go from where the cursor is: Mixxx's record stopped ~0.1 s past it (the cursor shows what you
+      // heard, and the record slides on a moment after the grab), and would play on from there, skipping it
+      if (live && Math.abs(d.vel) < .2 && d.dur > 0) setCtl(ch(d.n), "playposition", clamp(d.pos, 0, d.dur) / d.dur);
       d.grabbed = false; u.strip.classList.remove("held"); send("scratchOff", d.n, +d.vel.toFixed(2));
     },
   });
