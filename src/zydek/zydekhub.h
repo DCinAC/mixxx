@@ -200,11 +200,18 @@ class Hub : public QObject {
     LiveStems* m_pLiveStems = nullptr;
     bool m_liveStemsAuto = true;
     DeckStems m_deckStems[kNumDecks];
-    QHash<QString, std::pair<double, bool>> m_stemsSeek;   // group -> (play position, playing) once it loads
+    struct PendingSeek {   // a swap (to the stems, or back): where the deck was, for when the other file loads
+        double position = 0;
+        bool playing = false;
+        QString location;   // the file that should land there
+    };
+    QHash<QString, PendingSeek> m_pendingSeek;   // by group
     void deckTrackLoaded(int deck, const TrackPointer& pTrack);
     void liveStemsProgress(int trackId, double fraction);
     void liveStemsFinished(int trackId, const QString& path, const QString& error);
     QJsonObject swapToStems(int deck, bool keepPosition);
+    /// Back to the original track, where it is (live stems turned off), when its stems aren't in use.
+    QJsonObject swapToOriginal(int deck);
     void emitDeckStems(int deck);
     QJsonArray deckStemsJson() const;
     QJsonObject liveStemsStatus() const;

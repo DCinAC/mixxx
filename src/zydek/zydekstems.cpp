@@ -542,6 +542,17 @@ QString LiveStems::stemFileFor(int trackId) const {
     return QFileInfo::exists(path) ? path : QString();
 }
 
+int LiveStems::originalFor(const QString& stemsPath) const {
+    const QString wanted = QFileInfo(stemsPath).canonicalFilePath();
+    QMutexLocker lock(&m_mutex);
+    for (auto it = m_files.cbegin(); it != m_files.cend(); ++it) {
+        if (it.value() == stemsPath || (!wanted.isEmpty() && QFileInfo(it.value()).canonicalFilePath() == wanted)) {
+            return it.key();
+        }
+    }
+    return 0;
+}
+
 void LiveStems::forget(int trackId) {
     QString path;
     {

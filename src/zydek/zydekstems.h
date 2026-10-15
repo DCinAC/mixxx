@@ -37,6 +37,8 @@ class LiveStems : public QObject {
     void request(const TrackPointer& pTrack);
     /// The stems file made from this track before, or empty.
     QString stemFileFor(int trackId) const;
+    /// The track a stems file was made from, or 0.
+    int originalFor(const QString& stemsPath) const;
     /// Deletes the stems file made from this track (its original was deleted).
     void forget(int trackId);
     /// {"busy": track id or 0, "progress": 0..1, "queued": n}

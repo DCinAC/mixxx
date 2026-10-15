@@ -561,6 +561,11 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         if (query.contains(QStringLiteral("auto"))) {
             m_liveStemsAuto = arg("auto") != QLatin1String("0");
             saveAudioPrefs();
+            if (!m_liveStemsAuto) {   // off: decks on live stems go back to their originals, where they are
+                for (int i = 0; i < kNumDecks; ++i) {
+                    swapToOriginal(i);   // (not where the stems are in use)
+                }
+            }
         }
         return json(liveStemsStatus());
     }
@@ -1582,21 +1587,24 @@ void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
     if (!location.contains(QLatin1String("/ZyDeck Stems/"))) {   // (its stems stand in for the original)
         m_library.noteLoaded(pTrack->getId().toVariant().toInt());
     }
-    const auto seek = m_stemsSeek.find(group);
-    if (location.contains(QLatin1String("/ZyDeck Stems/"))) {   // our stems took over: back where it was
-        if (seek != m_stemsSeek.end()) {
-            const auto [position, playing] = *seek;
-            m_stemsSeek.erase(seek);
-            ControlObject::set(ConfigKey(group, QStringLiteral("playposition")), position);
-            if (playing) {
+    // a swap (to the stems, or back to the original) carries on where the deck was
+    const auto seek = m_pendingSeek.find(group);
+    if (seek != m_pendingSeek.end()) {
+        const PendingSeek pending = *seek;
+        m_pendingSeek.erase(seek);
+        if (pending.location == location ||
+                QFileInfo(pending.location).canonicalFilePath() == QFileInfo(location).canonicalFilePath()) {
+            ControlObject::set(ConfigKey(group, QStringLiteral("playposition")), pending.position);
+            if (pending.playing) {
                 ControlObject::set(ConfigKey(group, QStringLiteral("play")), 1);
             }
         }
+    }
+    if (location.contains(QLatin1String("/ZyDeck Stems/"))) {   // our stems took over
         ds = {pTrack->getId().toVariant().toInt(), QStringLiteral("on"), 1, {}};
         emitDeckStems(deck);
         return;
     }
-    m_stemsSeek.remove(group);
     ds = {pTrack->getId().toVariant().toInt(), {}, 0, {}};
     if (!m_pLiveStems || isStemsFile(location)) {   // a stems file of its own: nothing to do
         emitDeckStems(deck);
@@ -1610,7 +1618,11 @@ void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
     const QString cached = m_pLiveStems->stemFileFor(ds.trackId);
     if (!cached.isEmpty()) {   // made before: straight in, from its start (the deck has no position of its own yet)
         ds.state = QStringLiteral("ready");
-        swapToStems(deck, false);
+        if (m_liveStemsAuto) {
+            swapToStems(deck, false);
+        } else {
+            emitDeckStems(deck);   // live stems off: the STEM pads offer them
+        }
         return;
     }
     if (m_liveStemsAuto) {
@@ -1663,11 +1675,12 @@ QJsonObject Hub::swapToStems(int deck, bool keepPosition) {
     }
     const QString group = QStringLiteral("[Channel%1]").arg(deck + 1);
     if (keepPosition) {   // where the deck is now, playing or not, once the stems load
-        m_stemsSeek.insert(group,
+        m_pendingSeek.insert(group,
                 {ControlObject::get(ConfigKey(group, QStringLiteral("playposition"))),
-                        ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0});
+                        ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0,
+                        path});
     } else {
-        m_stemsSeek.remove(group);
+        m_pendingSeek.remove(group);
     }
     // Not within half a second of the deck's last load either (see CloneDeckOnLoadDoubleTap in start())
     const int expectId = m_deckStems[deck].trackId;
@@ -1676,9 +1689,43 @@ QJsonObject Hub::swapToStems(int deck, bool keepPosition) {
             return;   // something else was loaded meanwhile
         }
         if (!m_library.loadLocation(path, QStringLiteral("deck%1").arg(deck + 1), true).value(QStringLiteral("ok")).toBool()) {
-            m_stemsSeek.remove(group);
+            m_pendingSeek.remove(group);
         }
     });
+    return {{"ok", true}};
+}
+
+QJsonObject Hub::swapToOriginal(int deck) {
+    if (deck < 0 || deck >= kNumDecks || !m_pLiveStems) {
+        return {{"ok", false}, {"error", "No such deck"}};
+    }
+    const QString group = QStringLiteral("[Channel%1]").arg(deck + 1);
+    const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group);
+    if (!pTrack || !pTrack->getLocation().contains(QLatin1String("/ZyDeck Stems/"))) {
+        return {{"ok", false}, {"error", "Not playing live stems"}};
+    }
+    // Only when the stems version sounds like the original: every stem playing, at full volume
+    const int stems = static_cast<int>(ControlObject::get(ConfigKey(group, QStringLiteral("stem_count"))));
+    for (int s = 1; s <= stems && s <= 4; ++s) {
+        const QString stemGroup = QStringLiteral("[Channel%1_Stem%2]").arg(deck + 1).arg(s);
+        if (ControlObject::get(ConfigKey(stemGroup, QStringLiteral("mute"))) > 0 ||
+                ControlObject::get(ConfigKey(stemGroup, QStringLiteral("volume"))) < 0.99) {
+            return {{"ok", false}, {"error", "Its stems are in use"}};
+        }
+    }
+    const int original = m_pLiveStems->originalFor(pTrack->getLocation());
+    const QString path = original > 0 ? m_library.location(original) : QString();
+    if (path.isEmpty() || !QFileInfo::exists(path)) {
+        return {{"ok", false}, {"error", "The original isn't there any more"}};
+    }
+    m_pendingSeek.insert(group,
+            {ControlObject::get(ConfigKey(group, QStringLiteral("playposition"))),
+                    ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0,
+                    path});
+    if (!m_library.loadLocation(path, QStringLiteral("deck%1").arg(deck + 1), true).value(QStringLiteral("ok")).toBool()) {
+        m_pendingSeek.remove(group);
+        return {{"ok", false}, {"error", "Couldn't load the original"}};
+    }
     return {{"ok", true}};
 }
 
