@@ -1776,6 +1776,14 @@ function bindPress(el, fn) {
 
 // Live: pads use the pad page's MIDI notes (Inpulse 300 MK2 layout, see Tablet-Pads.script.js).
 const PAD_MODE = { cue: 0, roll: 2, stem: 3, jump: 4, fx: 5 };
+// The beat nearest t (seconds) in the deck's beat grid, or t itself without one
+function nearestBeat(d, t) {
+  const b = d.beats;
+  if (!b || !b.length) return t;
+  let lo = 0, hi = b.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (b[mid] <= t) lo = mid; else hi = mid; }
+  return Math.abs(b[lo] - t) <= Math.abs(b[hi] - t) ? b[lo] : b[hi];
+}
 function padPress(s, k, down) {
   const d = deckOf(s), beat = 60 / d.bpm;
   k = padIndex(d, k);
@@ -1832,6 +1840,17 @@ function padPress(s, k, down) {
       return send("pad", d.n, 8 + k, false);
     }
     if (d.shift && d.mode === "fx") m = 6;
+    if (d.mode === "cue" && down && d.grabbed && !d.cues[k]) {
+      // Holding the record: the new cue goes where the cursor is. Mixxx's own position runs a little ahead of
+      // it (the cursor shows what you hear, and the record slides on a moment after the grab), so Mixxx would
+      // snap to the beat after: it sets the cue, then it moves to the beat nearest the cursor.
+      send("pad", d.n, k, true);
+      const t = d.quantize ? nearestBeat(d, d.pos) : d.pos;
+      if (t != null && d.trackSamples > 0 && d.dur > 0) {
+        setCtl(ch(d.n), `hotcue_${k + 1}_position`, Math.round(t / d.dur * d.trackSamples / 2) * 2);
+      }
+      return;
+    }
     return send("pad", d.n, m * 8 + k, down);
   }
   switch (d.mode) {
