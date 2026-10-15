@@ -1183,7 +1183,14 @@ function buildStrip(s, u) {
       d.coast = S.catchup > 0 || d.easeMs > 0;
       // Let go from where the cursor is: Mixxx's record stopped ~0.1 s past it (the cursor shows what you
       // heard, and the record slides on a moment after the grab), and would play on from there, skipping it
-      if (live && Math.abs(d.vel) < .2 && d.dur > 0) setCtl(ch(d.n), "playposition", clamp(d.pos, 0, d.dur) / d.dur);
+      // (with quantize on, Mixxx keeps a playing deck's beat phase through a seek, which put it right back:
+      // quantize is off for that moment)
+      if (live && Math.abs(d.vel) < .2 && d.dur > 0) {
+        const q = d.quantize;
+        if (q) { markLocal(d, "quantize"); setCtl(ch(d.n), "quantize", 0); }
+        setCtl(ch(d.n), "playposition", clamp(d.pos, 0, d.dur) / d.dur);
+        if (q) setTimeout(() => { markLocal(d, "quantize"); setCtl(ch(d.n), "quantize", 1); }, 80);
+      }
       d.grabbed = false; u.strip.classList.remove("held"); send("scratchOff", d.n, +d.vel.toFixed(2));
     },
   });
@@ -2513,7 +2520,7 @@ function applyCv(name, v, ts) {
       case "sync_enabled": return upd("syncMode", v ? 2 : 0);
       case "sync_mode": return upd("leader", v >= 2);                     // 2/3: soft/explicit leader
       case "keylock": return upd("keylock", v > 0);
-      case "quantize": return upd("quantize", v > 0);
+      case "quantize": if (!isLocal(d, "quantize")) upd("quantize", v > 0); return;
       case "pfl": if (!isLocal(d, "pfl")) upd("pfl", v > 0, "mixer"); return;
       case "mute": return upd("muted", v > 0, "mixer");
       case "loop_enabled": return upd("loopOn", v > 0);
