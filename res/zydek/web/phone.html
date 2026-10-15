@@ -1146,10 +1146,10 @@ const STEM_MODELS = { best: "Best — BS-RoFormer SW", fast: "Fast — HTDemucs 
 async function makeStems(t) {
   try {
     const info = await api(`/api/library/track/${t.id}`);
-    stemsFor(info.location, t.title);
+    stemsFor(info.location, t.title, t.id);
   } catch (e) { toast(e.message, "bad"); }
 }
-async function stemsFor(path, title) {
+async function stemsFor(path, title, trackId) {
   const { li, show } = jobRow(`${title} · stems`);
   toast("Making stems on the PC… (progress in the Web tab)");
   try {
@@ -1157,6 +1157,8 @@ async function stemsFor(path, title) {
       j => show(j.progress, j.message ? `${j.message}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}` : null));
     show(1, "Adding to the library");
     await api(`/api/library/add?${qs({ path: res.path })}`);
+    // the decks' stems for this track from now on (live stems); the quick ones made on the phone go
+    if (trackId) await api(`/api/livestems/adopt?${qs({ id: trackId, path: res.path })}`).catch(() => {});
     show(1, `Saved: ${res.path.split("/").pop()}${res.seconds ? ` (separated in ${Math.round(res.seconds)} s)` : ""}`);
     toast(`Stems ready: ${res.title || title}`, "ok");
     setTimeout(() => li.remove(), 12000);

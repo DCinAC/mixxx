@@ -39,6 +39,9 @@ class LiveStems : public QObject {
     QString stemFileFor(int trackId) const;
     /// The track a stems file was made from, or 0.
     int originalFor(const QString& stemsPath) const;
+    /// Stems made for the track elsewhere (the PC's, from the library's "Make stems"): from now on its stems on
+    /// the decks. The quick ones made here before are deleted.
+    void adopt(int trackId, const QString& path);
     /// Deletes the stems file made from this track (its original was deleted).
     void forget(int trackId);
     /// {"busy": track id or 0, "progress": 0..1, "queued": n}
@@ -56,6 +59,9 @@ class LiveStems : public QObject {
     QString separateHere(const TrackPointer& pTrack, QString* pError);
     bool addStemsTrack(const QString& path, const TrackPointer& pTrack, QString* pError);
     void remember(int trackId, const QString& path);
+    /// Deletes a stems file of ours that something better replaced, and its library entry (later, at the next
+    /// start, while a deck or pad has it loaded).
+    void removeReplaced(const QString& path);
 
     UserSettingsPointer m_pConfig;
     mutable QMutex m_mutex;

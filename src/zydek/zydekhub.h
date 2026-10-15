@@ -207,6 +207,8 @@ class Hub : public QObject {
     };
     QHash<QString, PendingSeek> m_pendingSeek;   // by group
     void deckTrackLoaded(int deck, const TrackPointer& pTrack);
+    /// A file standing in for a track on the decks: our live stems, or the PC's adopted for it.
+    bool isLiveStems(const QString& location) const;
     void liveStemsProgress(int trackId, double fraction);
     void liveStemsFinished(int trackId, const QString& path, const QString& error);
     QJsonObject swapToStems(int deck, bool keepPosition);

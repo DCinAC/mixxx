@@ -9,6 +9,7 @@
 #include <QMutexLocker>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QSet>
 #include <QStandardPaths>
 #include <QtEndian>
 
@@ -17,6 +18,8 @@
 #endif
 
 #include "library/library.h"
+#include "library/trackcollection.h"
+#include "mixer/playerinfo.h"
 #include "library/trackcollectionmanager.h"
 #include "zydek/zydekmain.h"
 #include "moc_zydekstems.cpp"
@@ -480,8 +483,12 @@ LiveStems::LiveStems(UserSettingsPointer pConfig, QObject* pParent)
         : QObject(pParent),
           m_pConfig(std::move(pConfig)) {
     QFile f(QDir(m_pConfig->getSettingsPath()).filePath(kFilesJson));
+    bool listRead = false;   // the sweep below only with the list in hand: it deletes what isn't on it
     if (f.open(QIODevice::ReadOnly)) {
-        const QJsonObject j = QJsonDocument::fromJson(f.readAll()).object();
+        QJsonParseError parse;
+        const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &parse);
+        listRead = parse.error == QJsonParseError::NoError && doc.isObject();
+        const QJsonObject j = doc.object();
         for (auto it = j.begin(); it != j.end(); ++it) {
             if (QFileInfo::exists(it.value().toString())) {
                 m_files.insert(it.key().toInt(), it.value().toString());
@@ -492,6 +499,19 @@ LiveStems::LiveStems(UserSettingsPointer pConfig, QObject* pParent)
     const QFileInfoList parts = QDir(stemsFolder()).entryInfoList({QStringLiteral("*.part")}, QDir::Files);
     for (const QFileInfo& part : parts) {
         QFile::remove(part.absoluteFilePath());
+    }
+    // stems of ours that better ones replaced while a deck had them (removeReplaced): no track uses them
+    QSet<QString> used;
+    for (const QString& p : std::as_const(m_files)) {
+        used.insert(QFileInfo(p).canonicalFilePath());
+    }
+    const QFileInfoList ours = listRead
+            ? QDir(stemsFolder()).entryInfoList({QStringLiteral("*.stem.m4a"), QStringLiteral("*.stem.mp4")}, QDir::Files)
+            : QFileInfoList();
+    for (const QFileInfo& file : ours) {
+        if (!used.contains(file.canonicalFilePath())) {
+            QFile::remove(file.absoluteFilePath());   // (the library lists it as missing, hidden with ZyDeck Stems)
+        }
     }
     m_thread = std::thread([this] { run(); });
 }
@@ -540,6 +560,41 @@ QString LiveStems::stemFileFor(int trackId) const {
     QMutexLocker lock(&m_mutex);
     const QString path = m_files.value(trackId);
     return QFileInfo::exists(path) ? path : QString();
+}
+
+void LiveStems::adopt(int trackId, const QString& path) {
+    if (trackId <= 0 || path.isEmpty()) {
+        return;
+    }
+    QString old;
+    {
+        QMutexLocker lock(&m_mutex);
+        old = m_files.value(trackId);
+    }
+    remember(trackId, path);
+    if (!old.isEmpty() && old != path && old.contains(QLatin1String("/ZyDeck Stems/"))) {
+        removeReplaced(old);
+    }
+}
+
+void LiveStems::removeReplaced(const QString& path) {
+    for (const TrackPointer& pLoaded : PlayerInfo::instance().getLoadedTracks()) {
+        if (pLoaded && pLoaded->getLocation() == path) {
+            qInfo() << "Zydek live stems: replaced, but loaded: deleted at the next start:" << path;
+            return;   // the start-up sweep (constructor) takes it
+        }
+    }
+    if (::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get()) {
+        TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+        runOnMain(pCollection, [pCollection, path] {
+            const QList<TrackId> ids = pCollection->resolveTrackIdsFromLocations({path});
+            if (!ids.isEmpty()) {
+                pCollection->internalCollection()->purgeTracks(ids);
+            }
+        });
+    }
+    QFile::remove(path);
+    qInfo() << "Zydek live stems: replaced by better stems, deleted" << path;
 }
 
 int LiveStems::originalFor(const QString& stemsPath) const {
@@ -618,7 +673,7 @@ void LiveStems::run() {
         QString error;
         const QString path = separate(pTrack, &error);
         if (!path.isEmpty()) {
-            remember(id, path);
+            adopt(id, path);
         }
         {
             QMutexLocker lock(&m_mutex);

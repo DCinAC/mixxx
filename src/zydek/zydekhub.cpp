@@ -580,6 +580,13 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         emitDeckStems(deck);
         return result({{"ok", true}});
     }
+    if (path == QLatin1String("/api/livestems/adopt")) {   // ?id=&path=: the PC made this track's stems
+        if (!m_pLiveStems || arg("id").toInt() <= 0 || !QFileInfo::exists(arg("path"))) {
+            return result({{"ok", false}, {"error", "No such track or file"}});
+        }
+        m_pLiveStems->adopt(arg("id").toInt(), arg("path"));
+        return result({{"ok", true}});
+    }
     if (path == QLatin1String("/api/livestems/swap")) {   // ?deck=1..4: load its stems, where it is
         return result(swapToStems(arg("deck").toInt() - 1, true));
     }
@@ -1575,6 +1582,11 @@ bool isStemsFile(const QString& location) {
 }
 } // namespace
 
+bool Hub::isLiveStems(const QString& location) const {
+    return location.contains(QLatin1String("/ZyDeck Stems/")) ||
+            (m_pLiveStems && m_pLiveStems->originalFor(location) > 0);
+}
+
 void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
     const QString group = QStringLiteral("[Channel%1]").arg(deck + 1);
     DeckStems& ds = m_deckStems[deck];
@@ -1584,7 +1596,8 @@ void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
         return;
     }
     const QString location = pTrack->getLocation();
-    if (!location.contains(QLatin1String("/ZyDeck Stems/"))) {   // (its stems stand in for the original)
+    const bool liveStems = isLiveStems(location);
+    if (!liveStems) {   // (its stems stand in for the original)
         m_library.noteLoaded(pTrack->getId().toVariant().toInt());
     }
     // a swap (to the stems, or back to the original) carries on where the deck was
@@ -1600,7 +1613,7 @@ void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
             }
         }
     }
-    if (location.contains(QLatin1String("/ZyDeck Stems/"))) {   // our stems took over
+    if (liveStems) {   // the stems took over
         ds = {pTrack->getId().toVariant().toInt(), QStringLiteral("on"), 1, {}};
         emitDeckStems(deck);
         return;
@@ -1701,7 +1714,7 @@ QJsonObject Hub::swapToOriginal(int deck) {
     }
     const QString group = QStringLiteral("[Channel%1]").arg(deck + 1);
     const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group);
-    if (!pTrack || !pTrack->getLocation().contains(QLatin1String("/ZyDeck Stems/"))) {
+    if (!pTrack || !isLiveStems(pTrack->getLocation())) {
         return {{"ok", false}, {"error", "Not playing live stems"}};
     }
     // Only when the stems version sounds like the original: every stem playing, at full volume
