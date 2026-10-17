@@ -566,6 +566,17 @@ QString LiveStems::stemFileFor(int trackId) const {
     return QFileInfo::exists(path) ? path : QString();
 }
 
+QStringList LiveStems::files() const {
+    QMutexLocker lock(&m_mutex);
+    QStringList out;
+    for (const QString& path : m_files) {
+        if (QFileInfo::exists(path)) {
+            out.append(path);
+        }
+    }
+    return out;
+}
+
 void LiveStems::adopt(int trackId, const QString& path, bool copyFromOriginal) {
     if (trackId <= 0 || path.isEmpty()) {
         return;

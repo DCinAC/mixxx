@@ -484,6 +484,7 @@
       <div class="row2"><span id="a-info"></span><button id="a-apply">Apply</button></div>
       <label>Audio buffer<small style="display:inline;margin-left:6px">smaller answers sooner; bigger if the sound breaks up</small></label>
       <div class="segs" id="a-buf"></div>
+      <div class="row2"><span id="a-opt-st">Optimize: tests the phone under a heavy load (silently, decks empty) and keeps the smallest buffer that doesn't break up</span><button id="a-opt">Optimize</button></div>
       <label>Latency compensation</label>
       <div class="row2"><span id="a-lat">…</span><button id="a-measure">Measure again</button></div>
       <div class="row2"><input type="range" id="a-off" min="-100" max="300" step="5" style="flex:1"><span id="a-off-v" style="flex:none;width:70px;text-align:right"></span></div>
@@ -720,6 +721,7 @@ function connect() {
     const m = JSON.parse(ev.data);
     if (m.t === "remote") return onRemote(m);
     if (m.t === "lat") { LAT = m.s || 0; return; }
+    if (m.t === "opt") { showOptimize(m.o); return; }
     if (m.init) {
       LAT = m.init.lat || 0;
       if (m.init.remote) onRemote(m.init.remote);
@@ -1414,6 +1416,19 @@ function paintLatency(a) {
 }
 $("#a-off").addEventListener("input", () => { $("#a-off-v").textContent = `${+$("#a-off").value > 0 ? "+" : ""}${$("#a-off").value} ms`; });
 $("#a-off").addEventListener("change", async () => { try { paintLatency(await api(`/api/audio/latency?offset=${$("#a-off").value}`)); } catch {} });
+// One-tap optimisation (the hub runs it: decks empty, the main output silent meanwhile)
+let optRunning = false;
+function showOptimize(o) {
+  optRunning = !!o.running;
+  $("#a-opt").textContent = optRunning ? "Cancel" : "Optimize";
+  const tried = (o.results || []).map(r => `buffer ${r.buffer}: ${r.dropouts ? r.dropouts + " dropouts" : "clean"}`).join(" · ");
+  $("#a-opt-st").textContent = o.running ? `${o.state} ${tried}` : o.error ? `${o.error}${tried ? " · " + tried : ""}`
+    : o.chosen ? `Kept buffer ${o.chosen}${tried ? " · " + tried : ""}` : $("#a-opt-st").textContent;
+  if (!o.running && o.chosen) loadAudio();
+}
+$("#a-opt").addEventListener("click", async () => {
+  try { showOptimize(await api(`/api/audio/optimize${optRunning ? "?cancel=1" : ""}`)); } catch (e) { toast(e.message, "bad"); }
+});
 $("#a-measure").addEventListener("click", async () => {
   $("#a-lat").textContent = "Measuring…";
   await api("/api/audio/latency?measure=1").catch(() => {});

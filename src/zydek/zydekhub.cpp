@@ -377,6 +377,18 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     if (path == QLatin1String("/api/audio/buffer")) {   // ?index=3..7
         return result(setAudioBuffer(query.value(QStringLiteral("index")).toInt()));
     }
+    if (path == QLatin1String("/api/audio/optimize")) {   // start · ?status=1 · ?cancel=1
+        if (query.contains(QStringLiteral("cancel"))) {
+            if (m_optimize.running) {
+                finishOptimize(QStringLiteral("Cancelled"));
+            }
+            return json(optimizeStatus());
+        }
+        if (query.contains(QStringLiteral("status"))) {
+            return json(optimizeStatus());
+        }
+        return result(startOptimize());
+    }
     if (path == QLatin1String("/api/audio/latency")) {   // ?offset=ms (fine-tune) · ?measure=1
         if (query.contains(QStringLiteral("offset"))) {
             m_latencyOffsetMs = std::clamp(query.value(QStringLiteral("offset")).toInt(), -200, 400);
@@ -1190,6 +1202,146 @@ QJsonObject Hub::setAudioBuffer(int index) {
     return out;
 }
 
+// ---- one-tap audio optimisation ------------------------------------------------------------------------
+
+namespace {
+const int kOptimizeBuffers[] = {3, 4, 5};   // 5.3, 10.7, 21.3 ms at 48 kHz
+constexpr int kOptimizeSeconds = 30;        // per buffer: a stall every half a minute still shows
+ConfigKey deckKey(int deck, const char* key) {
+    return ConfigKey(QStringLiteral("[Channel%1]").arg(deck), QLatin1String(key));
+}
+} // namespace
+
+QJsonObject Hub::optimizeStatus() const {
+    return {{"running", m_optimize.running}, {"state", m_optimize.state}, {"results", m_optimize.results},
+            {"chosen", m_optimize.chosen}, {"error", m_optimize.error},
+            {"seconds", kOptimizeSeconds}};
+}
+
+QJsonObject Hub::startOptimize() {
+    if (m_optimize.running) {
+        return {{"ok", false}, {"error", "Already testing"}};
+    }
+    if (m_controllerMode) {
+        return {{"ok", false}, {"error", "In controller mode the sound comes from the computer"}};
+    }
+    for (int deck = 1; deck <= kNumDecks; ++deck) {
+        if (ControlObject::get(deckKey(deck, "track_loaded")) > 0) {
+            return {{"ok", false}, {"error", "Empty the decks first: the test plays tracks on all four (silently)"}};
+        }
+    }
+    // the load: stems tracks first (the heaviest), then the most played tracks
+    QStringList stems = m_pLiveStems ? m_pLiveStems->files() : QStringList();
+    QList<int> tracks;
+    for (const QJsonValue& t : m_library.tracks(QString(), QStringLiteral("all"), QStringLiteral("played"), 40, 0)) {
+        const QJsonObject o = t.toObject();
+        if (!o.value(QStringLiteral("missing")).toBool() && o.value(QStringLiteral("duration")).toDouble() > 90) {
+            tracks.append(o.value(QStringLiteral("id")).toInt());
+        }
+    }
+    if (stems.size() + tracks.size() < kNumDecks) {
+        return {{"ok", false}, {"error", "The test needs four tracks of at least 1.5 minutes in the library"}};
+    }
+    Optimize& o = m_optimize;
+    const int serial = o.serial + 1;
+    o = Optimize();
+    o.serial = serial;
+    o.running = true;
+    o.mainGain = ControlObject::get(ConfigKey(QStringLiteral("[Master]"), QStringLiteral("gain")));
+    ControlObject::set(ConfigKey(QStringLiteral("[Master]"), QStringLiteral("gain")), 0);   // silent from here
+    for (int deck = 1; deck <= kNumDecks; ++deck) {
+        const QString target = QStringLiteral("deck%1").arg(deck);
+        if (deck <= 2 && !stems.isEmpty()) {
+            m_library.loadLocation(stems.takeFirst(), target, true);
+        } else {
+            m_library.load(tracks.takeFirst(), target);
+        }
+    }
+    o.state = QStringLiteral("Loading four tracks…");
+    emitJson({{"t", "opt"}, {"o", optimizeStatus()}});
+    QTimer::singleShot(6000, this, [this, serial] {
+        if (m_optimize.serial != serial || !m_optimize.running) {
+            return;
+        }
+        for (int deck = 1; deck <= kNumDecks; ++deck) {   // key lock and +4 %: the time-stretcher is the heavy part
+            ControlObject::set(deckKey(deck, "keylock"), 1);
+            ControlObject::set(deckKey(deck, "rate"), 0.5 * ControlObject::get(deckKey(deck, "rate_dir")));
+            ControlObject::set(deckKey(deck, "playposition"), 0.2);
+            ControlObject::set(deckKey(deck, "play"), 1);
+        }
+        optimizeStep(serial);
+    });
+    return {{"ok", true}, {"started", true}};
+}
+
+void Hub::optimizeStep(int serial) {
+    Optimize& o = m_optimize;
+    if (o.serial != serial || !o.running) {
+        return;
+    }
+    const int buffer = kOptimizeBuffers[o.step];
+    const QJsonObject set = setAudioBuffer(buffer);
+    if (!set.value(QStringLiteral("ok")).toBool(true)) {
+        finishOptimize(set.value(QStringLiteral("error")).toString());
+        return;
+    }
+    o.state = QStringLiteral("Trying a %1 ms buffer…").arg(QString::number((32 << buffer) * 1000.0 / 48000, 'f', 1));
+    emitJson({{"t", "opt"}, {"o", optimizeStatus()}});
+    // after the sound has restarted with the new buffer
+    QTimer::singleShot(4000, this, [this, serial] {
+        if (m_optimize.serial != serial || !m_optimize.running) {
+            return;
+        }
+        m_optimize.overloadsAt = ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("audio_latency_overload_count")));
+        QTimer::singleShot(kOptimizeSeconds * 1000, this, [this, serial] { optimizeMeasure(serial); });
+    });
+}
+
+void Hub::optimizeMeasure(int serial) {
+    Optimize& o = m_optimize;
+    if (o.serial != serial || !o.running) {
+        return;
+    }
+    const int buffer = kOptimizeBuffers[o.step];
+    const int dropouts = static_cast<int>(
+            ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("audio_latency_overload_count"))) - o.overloadsAt);
+    o.results.append(QJsonObject{{"buffer", buffer}, {"dropouts", dropouts}});
+    const int last = static_cast<int>(std::size(kOptimizeBuffers)) - 1;
+    if (dropouts == 0 || o.step == last) {
+        o.chosen = buffer;
+        finishOptimize(QString());
+        return;
+    }
+    ++o.step;
+    optimizeStep(serial);
+}
+
+void Hub::finishOptimize(const QString& error) {
+    Optimize& o = m_optimize;
+    o.running = false;
+    ++o.serial;   // its timers stop
+    o.error = error;
+    for (int deck = 1; deck <= kNumDecks; ++deck) {
+        ControlObject::set(deckKey(deck, "play"), 0);
+        ControlObject::set(deckKey(deck, "keylock"), 0);
+        ControlObject::set(deckKey(deck, "rate"), 0);
+        if (ControlObject::get(deckKey(deck, "track_loaded")) > 0) {   // (eject on an empty deck reloads the last track)
+            ControlObject::set(deckKey(deck, "eject"), 1);
+            ControlObject::set(deckKey(deck, "eject"), 0);
+        }
+    }
+    if (o.chosen) {
+        setAudioBuffer(o.chosen);   // (it measures the output again)
+    }
+    // the volume comes back once the decks have stopped
+    const double gain = o.mainGain;
+    QTimer::singleShot(500, this, [gain] {
+        ControlObject::set(ConfigKey(QStringLiteral("[Master]"), QStringLiteral("gain")), gain);
+    });
+    o.state = error.isEmpty() ? QStringLiteral("Done") : error;
+    emitJson({{"t", "opt"}, {"o", optimizeStatus()}});
+}
+
 void Hub::outputLatencyMeasured(int ms, const QString& route) {
     m_measuredLatencyMs = ms;
     m_latencyRoute = route;
@@ -1868,6 +2020,10 @@ void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
     }
     const QString location = pTrack->getLocation();
     const bool liveStems = isLiveStems(location);
+    if (m_optimize.running) {   // the audio test's load: not the user's, no stems made for it
+        ds = {pTrack->getId().toVariant().toInt(), {}, 0, {}};
+        return;
+    }
     if (!liveStems) {   // (its stems stand in for the original)
         m_library.noteLoaded(pTrack->getId().toVariant().toInt());
     }

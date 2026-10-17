@@ -443,6 +443,8 @@
   <div class="row"><div>Nudge sensitivity<small>How much the nudge bars bend the speed: lower is finer, for nudging the beats into line</small></div>
     <div><input type="range" id="s-nudge" min="0.1" max="1" step="0.05"><small><span class="val" id="s-nudge-v"></span></small></div></div>
   <div class="row"><div>Tempo direction</div><div class="seg" id="s-dir"></div></div>
+  <div class="row"><div>Audio buffer<small id="s-buf-note">How much sound Mixxx makes at a time: smaller answers sooner, but breaks up if the device can't keep up. Optimize tests this device under a heavy load (silently, decks empty) and keeps the smallest that doesn't break up</small></div>
+    <div><div class="seg" id="s-buf"></div><button id="s-opt" style="margin-top:6px">Optimize</button></div></div>
   <div class="row"><div>Touch input<small id="s-input-note">Precision: moves line up with the screen, and knobs and faders are drawn ahead of the finger. Real-time: each move goes to Mixxx the moment it arrives, up to a frame sooner (the touch to sound path), without the drawing ahead</small></div>
     <div class="seg" id="s-input"></div></div>
   <div class="row"><div>Knob gesture<small>Drag: the distance you move, up or right = turn up. Spin: circle the knob; the farther out you circle, the finer it gets</small></div>
@@ -2360,6 +2362,51 @@ async function paintKits() {
   })());
 }
 
+// Mixxx's audio buffer (the hub's /api/audio) and the one-tap optimisation (/api/audio/optimize)
+const BUFFERS = [[3, "5 ms"], [4, "11 ms"], [5, "21 ms"], [6, "43 ms"]];
+let optimizing = null;   // the optimisation's state while it runs
+async function paintAudioBuffer() {
+  const box = document.getElementById("s-buf"), opt = document.getElementById("s-opt"), note = document.getElementById("s-buf-note");
+  if (!box) return;
+  if (!live || REMOTE.on) {
+    box.innerHTML = ""; opt.style.display = "none";
+    note.textContent = REMOTE.on ? "Set on the computer's Mixxx" : "Once Mixxx is connected";
+    return;
+  }
+  opt.style.display = "";
+  let a;
+  try { a = await (await fetch("/api/audio")).json(); } catch { return; }
+  box.innerHTML = "";
+  BUFFERS.forEach(([i, label]) => {
+    const b = h("button", i === a.buffer ? "on" : "", label);
+    b.addEventListener("click", async () => {
+      try {
+        const r = await (await fetch(`/api/audio/buffer?index=${i}`)).json();
+        if (r.ok === false) toast(r.error || "Couldn't change the buffer");
+      } catch {}
+      paintAudioBuffer();
+    });
+    box.appendChild(b);
+  });
+  paintOptimize(optimizing);
+}
+function paintOptimize(o) {
+  const opt = document.getElementById("s-opt"), note = document.getElementById("s-buf-note");
+  if (!opt) return;
+  optimizing = o && o.running ? o : null;
+  opt.textContent = optimizing ? "Cancel" : "Optimize";
+  if (o && (o.running || o.state)) {
+    const tried = (o.results || []).map(r => `${BUFFERS.find(b => b[0] === r.buffer)?.[1] || r.buffer}: ${r.dropouts ? r.dropouts + " dropouts" : "clean"}`).join(" · ");
+    note.textContent = o.running ? `${o.state} ${tried}` : o.error ? `${o.error}${tried ? " · " + tried : ""}`
+      : `Kept ${BUFFERS.find(b => b[0] === o.chosen)?.[1] || o.chosen}${tried ? " · " + tried : ""}`;
+  }
+}
+document.addEventListener("click", async e => {
+  if (e.target.id !== "s-opt") return;
+  const r = await (await fetch(`/api/audio/optimize${optimizing ? "?cancel=1" : ""}`)).json().catch(() => ({}));
+  if (r.ok === false) toast(r.error || "Couldn't start the test");
+});
+
 function seg(id, options, get, set) {
   const box = document.getElementById(id);
   box.innerHTML = "";
@@ -2384,6 +2431,7 @@ function paintSettings(soft) {
     `${stripSeconds().toFixed(1)} s of audio across ${stripMm.toFixed(0)} mm · ${(stripSeconds() * 1000 / stripMm).toFixed(0)} ms per mm`;
   seg("s-dir", [[true, "Down = faster"], [false, "Up = faster"]], () => S.fasterDown, v => S.fasterDown = v);
   seg("s-knob", [["drag", "Drag"], ["spin", "Spin"]], () => S.knobMode, v => S.knobMode = v);
+  paintAudioBuffer();
   seg("s-input", RAW_INPUT ? [["precision", "Precision"], ["realtime", "Real-time"]] : [["precision", "Precision"]],
     () => realtimeInput() ? "realtime" : "precision", v => { S.inputMode = v; tellApp(); });
   if (!RAW_INPUT) document.getElementById("s-input-note").textContent =
@@ -2752,6 +2800,7 @@ function onMixxx(m) {
     case "stem": d.stems[m.k] = m.v; return markDirty("deck", d);
     case "fx": fxLive[m.u][m.j] = m.v; break;
     case "smode": samplerModes[m.i] = m.v; break;
+    case "opt": paintOptimize(m.o); if (!m.o.running) paintAudioBuffer(); return;
     case "sfx": if (decks[m.d]) { decks[m.d].sfx = m.f; markDirty("deck", decks[m.d]); } return;
     case "lstem": if (decks[m.d]) { decks[m.d].lstem = { s: m.s, p: m.p, e: m.e }; markDirty("deck", decks[m.d]); } return;
     default: return;

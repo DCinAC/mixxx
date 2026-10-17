@@ -38,6 +38,8 @@ class LiveStems : public QObject {
     void request(const TrackPointer& pTrack, bool urgent = true);
     /// The stems file made from this track before, or empty.
     QString stemFileFor(int trackId) const;
+    /// Every stems file there is (made here or adopted)
+    QStringList files() const;
     /// The track a stems file was made from, or 0.
     int originalFor(const QString& stemsPath) const;
     /// Stems made for the track elsewhere (the PC's, from the library's "Make stems"): from now on its stems on

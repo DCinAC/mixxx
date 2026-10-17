@@ -86,6 +86,26 @@ class Hub : public QObject {
     QJsonObject audioStatus() const;
     QJsonObject setAudio(const HttpServer::Query& query);
     QJsonObject setAudioBuffer(int index);
+    // One-tap audio optimisation: plays a heavy load on all four decks with the main output silent (two
+    // stems tracks when there are some, key lock, +4 %), tries buffers from the smallest until one has no
+    // dropouts, keeps that one, puts the decks and the volume back and measures the output again.
+    struct Optimize {
+        bool running = false;
+        int serial = 0;
+        int step = 0;               // index into kOptimizeBuffers being tried
+        double mainGain = 1;
+        double overloadsAt = 0;
+        QJsonArray results;         // [{buffer, dropouts, loadMax}]
+        QString state;              // what it's doing, for the pages
+        int chosen = 0;
+        QString error;
+    };
+    Optimize m_optimize;
+    QJsonObject startOptimize();
+    void optimizeStep(int serial);
+    void optimizeMeasure(int serial);
+    void finishOptimize(const QString& error);
+    QJsonObject optimizeStatus() const;
     // FX panel: the effects Mixxx shows (by name, in its order) and what units 1-4 have loaded; beat lengths
     // go to whichever parameter of the effect is measured in beats (Echo's Time, Flanger's period...)
     QJsonObject fxStatus() const;
