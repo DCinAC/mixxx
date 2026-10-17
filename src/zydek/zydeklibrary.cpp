@@ -58,6 +58,30 @@ const QString kExcludedFile = QStringLiteral("zydek-excluded.json");
 
 const QStringList kAudioSuffixes = {"mp3", "flac", "wav", "aiff", "aif", "m4a", "mp4", "ogg", "opus", "wv", "alac"};
 
+// Camelot (number 1-12, minor = A) of Mixxx's key ids: 1-12 C..B major, 13-24 C..B minor
+std::pair<int, bool> camelot(int key) {
+    const bool minor = key > 12;
+    const int p = (key - 1) % 12;
+    const int open = ((minor ? p + 3 : p) * 7) % 12 + 1;   // Open Key: C major = 1d
+    return {(open + 6) % 12 + 1, minor};                     // Camelot: C major = 8B, A minor = 8A
+}
+// Keys that mix with this one: the same, a step round the wheel either way, and its relative major/minor
+QList<int> compatibleKeys(int key) {
+    QList<int> out;
+    if (key < 1 || key > 24) {
+        return out;
+    }
+    const auto [n, minor] = camelot(key);
+    for (int other = 1; other <= 24; ++other) {
+        const auto [m, otherMinor] = camelot(other);
+        const int step = (m - n + 12) % 12;
+        if ((otherMinor == minor && (step == 0 || step == 1 || step == 11)) || (otherMinor != minor && step == 0)) {
+            out.append(other);
+        }
+    }
+    return out;
+}
+
 QString orderFor(const QString& sort) {
     if (sort == QLatin1String("artist")) {
         return QStringLiteral("l.artist COLLATE NOCASE, l.title COLLATE NOCASE");
@@ -251,6 +275,33 @@ QJsonArray Library::tracks(const QString& search, const QString& view, const QSt
         where.append(QStringLiteral("l.last_played_at IS NOT NULL"));
         if (sort == QLatin1String("added")) {
             order = QStringLiteral("l.last_played_at DESC");
+        }
+    } else if (kind == QLatin1String("fits")) {   // fits:<key id>:<bpm>:<track to leave out> (the hub's, for a deck)
+        const QStringList f = view.split(QLatin1Char(':'));
+        const int key = f.value(1).toInt();
+        const double bpm = f.value(2).toDouble();
+        if (bpm > 0) {   // within 6 %, or at half or double time
+            where.append(QStringLiteral("(l.bpm BETWEEN ? AND ? OR l.bpm BETWEEN ? AND ? OR l.bpm BETWEEN ? AND ?)"));
+            for (const double k : {1.0, 2.0, 0.5}) {
+                args.append(bpm * k * 0.94);
+                args.append(bpm * k * 1.06);
+            }
+        }
+        const QList<int> keys = compatibleKeys(key);
+        if (!keys.isEmpty()) {
+            QStringList marks;
+            for (int k : keys) {
+                marks.append(QStringLiteral("?"));
+                args.append(k);
+            }
+            where.append(QStringLiteral("l.key_id IN (%1)").arg(marks.join(QLatin1Char(','))));
+        }
+        where.append(QStringLiteral("l.id <> ?"));
+        args.append(f.value(3).toInt());
+        if (sort == QLatin1String("added")) {   // the same key first, then the nearest tempo
+            order = QStringLiteral("CASE WHEN l.key_id = %1 THEN 0 ELSE 1 END, ABS(l.bpm - %2), l.artist COLLATE NOCASE")
+                            .arg(key)
+                            .arg(bpm > 0 ? bpm : 0);
         }
     } else if (kind == QLatin1String("crate") && viewId > 0) {
         join = QStringLiteral("JOIN crate_tracks ct ON ct.track_id = l.id");

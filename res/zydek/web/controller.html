@@ -47,6 +47,11 @@
   .topbar .knob { width: calc(var(--mm) * 14); }
   #gear { width: calc(var(--mm) * 11); height: calc(var(--mm) * 11); font-size: calc(var(--mm) * 4); }
   /* recording the set: red while it records, with its running time */
+  /* a button held for a second job (the FX menu): a light fill rises as the hold counts down */
+  .holding { position: relative; overflow: hidden; }
+  .holding::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 100%; pointer-events: none;
+    background: rgba(255,255,255,.22); transform-origin: bottom; animation: holdfill var(--hold, 1s) linear forwards; }
+  @keyframes holdfill { from { transform: scaleY(0); } to { transform: scaleY(1); } }
   #rec { height: calc(var(--mm) * 7); padding: 0 calc(var(--mm) * 1.6); font-size: calc(var(--mm) * 1.9); font-weight: 700; flex: none;
     font-variant-numeric: tabular-nums; }
   #rec.on { border-color: #ff3b30; color: #fff; background: #b3261e; }
@@ -103,6 +108,19 @@
   .strip .loop b { position: absolute; left: 0; top: 0; width: var(--ltag); height: var(--ltag); line-height: var(--ltag); text-align: center;
     font-size: calc(var(--ltag) * .85); color: #fff; background: #bbbbbb; transform: scaleX(var(--inv, 1)); transform-origin: 0 0; }
   .strip .loop.on b { background: #00b400; }
+  /* SLIP, as Mixxx draws it: while the track runs on underneath (a loop, a scratch, CENSOR), the top half shows
+     where it is, one-sided on black, in an outline that breathes (25-75 % #e0e0e0 over 1.6 s, fading out below) */
+  .strip .slipghost { position: absolute; left: 0; right: 0; top: 0; height: 50%; background: #000; display: none; pointer-events: none;
+    --sb: max(2px, calc(var(--mm) * .5)); }
+  .strip.slipping .slipghost { display: block; }
+  .strip .slipghost .clip { position: absolute; inset: 0; overflow: hidden; }
+  .strip .slipghost .edge { position: absolute; left: 0; right: 0; top: 0; height: calc(100% + var(--sb)); animation: slipblink 1.6s linear infinite; }
+  .strip .slipghost .edge::before { content: ""; position: absolute; left: 0; right: 0; top: 0; bottom: var(--sb); box-sizing: border-box;
+    border: var(--sb) solid #e0e0e0; border-bottom: 0; }
+  .strip .slipghost .edge::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: var(--sb);
+    background: linear-gradient(#e0e0e0, rgba(224,224,224,0)); }
+  @keyframes slipblink { 0%, 100% { opacity: .75; } 50% { opacity: .25; } }
+  .strip.slipping > .wftrack .cm.top b { top: auto; bottom: 0; }   /* the deck's labels move below, as in Mixxx */
   .strip .played { position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background: rgba(0,0,0,.45); pointer-events: none; }
   .strip .label { position: absolute; left: calc(var(--mm) * 1.2); bottom: calc(var(--mm) * .8); font-size: calc(var(--mm) * 1.7); color: #4a4a4a; }
 
@@ -328,6 +346,9 @@
   #settings .seg { display: flex; gap: calc(var(--mm) * 1); flex-wrap: wrap; }
   #settings .seg button { height: calc(var(--mm) * 8); padding: 0 calc(var(--mm) * 3); }
   #settings input[type=range] { width: 100%; height: calc(var(--mm) * 6); accent-color: var(--deck12); }
+  #settings details.adv { margin-top: calc(var(--mm) * 2); border-top: 1px solid #333; }
+  #settings details.adv > summary { cursor: pointer; padding: calc(var(--mm) * 2) 0; font-weight: 700; color: var(--dim); }
+  #settings details.adv[open] > summary { color: var(--text); }
   #settings .val { color: var(--deck12); font-variant-numeric: tabular-nums; }
   #ruler { height: calc(var(--mm) * 3); width: calc(var(--mm) * 50); border: 2px solid var(--deck12); border-top: 0; margin-top: 6px;
     background: repeating-linear-gradient(90deg, var(--deck12) 0 2px, transparent 2px calc(var(--mm) * 10)); }
@@ -438,23 +459,11 @@
 <div id="settings"><div class="panel">
   <button class="x" id="s-x" aria-label="Close">✕</button>
   <h2>Settings<small id="s-status">UI test · simulated Mixxx</small></h2>
-  <div class="row"><div>Platter strip<small>How much of the record one full strip covers</small></div>
-    <div><div class="seg" id="s-revs"></div><small id="s-revs-info"></small></div></div>
   <div class="row"><div>Layout<small>Strips on top: both platter strips stacked across the top like Mixxx's waveforms (about twice as long), the top-bar buttons beside them</small></div>
     <div class="seg" id="s-layout"></div></div>
-  <div class="row"><div>Slipmat grip<small>After you let go, the slipmat pulls the record to the platter's speed at a steady rate, from however fast you flicked it. Set as the time from a standstill to full speed</small></div>
-    <div><input type="range" id="s-catchup" min="0" max="800" step="10"><small><span class="val" id="s-catchup-v"></span></small></div></div>
-  <div class="row"><div>Tempo sensitivity<small>Tempo change per mm of drag</small></div>
-    <div><input type="range" id="s-sens" min="0.04" max="0.4" step="0.01"><small><span class="val" id="s-sens-v"></span></small></div></div>
-  <div class="row"><div>Nudge sensitivity<small>How much the nudge bars bend the speed: lower is finer, for nudging the beats into line</small></div>
-    <div><input type="range" id="s-nudge" min="0.1" max="1" step="0.05"><small><span class="val" id="s-nudge-v"></span></small></div></div>
   <div class="row"><div>Tempo direction</div><div class="seg" id="s-dir"></div></div>
   <div class="row"><div>Audio buffer<small id="s-buf-note">How much sound Mixxx makes at a time: smaller answers sooner, but breaks up if the device can't keep up. Optimize tests this device under a heavy load (silently, decks empty) and keeps the smallest that doesn't break up</small></div>
     <div><div class="seg" id="s-buf"></div><button id="s-opt" style="margin-top:6px">Optimize</button></div></div>
-  <div class="row"><div>Touch input<small id="s-input-note">Precision: moves line up with the screen, and knobs and faders are drawn ahead of the finger. Real-time: each move goes to Mixxx the moment it arrives, up to a frame sooner (the touch to sound path), without the drawing ahead</small></div>
-    <div class="seg" id="s-input"></div></div>
-  <div class="row"><div>Knob gesture<small>Drag: the distance you move, up or right = turn up. Spin: circle the knob; the farther out you circle, the finer it gets</small></div>
-    <div class="seg" id="s-knob"></div></div>
   <div class="row"><div>Key notation<small>How the deck shows its current key (after key shift, and tempo when key lock is off)</small></div>
     <div class="seg" id="s-keyfmt"></div></div>
   <div class="row"><div>FX layout<small>Beat FX: one effect per side with its beat length, LEVEL and ON, like Pioneer's. Multi-FX: three effects at once, a knob each (tap it: on/off; SHIFT + tap: next effect) and MIX, like Serato's</small></div>
@@ -471,17 +480,33 @@
     <div class="seg" id="s-ssync"></div></div>
   <div class="row"><div>Default behaviour on assignment: keylock<small>The sample keeps its pitch when its tempo changes. SHIFT + a loaded pad changes it for that pad</small></div>
     <div class="seg" id="s-skl"></div></div>
+  <div class="row"><div>Fullscreen<small>Enter fullscreen on the first touch</small></div><div class="seg" id="s-fs-auto"></div></div>
+  <details class="adv"><summary>Advanced</summary>
+  <div class="row"><div>Platter strip<small>How much of the record one full strip covers</small></div>
+    <div><div class="seg" id="s-revs"></div><small id="s-revs-info"></small></div></div>
+  <div class="row"><div>Slipmat grip<small>After you let go, the slipmat pulls the record to the platter's speed at a steady rate, from however fast you flicked it. Set as the time from a standstill to full speed</small></div>
+    <div><input type="range" id="s-catchup" min="0" max="800" step="10"><small><span class="val" id="s-catchup-v"></span></small></div></div>
+  <div class="row"><div>Tempo sensitivity<small>Tempo change per mm of drag</small></div>
+    <div><input type="range" id="s-sens" min="0.04" max="0.4" step="0.01"><small><span class="val" id="s-sens-v"></span></small></div></div>
+  <div class="row"><div>Nudge sensitivity<small>How much the nudge bars bend the speed: lower is finer, for nudging the beats into line</small></div>
+    <div><input type="range" id="s-nudge" min="0.1" max="1" step="0.05"><small><span class="val" id="s-nudge-v"></span></small></div></div>
+  <div class="row"><div>Touch input<small id="s-input-note">Precision: moves line up with the screen, and knobs and faders are drawn ahead of the finger. Real-time: each move goes to Mixxx the moment it arrives, up to a frame sooner (the touch to sound path), without the drawing ahead</small></div>
+    <div class="seg" id="s-input"></div></div>
+  <div class="row"><div>Knob gesture<small>Drag: the distance you move, up or right = turn up. Spin: circle the knob; the farther out you circle, the finer it gets</small></div>
+    <div class="seg" id="s-knob"></div></div>
   <div class="row"><div>Mixer knob size<small>Knob diameter; the mixer widens to fit</small></div>
     <div><input type="range" id="s-knobsize" min="9" max="18" step="0.5"><small><span class="val" id="s-knobsize-v"></span></small></div></div>
   <div class="row"><div>Telemetry<small>Send debug data (touch rate, deck state, events) to the Mac's settings page</small></div>
     <div class="seg" id="s-tele"></div></div>
-  <div class="row"><div>Fullscreen<small>Enter fullscreen on the first touch</small></div><div class="seg" id="s-fs-auto"></div></div>
   <div class="row"><div>Top bar height</div>
     <div><input type="range" id="s-bar" min="12" max="28" step="1"><small><span class="val" id="s-bar-v"></span></small></div></div>
   <div class="row"><div>Screen scale<small>Adjust until the bar below measures 50 mm with a ruler</small></div>
     <div><input type="range" id="s-pxmm" min="3.5" max="8.5" step="0.01"><small><span class="val" id="s-pxmm-v"></span></small><div id="ruler"></div></div></div>
   <div class="row"><div>Palm rejection<small>Ignore touches wider than this</small></div>
     <div><input type="range" id="s-palm" min="0" max="30" step="1"><small><span class="val" id="s-palm-v"></span></small></div></div>
+  <div class="row"><div>Recording point<small>After everything: what's heard (effects, EQ, filter, faders). Before effects: the effect units left out of the recording; EQ, filter and faders stay (they're the mixer)</small></div>
+    <div class="seg" id="s-recpt"></div></div>
+  </details>
   <button class="close" id="s-back" style="display:none">◀ Back to this device</button>
   <button class="close" id="s-fs">Fullscreen</button>
   <button class="close" id="s-reset">Reset to defaults</button>
@@ -961,7 +986,7 @@ function buildFxStrip(s, u) {
   } else {
     const name = h("button"), on = h("button");
     const level = knob("LEVEL", () => fxState[unit() - 1].mix, v => { fxState[unit() - 1].mix = v; setCtl(fxUnitG(unit()), "mix", v); }, null);
-    bindPress(name, holdOrTap(() => fxMenu(s), () => push(fxSlotG(unit(), 0), deckOf(s).shift ? "prev_effect" : "next_effect")));
+    bindPress(name, holdOrTap(() => fxMenu(s), () => push(fxSlotG(unit(), 0), deckOf(s).shift ? "prev_effect" : "next_effect"), name));
     // BEAT: a knob that snaps from ⅛ to 8 beats, a tick for each step
     const beatIdx = () => Math.max(0, FX_BEAT_STEPS.indexOf(fxBeat[unit() - 1]));
     let lastStep = -1;
@@ -1224,10 +1249,12 @@ function buildStrip(s, u) {
   head.append(u.sw, u.title, u.bpm, u.time);
 
   // platter strip
-  u.strip = h("div", "strip", `<div class="axis"></div><div class="wftrack"><div class="tiles"></div></div><div class="played"></div>` +
+  u.strip = h("div", "strip", `<div class="axis"></div><div class="wftrack"><div class="tiles"></div></div>` +
+    `<div class="slipghost"><div class="clip"><div class="wftrack"><div class="tiles"></div></div></div><div class="edge"></div></div><div class="played"></div>` +
     `<div class="cursor"></div><div class="label"></div>`);
   u.cursor = u.strip.querySelector(".cursor");
   u.track = u.strip.querySelector(".wftrack"); u.tilesBox = u.strip.querySelector(".tiles"); u.played = u.strip.querySelector(".played");
+  u.ghost = u.strip.querySelector(".slipghost"); u.gTrack = u.ghost.querySelector(".wftrack"); u.gTilesBox = u.ghost.querySelector(".tiles");
   drag(u.strip, {
     // Grab like vinyl: touching holds the record and the waveform under the finger follows it 1:1
     // (the waveform rolls past a fixed cursor, so moving the finger left plays forward).
@@ -1431,9 +1458,12 @@ function buildPhone() {
     const mode = (el, normal, shifted, onHold) => {
       let hold = null;
       bindPress(el, down => {
-        clearTimeout(hold);
+        clearTimeout(hold); el.classList.remove("holding");
         if (!down) return;
-        if (onHold) hold = setTimeout(onHold, HOLD_MS);
+        if (onHold) {
+          el.style.setProperty("--hold", `${HOLD_MS}ms`); el.classList.add("holding");
+          hold = setTimeout(() => { el.classList.remove("holding"); onHold(); }, HOLD_MS);
+        }
         const d = deckOf(s); d.mode = d.shift ? shifted : normal; d.shift = false; paintSide(s); paintMixer();
       });
     };
@@ -1754,12 +1784,18 @@ function paintFxCell(el, s, k) {
   }
 }
 // A button that does one thing when tapped and another when held for HOLD_MS (then not the tap's), for bindPress
-const HOLD_MS = 2000;
-function holdOrTap(onHold, onTap) {
+const HOLD_MS = 1000;
+// el: the button, which shows the hold filling up (.holding) until it counts
+function holdOrTap(onHold, onTap, el) {
   let timer = null, held = false;
   return down => {
-    if (down) { held = false; timer = setTimeout(() => { held = true; onHold(); }, HOLD_MS); return; }
-    clearTimeout(timer);
+    if (down) {
+      held = false;
+      el?.style.setProperty("--hold", `${HOLD_MS}ms`); el?.classList.add("holding");
+      timer = setTimeout(() => { held = true; el?.classList.remove("holding"); onHold(); }, HOLD_MS);
+      return;
+    }
+    clearTimeout(timer); el?.classList.remove("holding");
     if (!held) onTap();
   };
 }
@@ -2170,7 +2206,8 @@ function drawStripWave(u, d, start, sec) {
   if (u.tileShape !== shape || (u.tileEq !== eq && now - (u.tileAt || 0) > 60)) {
     u.tileShape = shape; u.tileEq = eq; u.tileAt = now; u.prefetch = null;
     for (const t of (u.tiles || new Map()).values()) t.remove();
-    u.tiles = new Map();
+    for (const t of (u.gTiles || new Map()).values()) t.remove();
+    u.tiles = new Map(); u.gTiles = new Map();
   }
   const first = Math.floor(start * base / TILE), last = Math.floor((start + sec) * base / TILE);
   for (let k = first; k <= last; k++) tileAt(u, d, k, base, H, dpr);
@@ -2185,6 +2222,40 @@ function drawStripWave(u, d, start, sec) {
   paintMarks(u, d, base, dpr, f, r.height);
   const tr = `translate3d(${(-start * base * f / dpr).toFixed(2)}px,0,0) scaleX(${f.toFixed(5)})`;
   if (u.trackTr !== tr) { u.trackTr = tr; u.track.style.transform = tr; }
+  drawSlipGhost(u, d, base, f, dpr, H, sec, now);
+}
+// The slip position (the hub's, every 40 ms while it differs from the deck's), run on between readings at the
+// deck's speed; a reading nearby is eased into, one far off (a loop let go of) is followed.
+function slipModel(d, now) { return d.slipP + (d.playing ? d.ratio || 1 : 0) * (now - d.slipAt) / 1000; }
+function onSlip(d, p) {
+  const now = performance.now();
+  if (p == null || !(d.dur > 0)) { d.slipAt = undefined; return; }
+  const t = p * d.dur, model = d.slipAt === undefined ? t : slipModel(d, now);
+  d.slipP = Math.abs(t - model) > .15 ? t : model + (t - model) * .3; d.slipAt = now;
+}
+// Mixxx's slip ghost: the top half, black, the waveform at the slip position drawn one-sided (the top half of
+// the deck's tiles, from the centre line up), with its beats and cue marks, in the blinking outline.
+function drawSlipGhost(u, d, base, f, dpr, H, sec, now) {
+  const on = live && d.slip && d.slipAt !== undefined && now - d.slipAt < 1000;
+  if (u.slipOn !== on) { u.slipOn = on; u.strip.classList.toggle("slipping", on); }
+  if (!on) return;
+  const start = slipModel(d, now) - LAT * (d.playing ? d.ratio || 1 : 0) - sec / 2;
+  const first = Math.floor(start * base / TILE), last = Math.floor((start + sec) * base / TILE), gh = Math.ceil(H / 2);
+  for (let k = first; k <= last; k++) {
+    if (u.gTiles.has(k)) continue;
+    const src = u.tiles.get(k) || renderTile(d.wf, k, base, H, d), c = document.createElement("canvas");
+    c.width = src.width; c.height = gh; c.getContext("2d").drawImage(src, 0, 0);
+    c.style.left = `${(k * TILE / dpr).toFixed(3)}px`; c.style.width = `${((TILE + 2) / dpr).toFixed(3)}px`;
+    u.gTilesBox.appendChild(c); u.gTiles.set(k, c);
+  }
+  for (const [k, t] of u.gTiles) if (k < first - 2 || k > last + 2) { t.remove(); u.gTiles.delete(k); }
+  if (u.gMarksKey !== u.marksKey) {   // the deck's marks, again
+    u.gMarksKey = u.marksKey; u.gMarks?.remove();
+    u.gMarks = u.marks ? u.marks.cloneNode(true) : null;
+    if (u.gMarks) u.gTrack.appendChild(u.gMarks);
+  }
+  const tr = `translate3d(${(-start * base * f / dpr).toFixed(2)}px,0,0) scaleX(${f.toFixed(5)})`;
+  if (u.gTrackTr !== tr) { u.gTrackTr = tr; u.gTrack.style.transform = tr; u.gTrack.style.setProperty("--inv", (1 / f).toFixed(5)); }
 }
 function tileAt(u, d, k, base, H, dpr) {
   if (u.tiles.has(k)) return;
@@ -2470,6 +2541,10 @@ function paintSettings(soft) {
     `${stripSeconds().toFixed(1)} s of audio across ${stripMm.toFixed(0)} mm · ${(stripSeconds() * 1000 / stripMm).toFixed(0)} ms per mm`;
   seg("s-dir", [[true, "Down = faster"], [false, "Up = faster"]], () => S.fasterDown, v => S.fasterDown = v);
   seg("s-knob", [["drag", "Drag"], ["spin", "Spin"]], () => S.knobMode, v => S.knobMode = v);
+  seg("s-recpt", [[false, "After everything"], [true, "Before effects"]], () => !!rec?.preFx, v => {
+    if (rec) rec.preFx = v;
+    fetch(`/api/record?prefx=${v ? 1 : 0}`).then(r => r.json()).then(paintRec).catch(() => {});
+  });
   paintAudioBuffer();
   seg("s-input", RAW_INPUT ? [["precision", "Precision"], ["realtime", "Real-time"]] : [["precision", "Precision"]],
     () => realtimeInput() ? "realtime" : "precision", v => { S.inputMode = v; tellApp(); });
@@ -2844,6 +2919,7 @@ function onMixxx(m) {
     case "fx": fxLive[m.u][m.j] = m.v; break;
     case "smode": samplerModes[m.i] = m.v; break;
     case "opt": paintOptimize(m.o); if (!m.o.running) paintAudioBuffer(); return;
+    case "slip": if (decks[m.d]) onSlip(decks[m.d], m.p); return;
     case "sfx": if (decks[m.d]) { decks[m.d].sfx = m.f; markDirty("deck", decks[m.d]); } return;
     case "lstem": if (decks[m.d]) { decks[m.d].lstem = { s: m.s, p: m.p, e: m.e }; markDirty("deck", decks[m.d]); } return;
     default: return;

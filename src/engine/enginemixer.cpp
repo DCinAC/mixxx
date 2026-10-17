@@ -61,6 +61,9 @@ EngineMixer::EngineMixer(UserSettingsPointer pConfig,
           m_talkover(kMaxEngineSamples),
           m_talkoverHeadphones(kMaxEngineSamples),
           m_sidechainMix(kMaxEngineSamples),
+          m_pRecordPreFx(std::make_unique<ControlObject>(
+                  ConfigKey(QStringLiteral("[Recording]"), QStringLiteral("zydek_pre_fx")))),
+          m_preFxMix(kMaxEngineSamples),
           m_pWorkerScheduler(make_parented<EngineWorkerScheduler>(this)),
           m_pEngineSync(std::make_unique<EngineSync>(pConfig)),
           m_pMainGain(std::make_unique<ControlAudioTaperPot>(
@@ -492,6 +495,33 @@ void EngineMixer::process(const std::size_t bufferSize) {
     // channel volume faders and crossfader.
     m_mainGain.setGains(crossfaderLeftGain, 1.0f, crossfaderRightGain);
 
+    // Zydek: a recording before the effect units: the channels mixed as they go into them
+    const bool preFxRecording = m_pRecordPreFx->toBool() && sidechainMixRequired();
+    if (preFxRecording) {
+        SampleUtil::clear(m_preFxMix.data(), bufferSize);
+        for (int o = EngineChannel::LEFT; o <= EngineChannel::RIGHT; o++) {
+            for (ChannelInfo* pChannelInfo : std::as_const(m_activeBusChannels[o])) {
+                const CSAMPLE_GAIN oldGain = m_preFxGainCache[pChannelInfo->m_index];
+                const CSAMPLE_GAIN newGain = pChannelInfo->m_pChannel && !pChannelInfo->m_pChannel->isActive()
+                        ? 0
+                        : m_mainGain.getGain(pChannelInfo);
+                SampleUtil::addWithRampingGain(m_preFxMix.data(),
+                        pChannelInfo->m_pBuffer.data(),
+                        oldGain,
+                        newGain,
+                        static_cast<SINT>(bufferSize));
+                m_preFxGainCache[pChannelInfo->m_index] = newGain;
+            }
+        }
+    }
+    const auto recordMix = [&](CSAMPLE_GAIN mainGain) {   // the record/broadcast signal
+        if (preFxRecording) {
+            SampleUtil::copyWithGain(m_sidechainMix.data(), m_preFxMix.data(), mainGain, static_cast<SINT>(bufferSize));
+        } else {
+            m_sidechainMix.copy(m_main, bufferSize);
+        }
+    };
+
     for (int o = EngineChannel::LEFT; o <= EngineChannel::RIGHT; o++) {
         ChannelMixer::applyEffectsInPlaceAndMixChannels(m_mainGain,
                 m_activeBusChannels[o],
@@ -596,7 +626,7 @@ void EngineMixer::process(const std::size_t bufferSize) {
 
             // Record/broadcast signal is the same as the main output
             if (sidechainMixRequired()) {
-                m_sidechainMix.copy(m_main, bufferSize);
+                recordMix(mainGain);
             }
         } else if (configuredMicMonitorMode == MicMonitorMode::MainAndBooth) {
             // Process main channel effects
@@ -646,7 +676,7 @@ void EngineMixer::process(const std::size_t bufferSize) {
 
             // Record/broadcast signal is the same as the main output
             if (sidechainMixRequired()) {
-                m_sidechainMix.copy(m_main, bufferSize);
+                recordMix(mainGain);
             }
         } else if (configuredMicMonitorMode == MicMonitorMode::DirectMonitor) {
             // Skip mixing talkover with the main and booth outputs
@@ -692,7 +722,7 @@ void EngineMixer::process(const std::size_t bufferSize) {
                     bufferSize);
             m_mainGainOld = mainGain;
             if (sidechainMixRequired()) {
-                m_sidechainMix.copy(m_main, bufferSize);
+                recordMix(mainGain);
 
                 if (m_numMicsConfigured > 0) {
                     // The talkover signal Mixxx receives is delayed by the round trip latency.
@@ -874,6 +904,7 @@ void EngineMixer::addChannel(std::unique_ptr<EngineChannel> pChannel) {
     m_channelHeadphoneGainCache.append(gainCacheDefault);
     m_channelTalkoverGainCache.append(gainCacheDefault);
     m_channelMainGainCache.append(gainCacheDefault);
+    m_preFxGainCache.append(0);
 
     // Pre-allocate scratch buffers to avoid memory allocation in the
     // callback. QVarLengthArray does nothing if reserve is called with a size

@@ -59,6 +59,7 @@
   .chip { flex: none; min-height: 32px; border-radius: 16px; padding: 0 12px; font-size: 13px; background: #181818; color: #cfcfcf; }
   .chip small { color: var(--dim); margin-left: 4px; }
   .chip.add { color: var(--deck34); border-color: #1f4a63; }
+  .chip.fits { border-color: #3d5a2a; color: #b9e08f; }
   /* crate sheet */
   #sheet .crates { display: grid; gap: 6px; margin-top: 12px; }
   #sheet .crates button { min-height: 46px; text-align: left; padding: 0 14px; display: flex; align-items: center; gap: 10px; }
@@ -635,7 +636,11 @@ function applyCv(k, v, ts) {
   if (!d) return;
   switch (m[2]) {
     case "play": d.playing = v > 0; if (!d.playing && d.pt !== undefined) posSeed(d, posModel(d, performance.now()), 0, performance.now()); break;
-    case "track_loaded": d.loaded = v > 0; break;
+    case "track_loaded": {
+      const was = d.loaded; d.loaded = v > 0;
+      if (was !== d.loaded || d.loaded) fitsChanged(d);
+      break;
+    }
     case "duration": d.dur = v; break;
     case "rate_ratio": d.ratio = v || 1; break;
     case "playposition": posUpdate(d, v * d.dur, performance.now(), ts); break;
@@ -993,6 +998,12 @@ function frame(now) {
 // ---------------------------------------------------------------------------------------------------
 let view = store.get("view", "all"), libSeq = 0;
 $("#sort").value = store.get("sort", "added");
+// A deck loaded (or emptied): its Fits chip comes or goes, and a list of what fits it follows the new track.
+let fitsTimer = 0;
+function fitsChanged(d) {
+  clearTimeout(fitsTimer);
+  fitsTimer = setTimeout(() => { loadViews(); if (view === `fits:${d.n}`) loadTracks(); }, 400);
+}
 async function loadViews() {
   let v;
   try { v = await api("/api/library/views"); } catch (e) { $("#libnote").innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
@@ -1001,10 +1012,14 @@ async function loadViews() {
     ...v.playlists.map(p => [`playlist:${p.id}`, p.name, p.count]),
     ...(v.autodj && v.autodj.count ? [[`playlist:${v.autodj.id}`, "Auto DJ", v.autodj.count]] : []),
     ...v.history.slice(0, 6).map(p => [`playlist:${p.id}`, `Set ${p.name}`, p.count])];
+  // What fits next: tracks in a key that mixes with the deck's (as it plays now, key shift included) and
+  // within 6 % of its tempo (or half / double time). One chip per loaded deck.
+  const fits = decks.filter(d => (d.n <= 2 || four) && (d.loaded || view === `fits:${d.n}`)).map(d => [`fits:${d.n}`, `Fits deck ${d.n}`, ""]);
+  chips.splice(1, 0, ...fits);
   if (!chips.some(c => c[0] === view)) view = "all";
   const box = $("#views"); box.innerHTML = "";
   chips.forEach(([id, name, n]) => {
-    const b = h("button", "chip" + (id === view ? " on" : ""), `${esc(name)}<small>${n}</small>`);
+    const b = h("button", "chip" + (id === view ? " on" : "") + (id.startsWith("fits:") ? " fits" : ""), `${esc(name)}${n === "" ? "" : `<small>${n}</small>`}`);
     b.addEventListener("click", () => { view = id; store.set("view", id); box.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c === b)); loadTracks(); });
     box.appendChild(b);
   });
@@ -1432,7 +1447,7 @@ function showRecording(r) {
   recOn = !!r.on;
   const t = Math.floor(r.seconds || 0);
   $("#r-st").textContent = r.status === 2 ? `Recording · ${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")} · ${(r.file || "").split("/").pop()}`
-    : r.status === 1 ? "Starting…" : "Not recording";
+    : r.status === 1 ? "Starting…" : `Not recording · ${r.preFx ? "before effects" : "everything you hear"} (the deck page's Settings › Advanced)`;
   $("#r-btn").textContent = recOn ? "■ Stop" : "● Record";
 }
 async function loadRecording() {

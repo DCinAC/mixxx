@@ -8,6 +8,7 @@
 #include <QMap>
 #include <QObject>
 #include <QSet>
+#include <QSharedPointer>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -21,6 +22,7 @@ class ZydekController;
 
 namespace zydek {
 class LiveStems;
+class VisualPlayPosition;
 
 /// The link between the Zydek pages (tablet controller, settings/debug page) and Mixxx.
 ///
@@ -106,9 +108,16 @@ class Hub : public QObject {
     QTimer m_recordTimer;
     QElapsedTimer m_recordClock;
     int m_recordStatus = 0;
+    bool m_recordPreFx = false;   // record before the effect units (EQ and filter in), not what's heard
     QJsonObject setRecording(bool on);
     QJsonObject recordStatus() const;
     void recordTick();
+    // Slip: where the track runs on underneath a loop, a scratch or CENSOR (Mixxx's slip position), sent to
+    // the pages while it differs from where the deck plays, for the ghost waveform Mixxx draws above
+    QTimer m_slipTimer;
+    QSharedPointer<VisualPlayPosition> m_visualPos[kNumDecks];
+    bool m_slipShown[kNumDecks] = {};
+    void slipTick();
     QJsonObject startOptimize();
     void optimizeStep(int serial);
     void optimizeMeasure(int serial);

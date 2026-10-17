@@ -292,6 +292,11 @@ class EngineMixer : public QObject, public AudioSource {
     mixxx::SampleBuffer m_talkover;
     mixxx::SampleBuffer m_talkoverHeadphones;
     mixxx::SampleBuffer m_sidechainMix;
+    // Zydek: the recording can be the mix before the effect units ([Recording],zydek_pre_fx): the channels as
+    // they go into them (EQ and filter in), at their fader and crossfader levels
+    std::unique_ptr<ControlObject> m_pRecordPreFx;
+    mixxx::SampleBuffer m_preFxMix;
+    QVarLengthArray<CSAMPLE_GAIN, kPreallocatedChannels> m_preFxGainCache;
 
     parented_ptr<EngineWorkerScheduler> m_pWorkerScheduler;
     std::unique_ptr<EngineSync> m_pEngineSync;

@@ -16,6 +16,7 @@
 #include <QtEndian>
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 
@@ -46,6 +47,8 @@
 #include "zydek/zydekpython.h"
 #include "zydek/zydekstems.h"
 #include "track/track.h"
+#include "waveform/isynctimeprovider.h"
+#include "waveform/visualplayposition.h"
 #include "waveform/waveform.h"
 
 #ifdef Q_OS_ANDROID
@@ -229,6 +232,9 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
     m_recordTimer.setInterval(1000);
     connect(&m_recordTimer, &QTimer::timeout, this, &Hub::recordTick);
     m_recordTimer.start();
+    m_slipTimer.setInterval(40);
+    connect(&m_slipTimer, &QTimer::timeout, this, &Hub::slipTick);
+    m_slipTimer.start();
 }
 
 #ifdef Q_OS_ANDROID
@@ -296,9 +302,11 @@ void Hub::start() {
             const QJsonObject prefs = QJsonDocument::fromJson(f.readAll()).object();
             m_latencyOffsetMs = prefs.value(QStringLiteral("offsetMs")).toInt();
             m_liveStemsAuto = prefs.value(QStringLiteral("liveStems")).toBool(true);
+            m_recordPreFx = prefs.value(QStringLiteral("recordPreFx")).toBool(false);
         }
     }
     loadRemote();
+    ControlObject::set(ConfigKey(QStringLiteral("[Recording]"), QStringLiteral("zydek_pre_fx")), m_recordPreFx ? 1 : 0);
     // Mixxx clones a playing deck (or a held sampler) when a deck is loaded twice within half a second, a
     // "double tap" on a controller's LOAD button. Live stems loads a track's stems right after the track, and
     // a quick second tap on the pages' deck buttons is easy: both got some other player's audio. Off in ZyDeck.
@@ -381,7 +389,12 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     if (path == QLatin1String("/api/audio/buffer")) {   // ?index=3..7
         return result(setAudioBuffer(query.value(QStringLiteral("index")).toInt()));
     }
-    if (path == QLatin1String("/api/record")) {   // ?on=1|0, or nothing: the status
+    if (path == QLatin1String("/api/record")) {   // ?on=1|0 · ?prefx=1|0 (before the effect units) · nothing: the status
+        if (query.contains(QStringLiteral("prefx"))) {
+            m_recordPreFx = query.value(QStringLiteral("prefx")) == QLatin1String("1");
+            ControlObject::set(ConfigKey(QStringLiteral("[Recording]"), QStringLiteral("zydek_pre_fx")), m_recordPreFx ? 1 : 0);
+            saveAudioPrefs();
+        }
         if (query.contains(QStringLiteral("on"))) {
             return result(setRecording(query.value(QStringLiteral("on")) == QLatin1String("1")));
         }
@@ -457,8 +470,19 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         return json(m_library.views());
     }
     if (path == QLatin1String("/api/library/tracks")) {
+        QString view = arg("view").isEmpty() ? QStringLiteral("all") : arg("view");
+        static const QRegularExpression fitsDeck(QStringLiteral(R"(^fits:([1-4])$)"));
+        if (const QRegularExpressionMatch m = fitsDeck.match(view); m.hasMatch()) {
+            // what fits deck N now: its current key (key shift included) and tempo
+            const QString group = QStringLiteral("[Channel%1]").arg(m.captured(1));
+            const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group);
+            view = QStringLiteral("fits:%1:%2:%3")
+                           .arg(std::lround(ControlObject::get(ConfigKey(group, QStringLiteral("key")))))
+                           .arg(ControlObject::get(ConfigKey(group, QStringLiteral("bpm"))), 0, 'f', 2)
+                           .arg(pTrack ? pTrack->getId().toVariant().toInt() : 0);
+        }
         return json(m_library.tracks(arg("q"),
-                arg("view").isEmpty() ? QStringLiteral("all") : arg("view"),
+                view,
                 arg("sort").isEmpty() ? QStringLiteral("added") : arg("sort"),
                 arg("limit").isEmpty() ? 200 : arg("limit").toInt(),
                 arg("offset").toInt()));
@@ -1231,7 +1255,7 @@ QJsonObject Hub::recordStatus() const {
     return {{"ok", true}, {"on", status != 0}, {"status", status},
             {"seconds", status == 2 && m_recordClock.isValid() ? m_recordClock.elapsed() / 1000.0 : 0.0},
             {"file", status ? m_pConfig->getValueString(ConfigKey(QStringLiteral("[Recording]"), QStringLiteral("Path"))) : QString()},
-            {"folder", recordingsFolder()}};
+            {"folder", recordingsFolder()}, {"preFx", m_recordPreFx}};
 }
 
 QJsonObject Hub::setRecording(bool on) {
@@ -1268,6 +1292,44 @@ void Hub::recordTick() {
     if (status != m_recordStatus || status == 2) {   // every second while recording (the pages' clock)
         m_recordStatus = status;
         emitJson({{"t", "rec"}, {"r", recordStatus()}});
+    }
+}
+
+namespace {
+// Mixxx's waveforms ask where the deck will be at their next frame; the hub asks where it is now
+class NowSync : public VSyncTimeProvider {
+  public:
+    std::chrono::microseconds fromTimerToNextSync(const PerformanceTimer& timer) override {
+        return std::chrono::microseconds(timer.elapsed().toIntegerMicros());
+    }
+    std::chrono::microseconds getSyncInterval() const override {
+        return std::chrono::microseconds(16667);
+    }
+};
+} // namespace
+
+void Hub::slipTick() {
+    static NowSync now;
+    for (int i = 0; i < kNumDecks; ++i) {
+        const QString group = QStringLiteral("[Channel%1]").arg(i + 1);
+        double play = 0, slip = 0;
+        bool show = false;
+        if (ControlObject::get(ConfigKey(group, QStringLiteral("slip_enabled"))) > 0) {
+            if (!m_visualPos[i]) {   // the engine's, made on Mixxx's main thread
+                QSharedPointer<VisualPlayPosition> pPos;
+                runOnMain(qApp, [&pPos, &group] { pPos = VisualPlayPosition::getVisualPlayPosition(group); }, 1000);
+                m_visualPos[i] = pPos;
+            }
+            // as Mixxx's waveforms: slipping while the two positions differ
+            show = m_visualPos[i] && m_visualPos[i]->getPlaySlipAtNextVSync(&now, &play, &slip) &&
+                    std::abs(slip - play) > 1e-9;
+        }
+        if (show) {
+            emitJson({{"t", "slip"}, {"d", i}, {"p", slip}});   // p: the slip position, 0-1 of the track
+        } else if (m_slipShown[i]) {
+            emitJson({{"t", "slip"}, {"d", i}, {"p", QJsonValue()}});
+        }
+        m_slipShown[i] = show;
     }
 }
 
@@ -1435,7 +1497,9 @@ void Hub::emitLatency() {
 void Hub::saveAudioPrefs() const {
     QSaveFile f(QDir(m_pConfig->getSettingsPath()).filePath(kAudioPrefsFile));
     if (f.open(QIODevice::WriteOnly)) {
-        f.write(QJsonDocument(QJsonObject{{"offsetMs", m_latencyOffsetMs}, {"liveStems", m_liveStemsAuto}}).toJson());
+        f.write(QJsonDocument(QJsonObject{{"offsetMs", m_latencyOffsetMs}, {"liveStems", m_liveStemsAuto},
+                                       {"recordPreFx", m_recordPreFx}})
+                        .toJson());
         f.commit();
     }
 }
