@@ -127,11 +127,18 @@ void HttpServer::handleRequest(QTcpSocket* pSocket, Connection& conn) {
         query.insert(item.first, item.second);
     }
 
-    auto respond = [pSocket](const Response& response) {
+    // A ZyDeck page served by another device's own server (Link devices: its version of the page, talking to
+    // this hub) may read the answers; other web pages may not.
+    const QByteArray origin = headers.value("origin");
+    const bool zydeckPage = origin == "http://127.0.0.1:8766" || origin == "http://localhost:8766";
+    auto respond = [pSocket, zydeckPage, origin](const Response& response) {
         QByteArray out = "HTTP/1.1 " + QByteArray::number(response.status) + ' ' +
                 reasonPhrase(response.status) + "\r\nContent-Type: " + response.contentType +
                 "\r\nContent-Length: " + QByteArray::number(response.body.size()) +
                 "\r\nConnection: close\r\n";
+        if (zydeckPage) {
+            out += "Access-Control-Allow-Origin: " + origin + "\r\nVary: Origin\r\n";
+        }
         for (const auto& header : response.headers) {
             out += header.first + ": " + header.second + "\r\n";
         }

@@ -700,8 +700,9 @@ $("#ld-scan").addEventListener("click", async () => {
       row.dataset.key = key;
       row.querySelector("button").addEventListener("click", () => {
         // the tablet controller on a tablet, the phone layout on a phone
-        const page = Math.min(screen.width, screen.height) >= 600 ? "/controller" : "/controller?phone=1";
-        bridge.linkOpen(`http://${d.host}:${d.port}${page}`);
+        // this device's own page (its version, and Real-time input), talking to that ZyDeck's server
+        const page = Math.min(screen.width, screen.height) >= 600 ? "/controller?" : "/controller?phone=1&";
+        bridge.linkOpen(`http://127.0.0.1:8766${page}hub=${encodeURIComponent(`${d.host}:${d.port}`)}`);
       });
       list.appendChild(row);
     }

@@ -443,6 +443,8 @@
   <div class="row"><div>Nudge sensitivity<small>How much the nudge bars bend the speed: lower is finer, for nudging the beats into line</small></div>
     <div><input type="range" id="s-nudge" min="0.1" max="1" step="0.05"><small><span class="val" id="s-nudge-v"></span></small></div></div>
   <div class="row"><div>Tempo direction</div><div class="seg" id="s-dir"></div></div>
+  <div class="row"><div>Touch input<small id="s-input-note">Precision: moves line up with the screen, and knobs and faders are drawn ahead of the finger. Real-time: each move goes to Mixxx the moment it arrives, up to a frame sooner (the touch to sound path), without the drawing ahead</small></div>
+    <div class="seg" id="s-input"></div></div>
   <div class="row"><div>Knob gesture<small>Drag: the distance you move, up or right = turn up. Spin: circle the knob; the farther out you circle, the finer it gets</small></div>
     <div class="seg" id="s-knob"></div></div>
   <div class="row"><div>Key notation<small>How the deck shows its current key (after key shift, and tempo when key lock is off)</small></div>
@@ -479,12 +481,22 @@
 </div></div>
 <div id="rotate">Turn the tablet to landscape</div>
 <script>
+// The hub this page talks to: the server that served it, or (?hub=host:port, Link devices) another ZyDeck's,
+// with the page itself from this device's own server. Then it's this device's version of the page, and a
+// secure context (127.0.0.1), which "Real-time" input needs. Requests and sockets go to the hub.
+const HUB_HOST = new URLSearchParams(location.search).get("hub") || location.host;
+const HUB = `${location.protocol}//${HUB_HOST}`;
+const HUB_ELSEWHERE = HUB_HOST !== location.host;
+if (HUB_ELSEWHERE) {
+  const pageFetch = window.fetch.bind(window);
+  window.fetch = (url, opts) => pageFetch(typeof url === "string" && url.startsWith("/") ? HUB + url : url, opts);
+}
 // =====================================================================================================
 // Settings (persisted per device)
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat" };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision" };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
 // Android, which knows the screen's real pixel density.
@@ -630,7 +642,14 @@ function drag(el, h) {
     active.set(e.pointerId, { h, st });
   });
 }
-addEventListener("pointermove", e => { const a = active.get(e.pointerId); if (a && a.h.move) a.h.move(e, a.st); });
+// Touch moves. Precision: as the browser delivers them, once a frame, lined up with drawing (and with the predicted
+// points the knobs and faders draw ahead with). Real-time: each one the moment it arrives (pointerrawupdate),
+// so controls reach Mixxx up to a frame sooner; only in a secure context (this device's own page).
+const RAW_INPUT = "onpointerrawupdate" in window;
+const realtimeInput = () => S.inputMode === "realtime" && RAW_INPUT;
+const onMove = e => { const a = active.get(e.pointerId); if (a && a.h.move) a.h.move(e, a.st); };
+addEventListener("pointermove", e => { if (!realtimeInput()) onMove(e); });
+if (RAW_INPUT) addEventListener("pointerrawupdate", e => { if (realtimeInput()) onMove(e); });
 ["pointerup", "pointercancel"].forEach(t => addEventListener(t, e => {
   const a = active.get(e.pointerId);
   if (a) { active.delete(e.pointerId); if (a.h.up) a.h.up(e, a.st); }
@@ -1168,11 +1187,11 @@ function openGrid(s) {
   document.getElementById("gridview")?.remove();
   const f = document.createElement("iframe");
   f.id = "gridview";
-  f.src = `/grid?group=${encodeURIComponent(ch(d.n))}&track=${d.beatsFor}`;
+  f.src = `${HUB_ELSEWHERE ? HUB : ""}/grid?group=${encodeURIComponent(ch(d.n))}&track=${d.beatsFor}`;
   document.body.appendChild(f);
 }
 addEventListener("message", e => {
-  if (e.origin === location.origin && e.data?.zydek === "grid-close") document.getElementById("gridview")?.remove();
+  if ((e.origin === location.origin || e.origin === HUB) && e.data?.zydek === "grid-close") document.getElementById("gridview")?.remove();
 });
 
 // Deck header (switch, title, BPM, time) and platter strip for side s.
@@ -2362,6 +2381,10 @@ function paintSettings(soft) {
     `${stripSeconds().toFixed(1)} s of audio across ${stripMm.toFixed(0)} mm · ${(stripSeconds() * 1000 / stripMm).toFixed(0)} ms per mm`;
   seg("s-dir", [[true, "Down = faster"], [false, "Up = faster"]], () => S.fasterDown, v => S.fasterDown = v);
   seg("s-knob", [["drag", "Drag"], ["spin", "Spin"]], () => S.knobMode, v => S.knobMode = v);
+  seg("s-input", RAW_INPUT ? [["precision", "Precision"], ["realtime", "Real-time"]] : [["precision", "Precision"]],
+    () => realtimeInput() ? "realtime" : "precision", v => S.inputMode = v);
+  if (!RAW_INPUT) document.getElementById("s-input-note").textContent =
+    "Real-time needs ZyDeck's own app on this device (a browser doesn't allow it here): moves line up with the screen";
   seg("s-keyfmt", [["camelot", "Camelot 8A"], ["open", "Open Key 1m"], ["musical", "Musical Am"]], () => S.keyNotation, v => S.keyNotation = v);
   seg("s-fs-auto", [[true, "On"], [false, "Off"]], () => S.autoFs, v => S.autoFs = v);
   seg("s-tele", [[true, "On"], [false, "Off"]], () => S.telemetry, v => S.telemetry = v);
@@ -2640,14 +2663,14 @@ function goLive(init) {
 }
 
 // This page from another ZyDeck, in this device's app (Link devices): a way back, and which device it is
-const LINKED = !!window.ZydekAndroid && !["127.0.0.1", "localhost"].includes(location.hostname);
+const LINKED = !!window.ZydekAndroid && (HUB_ELSEWHERE || !["127.0.0.1", "localhost"].includes(location.hostname));
 if (LINKED) {
   const b = document.getElementById("s-back");
   b.style.display = "";
   b.addEventListener("click", () => window.ZydekAndroid.linkClose());
 }
 function liveText() {
-  if (LINKED) return `Linked · ${location.hostname}`;
+  if (LINKED) return `Linked · ${HUB_HOST.replace(/:\d+$/, "")}`;
   if (!REMOTE.on) return "Live · Mixxx";
   const app = REMOTE.layout === "standard" ? "MIDI" : "Mixxx";
   return REMOTE.via === "wifi" ? `${app} on ${REMOTE.computer || "the computer"} · Wi-Fi` : `${app} on the computer · USB`;
@@ -2735,7 +2758,7 @@ function onMixxx(m) {
 
 let mxRx = 0;   // when /ws last brought anything
 function mxConnect() {
-  const ws = mxWs = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  const ws = mxWs = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${HUB_HOST}/ws`);
   mxRx = performance.now();
   ws.onmessage = ev => { mxRx = performance.now(); const m = JSON.parse(ev.data); if (m.t === "pong") onPong(m); else onMixxx(m); };
   ws.onclose = () => { if (ws === mxWs) setTimeout(mxConnect, 1500); };
@@ -2760,7 +2783,7 @@ setInterval(() => {
 let ctlWs = null;
 function ctlSend(msg) { if (ctlWs && ctlWs.readyState === 1) ctlWs.send(JSON.stringify(msg)); }
 function ctlConnect() {
-  ctlWs = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ctl?role=controller`);
+  ctlWs = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${HUB_HOST}/ctl?role=controller`);
   ctlWs.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if (m.type !== "settings") return;

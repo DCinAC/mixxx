@@ -238,7 +238,7 @@ $("#done").addEventListener("click", async () => {
   if (PREVIEW) set("play", 0);
   // Mixxx writes a track's edits to the library only when it's ejected: save the grid now
   await fetch(`/api/grid/save?group=${encodeURIComponent(GROUP)}`).catch(() => {});
-  parent.postMessage({ zydek: "grid-close" }, location.origin);
+  parent.postMessage({ zydek: "grid-close" }, "*");   // (its parent may be another device's copy of the deck page)
 });
 function paintBpm() { $("#bpm").innerHTML = `${st.bpm ? st.bpm.toFixed(2) : "—"}<small>BPM</small>`; }
 function paintLock() { $("#lock").textContent = st.locked ? "🔒" : "🔓"; $("#lock").classList.toggle("on", st.locked); }
