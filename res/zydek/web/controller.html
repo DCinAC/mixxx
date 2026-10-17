@@ -483,6 +483,10 @@
     <div class="seg" id="s-remote"></div></div>
   <div class="row"><div>MIDI layout<small>ZyDeck: Mixxx with the ZyDeck mapping (everything). Standard: plain notes and CCs for MIDI Learn in Serato, rekordbox or Traktor (no waveforms or positions come back)</small></div>
     <div class="seg" id="s-midilayout"></div></div>
+  <div class="row"><div>Link devices<small>Control another ZyDeck on the same Wi-Fi (or this phone's hotspot) from here, like a Bluetooth controller: the tablet as the phone's decks, say. ◀ Back to this device returns</small></div>
+    <div><div class="seg"><button id="s-ld-scan">Scan</button></div><small id="s-ld-st"></small><div class="seg" id="s-ld-list" style="margin-top:6px"></div></div></div>
+  <div class="row"><div>Discord<small>Plays the mix in a Discord voice channel through the ZyDeck Discord bot (on the computer: launch.sh; in Discord: /zydeck join from the voice channel). Listeners hear it about a second behind</small></div>
+    <div><div class="seg"><button id="s-dc">Go live</button></div><small id="s-dc-st"></small></div></div>
   <div class="row"><div>Sampler kits<small>Load a set of pads (with their modes) or save what's on them now</small></div>
     <div class="seg" id="s-kits"></div></div>
   <div class="row"><div>Default behaviour on assignment: follow the master tempo<small>What a pad gets when a track, capture or cut sample goes on it: playing in time with the decks. SHIFT + a loaded pad changes it for that pad (⇄ on the pad)</small></div>
@@ -2552,6 +2556,67 @@ document.addEventListener("click", async e => {
   if (r.ok === false) toast(r.error || "Couldn't start the test");
 });
 
+// Link devices (from the landscape menu too): the other ZyDecks nearby, through the app's network discovery
+const appBridge = () => { try { return window.ZydekAndroid || parent.ZydekAndroid; } catch { return window.ZydekAndroid; } };
+let ldScanning = false;
+document.addEventListener("click", async e => {
+  if (e.target.id !== "s-ld-scan" || ldScanning) return;
+  const bridge = appBridge(), st = document.getElementById("s-ld-st"), list = document.getElementById("s-ld-list");
+  if (!bridge?.linkScan) { st.textContent = "Only in the ZyDeck app"; return; }
+  ldScanning = true;
+  bridge.linkScan();
+  st.textContent = "Looking…"; list.innerHTML = "";
+  try {
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      let r; try { r = JSON.parse(bridge.linkDevices()); } catch { continue; }
+      const seen = new Set([...list.children].map(x => x.dataset.key));
+      for (const d of r.devices) {
+        const key = `${d.host}:${d.port}`;
+        if (seen.has(key)) continue;
+        const b = h("button", "", `${d.name.replace(/</g, "&lt;")}<small>${d.host}</small>`);
+        b.dataset.key = key;
+        // this device's own page (its version, and Real-time input), talking to that ZyDeck's server
+        b.addEventListener("click", () => bridge.linkOpen(`http://127.0.0.1:8766/controller?${PHONE ? "phone=1&" : ""}hub=${encodeURIComponent(key)}`));
+        list.appendChild(b);
+      }
+      st.textContent = list.children.length ? `${list.children.length} found${r.scanning ? " · still looking" : ": tap one to control it"}`
+        : r.scanning ? "Looking…" : "None found: is the other ZyDeck open, on the same Wi-Fi?";
+      if (!r.scanning && i > 4) break;
+    }
+  } finally { ldScanning = false; }
+});
+
+// Discord: streaming the mix to the ZyDeck Discord bot (its address and key: the phone page's Settings, or
+// launch.sh phone on the computer); the bot tells who's listening
+let dc = null, dcBotAt = 0;
+const DC_STATE = ["Not streaming", "Connecting to the bot…", "Live", "Can't reach the bot", "Live (with problems)"];
+function paintDiscord(d) {
+  dc = d || dc;
+  const b = document.getElementById("s-dc"), st = document.getElementById("s-dc-st");
+  if (!b || !dc) return;
+  b.textContent = dc.on ? "■ Stop" : "Go live";
+  b.classList.toggle("on", !!dc.on);
+  st.textContent = !dc.host || !dc.hasKey ? "Not set up: the bot's address and key (on the computer: launch.sh phone <this device's IP>)"
+    : dc.on ? DC_STATE[dc.status] + (dc.status === 3 && dc.error ? ` · ${dc.error}` : "") : `Bot: ${dc.host}`;
+  if (dc.on && dc.status === 2 && performance.now() - dcBotAt > 8000) {   // who's listening
+    dcBotAt = performance.now();
+    fetch(`http://${dc.host.includes(":") ? dc.host : dc.host + ":8780"}/status`, { signal: AbortSignal.timeout(4000) }).then(r => r.json()).then(s => {
+      if (!dc.on) return;
+      st.textContent = !s.bot ? "Live · the bot isn't signed in to Discord"
+        : !s.channel ? "Live · in Discord: /zydeck join from a voice channel"
+        : `Live in ${s.channel} · ${s.listeners} listening`;
+    }).catch(() => {});
+  }
+}
+const loadDiscord = () => fetch("/api/discord").then(r => r.json()).then(paintDiscord).catch(() => {});
+document.addEventListener("click", async e => {
+  if (e.target.id !== "s-dc" || !dc) return;
+  const r = await (await fetch(`/api/discord?on=${dc.on ? 0 : 1}`)).json().catch(() => ({}));
+  if (r.ok === false) toast(r.error || "Couldn't start it"); else paintDiscord(r);
+});
+setInterval(() => { if (dc?.on && document.getElementById("settings").classList.contains("open")) paintDiscord(); }, 10000);
+
 // Recording the set (the hub: Mixxx's recorder, the main output with effects and EQ, FLAC + .cue tracklist)
 let rec = null;
 function paintRec(r) {
@@ -2587,6 +2652,7 @@ function slider(id, key, fmt) {
   inp.onchange = () => build();
 }
 function paintSettings(soft) {
+  if (!soft) loadDiscord();
   seg("s-revs", [[.5, "½ rev"], [1, "1 rev"], [2, "2 rev"]], () => S.revs, v => S.revs = v);
   seg("s-layout", [["stacked", "Strips on top"], ["side", "Side by side"]], () => S.layout, v => S.layout = v);
   const stripMm = ui.sides[0]?.strip ? ui.sides[0].strip.clientWidth / S.pxmm : 70;
@@ -2972,6 +3038,7 @@ function onMixxx(m) {
     case "fx": fxLive[m.u][m.j] = m.v; break;
     case "smode": samplerModes[m.i] = m.v; break;
     case "opt": paintOptimize(m.o); if (!m.o.running) paintAudioBuffer(); return;
+    case "dc": paintDiscord(m.d); return;
     case "slip": if (decks[m.d]) onSlip(decks[m.d], m.p); return;
     case "sfx": if (decks[m.d]) { decks[m.d].sfx = m.f; markDirty("deck", decks[m.d]); } return;
     case "lstem": if (decks[m.d]) { decks[m.d].lstem = { s: m.s, p: m.p, e: m.e }; markDirty("deck", decks[m.d]); } return;
