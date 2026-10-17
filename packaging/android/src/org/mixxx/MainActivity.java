@@ -605,9 +605,16 @@ public class MainActivity extends QtActivityBase {
         ZydekMidi.init(this);   // controller mode's USB MIDI link (the hub turns it on)
         ZydekAudio.init(this);  // output latency, for drawing the waveforms in time with what you hear
         ZydekLink.init(this);   // other ZyDecks on the Wi-Fi find this one
+        ZydekRunningService.start(this);   // not frozen in the background: linked devices keep their connection
         createPhoneView();
         updateMode(getResources().getConfiguration().orientation);
         applyOrientationExtra(getIntent());
+    }
+
+    @Override
+    public void onDestroy() {
+        ZydekRunningService.stop(this);
+        super.onDestroy();
     }
 
     @Override
