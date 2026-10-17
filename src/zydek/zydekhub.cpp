@@ -1206,7 +1206,7 @@ QJsonObject Hub::setAudioBuffer(int index) {
 
 namespace {
 const int kOptimizeBuffers[] = {3, 4, 5};   // 5.3, 10.7, 21.3 ms at 48 kHz
-constexpr int kOptimizeSeconds = 30;        // per buffer: a stall every half a minute still shows
+constexpr int kOptimizeSeconds = 60;        // per buffer: a size on the edge stalls now and then (30 s missed some)
 ConfigKey deckKey(int deck, const char* key) {
     return ConfigKey(QStringLiteral("[Channel%1]").arg(deck), QLatin1String(key));
 }
