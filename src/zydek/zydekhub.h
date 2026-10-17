@@ -92,6 +92,7 @@ class Hub : public QObject {
     // Mixxx's engine then stops altogether (nothing plays, records or streams). After 4 s of that, the main
     // goes to "Android: follow the system".
     int m_audioDownSeconds = 0;
+    int m_audioTick = 0;
     void checkAudioOutput();
     // One-tap audio optimisation: plays a heavy load on all four decks with the main output silent (two
     // stems tracks when there are some, key lock, +4 %), tries buffers from the smallest until one has no

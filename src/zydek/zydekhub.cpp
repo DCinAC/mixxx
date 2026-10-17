@@ -1786,14 +1786,14 @@ QJsonObject Hub::setAudio(const HttpServer::Query& query) {
 
 void Hub::checkAudioOutput() {
 #ifdef Q_OS_ANDROID
-    const bool open = ControlObject::get(ConfigKey(QStringLiteral("[SoundManager]"), QStringLiteral("status"))) >= 2;
-    m_audioDownSeconds = open || m_optimize.running ? 0 : m_audioDownSeconds + 1;
-    if (m_audioDownSeconds % 30 != 4) {   // 4 s after it goes quiet, and every 30 s while that doesn't help
+    // Every 2 s: is the main or the headphones on a device that's there? (Mixxx's own status can't say: with
+    // nothing found it runs on the "Network stream" device's clock and calls that connected.) Two checks in a
+    // row without: the system output becomes the main.
+    if (m_optimize.running || ++m_audioTick % 2) {
         return;
     }
     const std::shared_ptr<SoundManager> pManager = mixxx::qml::QmlSoundManagerProxy::registeredManager();
     if (!pManager) {
-        m_audioDownSeconds = 0;
         return;
     }
     QString now;
@@ -1802,41 +1802,33 @@ void Hub::checkAudioOutput() {
             [&] {
                 SoundManagerConfig config = pManager->getConfig();
                 const QList<SoundDevicePointer> devices = pManager->getDeviceList(config.getAPI(), true, false);
-                if (devices.isEmpty()) {
-                    return;
-                }
-                // the first output is the one that follows Android's routing (PortAudio's Oboe enumerator)
-                const SoundDevicePointer pSystem = devices.first();
                 QSet<SoundDeviceId> present;
                 for (const SoundDevicePointer& pDevice : devices) {
                     present.insert(pDevice->getDeviceId());
                 }
                 QMultiHash<SoundDeviceId, AudioOutput>& outputs = config.getOutputsRef();
-                bool haveMain = false;
+                bool playing = false;
+                for (auto it = outputs.cbegin(); it != outputs.cend(); ++it) {
+                    const AudioPathType type = it.value().getType();
+                    playing = playing || ((type == AudioPathType::Main || type == AudioPathType::Headphones) && present.contains(it.key()));
+                }
+                m_audioDownSeconds = playing ? 0 : m_audioDownSeconds + 2;
+                if (playing || m_audioDownSeconds < 4 || devices.isEmpty()) {
+                    return;
+                }
+                m_audioDownSeconds = 0;
+                // the first output is the one that follows Android's routing (PortAudio's Oboe enumerator)
+                const SoundDevicePointer pSystem = devices.first();
                 for (auto it = outputs.begin(); it != outputs.end();) {
                     const AudioPathType type = it.value().getType();
-                    if ((type == AudioPathType::Main || type == AudioPathType::Headphones) && !present.contains(it.key())) {
-                        it = outputs.erase(it);   // a device that isn't there
-                        continue;
-                    }
-                    haveMain = haveMain || type == AudioPathType::Main;
-                    ++it;
+                    it = type == AudioPathType::Main || type == AudioPathType::Headphones ? outputs.erase(it) : std::next(it);
                 }
-                if (!haveMain) {
-                    // the system output alone: a headphones output left elsewhere would take turns with it
-                    for (auto it = outputs.begin(); it != outputs.end();) {
-                        it = it.value().getType() == AudioPathType::Headphones && !(it.key() == pSystem->getDeviceId())
-                                ? outputs.erase(it)
-                                : std::next(it);
-                    }
-                    config.addOutput(pSystem->getDeviceId(),
-                            AudioOutput(AudioPathType::Main, 0, mixxx::audio::ChannelCount(2), 0));
-                }
+                config.addOutput(pSystem->getDeviceId(), AudioOutput(AudioPathType::Main, 0, mixxx::audio::ChannelCount(2), 0));
                 if (pManager->setConfig(config) == SoundDeviceStatus::Ok) {
                     now = pSystem->getDisplayName();
                 }
             },
-            5000);
+            2000);
     if (!now.isEmpty()) {
         qInfo() << "Zydek: no audio output was open; playing to" << now;
     }
