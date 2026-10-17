@@ -114,6 +114,17 @@ class Hub : public QObject {
     void recordTick();
     // Slip: where the track runs on underneath a loop, a scratch or CENSOR (Mixxx's slip position), sent to
     // the pages while it differs from where the deck plays, for the ghost waveform Mixxx draws above
+    // Mixxx's Echo and Reverb load with their meta knob at 0, and their Send follows it: silent until it's
+    // turned up (the Beat FX layout has no meta knob). One loaded so in unit 1 or 2 gets a usable send.
+    double m_loadedFx[2][3] = {{-1, -1, -1}, {-1, -1, -1}};
+    void checkFxMeta();
+    // Discord: the mix streamed (Mixxx's Live Broadcasting, Opus, the recording's signal) to the ZyDeck
+    // Discord bot (tools/zydeck-discord), which plays it in a voice channel
+    QString m_discordHost;   // the bot: host[:port]
+    QString m_discordKey;    // its stream key
+    int m_discordStatus = -1;
+    QJsonObject setDiscord(bool on);
+    QJsonObject discordStatus() const;
     QTimer m_slipTimer;
     QSharedPointer<VisualPlayPosition> m_visualPos[kNumDecks];
     bool m_slipShown[kNumDecks] = {};

@@ -906,6 +906,13 @@ void ShoutConnection::updateMetaData() {
 
 void ShoutConnection::errorDialog(const QString& text, const QString& detailedError) {
     qWarning() << "Streaming error: " << detailedError;
+#ifdef Q_OS_ANDROID
+    // Zydek: no desktop dialog over the app; ZyDeck's pages show the connection's state ([Shoutcast],status)
+    // and this error (the hub reads lastError())
+    m_lastErrorStr = detailedError.isEmpty() ? text : detailedError;
+    setState(NETWORKSTREAMWORKER_STATE_ERROR);
+    return;
+#endif
     ErrorDialogProperties* props = ErrorDialogHandler::instance()->newDialogProperties();
     props->setType(DLG_WARNING);
     props->setTitle(tr("Connection error"));
@@ -921,6 +928,10 @@ void ShoutConnection::errorDialog(const QString& text, const QString& detailedEr
 }
 
 void ShoutConnection::infoDialog(const QString& text, const QString& detailedInfo) {
+#ifdef Q_OS_ANDROID
+    qInfo() << "Streaming:" << text << detailedInfo;   // Zydek: no desktop dialog over the app
+    return;
+#endif
     ErrorDialogProperties* props = ErrorDialogHandler::instance()->newDialogProperties();
     props->setType(DLG_INFO);
     props->setTitle(tr("Connection message"));

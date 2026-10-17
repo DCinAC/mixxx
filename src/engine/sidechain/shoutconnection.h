@@ -60,6 +60,10 @@ class ShoutConnection
     bool threadWaiting() override;
     void run() override;
 
+    // Zydek: why the last connection attempt failed (shown on ZyDeck's pages instead of a dialog)
+    QString lastError() const {
+        return m_lastErrorStr;
+    }
     BroadcastProfilePtr profile() {
         return m_pProfile;
     }

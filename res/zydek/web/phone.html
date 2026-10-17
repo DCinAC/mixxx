@@ -459,6 +459,15 @@
       <div class="row2"><span style="flex:1">This session's tracklist</span><button id="r-tl">Copy tracklist</button></div>
       <div class="hint" id="r-tl-text" style="white-space:pre-line"></div>
     </div>
+    <div class="card" id="dccard">
+      <h3>Discord</h3>
+      <div class="row2"><span id="dc-st" style="flex:1">Not streaming</span><button id="dc-btn">Go live</button></div>
+      <div class="hint">Plays the mix in a Discord voice channel, through the ZyDeck Discord bot running on a computer
+        or a server (tools/zydeck-discord in ZyDeck's source). The same signal as a recording; listeners hear it about a
+        second behind you. In Discord: <b>/zydeck join</b> from a voice channel.</div>
+      <div class="row2"><input id="dc-host" placeholder="Bot address, e.g. 192.168.0.100:8780" inputmode="url" autocomplete="off" style="flex:1"></div>
+      <div class="row2"><input id="dc-key" type="password" placeholder="Stream key (from the bot's .env)" autocomplete="off" style="flex:1"><button id="dc-save">Save</button></div>
+    </div>
     <div class="card">
       <h3>Default behaviour on assignment</h3>
       <label class="chk"><input type="checkbox" id="samplesync"> Follow the master tempo</label>
@@ -575,7 +584,7 @@ function showPage(p) {
   document.querySelectorAll(".page").forEach(e => e.classList.toggle("on", e.id === "p-" + p));
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.page === p));
   if (p === "fold") { loadFolders(); loadExcluded(); watchAnalysis(); }
-  if (p === "set") { loadTablet(); loadAudio(); loadBili(); loadStemServer(); loadKits(); loadRecording(); }
+  if (p === "set") { loadTablet(); loadAudio(); loadBili(); loadStemServer(); loadKits(); loadRecording(); loadDiscord(); }
   if (p === "web") webJobs();
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
@@ -736,6 +745,7 @@ function connect() {
     if (m.t === "lat") { LAT = m.s || 0; return; }
     if (m.t === "opt") { showOptimize(m.o); return; }
     if (m.t === "rec") { showRecording(m.r); return; }
+    if (m.t === "dc") { showDiscord(m.d); return; }
     if (m.init) {
       LAT = m.init.lat || 0;
       if (m.init.remote) onRemote(m.init.remote);
@@ -1450,6 +1460,48 @@ function showRecording(r) {
     : r.status === 1 ? "Starting…" : `Not recording · ${r.preFx ? "before effects" : "everything you hear"} (the deck page's Settings › Advanced)`;
   $("#r-btn").textContent = recOn ? "■ Stop" : "● Record";
 }
+// Discord: the hub streams to the bot; the bot says who's listening (its /status)
+let dcOn = false, dcHost = "", dcBotTimer = 0;
+const DC_STATE = ["Not streaming", "Connecting to the bot…", "Live", "Can't reach the bot", "Live (with problems)"];
+function showDiscord(d) {
+  if (!d) return;
+  dcOn = !!d.on; dcHost = d.host || "";
+  if (document.activeElement !== $("#dc-host")) $("#dc-host").value = dcHost;
+  $("#dc-key").placeholder = d.hasKey ? "Stream key: saved (type to change)" : "Stream key (from the bot's .env)";
+  const st = dcOn ? DC_STATE[d.status] || "…" : "Not streaming";
+  $("#dc-st").textContent = st + (dcOn && d.status === 3 && d.error ? ` · ${d.error}` : "");
+  $("#dc-btn").textContent = dcOn ? "■ Stop" : "Go live";
+  clearTimeout(dcBotTimer);
+  if (dcOn && d.status === 2) botStatus();
+}
+async function botStatus() {   // listeners, every 10 s while live and this page is open
+  clearTimeout(dcBotTimer);
+  if (!dcOn || !dcHost || document.hidden) return;
+  try {
+    const b = await fetch(`http://${dcHost.includes(":") ? dcHost : dcHost + ":8780"}/status`, { signal: AbortSignal.timeout(4000) }).then(r => r.json());
+    $("#dc-st").textContent = !b.bot ? "Live · the bot isn't signed in to Discord (its token)"
+      : !b.channel ? "Live · in Discord: /zydeck join from a voice channel"
+      : `Live in ${b.channel}${b.server ? ` (${b.server})` : ""} · ${b.listeners} listening`;
+  } catch {}
+  dcBotTimer = setTimeout(botStatus, 10000);
+}
+async function loadDiscord() {
+  try { showDiscord(await api("/api/discord")); } catch {}
+  if (!$("#dc-host").value && typeof stemServer === "string" && stemServer)   // the stem server's computer, likely
+    $("#dc-host").placeholder = `Bot address, e.g. ${stemServer.replace(/:\d+$/, "")}:8780`;
+}
+$("#dc-save").addEventListener("click", async () => {
+  const host = $("#dc-host").value.trim(), key = $("#dc-key").value.trim();
+  try {
+    showDiscord(await api(`/api/discord?${qs(key ? { host, key } : { host })}`));
+    $("#dc-key").value = "";
+    toast("Saved", "ok");
+  } catch (e) { toast(e.message, "bad"); }
+});
+$("#dc-btn").addEventListener("click", async () => {
+  try { showDiscord(await api(`/api/discord?on=${dcOn ? 0 : 1}`)); }
+  catch (e) { toast(e.message, "bad"); }
+});
 async function loadRecording() {
   try { showRecording(await api("/api/record")); } catch {}
   try {

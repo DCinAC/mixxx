@@ -1,0 +1,14 @@
+# systemd user service: install.sh copies this to ~/.config/systemd/user/
+[Unit]
+Description=ZyDeck Discord bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/Documents/Zydek/discord-bot
+ExecStart=%h/.local/node/bin/node bot.mjs
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

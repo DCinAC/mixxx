@@ -21,6 +21,13 @@
 #include <cstring>
 
 #include "control/controlobject.h"
+#include "control/controlproxy.h"
+#ifdef __BROADCAST__
+#include "broadcast/defs_broadcast.h"
+#include "engine/sidechain/enginenetworkstream.h"
+#include "engine/sidechain/shoutconnection.h"
+#include "recording/defs_recording.h"
+#endif
 #include "controllers/zydek/zydekcontroller.h"
 #include "library/library.h"
 #include "library/trackcollectionmanager.h"
@@ -231,6 +238,7 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
     connect(&m_remoteTimer, &QTimer::timeout, this, &Hub::remoteTick);
     m_recordTimer.setInterval(1000);
     connect(&m_recordTimer, &QTimer::timeout, this, &Hub::recordTick);
+    connect(&m_recordTimer, &QTimer::timeout, this, &Hub::checkFxMeta);
     m_recordTimer.start();
     m_slipTimer.setInterval(40);
     connect(&m_slipTimer, &QTimer::timeout, this, &Hub::slipTick);
@@ -303,6 +311,8 @@ void Hub::start() {
             m_latencyOffsetMs = prefs.value(QStringLiteral("offsetMs")).toInt();
             m_liveStemsAuto = prefs.value(QStringLiteral("liveStems")).toBool(true);
             m_recordPreFx = prefs.value(QStringLiteral("recordPreFx")).toBool(false);
+            m_discordHost = prefs.value(QStringLiteral("discordHost")).toString();
+            m_discordKey = prefs.value(QStringLiteral("discordKey")).toString();
         }
     }
     loadRemote();
@@ -399,6 +409,21 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
             return result(setRecording(query.value(QStringLiteral("on")) == QLatin1String("1")));
         }
         return json(recordStatus());
+    }
+    if (path == QLatin1String("/api/discord")) {   // ?host=&key= (kept) · ?on=1|0 · nothing: the status
+        if (query.contains(QStringLiteral("host")) || query.contains(QStringLiteral("key"))) {
+            if (query.contains(QStringLiteral("host"))) {
+                m_discordHost = query.value(QStringLiteral("host")).trimmed();
+            }
+            if (query.contains(QStringLiteral("key"))) {
+                m_discordKey = query.value(QStringLiteral("key")).trimmed();
+            }
+            saveAudioPrefs();
+        }
+        if (query.contains(QStringLiteral("on"))) {
+            return result(setDiscord(query.value(QStringLiteral("on")) == QLatin1String("1")));
+        }
+        return json(discordStatus());
     }
     if (path == QLatin1String("/api/tracklist")) {   // this session's
         return json(m_library.tracklist());
@@ -1285,6 +1310,11 @@ QJsonObject Hub::setRecording(bool on) {
 }
 
 void Hub::recordTick() {
+    const int discord = static_cast<int>(ControlObject::get(ConfigKey(QStringLiteral("[Shoutcast]"), QStringLiteral("status"))));
+    if (discord != m_discordStatus) {   // 0 off · 1 connecting · 2 live · 3 failed · 4 (some failed)
+        m_discordStatus = discord;
+        emitJson({{"t", "dc"}, {"d", discordStatus()}});
+    }
     const int status = static_cast<int>(ControlObject::get(kRecordStatus));
     if (status == 2 && m_recordStatus != 2) {
         m_recordClock.start();
@@ -1293,6 +1323,154 @@ void Hub::recordTick() {
         m_recordStatus = status;
         emitJson({{"t", "rec"}, {"r", recordStatus()}});
     }
+}
+
+// ---- streaming to the ZyDeck Discord bot ----------------------------------------------------------------
+
+QJsonObject Hub::discordStatus() const {
+    const bool enabled = ControlObject::get(ConfigKey(QStringLiteral("[Shoutcast]"), QStringLiteral("enabled"))) > 0;
+    const int status = static_cast<int>(ControlObject::get(ConfigKey(QStringLiteral("[Shoutcast]"), QStringLiteral("status"))));
+    QJsonObject out{{"ok", true}, {"host", m_discordHost}, {"hasKey", !m_discordKey.isEmpty()}, {"on", enabled},
+            {"status", status}};
+#ifdef __BROADCAST__
+    const std::shared_ptr<SoundManager> pManager = mixxx::qml::QmlSoundManagerProxy::registeredManager();
+    if (status == 3 && pManager) {   // failed: why (written by the connection before it gave up)
+        QString error;
+        runOnMain(
+                qApp,
+                [&] {
+                    for (const NetworkOutputStreamWorkerPtr& pWorker : pManager->getNetworkStream()->outputWorkers()) {
+                        if (const ShoutConnectionPtr pConnection = qSharedPointerCast<ShoutConnection>(pWorker);
+                                pConnection && pConnection->profile()->getEnabled()) {
+                            error = pConnection->lastError();
+                        }
+                    }
+                },
+                2000);
+        out.insert(QStringLiteral("error"), error);
+    }
+#else
+    out.insert(QStringLiteral("error"), QStringLiteral("This build has no Live Broadcasting"));
+#endif
+    return out;
+}
+
+QJsonObject Hub::setDiscord(bool on) {
+#ifdef __BROADCAST__
+    if (on && (m_discordHost.isEmpty() || m_discordKey.isEmpty())) {
+        return {{"ok", false}, {"error", "Set the bot's address and stream key first"}};
+    }
+    const std::shared_ptr<SoundManager> pManager = mixxx::qml::QmlSoundManagerProxy::registeredManager();
+    if (!pManager) {
+        return {{"ok", false}, {"error", "Mixxx isn't ready"}};
+    }
+    QString error;
+    const bool ran = runOnMain(
+            qApp,
+            [&] {
+                // Mixxx's Live Broadcasting connections (one per profile; Mixxx makes a default one)
+                QList<BroadcastProfilePtr> profiles;
+                for (const NetworkOutputStreamWorkerPtr& pWorker : pManager->getNetworkStream()->outputWorkers()) {
+                    if (const ShoutConnectionPtr pConnection = qSharedPointerCast<ShoutConnection>(pWorker)) {
+                        profiles.append(pConnection->profile());
+                    }
+                }
+                if (profiles.isEmpty()) {
+                    error = QStringLiteral("Mixxx's Live Broadcasting isn't set up");
+                    return;
+                }
+                // through a proxy: the broadcast manager hears it (connects / disconnects)
+                ControlProxy enabled(ConfigKey(QStringLiteral(BROADCAST_PREF_KEY), QStringLiteral("enabled")));
+                if (!on) {
+                    enabled.set(0);
+                    return;
+                }
+                if (enabled.toBool()) {
+                    return;   // already on (off and on again to change the address)
+                }
+                for (int i = 1; i < profiles.size(); ++i) {
+                    profiles[i]->setEnabled(false);
+                }
+                // The bot takes an Icecast source; its settings are read when it connects
+                const BroadcastProfilePtr& pProfile = profiles.first();
+                const int colon = m_discordHost.lastIndexOf(QLatin1Char(':'));
+                const int port = colon > 0 ? m_discordHost.mid(colon + 1).toInt() : 0;
+                pProfile->setHost(colon > 0 ? m_discordHost.left(colon) : m_discordHost);
+                pProfile->setPort(port > 0 ? port : 8780);
+                pProfile->setServertype(QStringLiteral(BROADCAST_SERVER_ICECAST2));
+                pProfile->setLogin(QStringLiteral("source"));
+                pProfile->setPassword(m_discordKey);
+                pProfile->setMountPoint(QStringLiteral("/zydeck"));
+                pProfile->setFormat(QStringLiteral(ENCODING_OPUS));   // 48 kHz, 20 ms packets: as Discord takes them
+                pProfile->setBitrate(128);
+                pProfile->setChannels(2);
+                pProfile->setStreamName(QStringLiteral("ZyDeck"));
+                pProfile->setStreamPublic(false);
+                pProfile->setEnableMetadata(false);
+                pProfile->setOggDynamicUpdate(false);   // one Ogg stream for the whole set
+                pProfile->setEnableReconnect(true);     // the bot restarting, Wi-Fi dropping: keep trying
+                pProfile->setNoDelayFirstReconnect(true);
+                pProfile->setReconnectPeriod(5);
+                pProfile->setLimitReconnects(false);
+                pProfile->setEnabled(true);
+                enabled.set(1);
+            },
+            5000);
+    if (!ran) {
+        return {{"ok", false}, {"error", "Mixxx is busy: try again"}};
+    }
+    if (!error.isEmpty()) {
+        return {{"ok", false}, {"error", error}};
+    }
+    QJsonObject out = discordStatus();
+    out.insert(QStringLiteral("ok"), true);
+    return out;
+#else
+    Q_UNUSED(on);
+    return {{"ok", false}, {"error", "This build has no Live Broadcasting"}};
+#endif
+}
+
+void Hub::checkFxMeta() {
+    QList<QString> changed;
+    for (int u = 0; u < 2; ++u) {
+        for (int j = 0; j < 3; ++j) {
+            const QString group = QStringLiteral("[EffectRack1_EffectUnit%1_Effect%2]").arg(u + 1).arg(j + 1);
+            const double loaded = ControlObject::get(ConfigKey(group, QStringLiteral("loaded_effect")));
+            if (loaded != m_loadedFx[u][j]) {
+                m_loadedFx[u][j] = loaded;
+                changed.append(group);
+            }
+        }
+    }
+    const std::shared_ptr<EffectsManager> pEffects = mixxx::qml::QmlEffectsManagerProxy::registeredManager();
+    if (changed.isEmpty() || !pEffects) {
+        return;
+    }
+    runOnMain(
+            qApp,
+            [&] {
+                for (int u = 0; u < 2; ++u) {
+                    const EffectChainPointer pChain = pEffects->getStandardEffectChain(u);
+                    if (!pChain) {
+                        continue;
+                    }
+                    for (const EffectSlotPointer& pSlot : pChain->getEffectSlots()) {
+                        const EffectManifestPointer pManifest = pSlot->getManifest();
+                        if (!pManifest || !changed.contains(pSlot->getGroup()) ||
+                                (pManifest->id() != QLatin1String("org.mixxx.effects.echo") &&
+                                        pManifest->id() != QLatin1String("org.mixxx.effects.reverb"))) {
+                            continue;
+                        }
+                        const ConfigKey meta(pSlot->getGroup(), QStringLiteral("meta"));
+                        if (ControlObject::get(meta) <= 0) {
+                            // through a proxy, so the slot hears it and moves the linked Send (-3 dB, Echo's own default)
+                            ControlProxy(meta).set(0.7);
+                        }
+                    }
+                }
+            },
+            2000);
 }
 
 namespace {
@@ -1498,7 +1676,8 @@ void Hub::saveAudioPrefs() const {
     QSaveFile f(QDir(m_pConfig->getSettingsPath()).filePath(kAudioPrefsFile));
     if (f.open(QIODevice::WriteOnly)) {
         f.write(QJsonDocument(QJsonObject{{"offsetMs", m_latencyOffsetMs}, {"liveStems", m_liveStemsAuto},
-                                       {"recordPreFx", m_recordPreFx}})
+                                       {"recordPreFx", m_recordPreFx}, {"discordHost", m_discordHost},
+                                       {"discordKey", m_discordKey}})
                         .toJson());
         f.commit();
     }

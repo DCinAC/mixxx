@@ -18,8 +18,9 @@ namespace {
 // 1 byte TOC + maximum frame size (1275)
 // See https://tools.ietf.org/html/rfc6716#section-3.2
 constexpr int kMaxOpusBufferSize = 1+1275;
-// Opus frame duration in milliseconds. Fixed to 60ms
-constexpr int kOpusFrameMs = 60;
+// Opus frame duration in milliseconds. Zydek: 20 ms (Mixxx: 60), the packet length Discord's voice
+// channels take, so the ZyDeck Discord bot passes the broadcast through without decoding it again
+constexpr int kOpusFrameMs = 20;
 constexpr int kOpusChannelCount = 2;
 // Opus only supports 48 and 96 kHz samplerates
 constexpr mixxx::audio::SampleRate kMainSampleRate = mixxx::audio::SampleRate(48000);

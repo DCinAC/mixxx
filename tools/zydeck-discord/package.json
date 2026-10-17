@@ -1,0 +1,15 @@
+{
+  "name": "zydeck-discord",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plays ZyDeck's mix in a Discord voice channel",
+  "type": "module",
+  "main": "bot.mjs",
+  "scripts": { "start": "node bot.mjs" },
+  "engines": { "node": ">=22.12.0" },
+  "license": "GPL-2.0-or-later",
+  "dependencies": {
+    "@discordjs/voice": "0.19.2",
+    "discord.js": "14.27.0"
+  }
+}
