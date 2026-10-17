@@ -383,7 +383,7 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     }
     if (path == QLatin1String("/api/record")) {   // ?on=1|0, or nothing: the status
         if (query.contains(QStringLiteral("on"))) {
-            return result(setRecording(arg("on") == QLatin1String("1")));
+            return result(setRecording(query.value(QStringLiteral("on")) == QLatin1String("1")));
         }
         return json(recordStatus());
     }
