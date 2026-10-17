@@ -1412,6 +1412,7 @@ function audioWarn() {
   const [m0, m1] = chRange($("#a-main-ch").value), [p0, p1] = chRange($("#a-phones-ch").value);
   const shared = same && m0 < p1 && p0 < m1;
   $("#a-phones-ch").disabled = !phones;
+  $("#a-main-ch").disabled = !$("#a-main").value;
   $("#a-warn").classList.toggle("on", shared);
   $("#a-warn").innerHTML = shared ? `<b>Headphones share the main's channels.</b> Everything you cue is mixed into the ` +
     `main output, so anyone listening hears it too. Fine for practising on one pair of earphones, not for a crowd.` : "";
@@ -1421,14 +1422,15 @@ async function loadAudio() {
   let a;
   try { a = await api("/api/audio"); } catch (e) { $("#a-info").innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
   audioDevices = a.devices;
-  const opts = (sel, none) => (none ? `<option value="">None</option>` : "") +
+  const opts = (sel, none) => (none ? `<option value=""${sel ? "" : " selected"}>${none}</option>` : "") +
     a.devices.map(d => `<option${d.name === sel ? " selected" : ""}>${esc(d.name)}</option>`).join("");
-  $("#a-main").innerHTML = opts(a.main, false);
-  $("#a-phones").innerHTML = opts(a.headphones, true);
+  $("#a-main").innerHTML = opts(a.main, "None: only the headphones play (recording and Discord still get the mix)");
+  $("#a-phones").innerHTML = opts(a.headphones, "None");
   $("#a-main-ch").innerHTML = channelOptions($("#a-main").value, a.mainChannels);
   $("#a-phones-ch").innerHTML = channelOptions($("#a-phones").value, a.headphonesChannels);
-  $("#a-info").textContent = a.main ? `${a.latencyMs ? a.latencyMs.toFixed(1) + " ms buffer · " : ""}${a.api}` +
-    (a.dropouts ? ` · ${a.dropouts} dropouts` : "") : "No output: Mixxx is silent";
+  $("#a-info").textContent = a.main || a.headphones ? `${a.latencyMs ? a.latencyMs.toFixed(1) + " ms buffer · " : ""}${a.api}` +
+    (a.dropouts ? ` · ${a.dropouts} dropouts` : "") + (a.main ? "" : " · no main output: the main mix only records and streams")
+    : "No output: Mixxx is silent";
   audioWarn();
   const BUFS = [[3, "5 ms"], [4, "11 ms"], [5, "21 ms"], [6, "43 ms"], [7, "85 ms"]];
   $("#a-buf").innerHTML = "";

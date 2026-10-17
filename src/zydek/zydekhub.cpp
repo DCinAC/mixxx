@@ -1717,16 +1717,23 @@ QJsonObject Hub::setAudio(const HttpServer::Query& query) {
                     }
                     return SoundDevicePointer();
                 };
-                const SoundDevicePointer pMain = find(mainName);
+                // No main output: only the headphones play (the cue, with as much of the main mix as CUE MIX
+                // lets in), and the main mix goes only where it's recorded or streamed (Discord). Mixxx keeps
+                // making it for those (EngineMixer::onOutputDisconnected), the headphones' device keeping time.
+                const SoundDevicePointer pMain = mainName.isEmpty() ? SoundDevicePointer() : find(mainName);
                 const SoundDevicePointer pHeadphones = headphonesName.isEmpty() ? SoundDevicePointer() : find(headphonesName);
-                if (!pMain || (!headphonesName.isEmpty() && !pHeadphones)) {
+                if ((!mainName.isEmpty() && !pMain) || (!headphonesName.isEmpty() && !pHeadphones)) {
                     out = {{"ok", false}, {"error", QStringLiteral("That output isn't connected any more")}};
+                    return;
+                }
+                if (!pMain && !pHeadphones) {
+                    out = {{"ok", false}, {"error", QStringLiteral("Pick the headphones' output: with neither, nothing plays")}};
                     return;
                 }
 #ifdef Q_OS_ANDROID
                 // Android plays an app's media to one output at a time: two outputs (speaker and Bluetooth, say)
                 // take turns, each one cutting the other off many times a second.
-                if (pHeadphones && pHeadphones != pMain) {
+                if (pMain && pHeadphones && pHeadphones != pMain) {
                     out = {{"ok", false},
                             {"error", QStringLiteral("Android plays to one device at a time: put the headphones on the main's "
                                                      "device, on other channels (a USB interface's 3-4, or main on 1 "
@@ -1741,24 +1748,26 @@ QJsonObject Hub::setAudio(const HttpServer::Query& query) {
                 const auto fits = [](const SoundDevicePointer& pDevice, int base, int count) {
                     return base + count <= static_cast<int>(pDevice->getNumOutputChannels());
                 };
-                if (!fits(pMain, mainBase, mainCount) || (pHeadphones && !fits(pHeadphones, phonesBase, phonesCount))) {
+                if ((pMain && !fits(pMain, mainBase, mainCount)) || (pHeadphones && !fits(pHeadphones, phonesBase, phonesCount))) {
                     out = {{"ok", false}, {"error", QStringLiteral("That output doesn't have those channels")}};
                     return;
                 }
                 // Main and headphones may share channels: Mixxx then mixes the cue into the main mix there
                 // (the page warns about it first).
-                const bool shared = pHeadphones == pMain &&
+                const bool shared = pMain && pHeadphones == pMain &&
                         mainBase < phonesBase + phonesCount && phonesBase < mainBase + mainCount;
                 QMultiHash<SoundDeviceId, AudioOutput>& outputs = config.getOutputsRef();
                 for (auto it = outputs.begin(); it != outputs.end();) {
                     const AudioPathType type = it.value().getType();
                     it = type == AudioPathType::Main || type == AudioPathType::Headphones ? outputs.erase(it) : std::next(it);
                 }
-                config.addOutput(pMain->getDeviceId(),
-                        AudioOutput(AudioPathType::Main,
-                                static_cast<unsigned char>(mainBase),
-                                mixxx::audio::ChannelCount(mainCount),
-                                0));
+                if (pMain) {
+                    config.addOutput(pMain->getDeviceId(),
+                            AudioOutput(AudioPathType::Main,
+                                    static_cast<unsigned char>(mainBase),
+                                    mixxx::audio::ChannelCount(mainCount),
+                                    0));
+                }
                 if (pHeadphones) {
                     config.addOutput(pHeadphones->getDeviceId(),
                             AudioOutput(AudioPathType::Headphones,
