@@ -239,6 +239,7 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
     m_recordTimer.setInterval(1000);
     connect(&m_recordTimer, &QTimer::timeout, this, &Hub::recordTick);
     connect(&m_recordTimer, &QTimer::timeout, this, &Hub::checkFxMeta);
+    connect(&m_recordTimer, &QTimer::timeout, this, &Hub::checkAudioOutput);
     m_recordTimer.start();
     m_slipTimer.setInterval(40);
     connect(&m_slipTimer, &QTimer::timeout, this, &Hub::slipTick);
@@ -1781,6 +1782,65 @@ QJsonObject Hub::setAudio(const HttpServer::Query& query) {
                         : QJsonObject{{"ok", false}, {"error", pManager->getLastErrorMessage(status)}};
             });
     return out;
+}
+
+void Hub::checkAudioOutput() {
+#ifdef Q_OS_ANDROID
+    const bool open = ControlObject::get(ConfigKey(QStringLiteral("[SoundManager]"), QStringLiteral("status"))) >= 2;
+    m_audioDownSeconds = open || m_optimize.running ? 0 : m_audioDownSeconds + 1;
+    if (m_audioDownSeconds % 30 != 4) {   // 4 s after it goes quiet, and every 30 s while that doesn't help
+        return;
+    }
+    const std::shared_ptr<SoundManager> pManager = mixxx::qml::QmlSoundManagerProxy::registeredManager();
+    if (!pManager) {
+        m_audioDownSeconds = 0;
+        return;
+    }
+    QString now;
+    runOnMain(
+            pManager.get(),
+            [&] {
+                SoundManagerConfig config = pManager->getConfig();
+                const QList<SoundDevicePointer> devices = pManager->getDeviceList(config.getAPI(), true, false);
+                if (devices.isEmpty()) {
+                    return;
+                }
+                // the first output is the one that follows Android's routing (PortAudio's Oboe enumerator)
+                const SoundDevicePointer pSystem = devices.first();
+                QSet<SoundDeviceId> present;
+                for (const SoundDevicePointer& pDevice : devices) {
+                    present.insert(pDevice->getDeviceId());
+                }
+                QMultiHash<SoundDeviceId, AudioOutput>& outputs = config.getOutputsRef();
+                bool haveMain = false;
+                for (auto it = outputs.begin(); it != outputs.end();) {
+                    const AudioPathType type = it.value().getType();
+                    if ((type == AudioPathType::Main || type == AudioPathType::Headphones) && !present.contains(it.key())) {
+                        it = outputs.erase(it);   // a device that isn't there
+                        continue;
+                    }
+                    haveMain = haveMain || type == AudioPathType::Main;
+                    ++it;
+                }
+                if (!haveMain) {
+                    // the system output alone: a headphones output left elsewhere would take turns with it
+                    for (auto it = outputs.begin(); it != outputs.end();) {
+                        it = it.value().getType() == AudioPathType::Headphones && !(it.key() == pSystem->getDeviceId())
+                                ? outputs.erase(it)
+                                : std::next(it);
+                    }
+                    config.addOutput(pSystem->getDeviceId(),
+                            AudioOutput(AudioPathType::Main, 0, mixxx::audio::ChannelCount(2), 0));
+                }
+                if (pManager->setConfig(config) == SoundDeviceStatus::Ok) {
+                    now = pSystem->getDisplayName();
+                }
+            },
+            5000);
+    if (!now.isEmpty()) {
+        qInfo() << "Zydek: no audio output was open; playing to" << now;
+    }
+#endif
 }
 
 // ---- latency log ---------------------------------------------------------------------------------

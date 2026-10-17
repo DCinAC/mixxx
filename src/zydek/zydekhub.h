@@ -88,6 +88,11 @@ class Hub : public QObject {
     QJsonObject audioStatus() const;
     QJsonObject setAudio(const HttpServer::Query& query);
     QJsonObject setAudioBuffer(int index);
+    // No output open (the one chosen last time not found under the same name, a Bluetooth device gone):
+    // Mixxx's engine then stops altogether (nothing plays, records or streams). After 4 s of that, the main
+    // goes to "Android: follow the system".
+    int m_audioDownSeconds = 0;
+    void checkAudioOutput();
     // One-tap audio optimisation: plays a heavy load on all four decks with the main output silent (two
     // stems tracks when there are some, key lock, +4 %), tries buffers from the smallest until one has no
     // dropouts, keeps that one, puts the decks and the volume back and measures the output again.
