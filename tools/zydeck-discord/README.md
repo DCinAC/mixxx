@@ -14,12 +14,12 @@ those packets to Discord unchanged. Listeners hear it about a second behind you.
    ```bash
    bash tools/zydeck-discord/install.sh
    ```
-   It makes `~/Documents/Zydek/discord-bot/.env` with a new stream key. Put the token in it:
-   `DISCORD_TOKEN=...`, then `systemctl --user restart zydeck-discord`.
-3. **Invite it to your server**: the log prints an invite link (`journalctl --user -u zydeck-discord`), asking
-   for Connect and Speak.
-4. **On the phone**: ZyDeck › Discord: the bot's address (this computer's IP, port 8780) and the stream key
-   from `.env`.
+   It makes `~/Documents/Zydek/discord-bot/.env` with a new stream key, and `~/Documents/Zydek/launch.sh`.
+   Then `~/Documents/Zydek/launch.sh` asks for the token (typed hidden) and starts the bot.
+3. **Invite it to your server**: `launch.sh invite` prints the link (permissions 3146752: View Channels,
+   Connect, Speak).
+4. **On the phone**: `launch.sh phone <phone IP>` fills in ZyDeck › Settings › Discord (the bot's address,
+   this computer's IP and port 8780, and the stream key); or type them there (`launch.sh key` shows the key).
 
 ## Use
 

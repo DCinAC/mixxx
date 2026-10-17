@@ -28,10 +28,11 @@ if [ ! -f "$DEST/.env" ]; then
   echo "Made $DEST/.env with a new stream key; put the bot's token in it (DISCORD_TOKEN=...)"
 fi
 (cd "$DEST" && npm install --omit=dev --no-audit --no-fund)
+cp "$SRC/launch.sh" "$HOME/Documents/Zydek/launch.sh" && chmod +x "$HOME/Documents/Zydek/launch.sh"
 
 mkdir -p "$HOME/.config/systemd/user"
 cp "$SRC/zydeck-discord.service" "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
 systemctl --user enable zydeck-discord >/dev/null
 systemctl --user restart zydeck-discord
-echo "Running: systemctl --user status zydeck-discord · logs: journalctl --user -u zydeck-discord -f"
+echo "Running. ~/Documents/Zydek/launch.sh: token, status, logs, invite, phone <IP> (see its top)"

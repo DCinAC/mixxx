@@ -232,7 +232,7 @@ function setPresence() {
 
 client.once(Events.ClientReady, async () => {
   log(`signed in as ${client.user.tag}`);
-  log(`invite: https://discord.com/oauth2/authorize?client_id=${client.user.id}&scope=bot%20applications.commands&permissions=3145728`);
+  log(`invite: https://discord.com/oauth2/authorize?client_id=${client.user.id}&scope=bot%20applications.commands&permissions=3146752`);   // View Channels + Connect + Speak
   for (const g of client.guilds.cache.values()) await g.commands.set([command]).catch(e => log(`commands in ${g.name}:`, e.message));
   setPresence();
   if (live.source) rejoin();
