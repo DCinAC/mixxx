@@ -788,7 +788,8 @@ function knob(label, get, set, def, bipolar, target = () => null, onTap = null) 
   return el;
 }
 
-// ---- fader: jumps to the finger unless the touch is within 5 mm of the cap; then follows the drag
+// ---- fader: a touch on its track jumps the cap there and follows at once; a touch on the cap itself never moves
+// it, and dragging it starts after 2 mm (so a touch can't nudge the level)
 function fader(get, set, label, horizontal, target = () => null) {
   const el = horizontal ? document.getElementById("xf") : h("div", "fader", `<div class="lbl"></div><div class="ticks"></div><div class="rail"></div><div class="cap"></div>`);
   if (horizontal) el.innerHTML = `<div class="mid"></div><div class="rail"></div><div class="cap"></div>`;
@@ -813,11 +814,19 @@ function fader(get, set, label, horizontal, target = () => null) {
       const g = geom(), p = horizontal ? e.clientX : e.clientY, ctx = target();
       el.hold = { ctx };
       let v = get(ctx);
-      if (Math.abs(p - capCenter(g, v)) > mm(5)) { v = valueAt(g, p); set(v, ctx); el.paint(); }
+      const c = cap.getBoundingClientRect();
+      const onCap = e.clientX >= c.left && e.clientX <= c.right && e.clientY >= c.top && e.clientY <= c.bottom;
+      if (!onCap) { v = valueAt(g, p); set(v, ctx); el.paint(); }
       el.classList.add("held");
-      return { p, v, g, ctx };
+      return { p, v, g, ctx, dead: onCap };
     },
     move: (e, st) => {
+      if (st.dead) {   // on the cap: still until the finger has gone 2 mm, then it follows from there
+        const moved = (horizontal ? e.clientX : e.clientY) - st.p;
+        if (Math.abs(moved) < mm(2)) return;
+        st.dead = false;
+        st.p += Math.sign(moved) * mm(2);
+      }
       const at = ev => clamp(st.v + ((horizontal ? ev.clientX : ev.clientY) - st.p) / st.g.len * (horizontal ? 1 : -1), 0, 1);
       set(at(e), st.ctx);
       const p = predicted(e);
