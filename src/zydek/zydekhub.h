@@ -18,11 +18,11 @@
 #include "zydek/zydeklibrary.h"
 
 class QTcpSocket;
+class VisualPlayPosition;
 class ZydekController;
 
 namespace zydek {
 class LiveStems;
-class VisualPlayPosition;
 
 /// The link between the Zydek pages (tablet controller, settings/debug page) and Mixxx.
 ///
