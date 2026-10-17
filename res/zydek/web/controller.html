@@ -517,6 +517,7 @@ function migrateSettings(o) {
 }
 migrateSettings(S);
 let applyingRemote = false;
+setTimeout(() => tellApp(), 0);   // the saved touch input setting, for the app
 const saveSettings = () => {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(S)); } catch {}
   if (!applyingRemote) ctlSend({ type: "settings", settings: S });   // keep the Mac's /settings page in sync
@@ -650,6 +651,8 @@ const realtimeInput = () => S.inputMode === "realtime" && RAW_INPUT;
 const onMove = e => { const a = active.get(e.pointerId); if (a && a.h.move) a.h.move(e, a.st); };
 addEventListener("pointermove", e => { if (!realtimeInput()) onMove(e); });
 if (RAW_INPUT) addEventListener("pointerrawupdate", e => { if (realtimeInput()) onMove(e); });
+// ZyDeck's app: in Real-time, Android delivers touch moves unbatched too (else once a frame, before the page sees them)
+const tellApp = () => { try { window.ZydekAndroid?.setRealtimeInput?.(realtimeInput()); } catch {} };
 ["pointerup", "pointercancel"].forEach(t => addEventListener(t, e => {
   const a = active.get(e.pointerId);
   if (a) { active.delete(e.pointerId); if (a.h.up) a.h.up(e, a.st); }
@@ -2382,7 +2385,7 @@ function paintSettings(soft) {
   seg("s-dir", [[true, "Down = faster"], [false, "Up = faster"]], () => S.fasterDown, v => S.fasterDown = v);
   seg("s-knob", [["drag", "Drag"], ["spin", "Spin"]], () => S.knobMode, v => S.knobMode = v);
   seg("s-input", RAW_INPUT ? [["precision", "Precision"], ["realtime", "Real-time"]] : [["precision", "Precision"]],
-    () => realtimeInput() ? "realtime" : "precision", v => S.inputMode = v);
+    () => realtimeInput() ? "realtime" : "precision", v => { S.inputMode = v; tellApp(); });
   if (!RAW_INPUT) document.getElementById("s-input-note").textContent =
     "Real-time needs ZyDeck's own app on this device (a browser doesn't allow it here): moves line up with the screen";
   seg("s-keyfmt", [["camelot", "Camelot 8A"], ["open", "Open Key 1m"], ["musical", "Musical Am"]], () => S.keyNotation, v => S.keyNotation = v);

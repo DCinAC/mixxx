@@ -15,6 +15,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -131,7 +132,16 @@ public class MainActivity extends QtActivityBase {
     }
 
     /// What the library page can ask Android for (window.ZydekAndroid in its JavaScript).
+    // The deck page's "Real-time" touch input: Android hands this view each touch move as it comes, not
+    // batched once a frame (requestUnbufferedDispatch), so pointerrawupdate reaches the page that much sooner.
+    private volatile boolean m_realtimeInput;
+
     private class PageBridge {
+        @JavascriptInterface
+        public void setRealtimeInput(boolean on) {
+            m_realtimeInput = on;
+        }
+
         @JavascriptInterface
         public boolean hasAllFilesAccess() {
             return MainActivity.hasAllFilesAccess();
@@ -656,6 +666,12 @@ public class MainActivity extends QtActivityBase {
         settings.setDomStorageEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
         m_phoneView.addJavascriptInterface(new PageBridge(), "ZydekAndroid");
+        m_phoneView.setOnTouchListener((v, event) -> {
+            if (m_realtimeInput && event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                v.requestUnbufferedDispatch(event);   // for this touch, until it lifts
+            }
+            return false;   // the WebView handles it as usual
+        });
         m_phoneView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
