@@ -1643,11 +1643,11 @@ const rgb = v => `#${v.toString(16).padStart(6, "0")}`;
 const fgFor = v => ((v >> 16 & 255) * .299 + (v >> 8 & 255) * .587 + (v & 255) * .114) / 255 > .55 ? "#111" : "#fff";
 
 function setPad(el, cls, html, color, fg) {
-  const key = `${cls}|${el.dataset.down || ""}|${color}|${fg}|${html}`;
+  const key = `${cls}|${el.dataset.down || ""}|${el.dataset.holding || ""}|${color}|${fg}|${html}`;
   if (el._key === key) return;
   el._key = key;
   el._knob = null;
-  el.className = "pad " + cls + (el.dataset.down ? " down" : "");
+  el.className = "pad " + cls + (el.dataset.down ? " down" : "") + (el.dataset.holding ? " holding" : "");
   if (color) el.style.setProperty("--c", color); else el.style.removeProperty("--c");
   if (fg) el.style.setProperty("--fg", fg); else el.style.removeProperty("--fg");
   el.innerHTML = html;
@@ -1894,10 +1894,21 @@ function fxTapEffect(d, u, j) {
   if (f.enabled[j]) fxRoute(d, u);
   schedulePaint();
 }
-function fxPress(d, k, down, e, el) {
+function fxPress(d, k, down, e, el, s) {
   const u = fxUnitOf(d), f = fxState[u - 1], cell = fxCell(d, k);
   // changing the effect happens on release, on the pad: slide off it to take it back
   if (cell === "prev" || cell === "name" || cell.startsWith("next")) {
+    if (cell === "name") {   // held for HOLD_MS: the FX menu (as the tablet's effect name button), filling up meanwhile
+      const holding = on => { if (on) el.dataset.holding = "1"; else delete el.dataset.holding; el.classList.toggle("holding", on); };
+      if (down) {
+        el._held = false;
+        el.style.setProperty("--hold", `${HOLD_MS}ms`); holding(true);
+        el._holdT = setTimeout(() => { el._held = true; holding(false); fxMenu(s); }, HOLD_MS);
+        return;
+      }
+      clearTimeout(el._holdT); holding(false);
+      if (el._held) return;
+    }
     if (down || !releasedOn(el, e)) return;
     if (cell === "prev") return push(fxSlotG(u, 0), "prev_effect");
     if (cell === "name") return push(fxSlotG(u, 0), d.shift ? "prev_effect" : "next_effect");
@@ -2002,7 +2013,7 @@ function padPress(s, k, down, e, el) {
       if (down) fetch(`/api/livestems/${d.lstem?.s === "ready" ? "swap" : "make"}?deck=${d.n}`).catch(() => {});
       return;
     }
-    if (d.mode === "fx") return fxPress(d, k, down, e, el);
+    if (d.mode === "fx") return fxPress(d, k, down, e, el, s);
     const sf = stemFxPad(d, k);
     if (sf >= 0) { if (down) stemFx(d, sf); return; }
     if (d.mode === "stem" && k >= 4) return;   // unmapped, like the Inpulse
