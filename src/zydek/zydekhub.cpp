@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <memory>
 
 #include "control/controlobject.h"
 #include "control/controlproxy.h"
@@ -1314,7 +1315,11 @@ void Hub::recordTick() {
     const int discord = static_cast<int>(ControlObject::get(ConfigKey(QStringLiteral("[Shoutcast]"), QStringLiteral("status"))));
     if (discord != m_discordStatus) {   // 0 off · 1 connecting · 2 live · 3 failed · 4 (some failed)
         m_discordStatus = discord;
+        m_botTick = 0;
         emitJson({{"t", "dc"}, {"d", discordStatus()}});
+    }
+    if (discord == 2 && m_botTick++ % 10 == 1) {
+        checkBot();
     }
     const int status = static_cast<int>(ControlObject::get(kRecordStatus));
     if (status == 2 && m_recordStatus != 2) {
@@ -1333,6 +1338,9 @@ QJsonObject Hub::discordStatus() const {
     const int status = static_cast<int>(ControlObject::get(ConfigKey(QStringLiteral("[Shoutcast]"), QStringLiteral("status"))));
     QJsonObject out{{"ok", true}, {"host", m_discordHost}, {"hasKey", !m_discordKey.isEmpty()}, {"on", enabled},
             {"status", status}};
+    if (!m_bot.isEmpty()) {
+        out.insert(QStringLiteral("bot"), m_bot);   // the bot's last /status: its channel, listeners, kicked
+    }
 #ifdef __BROADCAST__
     const std::shared_ptr<SoundManager> pManager = mixxx::qml::QmlSoundManagerProxy::registeredManager();
     if (status == 3 && pManager) {   // failed: why (written by the connection before it gave up)
@@ -1354,6 +1362,68 @@ QJsonObject Hub::discordStatus() const {
     out.insert(QStringLiteral("error"), QStringLiteral("This build has no Live Broadcasting"));
 #endif
     return out;
+}
+
+void Hub::checkBot() {
+    if (m_pBotCheck || m_discordHost.isEmpty()) {
+        return;
+    }
+    const int colon = m_discordHost.lastIndexOf(QLatin1Char(':'));
+    const QString host = colon > 0 ? m_discordHost.left(colon) : m_discordHost;
+    const int port = colon > 0 ? m_discordHost.mid(colon + 1).toInt() : 8780;
+    QTcpSocket* pSocket = new QTcpSocket(this);
+    m_pBotCheck = pSocket;
+    auto pReply = std::make_shared<QByteArray>();
+    connect(pSocket, &QTcpSocket::connected, pSocket, [pSocket, host] {
+        pSocket->write("GET /status HTTP/1.0\r\nHost: " + host.toUtf8() + "\r\n\r\n");
+    });
+    connect(pSocket, &QTcpSocket::readyRead, pSocket, [pSocket, pReply] {
+        pReply->append(pSocket->readAll());
+        if (pReply->size() > 65536) {
+            pSocket->abort();
+        }
+    });
+    connect(pSocket, &QTcpSocket::disconnected, this, [this, pSocket, pReply] {
+        const int body = pReply->indexOf("\r\n\r\n");
+        const QJsonObject status = body < 0 ? QJsonObject() : QJsonDocument::fromJson(pReply->mid(body + 4)).object();
+        pSocket->deleteLater();
+        if (!status.isEmpty()) {
+            onBotStatus(status);
+        }
+    });
+    connect(pSocket, &QTcpSocket::errorOccurred, pSocket, [pSocket](QAbstractSocket::SocketError error) {
+        if (error != QAbstractSocket::RemoteHostClosedError) {
+            pSocket->deleteLater();
+        }
+    });
+    QTimer::singleShot(5000, pSocket, [pSocket] { pSocket->abort(); pSocket->deleteLater(); });
+    pSocket->connectToHost(host, static_cast<quint16>(port));
+}
+
+void Hub::onBotStatus(const QJsonObject& status) {
+    const QJsonObject kicked = status.value(QStringLiteral("kicked")).toObject();
+    const double at = kicked.value(QStringLiteral("at")).toDouble();
+    if (at > 0 && at != m_botKickedAt) {
+        m_botKickedAt = at;
+        // a kick from the last 10 minutes is news (an older one was told before, or happened offline)
+        if (QDateTime::currentMSecsSinceEpoch() - at < 10 * 60 * 1000) {
+            const QString channel = kicked.value(QStringLiteral("channel")).toString();
+            const QString text = QStringLiteral("The Discord bot was kicked from %1. It stays out until /zydeck join.")
+                                         .arg(channel.isEmpty() ? QStringLiteral("its voice channel") : channel);
+            emitJson({{"t", "notice"}, {"m", text}});
+#ifdef Q_OS_ANDROID
+            QJniObject::callStaticMethod<void>("org/mixxx/ZydekRunningService",
+                    "notice",
+                    "(Ljava/lang/String;Ljava/lang/String;)V",
+                    QJniObject::fromString(QStringLiteral("Discord bot kicked")).object<jstring>(),
+                    QJniObject::fromString(text).object<jstring>());
+#endif
+        }
+    }
+    if (status != m_bot) {
+        m_bot = status;
+        emitJson({{"t", "dc"}, {"d", discordStatus()}});
+    }
 }
 
 QJsonObject Hub::setDiscord(bool on) {

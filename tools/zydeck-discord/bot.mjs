@@ -213,16 +213,33 @@ async function join(channel) {
   connection.on(VoiceConnectionStatus.Disconnected, async () => {
     try {   // moved to another channel, or a network blip: Discord reconnects on its own
       await Promise.race([entersState(connection, VoiceConnectionStatus.Signalling, 5000), entersState(connection, VoiceConnectionStatus.Connecting, 5000)]);
-    } catch { connection.destroy(); }
+    } catch { if (connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy(); }
   });
   await entersState(connection, VoiceConnectionStatus.Ready, 20000);
   if (channel.type === ChannelType.GuildStageVoice) await channel.guild.members.me.voice.setSuppressed(false).catch(() => {});
   return connection;
 }
-function rejoin() {
+function rejoin() {   // not after being kicked: only /zydeck join brings it back then
   const ch = voiceChannel();
-  if (ch && !getVoiceConnection(ch.guild.id)) join(ch).catch(e => log("couldn't join:", e.message));
+  if (ch && !state.kicked && !getVoiceConnection(ch.guild.id)) join(ch).catch(e => log("couldn't join:", e.message));
 }
+// Kicked (disconnected by someone, or the channel deleted): out of the channel without a new one, and not by
+// /zydeck leave. Moved to another channel: it goes along, and that's the channel from then on.
+let leavingAt = 0;
+client.on(Events.VoiceStateUpdate, (before, after) => {
+  if (after.id !== client.user?.id) return;
+  if (before.channelId && !after.channelId) {
+    if (Date.now() - leavingAt < 5000) return;
+    getVoiceConnection(before.guild.id)?.destroy();
+    state.kicked = { channel: before.channel?.name ?? null, server: before.guild.name, at: Date.now() };
+    saveState();
+    log(`kicked from ${state.kicked.channel} (${state.kicked.server}): staying out until /zydeck join`);
+  } else if (after.channelId && after.channelId !== state.channelId && after.guild.id === state.guildId) {
+    state.channelId = after.channelId;
+    saveState();
+    log(`moved to ${after.channel?.name}`);
+  }
+});
 function listeners() {
   const ch = voiceChannel();
   return ch ? ch.members.filter(m => !m.user.bot).size : 0;
@@ -233,6 +250,7 @@ function status() {
     bot: client.user?.tag ?? null, live: !!live.source, liveSeconds: live.source ? Math.round((Date.now() - live.since) / 1000) : 0,
     server: ch?.guild.name ?? null, channel: ch?.name ?? null, inChannel: connection?.state.status === VoiceConnectionStatus.Ready,
     listeners: listeners(), buffered: live.queue.length * 20, skipped: live.dropped, ranDry: live.dry,
+    kicked: state.kicked ?? null,
   };
 }
 function setPresence() {
@@ -256,10 +274,11 @@ client.on(Events.InteractionCreate, async i => {
     await i.deferReply();
     try {
       await join(ch);
-      state = { guildId: ch.guild.id, channelId: ch.id }; saveState();
+      state = { guildId: ch.guild.id, channelId: ch.id }; saveState();   // (and no longer kicked)
       await i.editReply(live.source ? `Playing ZyDeck in **${ch.name}**.` : `In **${ch.name}**: ZyDeck isn't live yet. It'll play as soon as it is.`);
     } catch (e) { await i.editReply(`Couldn't join **${ch.name}**: ${e.message}`); }
   } else if (sub === "leave") {
+    leavingAt = Date.now();
     getVoiceConnection(i.guildId)?.destroy();
     if (state.guildId === i.guildId) { state = {}; saveState(); }
     await i.reply("Left. `/zydeck join` to come back.");
@@ -267,10 +286,10 @@ client.on(Events.InteractionCreate, async i => {
     const s = status();
     await i.reply({ flags: MessageFlags.Ephemeral, content:
       `${s.live ? `🔴 ZyDeck live for ${Math.floor(s.liveSeconds / 60)} min` : "ZyDeck isn't streaming"} · ` +
-      `${s.channel ? `${s.inChannel ? "in" : "set to"} **${s.channel}**, ${s.listeners} listening` : "no voice channel (`/zydeck join`)"}` });
+      `${s.channel ? `${s.inChannel ? "in" : "set to"} **${s.channel}**, ${s.listeners} listening` : "no voice channel (`/zydeck join`)"}` +
+      (s.kicked ? ` · kicked from **${s.kicked.channel}**: \`/zydeck join\` to bring it back` : "") });
   }
 });
-client.on(Events.VoiceStateUpdate, () => {});   // keeps member lists (listener counts) current
 if (TOKEN) client.login(TOKEN).catch(e => { log("Discord sign-in failed:", e.message); });
 else log("No DISCORD_TOKEN in .env yet: taking the stream (and /listen), not on Discord");
 

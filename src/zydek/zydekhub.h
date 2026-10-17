@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QMap>
 #include <QObject>
+#include <QPointer>
 #include <QSet>
 #include <QSharedPointer>
 #include <QString>
@@ -131,6 +132,13 @@ class Hub : public QObject {
     int m_discordStatus = -1;
     QJsonObject setDiscord(bool on);
     QJsonObject discordStatus() const;
+    // While live: the bot's /status every 10 s (who's listening; kicked from the channel: a notice)
+    QPointer<QTcpSocket> m_pBotCheck;
+    QJsonObject m_bot;
+    double m_botKickedAt = 0;
+    int m_botTick = 0;
+    void checkBot();
+    void onBotStatus(const QJsonObject& status);
     QTimer m_slipTimer;
     QSharedPointer<VisualPlayPosition> m_visualPos[kNumDecks];
     bool m_slipShown[kNumDecks] = {};

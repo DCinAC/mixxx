@@ -471,6 +471,8 @@
 <div id="settings"><div class="panel">
   <button class="x" id="s-x" aria-label="Close">✕</button>
   <h2>Settings<small id="s-status">UI test · simulated Mixxx</small></h2>
+  <div class="row"><div>Link devices<small>Control another ZyDeck on the same Wi-Fi (or this phone's hotspot) from here, like a Bluetooth controller: the tablet as the phone's decks, say. ◀ Back to this device returns</small></div>
+    <div><div class="seg"><button id="s-ld-scan">Scan</button></div><small id="s-ld-st"></small><div class="seg" id="s-ld-list" style="margin-top:6px"></div></div></div>
   <div class="row"><div>Layout<small>Strips on top: both platter strips stacked across the top like Mixxx's waveforms (about twice as long), the top-bar buttons beside them</small></div>
     <div class="seg" id="s-layout"></div></div>
   <div class="row"><div>Tempo direction</div><div class="seg" id="s-dir"></div></div>
@@ -486,8 +488,6 @@
     <div class="seg" id="s-remote"></div></div>
   <div class="row"><div>MIDI layout<small>ZyDeck: Mixxx with the ZyDeck mapping (everything). Standard: plain notes and CCs for MIDI Learn in Serato, rekordbox or Traktor (no waveforms or positions come back)</small></div>
     <div class="seg" id="s-midilayout"></div></div>
-  <div class="row"><div>Link devices<small>Control another ZyDeck on the same Wi-Fi (or this phone's hotspot) from here, like a Bluetooth controller: the tablet as the phone's decks, say. ◀ Back to this device returns</small></div>
-    <div><div class="seg"><button id="s-ld-scan">Scan</button></div><small id="s-ld-st"></small><div class="seg" id="s-ld-list" style="margin-top:6px"></div></div></div>
   <div class="row"><div>Discord<small>Plays the mix in a Discord voice channel through the ZyDeck Discord bot (on the computer: launch.sh; in Discord: /zydeck join from the voice channel). Listeners hear it about a second behind</small></div>
     <div><div class="seg"><button id="s-dc">Go live</button></div><small id="s-dc-st"></small></div></div>
   <div class="row"><div>Sampler kits<small>Load a set of pads (with their modes) or save what's on them now</small></div>
@@ -2591,8 +2591,8 @@ document.addEventListener("click", async e => {
 });
 
 // Discord: streaming the mix to the ZyDeck Discord bot (its address and key: the phone page's Settings, or
-// launch.sh phone on the computer); the bot tells who's listening
-let dc = null, dcBotAt = 0;
+// launch.sh phone on the computer); the hub asks the bot who's listening (dc.bot)
+let dc = null;
 const DC_STATE = ["Not streaming", "Connecting to the bot…", "Live", "Can't reach the bot", "Live (with problems)"];
 function paintDiscord(d) {
   dc = d || dc;
@@ -2600,17 +2600,14 @@ function paintDiscord(d) {
   if (!b || !dc) return;
   b.textContent = dc.on ? "■ Stop" : "Go live";
   b.classList.toggle("on", !!dc.on);
+  const bot = dc.bot;
   st.textContent = !dc.host || !dc.hasKey ? "Not set up: the bot's address and key (on the computer: launch.sh phone <this device's IP>)"
-    : dc.on ? DC_STATE[dc.status] + (dc.status === 3 && dc.error ? ` · ${dc.error}` : "") : `Bot: ${dc.host}`;
-  if (dc.on && dc.status === 2 && performance.now() - dcBotAt > 8000) {   // who's listening
-    dcBotAt = performance.now();
-    fetch(`http://${dc.host.includes(":") ? dc.host : dc.host + ":8780"}/status`, { signal: AbortSignal.timeout(4000) }).then(r => r.json()).then(s => {
-      if (!dc.on) return;
-      st.textContent = !s.bot ? "Live · the bot isn't signed in to Discord"
-        : !s.channel ? "Live · in Discord: /zydeck join from a voice channel"
-        : `Live in ${s.channel} · ${s.listeners} listening`;
-    }).catch(() => {});
-  }
+    : !dc.on ? `Bot: ${dc.host}`
+    : dc.status === 2 && bot ? (!bot.bot ? "Live · the bot isn't signed in to Discord"
+      : bot.kicked && !bot.inChannel ? `Live · the bot was kicked from ${bot.kicked.channel || "its channel"}: /zydeck join to bring it back`
+      : !bot.channel ? "Live · in Discord: /zydeck join from a voice channel"
+      : `Live in ${bot.channel} · ${bot.listeners} listening`)
+    : DC_STATE[dc.status] + (dc.status === 3 && dc.error ? ` · ${dc.error}` : "");
 }
 const loadDiscord = () => fetch("/api/discord").then(r => r.json()).then(paintDiscord).catch(() => {});
 document.addEventListener("click", async e => {
@@ -2618,7 +2615,6 @@ document.addEventListener("click", async e => {
   const r = await (await fetch(`/api/discord?on=${dc.on ? 0 : 1}`)).json().catch(() => ({}));
   if (r.ok === false) toast(r.error || "Couldn't start it"); else paintDiscord(r);
 });
-setInterval(() => { if (dc?.on && document.getElementById("settings").classList.contains("open")) paintDiscord(); }, 10000);
 
 // Recording the set (the hub: Mixxx's recorder, the main output with effects and EQ, FLAC + .cue tracklist)
 let rec = null;
@@ -3042,6 +3038,7 @@ function onMixxx(m) {
     case "smode": samplerModes[m.i] = m.v; break;
     case "opt": paintOptimize(m.o); if (!m.o.running) paintAudioBuffer(); return;
     case "dc": paintDiscord(m.d); return;
+    case "notice": toast(m.m); return;
     case "slip": if (decks[m.d]) onSlip(decks[m.d], m.p); return;
     case "sfx": if (decks[m.d]) { decks[m.d].sfx = m.f; markDirty("deck", decks[m.d]); } return;
     case "lstem": if (decks[m.d]) { decks[m.d].lstem = { s: m.s, p: m.p, e: m.e }; markDirty("deck", decks[m.d]); } return;

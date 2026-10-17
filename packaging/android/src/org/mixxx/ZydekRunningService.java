@@ -21,9 +21,13 @@ public class ZydekRunningService extends Service {
     private static final String CHANNEL = "zydek-running";
     private static final int NOTIFICATION = 7201;
     private static final String ACTION_STOP = "org.mixxx.ZYDEK_RUNNING_STOP";
+    private static final String NOTICES = "zydek-notices";
+    private static final int NOTICE = 7202;
+    private static Context sContext;
 
     /// MainActivity, when ZyDeck opens. Quietly does nothing if Android won't allow it.
     public static void start(Context context) {
+        sContext = context.getApplicationContext();
         try {
             context.startForegroundService(new Intent(context, ZydekRunningService.class));
         } catch (RuntimeException e) {
@@ -33,6 +37,33 @@ public class ZydekRunningService extends Service {
 
     public static void stop(Context context) {
         context.stopService(new Intent(context, ZydekRunningService.class));
+    }
+
+    /// The hub (any thread): something to tell even when ZyDeck isn't in front, e.g. the Discord bot kicked
+    /// from its voice channel. Tapping it opens ZyDeck. Needs Android's notification permission for ZyDeck.
+    public static void notice(String title, String text) {
+        Context context = sContext;
+        if (context == null) {
+            return;
+        }
+        try {
+            NotificationManager manager = context.getSystemService(NotificationManager.class);
+            manager.createNotificationChannel(
+                    new NotificationChannel(NOTICES, "ZyDeck notices", NotificationManager.IMPORTANCE_DEFAULT));
+            Intent open = new Intent(context, MainActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+            int icon = context.getResources().getIdentifier("ic_stat_zydeck", "drawable", context.getPackageName());
+            manager.notify(NOTICE, new Notification.Builder(context, NOTICES)
+                    .setSmallIcon(icon != 0 ? icon : android.R.drawable.stat_notify_error)
+                    .setContentTitle(title)
+                    .setContentText(text)
+                    .setStyle(new Notification.BigTextStyle().bigText(text))
+                    .setContentIntent(PendingIntent.getActivity(context, 2, open, PendingIntent.FLAG_IMMUTABLE))
+                    .setAutoCancel(true)
+                    .build());
+        } catch (RuntimeException e) {
+            Log.w(TAG, "can't show a notice", e);
+        }
     }
 
     @Override

@@ -746,6 +746,7 @@ function connect() {
     if (m.t === "opt") { showOptimize(m.o); return; }
     if (m.t === "rec") { showRecording(m.r); return; }
     if (m.t === "dc") { showDiscord(m.d); return; }
+    if (m.t === "notice") { toast(m.m, "bad"); return; }
     if (m.init) {
       LAT = m.init.lat || 0;
       if (m.init.remote) onRemote(m.init.remote);
@@ -1462,30 +1463,21 @@ function showRecording(r) {
     : r.status === 1 ? "Starting…" : `Not recording · ${r.preFx ? "before effects" : "everything you hear"} (the deck page's Settings › Advanced)`;
   $("#r-btn").textContent = recOn ? "■ Stop" : "● Record";
 }
-// Discord: the hub streams to the bot; the bot says who's listening (its /status)
-let dcOn = false, dcHost = "", dcBotTimer = 0;
+// Discord: the hub streams to the bot, and asks it every 10 s who's listening (d.bot: the bot's /status)
+let dcOn = false, dcHost = "";
 const DC_STATE = ["Not streaming", "Connecting to the bot…", "Live", "Can't reach the bot", "Live (with problems)"];
+const botLine = b => !b.bot ? "Live · the bot isn't signed in to Discord (its token)"
+  : b.kicked && !b.inChannel ? `Live · the bot was kicked from ${b.kicked.channel || "its channel"}: /zydeck join to bring it back`
+  : !b.channel ? "Live · in Discord: /zydeck join from a voice channel"
+  : `Live in ${b.channel}${b.server ? ` (${b.server})` : ""} · ${b.listeners} listening`;
 function showDiscord(d) {
   if (!d) return;
   dcOn = !!d.on; dcHost = d.host || "";
   if (document.activeElement !== $("#dc-host")) $("#dc-host").value = dcHost;
   $("#dc-key").placeholder = d.hasKey ? "Stream key: saved (type to change)" : "Stream key (from the bot's .env)";
-  const st = dcOn ? DC_STATE[d.status] || "…" : "Not streaming";
-  $("#dc-st").textContent = st + (dcOn && d.status === 3 && d.error ? ` · ${d.error}` : "");
+  $("#dc-st").textContent = !dcOn ? "Not streaming" : d.status === 2 && d.bot ? botLine(d.bot)
+    : (DC_STATE[d.status] || "…") + (d.status === 3 && d.error ? ` · ${d.error}` : "");
   $("#dc-btn").textContent = dcOn ? "■ Stop" : "Go live";
-  clearTimeout(dcBotTimer);
-  if (dcOn && d.status === 2) botStatus();
-}
-async function botStatus() {   // listeners, every 10 s while live and this page is open
-  clearTimeout(dcBotTimer);
-  if (!dcOn || !dcHost || document.hidden) return;
-  try {
-    const b = await fetch(`http://${dcHost.includes(":") ? dcHost : dcHost + ":8780"}/status`, { signal: AbortSignal.timeout(4000) }).then(r => r.json());
-    $("#dc-st").textContent = !b.bot ? "Live · the bot isn't signed in to Discord (its token)"
-      : !b.channel ? "Live · in Discord: /zydeck join from a voice channel"
-      : `Live in ${b.channel}${b.server ? ` (${b.server})` : ""} · ${b.listeners} listening`;
-  } catch {}
-  dcBotTimer = setTimeout(botStatus, 10000);
 }
 async function loadDiscord() {
   try { showDiscord(await api("/api/discord")); } catch {}
