@@ -437,6 +437,15 @@
   #rotate { position: fixed; inset: 0; background: var(--bg); color: var(--text); display: none; align-items: center; justify-content: center;
     font-size: 22px; text-align: center; z-index: 20; padding: 24px; }
   @media (orientation: portrait) { #rotate { display: flex; } }
+  /* two-function controls (CUE · SLIP, PLAY · CENSOR, SYNC · MASTER, the mode buttons, the EQ labels): see two() */
+  #app .two { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+  #app .two > b, #app .two > small { display: block; margin: 0; white-space: nowrap; letter-spacing: .02em;
+    transition: font-size .08s, opacity .08s; }
+  #app .two > b { font-size: 1em !important; font-weight: 700 !important; opacity: 1; }
+  #app .two > small { font-size: .6em !important; font-weight: 400 !important; color: inherit !important; opacity: .6; margin-top: .15em; }
+  #app .two.alt > b { font-size: .6em !important; font-weight: 400 !important; opacity: .6; }
+  #app .two.alt > small { font-size: 1em !important; font-weight: 700 !important; opacity: 1; }
+  #app .two > small.on { color: var(--acc) !important; opacity: 1; }
 </style>
 </head>
 <body>
@@ -592,7 +601,7 @@ function cachedRect(el) {
   return el._rect.r;
 }
 // Skip DOM writes that wouldn't change anything.
-const setHTML = (el, html) => { if (el._html !== html) { el._html = html; el.innerHTML = html; } };
+const setHTML = (el, html) => { if (el._html !== html) { el._html = html; el.innerHTML = html; if (html.startsWith('<span class="two')) fitTwo(el); } };
 const setText = (el, t) => { if (el._text !== t) { el._text = t; el.textContent = t; } };
 
 function applySettings() {
@@ -1099,8 +1108,7 @@ function paintSamplesButtons() {
     if (!b) return;
     const on = sidePage[s] === "samples", alt = on && sideBank[s] !== s;
     b.classList.toggle("on", on);
-    setHTML(b, `<span class="${shifted || alt ? "dimmed" : ""}">SAMPLES <i>${BANKS[s]}</i></span>` +
-      `<small class="${shifted || alt ? "lit" : ""}">⇧ ${BANKS[1 - s]}</small>`);
+    setHTML(b, two(`SAMPLES <i>${BANKS[s]}</i>`, `⇧ ${BANKS[1 - s]}`, shifted || alt));
   });
 }
 
@@ -1458,7 +1466,16 @@ const LOOP_PADS = [.5, 1, 2, 4];
 const PHONE_JUMPS = [4, 0, 1, 5];
 const padIndex = (d, k) => PHONE && d.mode === "jump" ? PHONE_JUMPS[k] : k;
 // "MAIN<small>SHIFT</small>": the SHIFT function lights up (and the main one dims) while it applies
-const two = (main, alt, altOn) => `<span class="${altOn ? "dimmed" : ""}">${main}</span><small class="${altOn ? "lit" : ""}">${alt}</small>`;
+// A two-function control's label: the main function big and bold, the SHIFT one small and plain under it; they
+// swap while SHIFT is held (or the second function is the one in use). on: the second is switched on (lit).
+// The big one shrinks to fit a narrow button (fitTwo, when it's set).
+const two = (main, alt, altOn, on = false) =>
+  `<span class="two${altOn ? " alt" : ""}"><b>${main}</b><small${on ? ' class="on"' : ""}>${alt}</small></span>`;
+function fitTwo(el) {
+  const t = el.firstElementChild, big = t.querySelector(t.classList.contains("alt") ? "small" : "b");
+  const room = el.clientWidth - 4, w = big.scrollWidth;
+  if (room > 0 && w > room) big.style.setProperty("font-size", `${(parseFloat(getComputedStyle(big).fontSize) * room / w).toFixed(1)}px`, "important");
+}
 function buildPhone() {
   layoutEpoch++;
   const app = document.getElementById("app");
@@ -1698,13 +1715,13 @@ function paintSide(s) {
   if (sidePage[s] === "samples") { u.spads.forEach(({ el, i }) => paintSamplerPad(el, i)); return; }
   u.play.classList.toggle("on", d.playing);
   // SHIFT shows CUE's and PLAY's second jobs: SLIP on/off, and CENSOR while held; SLIP on shows under CUE
-  setHTML(u.cue, live && d.shift ? two("CUE", "SLIP", true) : d.slip ? `CUE<small class="lit">SLIP</small>` : "CUE");
-  setHTML(u.play, live && d.shift ? two("PLAY", "CENSOR", true) : "PLAY");
+  setHTML(u.cue, two("CUE", "SLIP", live && d.shift, d.slip));
+  setHTML(u.play, two("PLAY", "CENSOR", live && d.shift));
   // playing only while CUE is held (it stops when CUE is let go): blinking, not lit
   u.play.classList.toggle("preview", d.playing && live && d.latched === false);
   u.cue.classList.toggle("on", !d.playing && Math.abs(d.pos - d.cuePoint) < .05);
   u.sync.classList.toggle("beat", !!d.syncMode);
-  setHTML(u.sync, d.syncMode ? (d.leader ? "SYNC<small>MASTER</small>" : "SYNC<small>ON</small>") : d.shift ? "SYNC<small>MASTER?</small>" : "SYNC");
+  setHTML(u.sync, two("SYNC", "MASTER", d.shift, d.leader));   // MASTER lit: this deck leads the sync
   const locked = synced(d);
   u.lane.classList.toggle("locked", locked);
   setText(u.lane.querySelector(".lock"), locked ? "SYNCED" : "");
@@ -1719,7 +1736,7 @@ function paintSide(s) {
     u.mB.classList.toggle("on", d.mode === "loop" || d.mode === "smpl");
     setHTML(u.mC, two("STEM", "KEY", d.shift || d.mode === "key"));
     u.mC.classList.toggle("on", d.mode === "stem" || d.mode === "key");
-    setHTML(u.sync, two("SYNC", "MASTER", d.shift || d.leader));
+
   }
   u.shiftBtn.classList.toggle("idle", false);   // SHIFT: hot cue delete, FX units 3-4, sync master, loop in/out adjust, loop move
   u.shiftBtn.classList.toggle("on", d.shift);
