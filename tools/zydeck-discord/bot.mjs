@@ -73,16 +73,25 @@ class OggReader {
 }
 
 // ---- the live stream ------------------------------------------------------------------------------------
-// Mixxx sends a page about every quarter second (a dozen packets); Discord takes one every 20 ms. The queue
-// evens that out: it starts once START packets are in, plays silence if it runs dry, and if it's grown past MAX
-// (the phone's clock a touch faster than this computer's), skips back to TARGET.
+// Mixxx sends a page every 100 ms or so (ZyDeck's encoder; a few packets each), Discord takes one packet every
+// 20 ms, and Wi-Fi delivers in lumps now and then. The queue evens that out: it starts once START packets are
+// in, plays silence if it runs dry (and starts again at START), and only if it hasn't once dropped to
+// TARGET + SLACK in 3 s (the phone's clock running a touch faster than this computer's) does it skip ahead.
 const SILENCE = Buffer.from([0xf8, 0xff, 0xfe]);
-const START = 20, TARGET = 25, MAX = 50;   // 0.4 s, 0.5 s, 1 s
-const live = { source: null, since: 0, queue: [], primed: false, headers: [], listeners: new Set(), packets: 0, dropped: 0, dry: 0 };
+const START = 15, TARGET = 15, SLACK = 10;   // 0.3 s ahead; trimmed back to it past 0.5 s held for 3 s
+const live = { source: null, since: 0, queue: [], primed: false, headers: [], listeners: new Set(), packets: 0, dropped: 0, dry: 0,
+  lowest: Infinity, windowAt: 0 };
 function nextPacket() {
-  const q = live.queue;
-  if (!live.primed) { if (q.length < START) return SILENCE; live.primed = true; }
-  if (q.length > MAX) { live.dropped += q.length - TARGET; q.splice(0, q.length - TARGET); }
+  const q = live.queue, now = Date.now();
+  if (!live.primed) {
+    if (q.length < START) return SILENCE;
+    live.primed = true; live.lowest = Infinity; live.windowAt = now;
+  }
+  live.lowest = Math.min(live.lowest, q.length);
+  if (now - live.windowAt >= 3000) {
+    if (live.lowest > TARGET + SLACK) { const n = live.lowest - TARGET; q.splice(0, n); live.dropped += n; }
+    live.lowest = Infinity; live.windowAt = now;
+  }
   const p = q.shift();
   if (!p) { live.primed = false; live.dry++; return SILENCE; }
   return p;
@@ -162,7 +171,7 @@ net.createServer(sock => {
           if (p.length >= 8 && (p.toString("latin1", 0, 8) === "OpusHead" || p.toString("latin1", 0, 8) === "OpusTags")) return;
           live.packets++;
           live.queue.push(p);
-          if (live.queue.length > 500) live.queue.splice(0, live.queue.length - TARGET);   // nobody's taking them
+          if (live.queue.length > 500) { live.dropped += live.queue.length - TARGET; live.queue.splice(0, live.queue.length - TARGET); }   // nobody's taking them
         }, (page, header) => {
           if (header) live.headers.push(page);
           for (const l of live.listeners) l.write(page);

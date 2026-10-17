@@ -21,6 +21,9 @@ constexpr int kMaxOpusBufferSize = 1+1275;
 // Opus frame duration in milliseconds. Zydek: 20 ms (Mixxx: 60), the packet length Discord's voice
 // channels take, so the ZyDeck Discord bot passes the broadcast through without decoding it again
 constexpr int kOpusFrameMs = 20;
+// Zydek: a page goes out at least every 100 ms. libogg fills pages to ~4 kB or 255 packets, which in quiet
+// passages (a few bytes a packet) is ~5 s of audio at once: a stream's listeners would get it in lumps.
+constexpr int kMaxPacketsPerPage = 100 / kOpusFrameMs;
 constexpr int kOpusChannelCount = 2;
 // Opus only supports 48 and 96 kHz samplerates
 constexpr mixxx::audio::SampleRate kMainSampleRate = mixxx::audio::SampleRate(48000);
@@ -462,6 +465,13 @@ void EncoderOpus::writePage(ogg_packet* pPacket) {
         m_pCallback->write(m_oggPage.header, m_oggPage.body,
                            m_oggPage.header_len, m_oggPage.body_len);
     } while(!ogg_page_eos(&m_oggPage));
+
+    if (m_packetNumber % kMaxPacketsPerPage == 0) {
+        while (ogg_stream_flush(&m_oggStream, &m_oggPage) != 0) {
+            m_pCallback->write(m_oggPage.header, m_oggPage.body,
+                    m_oggPage.header_len, m_oggPage.body_len);
+        }
+    }
 }
 
 void EncoderOpus::updateMetaData(const QString& artist,
