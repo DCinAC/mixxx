@@ -83,7 +83,21 @@
   .strip .cursor { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--acc); left: 50% !important;
     box-shadow: 0 0 calc(var(--mm) * 1.2) var(--acc); will-change: transform; left: 0; }
   /* waveform of the stretch of record the strip shows (Mixxx's analysis: red lows, green mids, blue highs) */
-  .strip canvas.wf { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  /* the waveform's layer: tiles drawn once, slid (and squeezed for tempo) by the compositor, never redrawn per frame */
+  .strip .axis { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(255,255,255,.28); pointer-events: none; }
+  .strip .wftrack { position: absolute; left: 0; top: 0; width: 0; height: 100%; transform-origin: 0 0; will-change: transform; pointer-events: none; }
+  .strip .wftrack .tiles > canvas { position: absolute; top: 0; height: 100%; }
+  .strip .cm { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--c); }
+  .strip .cm b { position: absolute; left: 1px; bottom: 0; height: var(--tag); line-height: var(--tag); padding: 0 calc(var(--tag) * .3);
+    font-size: calc(var(--tag) * .74); font-weight: 700; background: var(--c); color: var(--ink); white-space: nowrap;
+    transform: scaleX(var(--inv, 1)); transform-origin: 0 0; }
+  .strip .cm.top b { top: 0; bottom: auto; }
+  .strip .loop { position: absolute; top: 0; bottom: 0; box-sizing: border-box; margin-left: -1px; background: rgba(255,255,255,.3);
+    border-left: 2px solid #bbbbbb; border-right: 2px solid #bbbbbb; }
+  .strip .loop.on { background: rgba(0,180,0,.3); border-color: #00b400; }
+  .strip .loop b { position: absolute; left: 0; top: 0; width: var(--ltag); height: var(--ltag); line-height: var(--ltag); text-align: center;
+    font-size: calc(var(--ltag) * .85); color: #fff; background: #bbbbbb; transform: scaleX(var(--inv, 1)); transform-origin: 0 0; }
+  .strip .loop.on b { background: #00b400; }
   .strip .played { position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background: rgba(0,0,0,.45); pointer-events: none; }
   .strip .label { position: absolute; left: calc(var(--mm) * 1.2); bottom: calc(var(--mm) * .8); font-size: calc(var(--mm) * 1.7); color: #4a4a4a; }
 
@@ -623,6 +637,9 @@ addEventListener("pointermove", e => { const a = active.get(e.pointerId); if (a 
 }));
 addEventListener("contextmenu", e => e.preventDefault());
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+// Where the finger is about to be (Chrome predicts a frame or so ahead): knobs and faders are drawn there, so
+// they don't trail the finger by the screen's own delay. Values sent are the real ones.
+const predicted = e => { const p = e.getPredictedEvents?.(); return p && p.length ? p[p.length - 1] : null; };
 const h = (tag, cls, html) => { const el = document.createElement(tag); if (cls) el.className = cls; if (html != null) el.innerHTML = html; return el; };
 
 // ---- knob: grab and drag only; up or right = clockwise; ~40 mm of drag per full turn; double-tap resets
@@ -681,7 +698,7 @@ function drawProtractor(svg, cx, cy, fx, fy, value) {
 // direction instead of adding up step lengths, so jitter cancels out rather than accumulating.
 // Moving towards up/right raises the value. Only along the up-left/down-right diagonals, where that's
 // ambiguous, the previous direction decides (±20° hysteresis), so the sign can't flicker there.
-const AXIS_MM = 1, BORDER = Math.sin(20 * Math.PI / 180);
+const AXIS_MM = .6, BORDER = Math.sin(20 * Math.PI / 180);
 function strokeDelta(st, ddx, ddy) {
   const t = st.trail, x = st.x, y = st.y;
   t.push([x, y]);
@@ -696,8 +713,8 @@ function strokeDelta(st, ddx, ddy) {
     t.splice(0, i);
     break;
   }
-  if (!st.axis) { st.pend[0] += ddx; st.pend[1] += ddy; return 0; }   // first millimetre: held until the direction is known
-  ddx += st.pend[0]; ddy += st.pend[1]; st.pend[0] = st.pend[1] = 0;
+  // until the direction is known (the first 0.6 mm): up/right raises it, as it will after, so it moves at once
+  if (!st.axis) return (ddx - ddy) / Math.SQRT2;
   return ddx * st.axis[0] + ddy * st.axis[1];
 }
 
@@ -706,8 +723,9 @@ function knob(label, get, set, def, bipolar, target = () => null, onTap = null) 
     `<path class="karc"/><line class="kptr" x1="20" y1="20" x2="20" y2="11"/></svg><span>${label}</span>`);
   let lastTap = 0;
   const karc = el.querySelector(".karc"), kptr = el.querySelector(".kptr");
-  el.paint = () => {
-    const v = get(el.hold ? el.hold.ctx : target());
+  el.paint = shown => {
+    if (shown != null && el.hold) el.hold.shown = shown;   // held: other repaints keep the finger's place
+    const v = shown ?? el.hold?.shown ?? get(el.hold ? el.hold.ctx : target());
     if (v === el._v) return;
     el._v = v;
     const a = -135 + v * 270;
@@ -753,7 +771,13 @@ function knob(label, get, set, def, bipolar, target = () => null, onTap = null) 
         const delta = strokeDelta(st, ddx, ddy);
         st.v = clamp(st.v + delta / mm(40), 0, 1);
       }
-      set(st.v, st.ctx); el.paint();
+      set(st.v, st.ctx);
+      const p = S.knobMode !== "spin" && predicted(e);
+      if (p) {   // drawn a little ahead, where the finger is going
+        const px = p.clientX - e.clientX, py = p.clientY - e.clientY;
+        const ahead = st.axis ? px * st.axis[0] + py * st.axis[1] : (px - py) / Math.SQRT2;
+        el.paint(clamp(st.v + ahead / mm(40), 0, 1));
+      } else el.paint();
     },
     up: (e, st) => {
       el.classList.remove("held"); el.hold = null; el.paint(); if (st.pr) st.pr.remove();
@@ -777,8 +801,9 @@ function fader(get, set, label, horizontal, target = () => null) {
   // value 1 = top (vertical) / right (horizontal)
   const capCenter = (g, v) => horizontal ? g.a + v * g.len : g.a + (1 - v) * g.len;
   const valueAt = (g, p) => clamp(horizontal ? (p - g.a) / g.len : 1 - (p - g.a) / g.len, 0, 1);
-  el.paint = () => {
-    const ctx = el.hold ? el.hold.ctx : target(), g = geom(), v = get(ctx), r = cachedRect(el);
+  el.paint = shown => {
+    if (shown != null && el.hold) el.hold.shown = shown;   // held: other repaints keep the finger's place
+    const ctx = el.hold ? el.hold.ctx : target(), g = geom(), v = shown ?? el.hold?.shown ?? get(ctx), r = cachedRect(el);
     const px = (capCenter(g, v) - (horizontal ? r.left : r.top) - mm(3)).toFixed(1) + "px";
     if (px !== el._px) { el._px = px; cap.style[horizontal ? "left" : "top"] = px; }
     if (label) setText(el.querySelector(".lbl"), label(ctx));
@@ -793,8 +818,10 @@ function fader(get, set, label, horizontal, target = () => null) {
       return { p, v, g, ctx };
     },
     move: (e, st) => {
-      const d = ((horizontal ? e.clientX : e.clientY) - st.p) / st.g.len;
-      set(clamp(st.v + (horizontal ? d : -d), 0, 1), st.ctx); el.paint();
+      const at = ev => clamp(st.v + ((horizontal ? ev.clientX : ev.clientY) - st.p) / st.g.len * (horizontal ? 1 : -1), 0, 1);
+      set(at(e), st.ctx);
+      const p = predicted(e);
+      el.paint(p ? at(p) : undefined);   // drawn where the finger is going
     },
     up: () => { el.classList.remove("held"); el.hold = null; el.paint(); },
   });
@@ -1151,9 +1178,10 @@ function buildStrip(s, u) {
   head.append(u.sw, u.title, u.bpm, u.time);
 
   // platter strip
-  u.strip = h("div", "strip", `<canvas class="wf"></canvas><div class="played"></div><div class="cursor"></div><div class="label"></div>`);
+  u.strip = h("div", "strip", `<div class="axis"></div><div class="wftrack"><div class="tiles"></div></div><div class="played"></div>` +
+    `<div class="cursor"></div><div class="label"></div>`);
   u.cursor = u.strip.querySelector(".cursor");
-  u.wfCanvas = u.strip.querySelector("canvas.wf"); u.played = u.strip.querySelector(".played");
+  u.track = u.strip.querySelector(".wftrack"); u.tilesBox = u.strip.querySelector(".tiles"); u.played = u.strip.querySelector(".played");
   drag(u.strip, {
     // Grab like vinyl: touching holds the record and the waveform under the finger follows it 1:1
     // (the waveform rolls past a fixed cursor, so moving the finger left plays forward).
@@ -2034,82 +2062,108 @@ function frame(now) {
 // (441 points per second of audio, from Mixxx's analysis; see pads/waveform.py). Drawn once per stretch of
 // record, so it only redraws when the cursor wraps (or the track, zoom or size changes).
 // =====================================================================================================
-const TILE = 1024;                       // device pixels per cached tile
+const TILE = 1024;                       // device pixels per tile (each drawn 2 wider, overlapping: no seams)
 // Like Mixxx's RGB waveform (allshader/waveformrendererrgb.cpp): per column the loudest low / mid / high mix
 // red / green / blue, scaled so the strongest is full brightness; the EQ knobs scale each band, which changes
 // both the colour and the height (turn the bass down and the waveform loses its red and shrinks).
 const eqGain = p => p <= .5 ? p * 2 : 1 + (p - .5) * 6;      // knob position -> gain: 0 = kill, centre = 1, full = 4
 const eqKey = d => [d.low, d.mid, d.high].map(v => Math.round((v ?? .5) * 40)).join(",");
+// One stretch of the record at pxPerSec (normal speed): the waveform, the beat grid and the pre/post-roll.
 function renderTile(wf, k, pxPerSec, H, d) {
-  const c = document.createElement("canvas"); c.width = TILE; c.height = H;
-  const g = c.getContext("2d"), mid = H / 2, a = wf.data, perPx = wf.rate / pxPerSec, x0 = k * TILE;
-  const gl = eqGain(d.low ?? .5), gm = eqGain(d.mid ?? .5), gh = eqGain(d.high ?? .5);
-  for (let x = 0; x < TILE; x++) {
-    const i0 = Math.floor((x0 + x) * perPx), i1 = Math.max(i0 + 1, Math.floor((x0 + x + 1) * perPx));
-    if (i1 <= 0 || i0 >= wf.n) continue;
-    let all = 0, lo = 0, mi = 0, hi = 0;
-    for (let i = Math.max(0, i0); i < Math.min(wf.n, i1); i++) {
-      const j = i * 4;
-      if (a[j] > all) all = a[j];
-      if (a[j + 1] > lo) lo = a[j + 1];
-      if (a[j + 2] > mi) mi = a[j + 2];
-      if (a[j + 3] > hi) hi = a[j + 3];
+  const TW = TILE + 2, c = document.createElement("canvas"); c.width = TW; c.height = H;
+  const g = c.getContext("2d"), mid = H / 2, x0 = k * TILE;
+  if (wf) {
+    const a = wf.data, perPx = wf.rate / pxPerSec;
+    const gl = eqGain(d.low ?? .5), gm = eqGain(d.mid ?? .5), gh = eqGain(d.high ?? .5);
+    for (let x = 0; x < TW; x++) {
+      const i0 = Math.floor((x0 + x) * perPx), i1 = Math.max(i0 + 1, Math.floor((x0 + x + 1) * perPx));
+      if (i1 <= 0 || i0 >= wf.n) continue;
+      let all = 0, lo = 0, mi = 0, hi = 0;
+      for (let i = Math.max(0, i0); i < Math.min(wf.n, i1); i++) {
+        const j = i * 4;
+        if (a[j] > all) all = a[j];
+        if (a[j + 1] > lo) lo = a[j + 1];
+        if (a[j + 2] > mi) mi = a[j + 2];
+        if (a[j + 3] > hi) hi = a[j + 3];
+      }
+      const L = lo * gl, M = mi * gm, Hh = hi * gh, unscaled = lo + mi + hi;
+      const gain = unscaled > 0 ? (L + M + Hh) / unscaled : 1;
+      const m = Math.max(L, M, Hh);
+      if (m <= 0) continue;
+      g.fillStyle = `rgb(${Math.round(255 * L / m)},${Math.round(255 * M / m)},${Math.round(255 * Hh / m)})`;
+      const h = Math.min(mid, Math.max(1, all * gain / 255 * mid * .95));
+      g.fillRect(x, mid - h, 1, h * 2);
     }
-    const L = lo * gl, M = mi * gm, Hh = hi * gh, unscaled = lo + mi + hi;
-    const gain = unscaled > 0 ? (L + M + Hh) / unscaled : 1;
-    const m = Math.max(L, M, Hh);
-    if (m <= 0) continue;
-    g.fillStyle = `rgb(${Math.round(255 * L / m)},${Math.round(255 * M / m)},${Math.round(255 * Hh / m)})`;
-    const h = Math.min(mid, Math.max(1, all * gain / 255 * mid * .95));
-    g.fillRect(x, mid - h, 1, h * 2);
   }
+  drawRolls(g, d, pxPerSec, x0, TW, H);
+  drawBeats(g, d, pxPerSec, x0, TW, H);
   return c;
 }
 
-// start: track time at the strip's left edge (may be negative before the track starts).
+// The strip: the cursor stays in the middle and the record rolls past it. start: track time at the strip's
+// left edge (may be negative before the track starts). The waveform is drawn once, in tiles, into a layer the
+// compositor slides along (and squeezes or stretches for the tempo), so a frame costs no drawing at all; only
+// what changes the picture (the track, its analysis or beat grid, the EQ, the strip's size) draws tiles again,
+// and only the ones in view.
 function drawStripWave(u, d, start, sec) {
   const r = cachedRect(u.strip), dpr = devicePixelRatio || 1;
-  const W = Math.round(r.width * dpr), H = Math.round(r.height * dpr), pxPerSec = W / sec;
-  const left = Math.round(start * pxPerSec);               // whole device pixels: crisp, and skip identical frames
-  const lr = loopRange(d);
-  const cues = cueMarks(d).map(m => m.t.toFixed(3) + m.color).join();
-  const key = `${d.n}|${d.wfVer || 0}|${d.beatsVer || 0}|${lr ? lr.join() + d.loopOn : ""}|${cues}|${left}|${sec}|${W}|${H}|${eqKey(d)}|${d.dur}`;
-  if (u.wfKey === key) return;
-  u.wfKey = key;
-  const c = u.wfCanvas;
-  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-  const g = c.getContext("2d");
-  g.clearRect(0, 0, W, H);
-  g.fillStyle = "rgba(255,255,255,.28)";                    // Mixxx's centre axis, under the signal
-  g.fillRect(0, Math.floor(H / 2), W, Math.max(1, Math.round(dpr * .6)));
-  const wf = d.wf;
-  if (!wf) { drawStripMarks(g, d, start, sec, pxPerSec, left, W, H); return; }
-  // Tiles are cached per track at the strip's scale for normal speed (rendering one costs a few ms, copying
-  // it each frame almost nothing) and squeezed or stretched to the tempo as they're copied, so moving the
-  // tempo never re-renders them. Tile edges are rounded to whole pixels on both sides: no seams.
-  const basePx = W / stripSeconds(), f = pxPerSec / basePx;
-  const tkey = `${d.n}|${d.wfVer}|${stripSeconds()}|${W}|${H}|${eqKey(d)}`;
-  if (u.tileKey !== tkey) { u.tileKey = tkey; u.tiles = new Map(); }
-  const edge = k => Math.round(k * TILE * f) - left;
-  for (let k = Math.floor(left / f / TILE); edge(k) < W; k++) {
-    if (k < 0 || k * TILE / basePx > wf.n / wf.rate) continue;
-    let t = u.tiles.get(k);
-    if (!t) {
-      t = renderTile(wf, k, basePx, H, d);
-      u.tiles.set(k, t);
-      if (u.tiles.size > 12) u.tiles.delete(u.tiles.keys().next().value);   // keep the 12 most recent
+  const W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
+  if (!W || !H) return;
+  const base = W / stripSeconds(), f = W / sec / base;     // base: device pixels a second at normal speed
+  const shape = `${d.n}|${d.wfVer || 0}|${d.beatsVer || 0}|${d.bar}|${stripSeconds()}|${W}|${H}|${d.dur}`;
+  const eq = eqKey(d), now = performance.now();
+  // a turning EQ knob redraws at most every 60 ms (the old tiles stay up meanwhile)
+  if (u.tileShape !== shape || (u.tileEq !== eq && now - (u.tileAt || 0) > 60)) {
+    u.tileShape = shape; u.tileEq = eq; u.tileAt = now; u.prefetch = null;
+    for (const t of (u.tiles || new Map()).values()) t.remove();
+    u.tiles = new Map();
+  }
+  const first = Math.floor(start * base / TILE), last = Math.floor((start + sec) * base / TILE);
+  for (let k = first; k <= last; k++) tileAt(u, d, k, base, H, dpr);
+  for (const [k, t] of u.tiles) if (k < first - 2 || k > last + 2) { t.remove(); u.tiles.delete(k); }
+  // the tile coming up next, while the tablet is idle, so playback never waits for one
+  const next = last + 1, pkey = `${shape}|${eq}|${next}`;
+  if (!u.tiles.has(next) && u.prefetch !== pkey) {
+    u.prefetch = pkey;
+    const idle = window.requestIdleCallback || (fn => setTimeout(fn, 30));
+    idle(() => { if (u.tileShape === shape && u.tileEq === eq) tileAt(u, d, next, base, H, dpr); });
+  }
+  paintMarks(u, d, base, dpr, f, r.height);
+  const tr = `translate3d(${(-start * base * f / dpr).toFixed(2)}px,0,0) scaleX(${f.toFixed(5)})`;
+  if (u.trackTr !== tr) { u.trackTr = tr; u.track.style.transform = tr; }
+}
+function tileAt(u, d, k, base, H, dpr) {
+  if (u.tiles.has(k)) return;
+  const c = renderTile(d.wf, k, base, H, d);
+  c.style.left = `${(k * TILE / dpr).toFixed(3)}px`; c.style.width = `${((TILE + 2) / dpr).toFixed(3)}px`;
+  u.tilesBox.appendChild(c);
+  u.tiles.set(k, c);
+}
+// Cue marks and the loop, as elements riding on the waveform's layer (their labels kept unsqueezed)
+function paintMarks(u, d, base, dpr, f, cssH) {
+  const lr = loopRange(d), marks = cueMarks(d);
+  const key = `${base}|${cssH}|${lr ? lr.join() + d.loopOn : ""}|${marks.map(m => m.t.toFixed(4) + m.color + m.label).join()}`;
+  if (u.marksKey !== key) {
+    u.marksKey = key;
+    u.marks?.remove();
+    const box = h("div", "marks"), x = t => `${(t * base / dpr).toFixed(2)}px`;
+    u.strip.style.setProperty("--tag", `${Math.max(11, Math.round(cssH * .17))}px`);
+    u.strip.style.setProperty("--ltag", `${Math.round(cssH * .16)}px`);
+    if (lr) {   // like Mixxx's waveforms: the loop filled #00b400 at 30 % (white once it's off), in/out lines, ↻
+      const lp = h("div", `loop${d.loopOn ? " on" : ""}`, "<b>↻</b>");
+      lp.style.left = x(lr[0]); lp.style.width = `${((lr[1] - lr[0]) * base / dpr + 2).toFixed(2)}px`;
+      box.appendChild(lp);
     }
-    const x = edge(k);
-    if (f === 1) g.drawImage(t, x, 0); else g.drawImage(t, x, 0, edge(k + 1) - x, H);
+    for (const m of marks) {
+      const cm = h("div", `cm${m.top ? " top" : ""}`, `<b>${m.label}</b>`);
+      cm.style.left = x(m.t); cm.style.setProperty("--c", m.color); cm.style.setProperty("--ink", inkOn(m.color));
+      box.appendChild(cm);
+    }
+    u.track.appendChild(box);
+    u.marks = box;
   }
-  drawStripMarks(g, d, start, sec, pxPerSec, left, W, H);
-  // Draw the tile coming up next while the tablet is idle, so playback never waits for one.
-  const next = Math.floor((left + W) / f / TILE) + 1;
-  if (!u.tiles.has(next) && next * TILE / basePx < wf.n / wf.rate && u.prefetch !== `${tkey}|${next}`) {
-    u.prefetch = `${tkey}|${next}`;
-    const idle = window.requestIdleCallback || (f => setTimeout(f, 30));
-    idle(() => { if (u.tileKey === tkey && !u.tiles.has(next)) u.tiles.set(next, renderTile(wf, next, basePx, H, d)); });
-  }
+  const inv = (1 / f).toFixed(5);
+  if (u.marksInv !== inv) { u.marksInv = inv; u.track.style.setProperty("--inv", inv); }
 }
 
 // Live: the track's beats (Mixxx's beat grid), fetched with its waveform.
@@ -2145,20 +2199,6 @@ function loopRange(d) {
 // (#00d9ff when they have none) with their number at the bottom; dark text unless the colour is dark.
 const inkOn = hex => { const v = parseInt(hex.slice(1), 16); return ((v >> 16 & 255) * .299 + (v >> 8 & 255) * .587 + (v & 255) * .114) > 110 ? "#1a1a1a" : "#ffffff"; };
 const hexColor = v => "#" + (v & 0xffffff).toString(16).padStart(6, "0");
-function drawCueMarks(g, marks, pxPerSec, left, W, H) {
-  const dpr = devicePixelRatio || 1, tag = Math.max(Math.round(11 * dpr), Math.round(H * .17));
-  g.font = `bold ${Math.round(tag * .74)}px sans-serif`; g.textBaseline = "middle"; g.textAlign = "left";
-  for (const m of marks) {
-    const x = Math.round(m.t * pxPerSec) - left;
-    if (x < -tag * 4 || x > W + dpr) continue;
-    g.fillStyle = m.color;
-    g.fillRect(x - dpr, 0, 2 * dpr, H);
-    const w = Math.ceil(g.measureText(m.label).width + tag * .6), y = m.top ? 0 : H - tag;
-    g.fillRect(x, y, w, tag);
-    g.fillStyle = inkOn(m.color);
-    g.fillText(m.label, x + tag * .3, y + tag / 2 + dpr / 2);
-  }
-}
 // This deck's cue marks: [{t (seconds), color, label, top}]. Live, Mixxx gives the positions in samples
 // (-1 = none) and the hub the hot cue colours; the simulation keeps seconds.
 function cueMarks(d) {
@@ -2172,31 +2212,16 @@ function cueMarks(d) {
   return marks;
 }
 
-// Beat grid (bar lines across the strip, ticks top and bottom for the other beats) and the loop (as Mixxx draws
-// it: filled green while it plays, white once it's off) over the strip's waveform.
-function drawOverlays(g, d, start, sec, pxPerSec, left, W, H) {
-  const dpr = devicePixelRatio || 1, lr = loopRange(d);
-  if (lr) {   // like Mixxx's waveforms: the loop filled #00b400 at 30 % (white once it's off), in/out lines
-    const x0 = Math.round(lr[0] * pxPerSec) - left, x1 = Math.round(lr[1] * pxPerSec) - left;
-    if (x1 > 0 && x0 < W) {
-      g.fillStyle = d.loopOn ? "rgba(0,180,0,.3)" : "rgba(255,255,255,.3)";
-      g.fillRect(x0, 0, x1 - x0, H);
-      g.fillStyle = d.loopOn ? "#00b400" : "#bbbbbb";
-      g.fillRect(x0 - dpr, 0, 2 * dpr, H); g.fillRect(x1 - dpr, 0, 2 * dpr, H);
-      // ↻ tag on the loop's start, at the top (Mixxx's loop-in mark)
-      const tag = Math.round(H * .16);
-      g.fillRect(x0 + dpr, 0, tag, tag);
-      g.fillStyle = "#fff";
-      g.font = `bold ${Math.round(tag * .85)}px sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillText("↻", x0 + dpr + tag / 2, tag / 2 + dpr);
-    }
-  }
+// Beat grid on a tile (left: its first pixel at pxPerSec): bar lines across the strip, ticks top and bottom
+// for the other beats
+function drawBeats(g, d, pxPerSec, left, W, H) {
   const b = d.beats;
   if (!b || !b.length) return;
+  const dpr = devicePixelRatio || 1, start = (left - 2 * dpr) / pxPerSec, end = (left + W + 2 * dpr) / pxPerSec;
   let lo = 0, hi = b.length;
   while (lo < hi) { const m = (lo + hi) >> 1; if (b[m] < start) lo = m + 1; else hi = m; }
   const tick = Math.round(H * .2);
-  for (let i = lo; i < b.length && b[i] <= start + sec; i++) {
+  for (let i = lo; i < b.length && b[i] <= end; i++) {
     const x = Math.round(b[i] * pxPerSec) - left;
     if ((i + d.bar) % 4 === 0) { g.fillStyle = "rgba(255,255,255,.55)"; g.fillRect(x - dpr, 0, 2 * dpr, H); }
     else { g.fillStyle = "rgba(255,255,255,.5)"; g.fillRect(x, 0, dpr, tick); g.fillRect(x, H - tick, dpr, tick); }
@@ -2220,11 +2245,6 @@ function drawRolls(g, d, pxPerSec, left, W, H) {
   x = Math.round(d.dur * pxPerSec) - left;                 // the end: tips point left, at it
   if (x < -len) x += Math.ceil((-len - x) / len) * len;
   for (; x < W; x += len) tri(x, -1);
-}
-function drawStripMarks(g, d, start, sec, pxPerSec, left, W, H) {
-  drawRolls(g, d, pxPerSec, left, W, H);
-  drawOverlays(g, d, start, sec, pxPerSec, left, W, H);
-  drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H);
 }
 
 // Live: fetch the analysed waveform of the track on a deck (Mixxx may still be analysing a new track).
