@@ -159,7 +159,9 @@
   .knob .ktick { stroke: #555; stroke-width: 1.4; }
   .fxstrip .knob span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
   .modes button { flex: 1; font-size: calc(var(--mm) * 2.3); letter-spacing: .02em; }
-  .modes button.on { border-color: var(--acc); color: var(--acc); }
+  /* the pad mode in use: filled in the deck's colour (orange decks 1-2, blue 3-4), as on the phone */
+  .modes button.on { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 22%, #1c1c1c); color: var(--text); }
+  .modes button.on small { color: color-mix(in srgb, var(--acc) 70%, #fff); }
   .tempo .shift { flex: 0 0 calc(var(--mm) * 11); font-size: calc(var(--mm) * 1.7); }
   .tempo .shift.on { background: var(--err); border-color: var(--err); color: #fff; }
   .tempo .shift.idle { opacity: .35; }            /* SHIFT only does something in CUE and FX modes */
@@ -363,6 +365,7 @@
     grid-template-columns: calc(var(--mm) * 9) minmax(0, 1fr) calc(var(--mm) * 9); grid-template-rows: minmax(0, 1fr); }
   #app.phone .pcol { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; }
   #app.phone .pcol .lane { flex: 1; }
+  #app.phone .pcol .gearspace { flex: 0 0 calc(var(--mm) * 7); }   /* the right fader as long as the left (under ⚙) */
   #app.phone .pcol button { flex: 0 0 calc(var(--mm) * 7); width: 100%; height: auto; font-size: calc(var(--mm) * 1.5); }
   #app.phone #gear { font-size: calc(var(--mm) * 3.2); }
   #app.phone .lane .tread { position: absolute; left: 0; right: 0; bottom: 16%; font-size: calc(var(--mm) * 1.5); }
@@ -387,8 +390,8 @@
     font-weight: 600; letter-spacing: .02em; margin-top: 1px; }
   #app.phone .dimmed { opacity: .35; }
   #app.phone small.lit { color: var(--text) !important; }
-  #app.phone .prow.modes button.on { border-color: var(--tab); background: color-mix(in srgb, var(--tab) 22%, #1c1c1c); color: var(--text); }
-  #app.phone .prow.modes button.on small { color: color-mix(in srgb, var(--tab) 70%, #fff); }
+  #app.phone .prow.modes button.on { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 22%, #1c1c1c); color: var(--text); }
+  #app.phone .prow.modes button.on small { color: color-mix(in srgb, var(--acc) 70%, #fff); }
   #app.phone .sync.beat small { color: rgba(0,0,0,.55); }
   #app.phone .sync.beat small.lit { color: #000 !important; }
   #app.phone .pdeck.d34 { --acc: var(--deck34); }
@@ -1521,7 +1524,7 @@ function buildPhone() {
   });
   const [L, R] = ui.sides;
   L.col.append(document.getElementById("gear"), L.lane, L.ol);
-  R.col.append(R.lane, R.ol);
+  R.col.append(h("div", "gearspace"), R.lane, R.ol);
   const mid = h("div", "pmid"), lower = h("div", "lower");
   lower.append(decksEl[0], buildPhoneMixer(), decksEl[1]);
   mid.append(h("div"), strips[0], strips[1], lower);   // 2 mm of glass above the top strip
