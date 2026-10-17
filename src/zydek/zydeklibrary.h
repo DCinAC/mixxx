@@ -48,6 +48,8 @@ class Library {
     QJsonObject createCrate(const QString& name);
     QJsonObject setCrateTrack(int crateId, int trackId, bool member);
     QJsonArray cratesOf(int trackId);
+    /// This session's tracklist (Mixxx's newest History list): {name, tracks: [{artist, title, at}], text}
+    QJsonObject tracklist();
     /// The tracks in the crate called name; *pCrateId: its id, or 0 when there's no such crate.
     QList<int> crateTrackIds(const QString& name, int* pCrateId);
     /// Adds a file to Mixxx's library (a Web tab download), returning its track id.

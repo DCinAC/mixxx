@@ -10,6 +10,7 @@
 #include <QNetworkInterface>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QStandardPaths>
 #include <QTcpSocket>
 #include <QTimer>
 #include <QtEndian>
@@ -225,6 +226,9 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
     }
     m_remoteTimer.setInterval(1000);
     connect(&m_remoteTimer, &QTimer::timeout, this, &Hub::remoteTick);
+    m_recordTimer.setInterval(1000);
+    connect(&m_recordTimer, &QTimer::timeout, this, &Hub::recordTick);
+    m_recordTimer.start();
 }
 
 #ifdef Q_OS_ANDROID
@@ -376,6 +380,15 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     }
     if (path == QLatin1String("/api/audio/buffer")) {   // ?index=3..7
         return result(setAudioBuffer(query.value(QStringLiteral("index")).toInt()));
+    }
+    if (path == QLatin1String("/api/record")) {   // ?on=1|0, or nothing: the status
+        if (query.contains(QStringLiteral("on"))) {
+            return result(setRecording(arg("on") == QLatin1String("1")));
+        }
+        return json(recordStatus());
+    }
+    if (path == QLatin1String("/api/tracklist")) {   // this session's
+        return json(m_library.tracklist());
     }
     if (path == QLatin1String("/api/audio/optimize")) {   // start · ?status=1 · ?cancel=1
         if (query.contains(QStringLiteral("cancel"))) {
@@ -1200,6 +1213,62 @@ QJsonObject Hub::setAudioBuffer(int index) {
 #endif
     emitLatency();
     return out;
+}
+
+// ---- recording the set ---------------------------------------------------------------------------------
+
+namespace {
+const ConfigKey kRecordStatus(QStringLiteral("[Recording]"), QStringLiteral("status"));   // 0 off, 1 starting, 2 on
+QString recordingsFolder() {
+    const QString shared = QStringLiteral("/storage/emulated/0/Music");
+    const QString music = QFileInfo(shared).isWritable() ? shared : QStandardPaths::writableLocation(QStandardPaths::MusicLocation);
+    return music + QStringLiteral("/ZyDeck Recordings");
+}
+} // namespace
+
+QJsonObject Hub::recordStatus() const {
+    const int status = static_cast<int>(ControlObject::get(kRecordStatus));
+    return {{"ok", true}, {"on", status != 0}, {"status", status},
+            {"seconds", status == 2 && m_recordClock.isValid() ? m_recordClock.elapsed() / 1000.0 : 0.0},
+            {"file", status ? m_pConfig->getValueString(ConfigKey(QStringLiteral("[Recording]"), QStringLiteral("Path"))) : QString()},
+            {"folder", recordingsFolder()}};
+}
+
+QJsonObject Hub::setRecording(bool on) {
+    if (m_controllerMode) {
+        return {{"ok", false}, {"error", "In controller mode, record on the computer"}};
+    }
+    if ((ControlObject::get(kRecordStatus) != 0) == on) {
+        return recordStatus();
+    }
+    if (on) {   // FLAC (lossless, half a WAV), one file however long, a .cue tracklist, in ZyDeck Recordings
+        const QString dir = recordingsFolder();
+        QDir().mkpath(dir);
+        const auto set = [this](const char* key, const QString& value) {
+            m_pConfig->setValue(ConfigKey(QStringLiteral("[Recording]"), QLatin1String(key)), value);
+        };
+        set("Directory", dir);
+        set("Encoding", QStringLiteral("FLAC"));
+        set("FileSize", QStringLiteral("No Splitting"));
+        set("CueEnabled", QStringLiteral("1"));
+        set("tracklist_as_comment", QStringLiteral("1"));
+    }
+    // Mixxx's RECORD button: a press toggles it
+    ControlObject::set(ConfigKey(QStringLiteral("[Recording]"), QStringLiteral("toggle_recording")), 1);
+    ControlObject::set(ConfigKey(QStringLiteral("[Recording]"), QStringLiteral("toggle_recording")), 0);
+    QTimer::singleShot(300, this, [this] { recordTick(); });
+    return {{"ok", true}, {"on", on}};
+}
+
+void Hub::recordTick() {
+    const int status = static_cast<int>(ControlObject::get(kRecordStatus));
+    if (status == 2 && m_recordStatus != 2) {
+        m_recordClock.start();
+    }
+    if (status != m_recordStatus || status == 2) {   // every second while recording (the pages' clock)
+        m_recordStatus = status;
+        emitJson({{"t", "rec"}, {"r", recordStatus()}});
+    }
 }
 
 // ---- one-tap audio optimisation ------------------------------------------------------------------------
@@ -2995,6 +3064,7 @@ QJsonObject Hub::snapshot() const {
                     {"lat", latencySeconds()},
                     {"lstems", deckStemsJson()},
                     {"sfx", stemFxJson()},
+                    {"rec", recordStatus()},
                     {"cv", m_controlValues}}}};
 }
 

@@ -1,6 +1,7 @@
 #include "zydek/zydeklibrary.h"
 #include "zydek/zydekmain.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -503,6 +504,40 @@ QJsonArray Library::cratesOf(int trackId) {
         }
     }
     return out;
+}
+
+QJsonObject Library::tracklist() {
+    if (!open()) {
+        return {{"ok", false}, {"error", "Can't read the library"}};
+    }
+    QSqlQuery list(m_db);   // Mixxx keeps a History list per session (hidden = 2, PlaylistDAO::PLHT_SET_LOG)
+    if (!list.exec(QStringLiteral("SELECT id, name FROM Playlists WHERE hidden = 2 ORDER BY id DESC LIMIT 1")) || !list.next()) {
+        return {{"ok", true}, {"name", QString()}, {"tracks", QJsonArray()}, {"text", QString()}};
+    }
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT l.artist, l.title, pt.pl_datetime_added, tl.location FROM PlaylistTracks pt "
+                             "JOIN library l ON l.id = pt.track_id JOIN track_locations tl ON tl.id = l.location "
+                             "WHERE pt.playlist_id = ? ORDER BY pt.position"));
+    q.addBindValue(list.value(0));
+    QJsonArray tracks;
+    QStringList lines;
+    QString last;
+    if (q.exec()) {
+        while (q.next()) {
+            const QString artist = q.value(0).toString();
+            const QString title = q.value(1).toString().isEmpty() ? QFileInfo(q.value(3).toString()).completeBaseName()
+                                                                   : q.value(1).toString();
+            const QString line = artist.isEmpty() ? title : artist + QStringLiteral(" - ") + title;
+            if (line == last) {
+                continue;   // the same track again (its live stems took over): once
+            }
+            last = line;
+            const QString at = QDateTime::fromString(q.value(2).toString(), Qt::ISODate).toLocalTime().toString(QStringLiteral("HH:mm"));
+            tracks.append(QJsonObject{{"artist", artist}, {"title", title}, {"at", at}});
+            lines.append(QStringLiteral("%1. %2").arg(tracks.size()).arg(line));
+        }
+    }
+    return {{"ok", true}, {"name", list.value(1).toString()}, {"tracks", tracks}, {"text", lines.join(QLatin1Char('\n'))}};
 }
 
 QList<int> Library::crateTrackIds(const QString& name, int* pCrateId) {

@@ -46,6 +46,11 @@
   .loopbox .loop.on small { color: #04200e; }
   .topbar .knob { width: calc(var(--mm) * 14); }
   #gear { width: calc(var(--mm) * 11); height: calc(var(--mm) * 11); font-size: calc(var(--mm) * 4); }
+  /* recording the set: red while it records, with its running time */
+  #rec { height: calc(var(--mm) * 7); padding: 0 calc(var(--mm) * 1.6); font-size: calc(var(--mm) * 1.9); font-weight: 700; flex: none;
+    font-variant-numeric: tabular-nums; }
+  #rec.on { border-color: #ff3b30; color: #fff; background: #b3261e; }
+  #rec.wait { border-color: #ff3b30; color: #ff6b61; }
   #gear.live { border-color: var(--play); color: var(--play); }   /* connected to Mixxx */
   #settings h2 small { font-size: calc(var(--mm) * 2); color: var(--dim); font-weight: 500; margin-left: calc(var(--mm) * 1.5); }
 
@@ -417,6 +422,7 @@
 <div id="app">
   <div class="topbar" id="topL">
     <button id="gear" aria-label="Settings">⚙</button>
+    <button id="rec" style="display:none">● REC</button>
     <span class="note">UI test · simulated Mixxx</span>
     <div class="loopbox" id="loop0"></div>
   </div>
@@ -1153,11 +1159,18 @@ async function captureInto(d, i) {
 function transportControls(s, u) {
   u.cue = h("button", "cuebtn", "CUE"); u.play = h("button", "play", "PLAY"); u.sync = h("button", "sync", "SYNC");
   bindPress(u.cue, down => { const d = deckOf(s);
+    if (down && d.shift && live) { d.cueSlip = true; d.shift = false; d.slip = !d.slip; send("slip", d.n, d.slip ? 1 : 0); paintAll(); return; }
+    if (!down && d.cueSlip) { d.cueSlip = false; return; }   // (that press was SLIP's)
     if (live) { send("cue", d.n, down); return; }
     if (down) { if (d.playing) { d.playing = false; d.pos = d.cuePoint; } else if (Math.abs(d.pos - d.cuePoint) > .05) d.cuePoint = d.pos; else d.preview = true; }
     else if (d.preview) { d.preview = false; d.pos = d.cuePoint; }
     paintSide(s); });
-  bindPress(u.play, down => { if (down) { const d = deckOf(s);
+  bindPress(u.play, down => { const d = deckOf(s);
+    if ((down && d.shift && live) || (!down && d.censor)) {   // SHIFT + PLAY, held: CENSOR
+      d.censor = down; if (down) d.shift = false;
+      send("censor", d.n, down ? 1 : 0); paintAll(); return;
+    }
+    if (down) {
     if (live) { send("play", d.n, d.playing ? 0 : 1); return; }
     d.playing = !d.playing; d.preview = false; paintSide(s); } });
   // Like a Pioneer deck: tap = sync on (tempo and beats locked to the master) / off (keeping the tempo).
@@ -1507,9 +1520,14 @@ function buildLoops() {
     box.replaceChildren(half, loop, dbl);
     // KEY LOCK and QUANTIZE for the deck on this side (strips on top: the row above the loop)
     const flags = h("div", "flags"), kl = h("button", "", "KEY LOCK"), qz = h("button", "", "QUANTIZE");
+    // SLIP: the track runs on silently under loops, scratches and CENSOR, and comes back where it would be.
+    // CENSOR (held): plays backwards from here, then carries on where it would have been (slip).
+    const sl = h("button", "", "SLIP"), cn = h("button", "", "CENSOR");
+    bindPress(sl, down => { if (!down) return; const d = deckOf(s); d.slip = !d.slip; send("slip", d.n, d.slip ? 1 : 0); paintLoop(s); });
+    bindPress(cn, down => { const d = deckOf(s); d.censor = down; send("censor", d.n, down ? 1 : 0); cn.classList.toggle("on", down); });
     bindPress(kl, down => { if (!down) return; const d = deckOf(s); d.keylock = !d.keylock; send("keylock", d.n, d.keylock ? 1 : 0); paintLoop(s); });
     bindPress(qz, down => { if (!down) return; const d = deckOf(s); d.quantize = !d.quantize; send("quantize", d.n, d.quantize ? 1 : 0); paintLoop(s); });
-    flags.append(kl, qz);
+    flags.append(kl, qz, sl, cn);
     // SAMPLES: this side shows sampler pads instead of its deck (and back); only this side is rebuilt. With
     // either side's SHIFT, the other bank (the left side can show 17-32, the right 1-16).
     const smp = h("button", "smpbtn");
@@ -1526,7 +1544,7 @@ function buildLoops() {
       placeChrome();
       requestAnimationFrame(paintAll);
     });
-    return { box, loop, half, dbl, flags, kl, qz, smp };
+    return { box, loop, half, dbl, flags, kl, qz, sl, cn, smp };
   });
 }
 
@@ -1601,7 +1619,7 @@ function paintLoop(s) {
   setHTML(l.half, sh ? "IN<small>adjust</small>" : "½"); setHTML(l.dbl, sh ? "OUT<small>adjust</small>" : "×2");
   l.half.classList.toggle("adj", d.adjust === "in"); l.dbl.classList.toggle("adj", d.adjust === "out");
   l.flags.classList.toggle("d34", d.n > 2);
-  l.kl.classList.toggle("on", !!d.keylock); l.qz.classList.toggle("on", !!d.quantize);
+  l.kl.classList.toggle("on", !!d.keylock); l.qz.classList.toggle("on", !!d.quantize); l.sl?.classList.toggle("on", !!d.slip);
 }
 
 function paintSide(s) {
@@ -1626,6 +1644,9 @@ function paintSide(s) {
   paintSamplesButtons();
   if (sidePage[s] === "samples") { u.spads.forEach(({ el, i }) => paintSamplerPad(el, i)); return; }
   u.play.classList.toggle("on", d.playing);
+  // SHIFT shows CUE's and PLAY's second jobs: SLIP on/off, and CENSOR while held; SLIP on shows under CUE
+  setHTML(u.cue, live && d.shift ? two("CUE", "SLIP", true) : d.slip ? `CUE<small class="lit">SLIP</small>` : "CUE");
+  setHTML(u.play, live && d.shift ? two("PLAY", "CENSOR", true) : "PLAY");
   // playing only while CUE is held (it stops when CUE is let go): blinking, not lit
   u.play.classList.toggle("preview", d.playing && live && d.latched === false);
   u.cue.classList.toggle("on", !d.playing && Math.abs(d.pos - d.cuePoint) < .05);
@@ -2407,6 +2428,24 @@ document.addEventListener("click", async e => {
   if (r.ok === false) toast(r.error || "Couldn't start the test");
 });
 
+// Recording the set (the hub: Mixxx's recorder, the main output with effects and EQ, FLAC + .cue tracklist)
+let rec = null;
+function paintRec(r) {
+  const b = document.getElementById("rec");
+  if (!b) return;
+  rec = r || rec;
+  b.style.display = live && !REMOTE.on && rec ? "" : "none";
+  if (!rec) return;
+  const t = Math.floor(rec.seconds || 0), mmss = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+  b.classList.toggle("on", rec.status === 2); b.classList.toggle("wait", rec.status === 1);
+  b.textContent = rec.status === 2 ? `● REC ${mmss}` : rec.status === 1 ? "● …" : "● REC";
+}
+document.getElementById("rec").addEventListener("click", async () => {
+  const r = await (await fetch(`/api/record?on=${rec?.on ? 0 : 1}`)).json().catch(() => ({}));
+  if (r.ok === false) toast(r.error || "Couldn't record");
+  else if (rec?.on) toast("Saved in Music/ZyDeck Recordings, with a .cue tracklist");
+});
+
 function seg(id, options, get, set) {
   const box = document.getElementById(id);
   box.innerHTML = "";
@@ -2566,6 +2605,8 @@ function toMixxx(name, ...a) {
       return setCtl(ch(d.n), a[1] === "in" ? "loop_start_position" : "loop_end_position", smp);
     }
     case "keylock": markLocal(d, "keylock"); return setCtl(ch(d.n), "keylock", a[1]);
+    case "slip": markLocal(d, "slip"); return setCtl(ch(d.n), "slip_enabled", a[1]);
+    case "censor": return setCtl(ch(d.n), "reverseroll", a[1]);   // reverse while held, with slip
     case "keyAction": return setCtl(ch(d.n), a[1], a[2] ? 1 : 0);   // sync_key, reset_key: press and release
     case "quantize": markLocal(d, "quantize"); return setCtl(ch(d.n), "quantize", a[1]);
     case "scratchOn": d.tickAcc = 0; return mxSend({ scratch: [d.n - 1, 1, 0] });
@@ -2623,6 +2664,7 @@ function applyCv(name, v, ts) {
       case "sync_enabled": return upd("syncMode", v ? 2 : 0);
       case "sync_mode": return upd("leader", v >= 2);                     // 2/3: soft/explicit leader
       case "keylock": return upd("keylock", v > 0);
+      case "slip_enabled": if (!isLocal(d, "slip")) upd("slip", v > 0); return;
       case "quantize": if (!isLocal(d, "quantize")) upd("quantize", v > 0); return;
       case "pfl": if (!isLocal(d, "pfl")) upd("pfl", v > 0, "mixer"); return;
       case "mute": return upd("muted", v > 0, "mixer");
@@ -2672,7 +2714,7 @@ function subscribeAll() {
     for (let j = 0; j < 3; j++) for (const k of ["enabled", "meta", "loaded_effect"]) sub.push([fxSlotG(u, j), k, 0]);
   }
   for (let n = 1; n <= 4; n++) {
-    for (const k of ["play", "play_latched", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch", "key", "sync_enabled", "sync_mode", "keylock", "quantize",
+    for (const k of ["play", "play_latched", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch", "key", "sync_enabled", "sync_mode", "keylock", "quantize", "slip_enabled",
       "pfl", "mute", "loop_enabled", "beatloop_size",
       "loop_start_position", "loop_end_position", "track_samples", "cue_point",
       ...[1, 2, 3, 4, 5, 6, 7, 8].map(k => `hotcue_${k}_position`)]) sub.push([ch(n), k, 0]);
@@ -2782,7 +2824,8 @@ function loadCueLabels(d) {
 }
 
 function onMixxx(m) {
-  if (m.init) { LAT = m.init.lat || 0; if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); return; }
+  if (m.init) { LAT = m.init.lat || 0; if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
+  if (m.t === "rec") return paintRec(m.r);
   if (m.t === "remote") return onRemote(m);
   if (m.t === "lat") { LAT = m.s || 0; return; }
   if (!live) return;

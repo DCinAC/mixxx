@@ -101,6 +101,14 @@ class Hub : public QObject {
         QString error;
     };
     Optimize m_optimize;
+    // Recording the set: Mixxx's recorder (the main output, effects and EQ included, after the main volume)
+    // as FLAC in Music/ZyDeck Recordings, with a .cue tracklist beside it
+    QTimer m_recordTimer;
+    QElapsedTimer m_recordClock;
+    int m_recordStatus = 0;
+    QJsonObject setRecording(bool on);
+    QJsonObject recordStatus() const;
+    void recordTick();
     QJsonObject startOptimize();
     void optimizeStep(int serial);
     void optimizeMeasure(int serial);

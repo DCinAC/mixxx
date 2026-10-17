@@ -450,6 +450,14 @@
         switch (it makes a short gap). Stems files go to Music/ZyDeck Stems and are reused next time. For the best
         quality, the stem server on a PC is still better.</div>
     </div>
+    <div class="card" id="reccard">
+      <h3>Recording</h3>
+      <div class="row2"><span id="r-st" style="flex:1">Not recording</span><button id="r-btn">● Record</button></div>
+      <div class="hint">Records what the main output plays (effects, EQ and faders included; not the headphones) as
+        FLAC in Music/ZyDeck Recordings, with a .cue tracklist beside it. Its level follows the main volume.</div>
+      <div class="row2"><span style="flex:1">This session's tracklist</span><button id="r-tl">Copy tracklist</button></div>
+      <div class="hint" id="r-tl-text" style="white-space:pre-line"></div>
+    </div>
     <div class="card">
       <h3>Default behaviour on assignment</h3>
       <label class="chk"><input type="checkbox" id="samplesync"> Follow the master tempo</label>
@@ -566,7 +574,7 @@ function showPage(p) {
   document.querySelectorAll(".page").forEach(e => e.classList.toggle("on", e.id === "p-" + p));
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.page === p));
   if (p === "fold") { loadFolders(); loadExcluded(); watchAnalysis(); }
-  if (p === "set") { loadTablet(); loadAudio(); loadBili(); loadStemServer(); loadKits(); }
+  if (p === "set") { loadTablet(); loadAudio(); loadBili(); loadStemServer(); loadKits(); loadRecording(); }
   if (p === "web") webJobs();
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
@@ -722,6 +730,7 @@ function connect() {
     if (m.t === "remote") return onRemote(m);
     if (m.t === "lat") { LAT = m.s || 0; return; }
     if (m.t === "opt") { showOptimize(m.o); return; }
+    if (m.t === "rec") { showRecording(m.r); return; }
     if (m.init) {
       LAT = m.init.lat || 0;
       if (m.init.remote) onRemote(m.init.remote);
@@ -1416,6 +1425,40 @@ function paintLatency(a) {
 }
 $("#a-off").addEventListener("input", () => { $("#a-off-v").textContent = `${+$("#a-off").value > 0 ? "+" : ""}${$("#a-off").value} ms`; });
 $("#a-off").addEventListener("change", async () => { try { paintLatency(await api(`/api/audio/latency?offset=${$("#a-off").value}`)); } catch {} });
+// Recording the set, and this session's tracklist (Mixxx's History)
+let recOn = false;
+function showRecording(r) {
+  if (!r) return;
+  recOn = !!r.on;
+  const t = Math.floor(r.seconds || 0);
+  $("#r-st").textContent = r.status === 2 ? `Recording · ${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")} · ${(r.file || "").split("/").pop()}`
+    : r.status === 1 ? "Starting…" : "Not recording";
+  $("#r-btn").textContent = recOn ? "■ Stop" : "● Record";
+}
+async function loadRecording() {
+  try { showRecording(await api("/api/record")); } catch {}
+  try {
+    const tl = await api("/api/tracklist");
+    $("#r-tl-text").textContent = tl.text || "Nothing played yet this session";
+  } catch {}
+}
+$("#r-btn").addEventListener("click", async () => {
+  try {
+    const r = await api(`/api/record?on=${recOn ? 0 : 1}`);
+    if (recOn) toast("Saved in Music/ZyDeck Recordings, with a .cue tracklist", "ok");
+    showRecording(await api("/api/record"));
+  } catch (e) { toast(e.message, "bad"); }
+});
+$("#r-tl").addEventListener("click", async () => {
+  try {
+    const tl = await api("/api/tracklist");
+    $("#r-tl-text").textContent = tl.text || "Nothing played yet this session";
+    if (!tl.text) return;
+    await navigator.clipboard.writeText(tl.text);
+    toast(`Tracklist copied (${tl.tracks.length} tracks)`, "ok");
+  } catch (e) { toast("Couldn't copy: select the list below instead", "bad"); }
+});
+
 // One-tap optimisation (the hub runs it: decks empty, the main output silent meanwhile)
 let optRunning = false;
 function showOptimize(o) {
