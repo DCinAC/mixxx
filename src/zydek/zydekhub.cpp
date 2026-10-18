@@ -96,6 +96,7 @@ const QString kSamplersFile = QStringLiteral("zydek-samplers.json");
 const QString kKitsFile = QStringLiteral("zydek-kits.json");
 constexpr int kKitSlots = 32;   // the pads ZyDeck shows
 const QString kLastSession = QStringLiteral("Last session");
+const QString kDeckSessionFile = QStringLiteral("zydek-decks.json");
 constexpr int kSamplerSlots = 64;
 const QString kLatencyFile = QStringLiteral("zydek-latency.log");
 constexpr qint64 kLatencyFileMax = 4 * 1024 * 1024;   // then it moves to .1, replacing the previous one
@@ -355,6 +356,7 @@ void Hub::start() {
     m_lastSessionTimer.setInterval(2000);
     connect(&m_lastSessionTimer, &QTimer::timeout, this, [this] { saveKit(kLastSession); });
     QTimer::singleShot(5000, this, [this] { restoreLastSession(0); });
+    QTimer::singleShot(6000, this, [this] { restoreDeckSession(0); });
     if (m_server.listen(kPort)) {
         qInfo() << "Zydek: tablet controller at" << lanUrl();
     } else {
@@ -1110,6 +1112,101 @@ void Hub::restoreLastSession(int tries) {
     QTimer::singleShot(4000, this, [this] { m_lastSessionRestored = true; });   // after the loads have landed
 }
 
+// ---- the decks' session ----------------------------------------------------------------------------
+
+void Hub::notice(const QString& text) {
+    m_notice = text;
+    m_noticeAt = QDateTime::currentMSecsSinceEpoch();
+    emitJson({{"t", "notice"}, {"m", text}});
+}
+
+void Hub::saveDeckSession() {
+    if (!m_deckSessionReady || m_optimize.running) {
+        return;
+    }
+    QJsonArray decks;
+    QString key;
+    bool playing = false;
+    for (int i = 0; i < kNumDecks; ++i) {
+        const QString group = QStringLiteral("[Channel%1]").arg(i + 1);
+        const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group);
+        if (!pTrack) {
+            decks.append(QJsonValue());
+            key += QLatin1Char('|');
+            continue;
+        }
+        const auto get = [&group](const char* name) {
+            return ControlObject::get(ConfigKey(group, QLatin1String(name)));
+        };
+        const bool play = get("play") > 0;
+        playing = playing || play;
+        decks.append(QJsonObject{{"location", pTrack->getLocation()}, {"position", get("playposition")},
+                {"rate", get("rate")}, {"pitchAdjust", get("pitch_adjust")}, {"keylock", get("keylock") > 0},
+                {"quantize", get("quantize") > 0}, {"playing", play}});
+        key += pTrack->getLocation() + (play ? QStringLiteral("|>") : QStringLiteral("|"));
+    }
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    // a new track or play/pause: now; while playing, the positions every 5 s
+    if (key == m_deckSessionKey && !(playing && now - m_deckSessionAt >= 5000)) {
+        return;
+    }
+    m_deckSessionKey = key;
+    m_deckSessionAt = now;
+    QSaveFile f(QDir(m_pConfig->getSettingsPath()).filePath(kDeckSessionFile));
+    if (f.open(QIODevice::WriteOnly)) {
+        f.write(QJsonDocument(QJsonObject{{"decks", decks}, {"playing", playing}, {"at", now}}).toJson(QJsonDocument::Compact));
+        f.commit();
+    }
+}
+
+void Hub::restoreDeckSession(int tries) {
+    if (ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("num_decks"))) < 2 && tries < 12) {
+        QTimer::singleShot(2500, this, [this, tries] { restoreDeckSession(tries + 1); });
+        return;
+    }
+    QFile f(QDir(m_pConfig->getSettingsPath()).filePath(kDeckSessionFile));
+    const QJsonObject session = f.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(f.readAll()).object() : QJsonObject();
+    QString reason;
+#ifdef Q_OS_ANDROID
+    reason = QJniObject::callStaticObjectMethod<jstring>("org/mixxx/ZydekRunningService", "lastExitReason").toString();
+#endif
+    const bool crashed = reason == QLatin1String("crash") || reason == QLatin1String("anr") ||
+            reason == QLatin1String("low memory");
+    const bool wasPlaying = session.value(QStringLiteral("playing")).toBool();
+    int restored = 0;
+    if (wasPlaying || crashed) {
+        const QJsonArray decks = session.value(QStringLiteral("decks")).toArray();
+        for (int i = 0; i < kNumDecks && i < decks.size(); ++i) {
+            const QJsonObject d = decks[i].toObject();
+            const QString location = d.value(QStringLiteral("location")).toString();
+            const QString group = QStringLiteral("[Channel%1]").arg(i + 1);
+            if (location.isEmpty() || !QFileInfo::exists(location) || PlayerInfo::instance().getTrackInfo(group)) {
+                continue;   // gone, or the deck has something already
+            }
+            // where it was, paused (deckTrackLoaded seeks there; nor do the new-track defaults apply)
+            m_pendingSeek.insert(group, {d.value(QStringLiteral("position")).toDouble(), false, location});
+            if (!m_library.loadLocation(location, QStringLiteral("deck%1").arg(i + 1), true).value(QStringLiteral("ok")).toBool()) {
+                m_pendingSeek.remove(group);
+                continue;
+            }
+            ++restored;
+            // the deck's settings once the track is in (Mixxx may reset tempo and key on a load)
+            QTimer::singleShot(2500, this, [group, d] {
+                ControlObject::set(ConfigKey(group, QStringLiteral("rate")), d.value(QStringLiteral("rate")).toDouble());
+                ControlObject::set(ConfigKey(group, QStringLiteral("pitch_adjust")), d.value(QStringLiteral("pitchAdjust")).toDouble());
+                ControlObject::set(ConfigKey(group, QStringLiteral("keylock")), d.value(QStringLiteral("keylock")).toBool() ? 1 : 0);
+                ControlObject::set(ConfigKey(group, QStringLiteral("quantize")), d.value(QStringLiteral("quantize")).toBool() ? 1 : 0);
+            });
+        }
+    }
+    if (restored) {
+        qInfo() << "Zydek: restored" << restored << "decks (last run:" << (crashed ? reason : QStringLiteral("stopped while playing")) << ")";
+        notice(QStringLiteral("The decks are back where they were: ZyDeck %1 last time")
+                        .arg(crashed ? QStringLiteral("crashed") : QStringLiteral("stopped while playing")));
+    }
+    QTimer::singleShot(4000, this, [this] { m_deckSessionReady = true; });   // after the loads have landed
+}
+
 // ---- sampler kits ----------------------------------------------------------------------------------
 
 namespace {
@@ -1352,6 +1449,7 @@ bool Hub::stemServerSet() const {
 }
 
 void Hub::recordTick() {
+    saveDeckSession();
     if (m_stemServerTick++ % 5 == 0) {   // the stem server set or not (every 5 s): what STEM pad 5 says
         const bool server = stemServerSet();
         if (server != m_stemServer) {
@@ -1475,7 +1573,7 @@ void Hub::onBotStatus(const QJsonObject& status) {
             const QString channel = kicked.value(QStringLiteral("channel")).toString();
             const QString text = QStringLiteral("The Discord bot was kicked from %1. It stays out until /zydeck join.")
                                          .arg(channel.isEmpty() ? QStringLiteral("its voice channel") : channel);
-            emitJson({{"t", "notice"}, {"m", text}});
+            notice(text);
 #ifdef Q_OS_ANDROID
             QJniObject::callStaticMethod<void>("org/mixxx/ZydekRunningService",
                     "notice",
@@ -3535,6 +3633,7 @@ QJsonObject Hub::snapshot() const {
                     {"lstems", deckStemsJson()},
                     {"ssrv", m_stemServer},
                     {"ddef", deckDefaultsJson()},
+                    {"notice", QDateTime::currentMSecsSinceEpoch() - m_noticeAt < 30000 ? m_notice : QString()},
                     {"sfx", stemFxJson()},
                     {"rec", recordStatus()},
                     {"cv", m_controlValues}}}};

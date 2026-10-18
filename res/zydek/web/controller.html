@@ -3055,7 +3055,7 @@ function loadCueLabels(d) {
 }
 
 function onMixxx(m) {
-  if (m.init) { LAT = m.init.lat || 0; if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
+  if (m.init) { if (m.init.notice) toast(m.init.notice); LAT = m.init.lat || 0; if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
   if (m.t === "rec") return paintRec(m.r);
   if (m.t === "remote") return onRemote(m);
   if (m.t === "lat") { LAT = m.s || 0; return; }

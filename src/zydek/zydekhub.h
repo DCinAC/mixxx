@@ -276,6 +276,16 @@ class Hub : public QObject {
     int m_stemServerTick = 0;
     // KEY LOCK, QUANTIZE, SLIP when a deck gets a new track (not a live-stems swap): 1 on, 0 off, -1 as they were
     int m_deckDefaults[3] = {-1, -1, -1};
+    // The decks as they play (zydek-decks.json: track, position, tempo, key shift, KEY LOCK, QUANTIZE), loaded back at
+    // start, paused where they were, when the last run stopped while something played or crashed
+    QString m_deckSessionKey;      // the tracks and what played, at the last write
+    qint64 m_deckSessionAt = 0;
+    bool m_deckSessionReady = false;   // not written before the restore had its chance
+    QString m_notice;              // the latest notice, for pages opening just after (with its time)
+    qint64 m_noticeAt = 0;
+    void saveDeckSession();
+    void restoreDeckSession(int tries);
+    void notice(const QString& text);
     void applyDeckDefaults(int deck);
     QJsonArray deckDefaultsJson() const;
     bool m_stemServer = false;   // a stem server is set (the Web tab's settings): stems are made there first

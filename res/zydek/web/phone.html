@@ -753,6 +753,7 @@ function connect() {
     if (m.t === "dc") { showDiscord(m.d); return; }
     if (m.t === "notice") { toast(m.m, "bad"); return; }
     if (m.init) {
+      if (m.init.notice) toast(m.init.notice, "ok");
       LAT = m.init.lat || 0;
       if (m.init.remote) onRemote(m.init.remote);
       live = !!m.init.live;

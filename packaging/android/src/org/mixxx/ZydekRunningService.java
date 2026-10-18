@@ -1,5 +1,7 @@
 package org.mixxx;
 
+import android.app.ActivityManager;
+import android.app.ApplicationExitInfo;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -11,6 +13,8 @@ import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
+
+import java.util.List;
 
 /// Zydek: keeps ZyDeck awake while it's open, as a music app does while it plays (a media playback foreground
 /// service with a quiet notification). Without it Android freezes an app in the background once nothing plays:
@@ -37,6 +41,40 @@ public class ZydekRunningService extends Service {
 
     public static void stop(Context context) {
         context.stopService(new Intent(context, ZydekRunningService.class));
+    }
+
+    /// The hub, at start: why ZyDeck's last run ended (Android's record): "crash", "anr", "low memory" (killed for
+    /// memory), "user" (swiped away, force-stopped), "exit", "other", or "" when Android doesn't say (before 11).
+    public static String lastExitReason() {
+        Context context = sContext;
+        if (context == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return "";
+        }
+        try {
+            List<ApplicationExitInfo> exits = context.getSystemService(ActivityManager.class)
+                    .getHistoricalProcessExitReasons(context.getPackageName(), 0, 1);
+            if (exits.isEmpty()) {
+                return "";
+            }
+            switch (exits.get(0).getReason()) {
+                case ApplicationExitInfo.REASON_CRASH:
+                case ApplicationExitInfo.REASON_CRASH_NATIVE:
+                    return "crash";
+                case ApplicationExitInfo.REASON_ANR:
+                    return "anr";
+                case ApplicationExitInfo.REASON_LOW_MEMORY:
+                    return "low memory";
+                case ApplicationExitInfo.REASON_USER_REQUESTED:
+                    return "user";
+                case ApplicationExitInfo.REASON_EXIT_SELF:
+                    return "exit";
+                default:
+                    return "other";
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "can't tell how the last run ended", e);
+            return "";
+        }
     }
 
     /// The hub (any thread): something to tell even when ZyDeck isn't in front, e.g. the Discord bot kicked
