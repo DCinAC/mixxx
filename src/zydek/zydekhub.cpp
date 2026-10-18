@@ -317,6 +317,10 @@ void Hub::start() {
             m_recordPreFx = prefs.value(QStringLiteral("recordPreFx")).toBool(false);
             m_discordHost = prefs.value(QStringLiteral("discordHost")).toString();
             m_discordKey = prefs.value(QStringLiteral("discordKey")).toString();
+            const QJsonArray defaults = prefs.value(QStringLiteral("deckDefaults")).toArray();
+            for (int i = 0; i < 3 && i < defaults.size(); ++i) {
+                m_deckDefaults[i] = std::clamp(defaults[i].toInt(-1), -1, 1);
+            }
         }
     }
     loadRemote();
@@ -328,6 +332,14 @@ void Hub::start() {
     if (LiveStems::available()) {
         m_pLiveStems = new LiveStems(m_pConfig, this);
         connect(m_pLiveStems, &LiveStems::progress, this, &Hub::liveStemsProgress);
+        connect(m_pLiveStems, &LiveStems::where, this, [this](int trackId, bool onPc) {
+            for (int i = 0; i < kNumDecks; ++i) {
+                if (m_deckStems[i].trackId == trackId && m_deckStems[i].onPc != onPc) {
+                    m_deckStems[i].onPc = onPc;
+                    emitDeckStems(i);
+                }
+            }
+        });
         connect(m_pLiveStems, &LiveStems::finished, this, &Hub::liveStemsFinished);
         m_stemsCrateTimer.setInterval(15000);
         connect(&m_stemsCrateTimer, &QTimer::timeout, this, &Hub::checkStemsCrate);
@@ -432,6 +444,21 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
             return result(setDiscord(query.value(QStringLiteral("on")) == QLatin1String("1")));
         }
         return json(discordStatus());
+    }
+    if (path == QLatin1String("/api/deckdefaults")) {   // ?keylock=&quantize=&slip= (1 on, 0 off, -1 as they were)
+        static const char* const kNames[3] = {"keylock", "quantize", "slip"};
+        bool changed = false;
+        for (int i = 0; i < 3; ++i) {
+            if (query.contains(QLatin1String(kNames[i]))) {
+                m_deckDefaults[i] = std::clamp(query.value(QLatin1String(kNames[i])).toInt(), -1, 1);
+                changed = true;
+            }
+        }
+        if (changed) {
+            saveAudioPrefs();
+            emitJson({{"t", "ddef"}, {"v", deckDefaultsJson()}});
+        }
+        return json(QJsonObject{{"ok", true}, {"defaults", deckDefaultsJson()}});
     }
     if (path == QLatin1String("/api/tracklist")) {   // this session's
         return json(m_library.tracklist());
@@ -1317,7 +1344,21 @@ QJsonObject Hub::setRecording(bool on) {
     return {{"ok", true}, {"on", on}};
 }
 
+// The Web tab's settings (zydek_web.py keeps them in zydek-web.json): read here, so Python needn't start for it
+bool Hub::stemServerSet() const {
+    QFile f(QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("zydek-web.json")));
+    return f.open(QIODevice::ReadOnly) &&
+            !QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("stemServer")).toString().trimmed().isEmpty();
+}
+
 void Hub::recordTick() {
+    if (m_stemServerTick++ % 5 == 0) {   // the stem server set or not (every 5 s): what STEM pad 5 says
+        const bool server = stemServerSet();
+        if (server != m_stemServer) {
+            m_stemServer = server;
+            emitJson({{"t", "ssrv"}, {"on", server}});
+        }
+    }
     const int discord = discordStatus().value(QStringLiteral("status")).toInt();
     if (discord != m_discordStatus) {   // 0 off · 1 connecting · 2 live · 3 failed · 4 (some failed)
         m_discordStatus = discord;
@@ -1787,7 +1828,7 @@ void Hub::saveAudioPrefs() const {
     if (f.open(QIODevice::WriteOnly)) {
         f.write(QJsonDocument(QJsonObject{{"offsetMs", m_latencyOffsetMs}, {"liveStems", m_liveStemsAuto},
                                        {"recordPreFx", m_recordPreFx}, {"discordHost", m_discordHost},
-                                       {"discordKey", m_discordKey}})
+                                       {"discordKey", m_discordKey}, {"deckDefaults", deckDefaultsJson()}})
                         .toJson());
         f.commit();
     }
@@ -2511,7 +2552,9 @@ void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
     }
     // a swap (to the stems, or back to the original) carries on where the deck was
     const auto seek = m_pendingSeek.find(group);
-    if (seek != m_pendingSeek.end()) {
+    if (seek == m_pendingSeek.end()) {
+        applyDeckDefaults(deck);   // a new track (a swap keeps the deck as it was)
+    } else {
         const PendingSeek pending = *seek;
         m_pendingSeek.erase(seek);
         if (pending.location == location ||
@@ -2651,15 +2694,29 @@ QJsonObject Hub::swapToOriginal(int deck) {
     return {{"ok", true}};
 }
 
+QJsonArray Hub::deckDefaultsJson() const {
+    return {m_deckDefaults[0], m_deckDefaults[1], m_deckDefaults[2]};
+}
+
+void Hub::applyDeckDefaults(int deck) {
+    static const char* const kControls[3] = {"keylock", "quantize", "slip_enabled"};
+    const QString group = QStringLiteral("[Channel%1]").arg(deck + 1);
+    for (int i = 0; i < 3; ++i) {
+        if (m_deckDefaults[i] >= 0) {
+            ControlObject::set(ConfigKey(group, QLatin1String(kControls[i])), m_deckDefaults[i]);
+        }
+    }
+}
+
 void Hub::emitDeckStems(int deck) {
     const DeckStems& ds = m_deckStems[deck];
-    emitJson({{"t", "lstem"}, {"d", deck}, {"s", ds.state}, {"p", ds.progress}, {"e", ds.error}});
+    emitJson({{"t", "lstem"}, {"d", deck}, {"s", ds.state}, {"p", ds.progress}, {"e", ds.error}, {"pc", ds.onPc}});
 }
 
 QJsonArray Hub::deckStemsJson() const {
     QJsonArray out;
     for (const DeckStems& ds : m_deckStems) {
-        out.append(QJsonObject{{"s", ds.state}, {"p", ds.progress}, {"e", ds.error}});
+        out.append(QJsonObject{{"s", ds.state}, {"p", ds.progress}, {"e", ds.error}, {"pc", ds.onPc}});
     }
     return out;
 }
@@ -3476,6 +3533,8 @@ QJsonObject Hub::snapshot() const {
                     {"remote", remoteStatus()},
                     {"lat", latencySeconds()},
                     {"lstems", deckStemsJson()},
+                    {"ssrv", m_stemServer},
+                    {"ddef", deckDefaultsJson()},
                     {"sfx", stemFxJson()},
                     {"rec", recordStatus()},
                     {"cv", m_controlValues}}}};

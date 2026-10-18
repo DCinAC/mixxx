@@ -271,7 +271,15 @@ class Hub : public QObject {
         QString state;   // "" | "making" | "ready" (waiting for the swap) | "on" | "failed"
         double progress = 0;
         QString error;
+        bool onPc = false;   // making them on the PC's stem server (not this phone)
     };
+    int m_stemServerTick = 0;
+    // KEY LOCK, QUANTIZE, SLIP when a deck gets a new track (not a live-stems swap): 1 on, 0 off, -1 as they were
+    int m_deckDefaults[3] = {-1, -1, -1};
+    void applyDeckDefaults(int deck);
+    QJsonArray deckDefaultsJson() const;
+    bool m_stemServer = false;   // a stem server is set (the Web tab's settings): stems are made there first
+    bool stemServerSet() const;
     LiveStems* m_pLiveStems = nullptr;
     bool m_liveStemsAuto = true;
     DeckStems m_deckStems[kNumDecks];

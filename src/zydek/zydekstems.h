@@ -56,6 +56,8 @@ class LiveStems : public QObject {
 
   signals:
     void progress(int trackId, double fraction);
+    /// where the track's stems are being made: the PC's stem server, or this phone
+    void where(int trackId, bool onPc);
     /// path: the stems file, or empty with error
     void finished(int trackId, const QString& path, const QString& error);
 

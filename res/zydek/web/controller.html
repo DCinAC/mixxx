@@ -289,6 +289,7 @@
     display: flex; gap: calc(var(--mm) * 1.5); align-items: baseline; pointer-events: none; text-shadow: 0 0 3px #000, 0 0 2px #000; }
   .strip .info .title { font-size: calc(var(--mm) * 2); }
   .strip .info .num { font-size: calc(var(--mm) * 2); }
+  .num.keynum { color: var(--dim); } .num.keynum.shifted { color: var(--acc); }   /* lit: shifted from the track's own key */
 
   /* ---- mixer ---- */
   #mixer { display: grid; grid-template-columns: var(--kcol) minmax(0, 1fr) minmax(0, 1fr) var(--kcol);
@@ -479,6 +480,10 @@
     <div><div class="seg"><button id="s-ld-scan">Scan</button></div><small id="s-ld-st"></small><div class="seg" id="s-ld-list" style="margin-top:6px"></div></div></div>
   <div class="row"><div>Layout<small>Strips on top: both platter strips stacked across the top like Mixxx's waveforms (about twice as long), the top-bar buttons beside them</small></div>
     <div class="seg" id="s-layout"></div></div>
+  <div class="row"><div>Platter strip<small>How much of the record one full strip covers</small></div>
+    <div><div class="seg" id="s-revs"></div><small id="s-revs-info"></small></div></div>
+  <div class="row"><div>On a new track<small>KEY LOCK, QUANTIZE and SLIP when a deck loads a track (switching to its live stems doesn't count): on, off, or as they were</small></div>
+    <div><div class="seg" id="s-dk"></div><div class="seg" id="s-dq" style="margin-top:6px"></div><div class="seg" id="s-ds" style="margin-top:6px"></div></div></div>
   <div class="row"><div>Tempo direction</div><div class="seg" id="s-dir"></div></div>
   <div class="row"><div>Audio buffer<small id="s-buf-note">How much sound Mixxx makes at a time: smaller answers sooner, but breaks up if the device can't keep up. Optimize tests this device under a heavy load (silently, decks empty) and keeps the smallest that doesn't break up</small></div>
     <div><div class="seg" id="s-buf"></div><button id="s-opt" style="margin-top:6px">Optimize</button></div></div>
@@ -502,8 +507,6 @@
     <div class="seg" id="s-skl"></div></div>
   <div class="row"><div>Fullscreen<small>Enter fullscreen on the first touch</small></div><div class="seg" id="s-fs-auto"></div></div>
   <details class="adv"><summary>Advanced</summary>
-  <div class="row"><div>Platter strip<small>How much of the record one full strip covers</small></div>
-    <div><div class="seg" id="s-revs"></div><small id="s-revs-info"></small></div></div>
   <div class="row"><div>Slipmat grip<small>After you let go, the slipmat pulls the record to the platter's speed at a steady rate, from however fast you flicked it. Set as the time from a standstill to full speed</small></div>
     <div><input type="range" id="s-catchup" min="0" max="800" step="10"><small><span class="val" id="s-catchup-v"></span></small></div></div>
   <div class="row"><div>Tempo sensitivity<small>Tempo change per mm of drag</small></div>
@@ -1288,9 +1291,10 @@ function buildStrip(s, u) {
   u.sw = h("button", "switch");
   bindPress(u.sw, down => { if (down) { sides[s] = sides[s] === s ? s + 2 : s; paintAll(); } });
   u.title = h("div", "title"); u.bpm = h("div", "num bpmtap"); u.time = h("div", "num dim");
+  u.keyNum = h("div", "num keynum");   // the key as it plays now (key shift and tempo in), beside the BPM
   u.bpm.addEventListener("pointerdown", e => e.stopPropagation());   // not a scratch
   u.bpm.addEventListener("click", () => openGrid(s));
-  head.append(u.sw, u.title, u.bpm, u.time);
+  head.append(u.sw, u.title, u.keyNum, u.bpm, u.time);
 
   // platter strip
   u.strip = h("div", "strip", `<div class="axis"></div><div class="wftrack"><div class="tiles"></div></div>` +
@@ -1347,7 +1351,7 @@ function buildStrip(s, u) {
 const stacked = () => S.layout === "stacked";
 function placeStrip(s, u) {
   const info = h("div", "info");
-  info.append(u.title, u.bpm, u.time);
+  info.append(u.title, u.keyNum, u.bpm, u.time);
   u.strip.appendChild(info);
   document.getElementById(`strip${s}`).replaceChildren(u.strip);
   document.getElementById(`nudge${s}`).replaceChildren(buildNudge(s, u));
@@ -1502,7 +1506,7 @@ function buildPhone() {
     u.lane.appendChild(u.tread);
     buildStrip(s, u);
     const info = h("div", "info");
-    info.append(u.title, u.bpm, u.time);
+    info.append(u.title, u.keyNum, u.bpm, u.time);
     u.sw.className = "psw";
     u.sw.addEventListener("pointerdown", e => e.stopPropagation());   // the deck switch, not a scratch
     u.strip.append(info, u.sw);
@@ -1690,6 +1694,7 @@ function paintTempo(s) {
   u.tread.classList.toggle("over", Math.abs(d.tempo) > 8);
   u.ol.classList.toggle("on", d.ol);
   setText(u.bpm, (d.bpm * (1 + d.tempo / 100)).toFixed(1));
+  if (u.keyNum) { setText(u.keyNum, d.curKey ? keyName(d.curKey) : ""); u.keyNum.classList.toggle("shifted", !!d.key); }
 }
 
 const fmtBeats = b => b >= 1 ? String(+b.toFixed(2)) : `1/${Math.round(1 / b)}`;
@@ -1775,13 +1780,14 @@ function paintPad(s, k) {
     case "loop": setPad(el, d.loopOn && Math.abs(d.loopSize - LOOP_PADS[k]) < 1e-6 ? "lit" : "tint",
       `${fmtBeats(LOOP_PADS[k])}<small>LOOP</small>`, "var(--play)", "#04200e"); break;
     case "stem": {
-      // No stems in the file: the phone makes them (live stems); pad 5 shows how far, or switches to them
+      // No stems in the file: live stems make them, on the PC's stem server when one's set (Settings › Stem server),
+      // else on the phone; pad 5 says where, shows how far, then switches to them
       const ls = d.lstem || {};
       if (k === 4 && live && !d.sc && !REMOTE.on) {
-        if (ls.s === "making") setPad(el, "tint", `STEMS<small>${Math.round((ls.p || 0) * 100)} %</small>`, "var(--play)");
+        if (ls.s === "making") setPad(el, "tint", `STEMS<small>${ls.pc ? "PC · " : ""}${Math.round((ls.p || 0) * 100)} %</small>`, "var(--play)");
         else if (ls.s === "ready") setPad(el, "lit", `USE STEMS<small>short gap</small>`, "var(--play)", "#071a0e");
         else if (ls.s === "failed") setPad(el, "off", `STEMS<small>${(ls.e || "failed").replace(/</g, "&lt;")}</small>`);
-        else setPad(el, "tint", `MAKE STEMS<small>on the phone</small>`, "var(--play)");
+        else setPad(el, "tint", `MAKE STEMS<small>${stemServer ? "on the PC" : "on the phone"}</small>`, "var(--play)");
         break;
       }
       const sf = stemFxPad(d, k);
@@ -2634,6 +2640,9 @@ document.addEventListener("click", async e => {
   if (r.ok === false) toast(r.error || "Couldn't start it"); else paintDiscord(r);
 });
 
+// A stem server is set (the Web tab's settings): live stems are made on the PC first
+let stemServer = false;
+
 // Recording the set (the hub: Mixxx's recorder, the main output with effects and EQ, FLAC + .cue tracklist)
 let rec = null;
 function paintRec(r) {
@@ -2668,7 +2677,16 @@ function slider(id, key, fmt) {
   inp.oninput = () => { S[key] = +inp.value; saveSettings(); applySettings(); document.getElementById(id + "-v").textContent = fmt(S[key]); paintSettings(true); };
   inp.onchange = () => build();
 }
+// On a new track: the hub's KEY LOCK / QUANTIZE / SLIP defaults (1 on, 0 off, -1 as they were)
+let deckDefaults = [-1, -1, -1];
+function deckDefaultSeg(id, i, label) {
+  seg(id, [[1, `${label} on`], [0, `${label} off`], [-1, "As it was"]], () => deckDefaults[i], v => {
+    deckDefaults[i] = v;
+    fetch(`/api/deckdefaults?${["keylock", "quantize", "slip"][i]}=${v}`).catch(() => {});
+  });
+}
 function paintSettings(soft) {
+  deckDefaultSeg("s-dk", 0, "Key lock"); deckDefaultSeg("s-dq", 1, "Quantize"); deckDefaultSeg("s-ds", 2, "Slip");
   if (!soft) loadDiscord();
   seg("s-revs", [[.5, "½ rev"], [1, "1 rev"], [2, "2 rev"]], () => S.revs, v => S.revs = v);
   seg("s-layout", [["stacked", "Strips on top"], ["side", "Side by side"]], () => S.layout, v => S.layout = v);
@@ -2956,6 +2974,8 @@ function goLive(init) {
     loadWaveform(d, x.n ? x.n.id : null); loadBeats(d, x.n ? x.n.id : null); loadCueLabels(d);
   });
   (init.lstems || []).forEach((x, i) => { if (decks[i]) decks[i].lstem = x; });
+  stemServer = !!init.ssrv;
+  if (init.ddef) deckDefaults = init.ddef;
   (init.sfx || []).forEach((x, i) => { if (decks[i]) decks[i].sfx = x; });
   init.s.slice(0, samplers.length).forEach((v, i) => { samplers[i].state = v; if (init.sn[i]) samplers[i].name = init.sn[i].t; });
   init.fx.forEach((u, i) => fxLive[i] = u);
@@ -3059,7 +3079,9 @@ function onMixxx(m) {
     case "notice": toast(m.m); return;
     case "slip": if (decks[m.d]) onSlip(decks[m.d], m.p); return;
     case "sfx": if (decks[m.d]) { decks[m.d].sfx = m.f; markDirty("deck", decks[m.d]); } return;
-    case "lstem": if (decks[m.d]) { decks[m.d].lstem = { s: m.s, p: m.p, e: m.e }; markDirty("deck", decks[m.d]); } return;
+    case "lstem": if (decks[m.d]) { decks[m.d].lstem = { s: m.s, p: m.p, e: m.e, pc: m.pc }; markDirty("deck", decks[m.d]); } return;
+    case "ssrv": stemServer = !!m.on; decks.forEach(d => markDirty("deck", d)); return;
+    case "ddef": deckDefaults = m.v; if (document.getElementById("settings").classList.contains("open")) paintSettings(true); return;
     default: return;
   }
   schedulePaint();

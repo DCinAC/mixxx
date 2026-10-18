@@ -817,6 +817,7 @@ QString LiveStems::separateOnPc(const TrackPointer& pTrack, int id) {
         qInfo() << "Zydek live stems: the PC stem server doesn't answer: making them here";
         return {};
     }
+    emit where(id, true);
     const QJsonObject done = runJob(QStringLiteral("stems"), {{"path", pTrack->getLocation()}}, 0, 0.99, 15 * 60 * 1000);
     const QString got = done.value(QStringLiteral("result")).toObject().value(QStringLiteral("path")).toString();
     if (got.isEmpty() || !QFileInfo::exists(got)) {
@@ -891,6 +892,7 @@ QString LiveStems::separate(const TrackPointer& pTrack, QString* pError) {
     if (!onPc.isEmpty()) {
         return addStemsTrack(onPc, pTrack, pError) ? onPc : QString();
     }
+    emit where(trackId, false);
     return separateHere(pTrack, pError);
 }
 
