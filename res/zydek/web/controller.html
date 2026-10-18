@@ -287,7 +287,7 @@
   #app.stacked #xf .rail { left: calc(var(--mm) * 3); right: calc(var(--mm) * 3); }
   .strip .info { position: absolute; left: calc(var(--mm) * 1.2); right: calc(var(--mm) * 1.2); top: calc(var(--mm) * .5);
     display: flex; gap: calc(var(--mm) * 1.5); align-items: baseline; pointer-events: none; text-shadow: 0 0 3px #000, 0 0 2px #000; }
-  .strip .info .title { font-size: calc(var(--mm) * 2); }
+  .strip .info .title { font-size: calc(var(--mm) * 2); pointer-events: auto; }   /* held (paused): unload */
   .strip .info .num { font-size: calc(var(--mm) * 2); }
   .num.keynum { color: var(--dim); } .num.keynum.shifted { color: var(--acc); }   /* lit: shifted from the track's own key */
 
@@ -347,6 +347,29 @@
     border-radius: calc(var(--mm) * 2.5); padding: calc(var(--mm) * 4); color: var(--text); touch-action: pan-y;
     font-size: calc(var(--mm) * 2.3); font-weight: 500; }
   #settings h2 { margin: 0 0 calc(var(--mm) * 2); font-size: calc(var(--mm) * 3.2); }
+  /* unload: the eject sign, the waveform's height, beside the title; and its question */
+  .strip .ejecticon { position: absolute; top: 4%; bottom: 4%; aspect-ratio: 1; opacity: 0; transition: opacity .5s; pointer-events: none; z-index: 4; }
+  .strip .ejecticon.on { opacity: .92; }
+  .strip .ejecticon svg { width: 100%; height: 100%; fill: var(--text); filter: drop-shadow(0 0 calc(var(--mm) * .8) rgba(0,0,0,.8)); }
+  .unloadscrim { position: fixed; inset: 0; z-index: 48; background: rgba(0,0,0,.55); }
+  #unloadask { position: fixed; z-index: 49; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(90vw, calc(var(--mm) * 80));
+    background: #151515; border: 1px solid #333; border-radius: calc(var(--mm) * 2); padding: calc(var(--mm) * 3); display: grid; gap: calc(var(--mm) * 1.6); }
+  #unloadask .t { font-size: calc(var(--mm) * 3); font-weight: 700; }
+  #unloadask .sub { color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #unloadask .dont { display: flex; align-items: center; gap: calc(var(--mm) * 1); color: var(--text); }
+  #unloadask .dont small { color: var(--dim); }
+  #unloadask .dont input { width: calc(var(--mm) * 3.5); height: calc(var(--mm) * 3.5); }
+  #unloadask .seg { display: flex; gap: calc(var(--mm) * 1); }
+  #unloadask .seg button { flex: 1; height: calc(var(--mm) * 7.5); }
+  #unloadask .yes { background: var(--err); border-color: var(--err); color: #fff; }
+  /* System (the phone page's Settings, shown upright) | Controller (this one, sideways): switch without turning */
+  #settings .menus { display: flex; gap: calc(var(--mm) * .8); margin-bottom: calc(var(--mm) * 1.5); }
+  #settings .menus button { flex: 1; height: calc(var(--mm) * 7); }
+  #settings .menus button.on { background: var(--text); color: #111; border-color: var(--text); }
+  #settings #s-q { width: 100%; height: calc(var(--mm) * 7); border-radius: calc(var(--mm) * 1.2); border: 1px solid #333;
+    background: #1c1c1c; color: var(--text); padding: 0 calc(var(--mm) * 2); font: inherit; margin-bottom: calc(var(--mm) * 1); }
+  #settings .other { width: 100%; height: calc(var(--mm) * 6); margin-bottom: calc(var(--mm) * 1); color: var(--dim); }
+  #settings .row.hit-none { display: none; }
   #settings .row { display: grid; grid-template-columns: calc(var(--mm) * 42) 1fr; gap: calc(var(--mm) * 2); align-items: center;
     padding: calc(var(--mm) * 2) 0; border-top: 1px solid #262626; }
   #settings .row small { display: block; color: var(--dim); font-size: calc(var(--mm) * 1.8); margin-top: 2px; }
@@ -476,8 +499,13 @@
 <div id="settings"><div class="panel">
   <button class="x" id="s-x" aria-label="Close">✕</button>
   <h2>Settings<small id="s-status">UI test · simulated Mixxx</small></h2>
+  <div class="menus" id="s-menus"><button id="s-tosys">System</button><button class="on">Controller</button></div>
+  <input id="s-q" type="search" placeholder="Search settings" autocomplete="off" spellcheck="false">
+  <button id="s-q-other" class="other" style="display:none"></button>
   <div class="row"><div>Link devices<small>Control another ZyDeck on the same Wi-Fi (or this phone's hotspot) from here, like a Bluetooth controller: the tablet as the phone's decks, say. ◀ Back to this device returns</small></div>
     <div><div class="seg"><button id="s-ld-scan">Scan</button></div><small id="s-ld-st"></small><div class="seg" id="s-ld-list" style="margin-top:6px"></div></div></div>
+  <div class="row"><div>Unload<small>Hold a paused deck's title (on its waveform): the eject sign comes up beside it, then it asks. Or not: the track just goes</small></div>
+    <div class="seg" id="s-unload"></div></div>
   <div class="row"><div>Layout<small>Strips on top: both platter strips stacked across the top like Mixxx's waveforms (about twice as long), the top-bar buttons beside them</small></div>
     <div class="seg" id="s-layout"></div></div>
   <div class="row"><div>Platter strip<small>How much of the record one full strip covers</small></div>
@@ -1301,6 +1329,27 @@ function buildStrip(s, u) {
     `<div class="slipghost"><div class="clip"><div class="wftrack"><div class="tiles"></div></div></div><div class="edge"></div></div><div class="played"></div>` +
     `<div class="cursor"></div><div class="label"></div>`);
   u.cursor = u.strip.querySelector(".cursor");
+  // Unload: hold the title of a paused deck (on its waveform): the eject sign fades in beside it, as tall as
+  // the waveform; after half a second it asks (or, with "Don't ask", unloads). Playing, the title scratches.
+  u.eject = h("div", "ejecticon", `<svg viewBox="0 0 24 24"><path d="M12 4 3 15h18z"/><rect x="3" y="17.5" width="18" height="3" rx=".8"/></svg>`);
+  u.strip.appendChild(u.eject);
+  u.title.addEventListener("pointerdown", e => {
+    const d = deckOf(s), tr = u.title.getBoundingClientRect();
+    // the title's own text only: elsewhere (and while playing) the touch goes on to the waveform (a scratch)
+    if (!live || !d.loaded || d.playing || isPalm(e) || e.clientX > tr.left + Math.min(u.title.scrollWidth, tr.width) + mm(1)) return;
+    e.stopPropagation(); e.preventDefault();
+    const sr = u.strip.getBoundingClientRect();
+    u.eject.style.left = `${Math.min(tr.right, tr.left + u.title.scrollWidth) - sr.left + mm(1.5)}px`;
+    u.eject.classList.add("on");
+    let asked = false;
+    const timer = setTimeout(() => { asked = true; askUnload(s, u); }, 500);
+    const end = () => {
+      clearTimeout(timer);
+      if (!asked) u.eject.classList.remove("on");
+      removeEventListener("pointerup", end); removeEventListener("pointercancel", end);
+    };
+    addEventListener("pointerup", end); addEventListener("pointercancel", end);
+  });
   u.track = u.strip.querySelector(".wftrack"); u.tilesBox = u.strip.querySelector(".tiles"); u.played = u.strip.querySelector(".played");
   u.ghost = u.strip.querySelector(".slipghost"); u.gTrack = u.ghost.querySelector(".wftrack"); u.gTilesBox = u.ghost.querySelector(".tiles");
   drag(u.strip, {
@@ -2348,6 +2397,29 @@ function tileAt(u, d, k, base, H, dpr) {
   u.tilesBox.appendChild(c);
   u.tiles.set(k, c);
 }
+// Unload a deck (the title's hold): asks first unless told not to (Settings › Unload brings asking back)
+function askUnload(s, u) {
+  const d = deckOf(s), done = () => u.eject.classList.remove("on");
+  const go = () => { if (d.loaded && !d.playing) push(ch(d.n), "eject"); done(); };
+  if (S.askUnload === false) { go(); return; }
+  document.getElementById("unloadask")?.remove();
+  const box = h("div", "", `<div class="t">Unload deck ${d.n}?</div><div class="sub"></div>
+    <label class="dont"><input type="checkbox"> Don't ask again <small>(Settings › Unload)</small></label>
+    <div class="seg"><button class="no">Cancel</button><button class="yes">Unload</button></div>`);
+  box.id = "unloadask";
+  box.querySelector(".sub").textContent = [...u.title.childNodes].map(n => n.textContent.trim()).filter(Boolean).join(" · ");   // title · artist
+  const close = ok => {
+    if (ok && box.querySelector("input").checked) { S.askUnload = false; saveSettings(); }
+    box.remove(); scrim.remove();
+    if (ok) go(); else done();
+  };
+  const scrim = h("div", "unloadscrim");
+  scrim.addEventListener("pointerdown", e => { e.stopPropagation(); close(false); });
+  box.querySelector(".no").addEventListener("click", () => close(false));
+  box.querySelector(".yes").addEventListener("click", () => close(true));
+  document.body.append(scrim, box);
+}
+
 // Cue marks and the loop, as elements riding on the waveform's layer (their labels kept unsqueezed)
 function paintMarks(u, d, base, dpr, f, cssH) {
   const lr = loopRange(d), marks = cueMarks(d);
@@ -2503,7 +2575,38 @@ decks.forEach(d => {
 // =====================================================================================================
 document.getElementById("gear").addEventListener("click", () => { paintSettings(); paintFs(); document.getElementById("settings").classList.add("open"); });
 document.getElementById("s-close").addEventListener("click", () => document.getElementById("settings").classList.remove("open"));
-const closeSettings = () => document.getElementById("settings").classList.remove("open");
+const closeSettings = () => {
+  document.getElementById("settings").classList.remove("open");
+  if (IN_SHELL) parent.postMessage({ zydek: "settings-closed" }, location.origin);
+};
+// Inside the phone page (its deck view): System = the phone page's own Settings, without turning the device
+const IN_SHELL = (() => { try { return parent !== window && parent.location.origin === location.origin && !!parent.document.getElementById("p-set"); } catch { return false; } })();
+document.getElementById("s-menus").style.display = IN_SHELL ? "" : "none";
+const toSystem = q => parent.postMessage({ zydek: "menu", to: "system", q: q || "" }, location.origin);
+document.getElementById("s-tosys").addEventListener("click", () => { document.getElementById("settings").classList.remove("open"); toSystem(document.getElementById("s-q").value); });
+// Search: rows whose text has every word typed; Advanced opens for one inside it; the other menu's count
+function searchSettings() {
+  const q = document.getElementById("s-q").value.trim().toLowerCase(), words = q.split(/\s+/).filter(Boolean);
+  const hit = el => words.every(w => el.textContent.toLowerCase().includes(w));
+  const rows = [...document.querySelectorAll("#settings .row")];
+  rows.forEach(r => r.classList.toggle("hit-none", !!words.length && !hit(r)));
+  const adv = document.querySelector("#settings details.adv");
+  if (adv) { if (words.length) { adv._was ??= adv.open; adv.open = rows.some(r => adv.contains(r) && hit(r)); } else if (adv._was !== undefined) { adv.open = adv._was; adv._was = undefined; } }
+  const other = document.getElementById("s-q-other");
+  let n = 0;
+  if (words.length && IN_SHELL) { try { n = [...parent.document.querySelectorAll("#p-set .card")].filter(hit).length; } catch {} }
+  other.style.display = n ? "" : "none";
+  other.textContent = `${n} in System settings ›`;
+}
+document.getElementById("s-q").addEventListener("input", searchSettings);
+document.getElementById("s-q-other").addEventListener("click", () => { document.getElementById("settings").classList.remove("open"); toSystem(document.getElementById("s-q").value); });
+// the phone page asks for this menu (its Controller switch), with what was searched there
+addEventListener("message", e => {
+  if (e.origin !== location.origin || e.data?.zydek !== "open-settings") return;
+  paintSettings(); paintFs();
+  document.getElementById("s-q").value = e.data.q || ""; searchSettings();
+  document.getElementById("settings").classList.add("open");
+});
 document.getElementById("s-x").addEventListener("click", closeSettings);
 // Tapping the darkened area outside the panel closes it too.
 document.getElementById("settings").addEventListener("click", e => { if (e.target.id === "settings") closeSettings(); });
@@ -2689,6 +2792,7 @@ function paintSettings(soft) {
   deckDefaultSeg("s-dk", 0, "Key lock"); deckDefaultSeg("s-dq", 1, "Quantize"); deckDefaultSeg("s-ds", 2, "Slip");
   if (!soft) loadDiscord();
   seg("s-revs", [[.5, "½ rev"], [1, "1 rev"], [2, "2 rev"]], () => S.revs, v => S.revs = v);
+  seg("s-unload", [[true, "Ask every time"], [false, "Don't ask"]], () => S.askUnload !== false, v => S.askUnload = v);
   seg("s-layout", [["stacked", "Strips on top"], ["side", "Side by side"]], () => S.layout, v => S.layout = v);
   const stripMm = ui.sides[0]?.strip ? ui.sides[0].strip.clientWidth / S.pxmm : 70;
   document.getElementById("s-revs-info").textContent =

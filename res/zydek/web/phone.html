@@ -222,6 +222,13 @@
 
   /* settings */
   .card { margin: 12px; padding: 12px 14px; border: 1px solid var(--edge); border-radius: 12px; background: #121212; }
+  .card.hit-none { display: none; }
+  /* System (this page's Settings) | Controller (the deck page's): the other one without turning the device */
+  #set-menus { display: flex; gap: 8px; margin: 12px 12px 8px; }
+  #set-menus button { flex: 1; min-height: 40px; }
+  #set-menus button.on { background: var(--text); color: #111; border-color: var(--text); }
+  #set-q { display: block; width: calc(100% - 24px); margin: 0 12px 4px; min-height: 40px; }
+  #set-q-other { display: block; width: calc(100% - 24px); margin: 4px 12px; min-height: 36px; color: var(--dim); }
   .card h3 { margin: 0 0 10px; font-size: 15px; color: var(--text); }
   .card label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; }
   .card select { width: 100%; height: 44px; border-radius: 10px; border: 1px solid #333; background: #181818; padding: 0 10px; color: var(--text); }
@@ -323,6 +330,12 @@
   @media (orientation: landscape) {
     #deckview { visibility: visible; }
     body > header, body > main, body > nav, #toast { visibility: hidden; }
+    body.show-system #deckview { visibility: hidden; }   /* System settings, sideways (Controller › System) */
+    body.show-system > header, body.show-system > main, body.show-system > nav, body.show-system #toast { visibility: visible; }
+  }
+  @media (orientation: portrait) {   /* the deck page's settings, upright (System › Controller) */
+    body.show-decks #deckview { visibility: visible; }
+    body.show-decks > header, body.show-decks > main, body.show-decks > nav { visibility: hidden; }
   }
   /* Starting up: dark (the intro, intro.html, ends dark) until the library and the decks are ready */
   #boot { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column; align-items: center;
@@ -388,6 +401,9 @@
   </section>
 
   <section class="page" id="p-set">
+    <div class="menus" id="set-menus"><button class="on">System</button><button id="set-toctl">Controller</button></div>
+    <input id="set-q" type="search" placeholder="Search settings" autocomplete="off" spellcheck="false">
+    <button id="set-q-other" class="other" style="display:none"></button>
     <div class="card" id="linkdev">
       <h3>Link devices</h3>
       <div class="hint" style="margin-top:0">Control another ZyDeck on the same Wi-Fi (or this phone's hotspot) from here, like a
@@ -1766,6 +1782,39 @@ addEventListener("message", e => {
   api("/api/preview/stop").catch(() => {});
   loadViews(); loadTracks();   // a BPM may have changed (the editor saved it), a sample may have been added
 });
+
+// Settings: System (here) | Controller (the deck page's, sideways): either without turning the device; turning
+// it puts things back as usual. Search: cards with every word typed, and how many the other menu has.
+const deckFrame = () => document.getElementById("deckview");
+function searchSet() {
+  const words = $("#set-q").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = el => words.every(w => el.textContent.toLowerCase().includes(w));
+  document.querySelectorAll("#p-set .card").forEach(c => c.classList.toggle("hit-none", !!words.length && !hit(c)));
+  let n = 0;
+  if (words.length) { try { n = [...deckFrame().contentDocument.querySelectorAll("#settings .row")].filter(hit).length; } catch {} }
+  $("#set-q-other").style.display = n ? "" : "none";
+  $("#set-q-other").textContent = `${n} in Controller settings ›`;
+}
+$("#set-q").addEventListener("input", searchSet);
+function openControllerMenu() {
+  document.body.classList.remove("show-system");
+  if (innerHeight > innerWidth) document.body.classList.add("show-decks");
+  deckFrame().contentWindow.postMessage({ zydek: "open-settings", q: $("#set-q").value }, location.origin);
+}
+$("#set-toctl").addEventListener("click", openControllerMenu);
+$("#set-q-other").addEventListener("click", openControllerMenu);
+addEventListener("message", e => {
+  if (e.origin !== location.origin) return;
+  if (e.data?.zydek === "menu" && e.data.to === "system") {
+    document.body.classList.remove("show-decks");
+    if (innerWidth > innerHeight) document.body.classList.add("show-system");
+    showPage("set"); scrollTo(0, 0);
+    $("#set-q").value = e.data.q || ""; searchSet();
+  } else if (e.data?.zydek === "settings-closed") {
+    document.body.classList.remove("show-decks");
+  }
+});
+matchMedia("(orientation: landscape)").addEventListener("change", () => document.body.classList.remove("show-system", "show-decks"));
 
 // Crates: the track sheet lists them (tap to add the track or take it out); "+ Crate" makes a new one.
 let crateList = [];
