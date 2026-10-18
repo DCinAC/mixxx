@@ -372,9 +372,25 @@
   #settings .other { width: 100%; height: calc(var(--mm) * 6); margin-bottom: calc(var(--mm) * 1); color: var(--dim); }
   #settings .row.hit-none { display: none; }
   /* upright (the phone page's Controller tab): a page like the System one, each row's label above its controls */
-  #settings.aspage { background: var(--bg); align-items: stretch; }
-  #settings.aspage .panel { width: 100%; max-height: none; height: 100%; border: 0; border-radius: 0; }
-  #settings.aspage .row { grid-template-columns: 1fr; gap: calc(var(--mm) * 1); }
+  /* upright, the Controller tab is the System page to the letter: its place (between the phone page's decks and
+     tabs), cards, sizes; no title, close or Done (the tabs and the page's own tab bar do that) */
+  #settings.aspage { background: #0b0b0b; align-items: stretch; }
+  #settings.aspage .panel { width: 100%; max-height: none; height: 100%; border: 0; border-radius: 0; padding: 0 0 12px;
+    background: #0b0b0b; font-size: 14px; }
+  #settings.aspage h2, #settings.aspage .x, #settings.aspage .close { display: none; }
+  #settings.aspage .menus { margin: 12px 12px 8px; gap: 8px; }
+  #settings.aspage .menus button { height: auto; min-height: 40px; font-size: 14px; border-radius: 10px; }
+  #settings.aspage #s-q { width: calc(100% - 24px); margin: 0 12px 4px; height: 40px; border-radius: 10px; font-size: 15px; }
+  #settings.aspage .other { width: calc(100% - 24px); margin: 4px 12px; height: auto; min-height: 36px; font-size: 14px; border-radius: 10px; }
+  #settings.aspage .row { display: block; margin: 12px; padding: 12px 14px; border: 1px solid #2c2c2c; border-radius: 12px; background: #121212; }
+  #settings.aspage .row > div:first-child { font-size: 15px; font-weight: 700; }
+  #settings.aspage .row small { font-size: 12px; font-weight: 400; margin-top: 8px; line-height: 1.4; }
+  #settings.aspage .row > :not(:first-child) { margin-top: 10px; }
+  #settings.aspage .seg { gap: 8px; }
+  #settings.aspage .seg button { height: auto; min-height: 40px; padding: 0 14px; font-size: 14px; border-radius: 10px; }
+  #settings.aspage details.adv { margin: 12px; border-top: 0; }
+  #settings.aspage details.adv > summary { padding: 8px 2px; font-size: 13px; }
+  #settings.aspage details.adv .row { margin: 12px 0; }
   #settings .row { display: grid; grid-template-columns: calc(var(--mm) * 42) 1fr; gap: calc(var(--mm) * 2); align-items: center;
     padding: calc(var(--mm) * 2) 0; border-top: 1px solid #262626; }
   #settings .row small { display: block; color: var(--dim); font-size: calc(var(--mm) * 1.8); margin-top: 2px; }
@@ -541,6 +557,8 @@
     <div class="seg" id="s-skl"></div></div>
   <div class="row"><div>Fullscreen<small>Enter fullscreen on the first touch</small></div><div class="seg" id="s-fs-auto"></div></div>
   <details class="adv"><summary>Advanced</summary>
+  <div class="row"><div>Unload button<small>Where the eject sign comes up on the waveform: any of them (left and left-mid would overlap, so one of those). Left-mid ends where the track's name does</small></div>
+    <div class="seg" id="s-ejectat"></div></div>
   <div class="row"><div>Slipmat grip<small>After you let go, the slipmat pulls the record to the platter's speed at a steady rate, from however fast you flicked it. Set as the time from a standstill to full speed</small></div>
     <div><input type="range" id="s-catchup" min="0" max="800" step="10"><small><span class="val" id="s-catchup-v"></span></small></div></div>
   <div class="row"><div>Tempo sensitivity<small>Tempo change per mm of drag</small></div>
@@ -1338,21 +1356,38 @@ function buildStrip(s, u) {
   // Unload: hold the title of a paused deck (on its waveform): the eject sign fades in beside it, as tall as
   // the waveform, and after half a second it stays, as a button: a tap on it unloads (asking first, unless told
   // not to); touching anything else puts it away. Playing, the title scratches as ever.
-  u.eject = h("div", "ejecticon", `<svg viewBox="0 0 24 24"><path d="M12 4 3 15h18z"/><rect x="3" y="17.5" width="18" height="3" rx=".8"/></svg>`);
-  u.strip.appendChild(u.eject);
+  // one per place it can come up (Settings › Advanced › Unload button): left, left-mid, middle, right
+  u.ejects = EJECT_PLACES.map(([place]) => {
+    const el = h("div", "ejecticon", `<svg viewBox="0 0 24 24"><path d="M12 4 3 15h18z"/><rect x="3" y="17.5" width="18" height="3" rx=".8"/></svg>`);
+    el.dataset.place = place;
+    u.strip.appendChild(el);
+    return el;
+  });
   u.title.addEventListener("pointerdown", e => {
     const d = deckOf(s), tr = u.title.getBoundingClientRect();
     // the title's own text only: elsewhere (and while playing) the touch goes on to the waveform (a scratch)
     if (!live || !d.loaded || d.playing || isPalm(e) || e.clientX > tr.left + Math.min(u.title.scrollWidth, tr.width) + mm(1)) return;
     e.stopPropagation(); e.preventDefault();
     const sr = u.strip.getBoundingClientRect();
-    u.eject.style.left = `${Math.min(tr.right, tr.left + u.title.scrollWidth) - sr.left + mm(1.5)}px`;
-    u.eject.classList.add("on");
+    // as tall as the waveform (square); left-mid: its right edge on the end of the track's name
+    // the end of the track's name itself (the title text, not the artist after it), within the title's box
+    let nameEnd = Math.min(tr.right, tr.left + u.title.scrollWidth);
+    const name = [...u.title.childNodes].find(n => n.textContent.trim());
+    if (name) { const range = document.createRange(); range.selectNodeContents(name); nameEnd = Math.min(tr.right, range.getBoundingClientRect().right); }
+    const size = sr.height * .92;
+    nameEnd -= sr.left;
+    const at = { left: mm(1), leftmid: Math.max(mm(1), nameEnd - size), middle: (sr.width - size) / 2, right: sr.width - size - mm(1) };
+    const places = ejectPlaces();
+    u.ejects.forEach(el => {
+      const on = places.includes(el.dataset.place);
+      el.classList.toggle("on", on);
+      if (on) el.style.left = `${at[el.dataset.place].toFixed(1)}px`;
+    });
     let armed = false;
     const timer = setTimeout(() => { armed = true; armEject(s, u); }, 500);
     const end = () => {
       clearTimeout(timer);
-      if (!armed) u.eject.classList.remove("on");
+      if (!armed) u.ejects.forEach(el => el.classList.remove("on"));
       removeEventListener("pointerup", end); removeEventListener("pointercancel", end);
     };
     addEventListener("pointerup", end); addEventListener("pointercancel", end);
@@ -2404,29 +2439,33 @@ function tileAt(u, d, k, base, H, dpr) {
   u.tilesBox.appendChild(c);
   u.tiles.set(k, c);
 }
-// The eject sign as a button, after the title's hold: a tap unloads; any other touch (or 6 s) puts it away
+// The eject sign as a button (in each of its places), after the title's hold: a tap on one unloads; any other
+// touch (or 6 s) puts them away
+const EJECT_PLACES = [["left", "Left"], ["leftmid", "Left-mid"], ["middle", "Middle"], ["right", "Right"]];
+const ejectPlaces = () => Array.isArray(S.ejectAt) && S.ejectAt.length ? S.ejectAt : ["leftmid"];
 function armEject(s, u) {
-  u.eject.classList.add("armed");
+  const shown = u.ejects.filter(el => el.classList.contains("on"));
+  shown.forEach(el => el.classList.add("armed"));
   const away = () => {
-    u.eject.classList.remove("on", "armed");
+    u.ejects.forEach(el => el.classList.remove("on", "armed"));
     document.removeEventListener("pointerdown", other, true);
-    clearTimeout(u.eject._t);
+    clearTimeout(u.ejectTimer);
   };
-  const other = e => { if (!u.eject.contains(e.target)) away(); };
+  const other = e => { if (!shown.some(el => el.contains(e.target))) away(); };
   document.addEventListener("pointerdown", other, true);
-  clearTimeout(u.eject._t);
-  u.eject._t = setTimeout(away, 6000);
-  u.eject.onpointerdown = e => {
+  clearTimeout(u.ejectTimer);
+  u.ejectTimer = setTimeout(away, 6000);
+  shown.forEach(el => el.onpointerdown = e => {
     e.stopPropagation(); e.preventDefault();   // not a scratch
     document.removeEventListener("pointerdown", other, true);
-    clearTimeout(u.eject._t);
-    u.eject.classList.remove("armed");
+    clearTimeout(u.ejectTimer);
+    u.ejects.forEach(x => x.classList.remove("armed"));
     askUnload(s, u);
-  };
+  });
 }
 // Unload a deck (the eject button): asks first unless told not to (Settings › Unload brings asking back)
 function askUnload(s, u) {
-  const d = deckOf(s), done = () => u.eject.classList.remove("on");
+  const d = deckOf(s), done = () => u.ejects.forEach(el => el.classList.remove("on"));
   const go = () => { if (d.loaded && !d.playing) push(ch(d.n), "eject"); done(); };
   if (S.askUnload === false) { go(); return; }
   document.getElementById("unloadask")?.remove();
@@ -2600,7 +2639,7 @@ decks.forEach(d => {
 // =====================================================================================================
 // Top bar, settings
 // =====================================================================================================
-document.getElementById("gear").addEventListener("click", () => { paintSettings(); paintFs(); document.getElementById("settings").classList.add("open"); });
+document.getElementById("gear").addEventListener("click", () => { paintSettings(); paintFs(); document.getElementById("settings").classList.remove("aspage"); document.getElementById("settings").classList.add("open"); });
 document.getElementById("s-close").addEventListener("click", () => document.getElementById("settings").classList.remove("open"));
 const closeSettings = () => {
   document.getElementById("settings").classList.remove("open", "aspage");
@@ -2610,7 +2649,7 @@ const closeSettings = () => {
 const IN_SHELL = (() => { try { return parent !== window && parent.location.origin === location.origin && !!parent.document.getElementById("p-set"); } catch { return false; } })();
 document.getElementById("s-menus").style.display = IN_SHELL ? "" : "none";
 const toSystem = q => parent.postMessage({ zydek: "menu", to: "system", q: q || "" }, location.origin);
-document.getElementById("s-tosys").addEventListener("click", () => { document.getElementById("settings").classList.remove("open"); toSystem(document.getElementById("s-q").value); });
+document.getElementById("s-tosys").addEventListener("click", () => { document.getElementById("settings").classList.remove("open", "aspage"); toSystem(document.getElementById("s-q").value); });
 // Search: rows whose text has every word typed; Advanced opens for one inside it; the other menu's count
 function searchSettings() {
   const q = document.getElementById("s-q").value.trim().toLowerCase(), words = q.split(/\s+/).filter(Boolean);
@@ -2626,9 +2665,13 @@ function searchSettings() {
   other.textContent = `${n} in System settings ›`;
 }
 document.getElementById("s-q").addEventListener("input", searchSettings);
-document.getElementById("s-q-other").addEventListener("click", () => { document.getElementById("settings").classList.remove("open"); toSystem(document.getElementById("s-q").value); });
+document.getElementById("s-q-other").addEventListener("click", () => { document.getElementById("settings").classList.remove("open", "aspage"); toSystem(document.getElementById("s-q").value); });
 // the phone page asks for this menu (its Controller switch), with what was searched there
 addEventListener("message", e => {
+  if (e.origin === location.origin && e.data?.zydek === "close-settings") {   // the phone page went to another page
+    document.getElementById("settings").classList.remove("open", "aspage");
+    return;
+  }
   if (e.origin !== location.origin || e.data?.zydek !== "open-settings") return;
   document.getElementById("settings").classList.toggle("aspage", !!e.data.page);   // upright: a page, rows stacked
   paintSettings(); paintFs();
@@ -2821,6 +2864,26 @@ function paintSettings(soft) {
   if (!soft) loadDiscord();
   seg("s-revs", [[.5, "½ rev"], [1, "1 rev"], [2, "2 rev"]], () => S.revs, v => S.revs = v);
   seg("s-unload", [[true, "Ask every time"], [false, "Don't ask"]], () => S.askUnload !== false, v => S.askUnload = v);
+  {   // Unload button: several at once (not left with left-mid; at least one)
+    const box = document.getElementById("s-ejectat");
+    box.innerHTML = "";
+    EJECT_PLACES.forEach(([place, label]) => {
+      const b = h("button", ejectPlaces().includes(place) ? "on" : "", label);
+      b.addEventListener("click", () => {
+        let now = ejectPlaces().slice();
+        if (now.includes(place)) now = now.filter(p => p !== place);
+        else {
+          now.push(place);
+          if (place === "left") now = now.filter(p => p !== "leftmid");
+          if (place === "leftmid") now = now.filter(p => p !== "left");
+        }
+        if (!now.length) return;   // one at least
+        S.ejectAt = EJECT_PLACES.map(([p]) => p).filter(p => now.includes(p));
+        saveSettings(); paintSettings(true);
+      });
+      box.appendChild(b);
+    });
+  }
   seg("s-layout", [["stacked", "Strips on top"], ["side", "Side by side"]], () => S.layout, v => S.layout = v);
   const stripMm = ui.sides[0]?.strip ? ui.sides[0].strip.clientWidth / S.pxmm : 70;
   document.getElementById("s-revs-info").textContent =

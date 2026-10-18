@@ -225,23 +225,33 @@
   .card.hit-none { display: none; }
   /* Sideways, the System settings open in the deck page's settings window (over the decks): the same cards,
      two columns */
-  #sysmodal { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.72); display: none; align-items: center; justify-content: center; }
+  /* the deck page's settings window, to the letter (its --mm, set when it opens): rows, label left, controls right */
+  #sysmodal { --mm: 5.93px; position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.72); display: none; align-items: center; justify-content: center; }
   #sysmodal.open { display: flex; }
-  #sysmodal .panel { position: relative; width: min(94vw, 1100px); max-height: 92vh; overflow: auto; background: #151515;
-    border: 1px solid #333; border-radius: 14px; padding: 16px 18px; }
-  #sysmodal h2 { margin: 0 0 10px; font-size: 22px; }
-  #sysmodal .x { position: absolute; right: 12px; top: 12px; width: 44px; height: 44px; font-size: 20px; }
-  #sysmodal #p-set { display: block; columns: 2 380px; column-gap: 12px; }
-  #sysmodal #p-set > * { break-inside: avoid; }
-  #sysmodal #p-set > #set-menus, #sysmodal #p-set > #set-q, #sysmodal #p-set > #set-q-other { column-span: all; }
-  #sysmodal #p-set .card { margin: 0 0 12px; }
-  #sysmodal #set-menus, #sysmodal #set-q, #sysmodal #set-q-other { margin-left: 0; margin-right: 0; width: 100%; }
+  #sysmodal .panel { position: relative; width: min(92vw, calc(var(--mm) * 150)); max-height: 92vh; overflow: auto; background: #151515;
+    border: 1px solid #333; border-radius: calc(var(--mm) * 2.5); padding: calc(var(--mm) * 4); color: var(--text);
+    font-size: calc(var(--mm) * 2.3); font-weight: 500; }
+  #sysmodal h2 { margin: 0 0 calc(var(--mm) * 2); font-size: calc(var(--mm) * 3.2); }
+  #sysmodal .x { position: absolute; top: calc(var(--mm) * 2); right: calc(var(--mm) * 2); width: calc(var(--mm) * 10);
+    height: calc(var(--mm) * 10); font-size: calc(var(--mm) * 4); line-height: 1; padding: 0; }
+  #sysmodal #p-set { display: block; }
+  #sysmodal #set-menus { display: flex; gap: calc(var(--mm) * .8); margin: 0 0 calc(var(--mm) * 1.5); }
+  #sysmodal #set-menus button { height: calc(var(--mm) * 7); }
+  #sysmodal #set-q { width: 100%; height: calc(var(--mm) * 7); margin: 0 0 calc(var(--mm) * 1); border-radius: calc(var(--mm) * 1.2); }
+  #sysmodal #set-q-other { width: 100%; margin: 0 0 calc(var(--mm) * 1); }
+  #sysmodal #p-set .card { display: grid; grid-template-columns: calc(var(--mm) * 42) 1fr; column-gap: calc(var(--mm) * 2); grid-auto-flow: row dense;
+    align-items: center; margin: 0; padding: calc(var(--mm) * 2) 0; border: 0; border-top: 1px solid #262626; border-radius: 0; background: none; }
+  #sysmodal #p-set .card > * { grid-column: 2; }
+  #sysmodal #p-set .card > h3, #sysmodal #p-set .card > .hint { grid-column: 1; }
+  #sysmodal #p-set .card > h3 { margin: 0; font-size: calc(var(--mm) * 2.3); font-weight: 500; }
+  #sysmodal #p-set .card > .hint { margin-top: 2px; font-size: calc(var(--mm) * 1.8); }
   body.sysopen #toast { visibility: visible !important; z-index: 70; }
   /* System (this page's Settings) | Controller (the deck page's): the other one without turning the device */
   #set-menus { display: flex; gap: 8px; margin: 12px 12px 8px; }
   #set-menus button { flex: 1; min-height: 40px; }
   #set-menus button.on { background: var(--text); color: #111; border-color: var(--text); }
-  #set-q { display: block; width: calc(100% - 24px); margin: 0 12px 4px; min-height: 40px; }
+  #set-q { display: block; width: calc(100% - 24px); margin: 0 12px 4px; min-height: 40px; background: #1c1c1c; color: var(--text);
+    border: 1px solid #333; border-radius: 10px; padding: 0 12px; font: inherit; font-size: 15px; }
   #set-q-other { display: block; width: calc(100% - 24px); margin: 4px 12px; min-height: 36px; color: var(--dim); }
   .card h3 { margin: 0 0 10px; font-size: 15px; color: var(--text); }
   .card label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; }
@@ -347,9 +357,10 @@
     body.show-system #deckview { visibility: hidden; }   /* System settings, sideways (Controller › System) */
     body.show-system > header, body.show-system > main, body.show-system > nav, body.show-system #toast { visibility: visible; }
   }
-  @media (orientation: portrait) {   /* the deck page's settings, upright (System › Controller) */
-    body.show-decks #deckview { visibility: visible; }
-    body.show-decks > header, body.show-decks > main, body.show-decks > nav { visibility: hidden; }
+  @media (orientation: portrait) {   /* the deck page's settings, upright (System › Controller): where the page goes */
+    body.show-decks #deckview { visibility: visible; top: var(--decks-h, 0px); bottom: auto;
+      height: calc(100% - var(--decks-h, 0px) - var(--nav-h, 0px)); }
+    body.show-decks > main { visibility: hidden; }
   }
   /* Starting up: dark (the intro, intro.html, ends dark) until the library and the decks are ready */
   #boot { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column; align-items: center;
@@ -617,6 +628,10 @@ function toast(msg, kind = "") {
 let page = store.get("page", "lib");
 const loadSettingsPage = () => { loadTablet(); loadAudio(); loadBili(); loadStemServer(); loadKits(); loadRecording(); loadDiscord(); };
 function showPage(p) {
+  if (document.body.classList.contains("show-decks")) {   // leaving the Controller tab for another page
+    document.body.classList.remove("show-decks");
+    deckFrame().contentWindow.postMessage({ zydek: "close-settings" }, location.origin);
+  }
   page = p; store.set("page", p);
   document.querySelectorAll(".page").forEach(e => e.classList.toggle("on", e.id === "p-" + p));
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.page === p));
@@ -1112,6 +1127,7 @@ $("#q").value = store.get("q", "");
 $("#q").addEventListener("input", () => { store.set("q", $("#q").value); clearTimeout(qT); qT = setTimeout(loadTracks, 180); });
 // The search bar sticks just under the deck panels, whose height changes with 4 Decks.
 new ResizeObserver(() => document.documentElement.style.setProperty("--decks-h", $("#decks").offsetHeight + "px")).observe($("#decks"));
+new ResizeObserver(() => document.documentElement.style.setProperty("--nav-h", $("nav").offsetHeight + "px")).observe($("nav"));
 $("#sort").addEventListener("change", () => { store.set("sort", $("#sort").value); loadTracks(); });
 
 // ---------------------------------------------------------------------------------------------------
@@ -1814,6 +1830,10 @@ function searchSet() {
 $("#set-q").addEventListener("input", searchSet);
 // Sideways: the System tab is this window (the cards moved into it, so everything works as on their page)
 function openSystemWindow(q) {
+  try {   // the deck page's own scale, so the window matches its settings exactly
+    const mm = getComputedStyle(deckFrame().contentDocument.documentElement).getPropertyValue("--mm").trim();
+    if (mm) $("#sysmodal").style.setProperty("--mm", mm);
+  } catch {}
   $("#sysmodal .panel").appendChild($("#p-set"));
   $("#sysmodal").classList.add("open"); document.body.classList.add("sysopen");
   $("#set-q").value = q || ""; searchSet(); loadSettingsPage();
