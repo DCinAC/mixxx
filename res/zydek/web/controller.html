@@ -499,6 +499,10 @@
   #app .two.alt > b { font-size: .6em !important; font-weight: 400 !important; opacity: .6; }
   #app .two.alt > small { font-size: 1em !important; font-weight: 700 !important; opacity: 1; }
   #app .two > small.on { color: var(--acc) !important; opacity: 1; }
+  /* SHIFT on SYNC: MASTER smaller than the other shifted labels, so the button keeps its size; and no row's
+     buttons grow to fit a label (it shrinks to fit instead, fitTwo) */
+  #app .sync .two.alt > small { font-size: .74em !important; }
+  #app.phone .prow > button { min-width: 0; overflow: hidden; }   /* (the tablet's row sizes columns by their labels) */
 </style>
 </head>
 <body>
@@ -667,7 +671,14 @@ function cachedRect(el) {
   return el._rect.r;
 }
 // Skip DOM writes that wouldn't change anything.
-const setHTML = (el, html) => { if (el._html !== html) { el._html = html; el.innerHTML = html; if (html.startsWith('<span class="two')) fitTwo(el); } };
+const setHTML = (el, html) => {
+  if (el._html === html) return;
+  const two = html.startsWith('<span class="two');
+  // a two-function label switching to its SHIFT side: the button's width as it is now, its own label still in
+  if (two && html.startsWith('<span class="two alt') && !el.firstElementChild?.classList.contains("alt")) el._room = el.clientWidth;
+  el._html = html; el.innerHTML = html;
+  if (two) fitTwo(el);
+};
 const setText = (el, t) => { if (el._text !== t) { el._text = t; el.textContent = t; } };
 
 function applySettings() {
@@ -1580,10 +1591,14 @@ const padIndex = (d, k) => PHONE && d.mode === "jump" ? PHONE_JUMPS[k] : k;
 const two = (main, alt, altOn, on = false) =>
   `<span class="two${altOn ? " alt" : ""}"><b>${main}</b><small${on ? ' class="on"' : ""}>${alt}</small></span>`;
 function fitTwo(el) {
-  const t = el.firstElementChild, big = t.querySelector(t.classList.contains("alt") ? "small" : "b");
-  const cs = getComputedStyle(el);
-  const room = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 2, w = big.scrollWidth;
-  if (room > 0 && w > room) big.style.setProperty("font-size", `${(parseFloat(getComputedStyle(big).fontSize) * room / w).toFixed(1)}px`, "important");
+  const t = el.firstElementChild, alt = t.classList.contains("alt"), big = t.querySelector(alt ? "small" : "b");
+  const cs = getComputedStyle(el), pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 2;
+  // the SHIFT label fits into the button's width with its own label (setHTML keeps it), so SHIFT never resizes it
+  const room = (alt && el._room > 0 ? Math.min(el._room, el.clientWidth) : el.clientWidth) - pad, w = big.scrollWidth;
+  if (room > 0 && w > room) {   // at once: a transition would let the button bulge for a moment
+    big.style.setProperty("transition", "none");
+    big.style.setProperty("font-size", `${(parseFloat(getComputedStyle(big).fontSize) * room / w).toFixed(1)}px`, "important");
+  }
 }
 function buildPhone() {
   layoutEpoch++;
