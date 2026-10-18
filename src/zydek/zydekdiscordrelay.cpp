@@ -142,7 +142,7 @@ void DiscordRelay::onSourceData() {
             }
             const QByteArray head = m_sourceHead.left(end);
             m_sourceHead.remove(0, end + 4);
-            const QByteArray expected = "Basic " + ("source:" + m_password.toUtf8()).toBase64();
+            const QByteArray expected = QByteArray("Basic ") + QByteArray("source:" + m_password.toUtf8()).toBase64();
             bool ok = false;
             for (const QByteArray& line : head.split('\n')) {
                 const int colon = line.indexOf(':');
@@ -264,8 +264,10 @@ void DiscordRelay::onUpConnected() {
     if (!m_pUp) {
         return;
     }
-    const QByteArray hostHeader = m_target.host.toUtf8() +
-            ((m_target.tls ? m_target.port != 443 : m_target.port != 80) ? ':' + QByteArray::number(m_target.port) : QByteArray());
+    QByteArray hostHeader = m_target.host.toUtf8();
+    if (m_target.tls ? m_target.port != 443 : m_target.port != 80) {
+        hostHeader += ':' + QByteArray::number(m_target.port);
+    }
     m_pUp->write("GET /ingest HTTP/1.1\r\nHost: " + hostHeader +
             "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: " +
             randomBytes(16).toBase64() + "\r\nAuthorization: Bearer " + m_key.toUtf8() +
