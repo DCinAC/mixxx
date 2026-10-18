@@ -204,7 +204,7 @@ net.createServer(sock => {
       if (req.method === "GET" && pathname === "/status") return bearerOk(req) ? json(sock, 200, status()) : json(sock, 401, { error: "key" });
       if (req.method === "GET" && pathname === "/ingest" && /websocket/i.test(req.headers.upgrade || "")) {
         if (!bearerOk(req)) return sock.end("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-        const accept = crypto.createHash("sha1").update(req.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC11B9E").digest("base64");
+        const accept = crypto.createHash("sha1").update(req.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
         sock.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
         streaming = true;
         const ogg = startSource(sock);
