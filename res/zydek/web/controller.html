@@ -138,6 +138,10 @@
     box-shadow: 0 0 calc(var(--mm) * 3) color-mix(in srgb, var(--play) 80%, transparent); }
   .transport .sync.tempo { --glow: 0; border-color: var(--acc); color: var(--acc); box-shadow: none; }
   .transport .sync.beat { --glow: 0; background: var(--acc); border-color: var(--acc); color: #111; box-shadow: none; }
+  .transport .sync { padding: 0 3px; }   /* the label 3 px from the edge at least */
+  /* synced (filled in the deck's colour): MASTER dark and bold on the leader, faint on the others; never the fill's colour */
+  #app .transport .sync.beat .two > small { color: #111 !important; opacity: .35; }
+  #app .transport .sync.beat .two > small.on { color: #000 !important; opacity: 1; font-weight: 800 !important; }
   .keybox { display: grid; grid-template-columns: 1fr auto 1fr; gap: calc(var(--mm) * .6); align-items: stretch; }
   .keybox button { font-size: calc(var(--mm) * 3.6); }
   .keybox span { align-self: center; text-align: center; min-width: calc(var(--mm) * 6); color: var(--text); font-size: calc(var(--mm) * 2); }
@@ -969,7 +973,7 @@ function buildSide(s) {
   // tempo lane (outer edge)
   const tempo = h("div", "tempo");
   tempoControls(s, u, "TEMPO<br>BOOST");
-  tempo.append(u.ol, u.lane, u.tread, u.shiftBtn);
+  tempo.append(u.shiftBtn, u.lane, u.tread, u.ol);   // SHIFT at the top, TEMPO BOOST at the bottom
 
   const deck = h("div", "deck");
   const head = buildStrip(s, u);
@@ -1482,7 +1486,8 @@ const two = (main, alt, altOn, on = false) =>
   `<span class="two${altOn ? " alt" : ""}"><b>${main}</b><small${on ? ' class="on"' : ""}>${alt}</small></span>`;
 function fitTwo(el) {
   const t = el.firstElementChild, big = t.querySelector(t.classList.contains("alt") ? "small" : "b");
-  const room = el.clientWidth - 4, w = big.scrollWidth;
+  const cs = getComputedStyle(el);
+  const room = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 2, w = big.scrollWidth;
   if (room > 0 && w > room) big.style.setProperty("font-size", `${(parseFloat(getComputedStyle(big).fontSize) * room / w).toFixed(1)}px`, "important");
 }
 function buildPhone() {
@@ -1519,7 +1524,7 @@ function buildPhone() {
     mode(u.mA, "cue", "fx", () => fxMenu(s)); mode(u.mB, "loop", "smpl"); mode(u.mC, "stem", "key");
     u.deck = u.el = h("div", "pdeck");
     u.deck.append(buildNudge(s, u), row("transport", u.cue, u.play), buildPads(s, u, 4), row("modes", u.mA, u.mB, u.mC),
-      s ? row("transport", u.sync, u.shiftBtn) : row("transport", u.shiftBtn, u.sync));   // SHIFT on the outside
+      s ? row("transport", u.shiftBtn, u.sync) : row("transport", u.sync, u.shiftBtn));   // SYNC on the outside
     u.col = h("div", "tempo pcol");
     ui.sides[s] = u;
     decksEl[s] = u.deck;

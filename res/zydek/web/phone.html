@@ -164,6 +164,8 @@
   .wj .bar2 { height: 4px; border-radius: 2px; background: #222; margin-top: 6px; overflow: hidden; }
   .wj .bar2 i { display: block; height: 100%; background: var(--deck34); width: 0; transition: width .3s; }
   .wj.err .t { color: var(--err); } .wj .m { color: var(--dim); font-size: 12px; margin-top: 2px; }
+  .wj .top { display: flex; gap: 8px; align-items: center; } .wj .top .t { flex: 1; min-width: 0; }
+  .wj .x { flex: none; min-height: 28px; padding: 0 10px; font-size: 12px; }
 
   /* Bilibili login screen: the QR code in the middle, actions at the bottom (after BILIBILIAS) */
   #login { --acc: #fb7299; --acc-bg: #2b1820; --acc-fg: #ffb3c9; position: fixed; inset: 0; z-index: 11; background: var(--bg);
@@ -1091,7 +1093,7 @@ async function webApi(path) {   // like api(), but "Python is starting" is an an
 }
 const sleep = ms => new Promise(res => setTimeout(res, ms));
 // Starts a job (search or download), waiting out Python's first start; then polls it until it's finished.
-async function webJob(path, onProgress) {
+async function webJob(path, onProgress, onStart) {
   let r;
   for (;;) {
     r = await webApi(path);
@@ -1099,6 +1101,7 @@ async function webJob(path, onProgress) {
     onProgress && onProgress({ message: r.error });
     await sleep(1500);
   }
+  onStart && onStart(r);
   for (;;) {
     const j = await webApi(`/api/web/job?${qs({ id: r.job })}`);
     if (j.state === "done") return j.result;
@@ -1156,10 +1159,12 @@ function openWebSheet(r) {
 }
 
 // Downloads: each shows its progress at the top of the tab until it's done.
-function jobRow(title) {
-  const li = h("li", "wj", `<div class="t">${esc(title)}</div><div class="bar2"><i></i></div><div class="m">Starting…</div>`);
+function jobRow(title, onCancel) {
+  const li = h("li", "wj", `<div class="top"><div class="t">${esc(title)}</div>${onCancel ? `<button class="x">Cancel</button>` : ""}</div>` +
+    `<div class="bar2"><i></i></div><div class="m">Starting…</div>`);
   $("#wjobs").prepend(li);
   const show = (p, m) => { if (p != null) li.querySelector("i").style.width = `${Math.round(p * 100)}%`; if (m) li.querySelector(".m").textContent = m; };
+  li.querySelector(".x")?.addEventListener("click", e => { e.target.disabled = true; show(null, "Cancelling…"); onCancel(); });
   return { li, show };
 }
 async function webDownload(r, target, stems) {
@@ -1190,21 +1195,33 @@ async function makeStems(t) {
     stemsFor(info.location, t.title, t.id);
   } catch (e) { toast(e.message, "bad"); }
 }
+// Stem jobs shown here, by track file: asking again for one that's going just points at it
+const stemRows = new Map();
 async function stemsFor(path, title, trackId) {
-  const { li, show } = jobRow(`${title} · stems`);
+  if (stemRows.has(path)) { toast("Already making stems for this track (the Web tab)"); return; }
+  let jobId = null;
+  const { li, show } = jobRow(`${title} · stems`, () => { if (jobId) webApi(`/api/web/cancel?${qs({ id: jobId })}`).catch(() => {}); });
+  stemRows.set(path, li);
   toast("Making stems on the PC… (progress in the Web tab)");
   try {
     const res = await webJob(`/api/web/stems?${qs({ path })}`,
-      j => show(j.progress, j.message ? `${j.message}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}` : null));
+      j => show(j.progress, j.message ? `${j.message}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}` : null),
+      r => { jobId = r.job; if (r.already) toast("Already making stems for this track: following that one"); });
     show(1, "Adding to the library");
     await api(`/api/library/add?${qs({ path: res.path })}`);
     // the decks' stems for this track from now on (live stems); the quick ones made on the phone go
     if (trackId) await api(`/api/livestems/adopt?${qs({ id: trackId, path: res.path })}`).catch(() => {});
     show(1, `Saved: ${res.path.split("/").pop()}${res.seconds ? ` (separated in ${Math.round(res.seconds)} s)` : ""}`);
     toast(`Stems ready: ${res.title || title}`, "ok");
+    li.querySelector(".x")?.remove();
     setTimeout(() => li.remove(), 12000);
   } catch (e) {
-    li.classList.add("err"); show(null, e.message); toast(e.message, "bad");
+    const cancelled = /cancelled/i.test(e.message);
+    li.classList.toggle("err", !cancelled); show(null, cancelled ? "Cancelled" : e.message);
+    li.querySelector(".x")?.remove();
+    if (cancelled) setTimeout(() => li.remove(), 4000); else toast(e.message, "bad");
+  } finally {
+    stemRows.delete(path);
   }
 }
 async function checkStemServer(server) {

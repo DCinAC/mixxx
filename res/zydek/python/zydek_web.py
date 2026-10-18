@@ -472,6 +472,10 @@ def _stems(path, preset):
                 total, got = int(r.headers.get("Content-Length") or 0), 0
                 with open(out + ".part", "wb") as f:
                     while chunk := r.read(1 << 16):
+                        if job.get("cancel"):
+                            f.close()
+                            os.remove(out + ".part")
+                            raise RuntimeError("Cancelled")
                         f.write(chunk)
                         got += len(chunk)
                         if total:
@@ -666,7 +670,15 @@ def api(name, args_json):
             if not args.get("path"):
                 return json.dumps({"ok": False, "error": "No track"})
             _stem_url()   # no server set: say so now
-            return json.dumps({"ok": True, "job": _stems(args["path"], args.get("preset") or _prefs()["stemPreset"])["id"]})
+            # one at a time per track: asked again (the Library, live stems), it's the one already going
+            with _lock:
+                same = next((j for j in _jobs.values() if j["kind"] == "stems" and j["state"] == "running"
+                             and j.get("path") == args["path"] and not j.get("cancel")), None)
+            if same:
+                return json.dumps({"ok": True, "job": same["id"], "already": True})
+            job = _stems(args["path"], args.get("preset") or _prefs()["stemPreset"])
+            job["path"] = args["path"]
+            return json.dumps({"ok": True, "job": job["id"]})
         if name == "stemcheck":   # ?server=  (what's typed in Settings; empty = the saved one)
             return json.dumps({"ok": True, "job": _stem_check(args.get("server"))["id"]})
         if name == "account":
