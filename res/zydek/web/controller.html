@@ -684,10 +684,12 @@ function isPalm(e) {
 }
 function drag(el, h) {
   el.addEventListener("pointerdown", e => {
-    if (isPalm(e)) return;
+    // a control inside another (a knob in an FX pad) has the touch: the outer one leaves it alone
+    if (isPalm(e) || e.zydekClaimed) return;
     e.preventDefault();
     const st = h.down(e);
     if (st === false) return;
+    e.zydekClaimed = true;
     try { el.setPointerCapture(e.pointerId); } catch {}
     active.set(e.pointerId, { h, st });
   });
