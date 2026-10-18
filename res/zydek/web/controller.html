@@ -371,6 +371,10 @@
     background: #1c1c1c; color: var(--text); padding: 0 calc(var(--mm) * 2); font: inherit; margin-bottom: calc(var(--mm) * 1); }
   #settings .other { width: 100%; height: calc(var(--mm) * 6); margin-bottom: calc(var(--mm) * 1); color: var(--dim); }
   #settings .row.hit-none { display: none; }
+  /* upright (the phone page's Controller tab): a page like the System one, each row's label above its controls */
+  #settings.aspage { background: var(--bg); align-items: stretch; }
+  #settings.aspage .panel { width: 100%; max-height: none; height: 100%; border: 0; border-radius: 0; }
+  #settings.aspage .row { grid-template-columns: 1fr; gap: calc(var(--mm) * 1); }
   #settings .row { display: grid; grid-template-columns: calc(var(--mm) * 42) 1fr; gap: calc(var(--mm) * 2); align-items: center;
     padding: calc(var(--mm) * 2) 0; border-top: 1px solid #262626; }
   #settings .row small { display: block; color: var(--dim); font-size: calc(var(--mm) * 1.8); margin-top: 2px; }
@@ -469,6 +473,7 @@
   #rotate { position: fixed; inset: 0; background: var(--bg); color: var(--text); display: none; align-items: center; justify-content: center;
     font-size: 22px; text-align: center; z-index: 20; padding: 24px; }
   @media (orientation: portrait) { #rotate { display: flex; } }
+  #settings.aspage { z-index: 30; }   /* upright on purpose (the Controller tab): over the turn-me notice */
   /* two-function controls (CUE · SLIP, PLAY · CENSOR, SYNC · MASTER, the mode buttons, the EQ labels): see two() */
   #app .two { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
   #app .two > b, #app .two > small { display: block; margin: 0; white-space: nowrap; letter-spacing: .02em;
@@ -2598,7 +2603,7 @@ decks.forEach(d => {
 document.getElementById("gear").addEventListener("click", () => { paintSettings(); paintFs(); document.getElementById("settings").classList.add("open"); });
 document.getElementById("s-close").addEventListener("click", () => document.getElementById("settings").classList.remove("open"));
 const closeSettings = () => {
-  document.getElementById("settings").classList.remove("open");
+  document.getElementById("settings").classList.remove("open", "aspage");
   if (IN_SHELL) parent.postMessage({ zydek: "settings-closed" }, location.origin);
 };
 // Inside the phone page (its deck view): System = the phone page's own Settings, without turning the device
@@ -2625,6 +2630,7 @@ document.getElementById("s-q-other").addEventListener("click", () => { document.
 // the phone page asks for this menu (its Controller switch), with what was searched there
 addEventListener("message", e => {
   if (e.origin !== location.origin || e.data?.zydek !== "open-settings") return;
+  document.getElementById("settings").classList.toggle("aspage", !!e.data.page);   // upright: a page, rows stacked
   paintSettings(); paintFs();
   document.getElementById("s-q").value = e.data.q || ""; searchSettings();
   document.getElementById("settings").classList.add("open");

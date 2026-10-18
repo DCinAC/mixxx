@@ -223,6 +223,20 @@
   /* settings */
   .card { margin: 12px; padding: 12px 14px; border: 1px solid var(--edge); border-radius: 12px; background: #121212; }
   .card.hit-none { display: none; }
+  /* Sideways, the System settings open in the deck page's settings window (over the decks): the same cards,
+     two columns */
+  #sysmodal { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.72); display: none; align-items: center; justify-content: center; }
+  #sysmodal.open { display: flex; }
+  #sysmodal .panel { position: relative; width: min(94vw, 1100px); max-height: 92vh; overflow: auto; background: #151515;
+    border: 1px solid #333; border-radius: 14px; padding: 16px 18px; }
+  #sysmodal h2 { margin: 0 0 10px; font-size: 22px; }
+  #sysmodal .x { position: absolute; right: 12px; top: 12px; width: 44px; height: 44px; font-size: 20px; }
+  #sysmodal #p-set { display: block; columns: 2 380px; column-gap: 12px; }
+  #sysmodal #p-set > * { break-inside: avoid; }
+  #sysmodal #p-set > #set-menus, #sysmodal #p-set > #set-q, #sysmodal #p-set > #set-q-other { column-span: all; }
+  #sysmodal #p-set .card { margin: 0 0 12px; }
+  #sysmodal #set-menus, #sysmodal #set-q, #sysmodal #set-q-other { margin-left: 0; margin-right: 0; width: 100%; }
+  body.sysopen #toast { visibility: visible !important; z-index: 70; }
   /* System (this page's Settings) | Controller (the deck page's): the other one without turning the device */
   #set-menus { display: flex; gap: 8px; margin: 12px 12px 8px; }
   #set-menus button { flex: 1; min-height: 40px; }
@@ -556,6 +570,7 @@
 </div>
 <div id="pv"><span></span><button id="pvstop">Stop preview</button></div>
 <iframe id="deckview" title="Decks"></iframe>
+<div id="sysmodal"><div class="panel"><button class="x" id="sys-x" aria-label="Close">✕</button><h2>Settings</h2></div></div>
 <script>
   // a tablet gets the tablet controller, a phone the phone layout (smallest side under 600 CSS px)
   document.getElementById("deckview").src = Math.min(screen.width, screen.height) >= 600 ? "/controller" : "/controller?phone=1";
@@ -600,12 +615,13 @@ function toast(msg, kind = "") {
 // Tabs
 // ---------------------------------------------------------------------------------------------------
 let page = store.get("page", "lib");
+const loadSettingsPage = () => { loadTablet(); loadAudio(); loadBili(); loadStemServer(); loadKits(); loadRecording(); loadDiscord(); };
 function showPage(p) {
   page = p; store.set("page", p);
   document.querySelectorAll(".page").forEach(e => e.classList.toggle("on", e.id === "p-" + p));
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.page === p));
   if (p === "fold") { loadFolders(); loadExcluded(); watchAnalysis(); }
-  if (p === "set") { loadTablet(); loadAudio(); loadBili(); loadStemServer(); loadKits(); loadRecording(); loadDiscord(); }
+  if (p === "set") loadSettingsPage();
   if (p === "web") webJobs();
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
@@ -1796,10 +1812,26 @@ function searchSet() {
   $("#set-q-other").textContent = `${n} in Controller settings ›`;
 }
 $("#set-q").addEventListener("input", searchSet);
+// Sideways: the System tab is this window (the cards moved into it, so everything works as on their page)
+function openSystemWindow(q) {
+  $("#sysmodal .panel").appendChild($("#p-set"));
+  $("#sysmodal").classList.add("open"); document.body.classList.add("sysopen");
+  $("#set-q").value = q || ""; searchSet(); loadSettingsPage();
+}
+function closeSystemWindow() {
+  if (!$("#sysmodal").classList.contains("open")) return;
+  $("#sysmodal").classList.remove("open"); document.body.classList.remove("sysopen");
+  $("main").appendChild($("#p-set"));   // back to its page
+}
+$("#sys-x").addEventListener("click", closeSystemWindow);
+$("#sysmodal").addEventListener("click", e => { if (e.target.id === "sysmodal") closeSystemWindow(); });
+// The Controller tab: the deck page's settings; upright, as a page like this one (its rows stacked)
 function openControllerMenu() {
-  document.body.classList.remove("show-system");
-  if (innerHeight > innerWidth) document.body.classList.add("show-decks");
-  deckFrame().contentWindow.postMessage({ zydek: "open-settings", q: $("#set-q").value }, location.origin);
+  const q = $("#set-q").value;
+  closeSystemWindow();
+  const upright = innerHeight > innerWidth;
+  if (upright) document.body.classList.add("show-decks");
+  deckFrame().contentWindow.postMessage({ zydek: "open-settings", q, page: upright }, location.origin);
 }
 $("#set-toctl").addEventListener("click", openControllerMenu);
 $("#set-q-other").addEventListener("click", openControllerMenu);
@@ -1807,14 +1839,14 @@ addEventListener("message", e => {
   if (e.origin !== location.origin) return;
   if (e.data?.zydek === "menu" && e.data.to === "system") {
     document.body.classList.remove("show-decks");
-    if (innerWidth > innerHeight) document.body.classList.add("show-system");
+    if (innerWidth > innerHeight) { openSystemWindow(e.data.q); return; }   // sideways: in the settings window
     showPage("set"); scrollTo(0, 0);
     $("#set-q").value = e.data.q || ""; searchSet();
   } else if (e.data?.zydek === "settings-closed") {
     document.body.classList.remove("show-decks");
   }
 });
-matchMedia("(orientation: landscape)").addEventListener("change", () => document.body.classList.remove("show-system", "show-decks"));
+matchMedia("(orientation: landscape)").addEventListener("change", () => { closeSystemWindow(); document.body.classList.remove("show-system", "show-decks"); });
 
 // Crates: the track sheet lists them (tap to add the track or take it out); "+ Crate" makes a new one.
 let crateList = [];
