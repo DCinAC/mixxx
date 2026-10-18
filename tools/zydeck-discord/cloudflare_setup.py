@@ -11,12 +11,15 @@ then makes or updates:
   - the two DNS records (CNAMEs to the tunnel, proxied)
   - cloudflared running it, as a TrueNAS app ("zydeck-tunnel") on the NAS
   - the bot's fixed address (launch.sh public), so /zydeck link gives it
-and checks both addresses answer.
+  - optionally, other things on the network through the same tunnel (Stash: stash.<domain> -> 192.168.0.108:9999),
+    each with Cloudflare Access in front if you like (only the emails you list get through, by a one-time code)
+and checks the addresses answer.
 
 The token needs (Cloudflare › My Profile › API Tokens › Create Token › Custom token):
     Account · Cloudflare Tunnel · Edit
     Zone    · DNS · Edit        (Zone Resources: your domain)
     Zone    · Zone · Read       (the same domain)
+    Account · Access: Apps and Policies · Edit   (only for Cloudflare Access in front of an extra)
 Give it a short TTL, and revoke it when this is done: the tunnel keeps running on its own tunnel token (in the
 TrueNAS app), which this token isn't.
 """
@@ -79,6 +82,17 @@ def main():
     domain = input("Your domain (e.g. example.com): ").strip().lower().rstrip(".")
     bot = (input("Name for the Discord bot [zydeck]: ").strip().lower() or "zydeck") + "." + domain
     stems = (input("Name for the stem server [stems]: ").strip().lower() or "stems") + "." + domain
+    extras = []   # (hostname, service, protect)
+    print("\nAnything else on the network through this tunnel? name=host:port, e.g. stash=192.168.0.108:9999 (empty: no)")
+    for item in [x.strip() for x in input("Extras (comma-separated): ").split(",") if x.strip()]:
+        name, _, target = item.partition("=")
+        if not name or ":" not in target:
+            sys.exit(f"{item}: write it as name=host:port")
+        extras.append((f"{name.strip().lower()}.{domain}", f"http://{target.strip()}", None))
+    emails = []
+    if extras:
+        print("Cloudflare Access in front of those: only these emails get through (a one-time code by email first)")
+        emails = [e.strip() for e in input("Emails (comma-separated; empty: no Access, their own login only): ").split(",") if e.strip()]
     TOKEN = getpass.getpass("Cloudflare API token (hidden): ").strip()
     if not TOKEN:
         sys.exit("No token")
@@ -99,11 +113,13 @@ def main():
     call("PUT", f"/accounts/{account}/cfd_tunnel/{tunnel}/configurations", {"config": {"ingress": [
         {"hostname": bot, "service": f"http://{PC}:8780"},
         {"hostname": stems, "service": f"http://{PC}:8770"},
+        *({"hostname": host, "service": service} for host, service, _ in extras),
         {"service": "http_status:404"},
     ]}})
-    say(f"Routes: {bot} -> the bot, {stems} -> the stem server")
+    say(f"Routes: {bot} -> the bot, {stems} -> the stem server" +
+        "".join(f", {host} -> {service[7:]}" for host, service, _ in extras))
 
-    for host in (bot, stems):
+    for host in (bot, stems, *(h for h, _, _ in extras)):
         record = {"type": "CNAME", "name": host, "content": f"{tunnel}.cfargotunnel.com", "proxied": True,
                   "comment": "ZyDeck (cloudflare_setup.py)"}
         existing = call("GET", f"/zones/{zone}/dns_records?name={host}")
@@ -113,7 +129,22 @@ def main():
             call("PUT", f"/zones/{zone}/dns_records/{existing[0]['id']}", record)
         else:
             call("POST", f"/zones/{zone}/dns_records", record)
-    say("DNS: both names point at the tunnel")
+    say("DNS: the names point at the tunnel")
+
+    if extras and emails:   # Cloudflare Access: a login (email + one-time code) before the extras
+        policy = call("POST", f"/accounts/{account}/access/policies", {
+            "name": "ZyDeck extras: these emails", "decision": "allow",
+            "include": [{"email": {"email": e}} for e in emails]})["id"]
+        apps = call("GET", f"/accounts/{account}/access/apps")
+        for host, _, _ in extras:
+            body = {"name": host, "domain": host, "type": "self_hosted", "session_duration": "720h",
+                    "policies": [{"id": policy, "precedence": 1}]}
+            same = next((a for a in apps if a.get("domain") == host), None)
+            if same:
+                call("PUT", f"/accounts/{account}/access/apps/{same['id']}", body)
+            else:
+                call("POST", f"/accounts/{account}/access/apps", body)
+        say("Access: " + ", ".join(h for h, _, _ in extras) + " only for " + ", ".join(emails) + " (a code by email, then 30 days)")
 
     tunnel_token = call("GET", f"/accounts/{account}/cfd_tunnel/{tunnel}/token")
     compose = (
@@ -149,6 +180,8 @@ def main():
     b, s = http_code(f"https://{bot}/status"), http_code(f"https://{stems}/health")
     print(f"\nhttps://{bot}/status    {b} (401 = it's there, and wants the stream key)")
     print(f"https://{stems}/health  {s} (401 = it's there, and wants the stem token)")
+    for host, _, _ in extras:
+        print(f"https://{host}/  {http_code(f'https://{host}/')} ({'302 = Cloudflare Access asks who you are' if emails else '200/302 = its own page or login'})")
     say("\nDone. Revoke the API token now (My Profile › API Tokens): the tunnel doesn't need it.")
 
 
