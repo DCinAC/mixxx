@@ -460,7 +460,8 @@ function turn(now) {
     }
     r.spins[0].style.transform = `rotate(${r.angle}deg)`;
     r.spins[1].style.transform = `rotate(${r.angle * 60 / 38}deg)`;   // same tape speed on a smaller pack
-    r.tape.style.strokeDashoffset = (-r.angle * Math.PI / 180 * 60).toFixed(1);
+    // the reels turn clockwise: the tape runs off the right reel onto the left one (towards the path's start)
+    r.tape.style.strokeDashoffset = (r.angle * Math.PI / 180 * 60).toFixed(1);
   });
   if (!stopTurning) requestAnimationFrame(turn);
 }
