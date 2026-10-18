@@ -14,6 +14,7 @@ import android.os.Environment;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.DocumentsContract;
 import android.provider.Settings;
 import android.view.MotionEvent;
 import android.view.View;
@@ -29,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import org.json.JSONObject;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -113,6 +115,64 @@ public class MainActivity extends QtActivityBase {
         }
     }
 
+    private static final int FOLDER_PICK_REQUEST = 7103;
+
+    /// "Add a folder" without All files access: Android's own folder picker. The folder's grant is kept
+    /// (takePersistableUriPermission) and its path goes to the page, which adds it to the library. Mixxx reads
+    /// by path, which takes the music permission too: asked for here when it's missing.
+    private void pickFolder() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try {
+            startActivityForResult(intent, FOLDER_PICK_REQUEST);
+        } catch (ActivityNotFoundException e) {
+            android.util.Log.w("Zydek", "no folder picker", e);
+        }
+    }
+
+    /// A picked folder's path: "primary:Music/DJ" -> /storage/emulated/0/Music/DJ, "1234-ABCD:Music" (a card) ->
+    /// /storage/1234-ABCD/Music, "raw:/storage/..." as it is; "" for anything else.
+    static String treePath(Uri tree) {
+        String id;
+        try {
+            id = DocumentsContract.getTreeDocumentId(tree);
+        } catch (IllegalArgumentException e) {
+            return "";
+        }
+        if (id.startsWith("raw:")) {
+            return id.substring(4);
+        }
+        int colon = id.indexOf(':');
+        if (colon < 0) {
+            return "";
+        }
+        String volume = id.substring(0, colon), rel = id.substring(colon + 1);
+        String base = "primary".equalsIgnoreCase(volume) ? Environment.getExternalStorageDirectory().getPath() : "/storage/" + volume;
+        return rel.isEmpty() ? base : base + "/" + rel;
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != FOLDER_PICK_REQUEST || m_phoneView == null) {
+            return;
+        }
+        String path = "";
+        if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+            Uri tree = data.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (SecurityException e) {
+                android.util.Log.w("Zydek", "couldn't keep the folder's grant", e);
+            }
+            path = treePath(tree);
+            if (!path.isEmpty() && storageAccess(this).equals("none")) {
+                requestMusicAccess();   // reading by path
+            }
+        }
+        m_phoneView.evaluateJavascript("window.zydekFolderPicked && zydekFolderPicked(" + JSONObject.quote(path) + ")", null);
+    }
+
     /// Opens Android's "All files access" switch for this app (one tap to grant).
     public static void openAllFilesAccess(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
@@ -178,6 +238,11 @@ public class MainActivity extends QtActivityBase {
         @JavascriptInterface
         public String storageAccess() {
             return MainActivity.storageAccess(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public void pickFolder() {
+            runOnUiThread(MainActivity.this::pickFolder);
         }
 
         @JavascriptInterface

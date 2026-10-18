@@ -1981,31 +1981,44 @@ function previewNeedle(box, t) {
 // ---------------------------------------------------------------------------------------------------
 // Music folders
 // ---------------------------------------------------------------------------------------------------
-// "All files access": Mixxx reads music folders by path. The app's page has a bridge to Android for it.
-// Or, for people who'd rather not, "Music only": Android then shows Zydek audio files and nothing else.
+// What ZyDeck may read. All files access (granted in Android's settings) works as it always has: any folder,
+// browsed from the storage's root. Without it ZyDeck doesn't ask for it: you pick the folders your music is in
+// with Android's folder picker (Add a folder), which keeps that folder's grant; Mixxx reads by path, so Android's
+// music permission comes with the first one.
 let storageWas = null;
-function checkPermission() {
+const storageNow = () => {
   const bridge = window.ZydekAndroid;
-  const access = !bridge ? "all" : bridge.storageAccess ? bridge.storageAccess() : bridge.hasAllFilesAccess() ? "all" : "none";
-  const both = `<div class="row"><button class="all">All files<small>every music file, any folder</small></button>` +
-    `<button class="music">Music only<small>audio files, nothing else</small></button></div>`;
+  return !bridge ? "all" : bridge.storageAccess ? bridge.storageAccess() : bridge.hasAllFilesAccess() ? "all" : "none";
+};
+const canPick = () => !!window.ZydekAndroid?.pickFolder && storageNow() !== "all";
+function checkPermission() {
+  const access = storageNow();
   ["#perm", "#perm-lib"].forEach(id => {
     const el = $(id);
-    const show = access === "none" || (access === "audio" && id === "#perm");
-    el.classList.toggle("on", show); el.classList.toggle("audio", access === "audio");
+    const show = access === "none";
+    el.classList.toggle("on", show); el.classList.remove("audio");
     if (!show) return;
-    el.innerHTML = access === "none"
-      ? `<b>ZyDeck can't read your music yet.</b> Choose what it may read: All files suits most libraries; ` +
-        `Music only shows ZyDeck your audio files and nothing else. ZyDeck never changes or uploads your files.` + both
-      : `<b>Music only.</b> ZyDeck sees your audio files. Stem files ending in .stem.mp4, and music kept with ` +
-        `other files Android doesn't count as audio, need All files access.` +
-        `<div class="row"><button class="all">Allow all files</button></div>`;
-    el.querySelector(".all").addEventListener("click", () => bridge.openAllFilesAccess());
-    el.querySelector(".music")?.addEventListener("click", () => bridge.requestMusicAccess ? bridge.requestMusicAccess() : bridge.openAllFilesAccess());
+    el.innerHTML = `<b>ZyDeck can't read your music yet.</b> Choose the folders your music is in: ZyDeck sees those and ` +
+      `nothing else, and never changes or uploads your files.<div class="row"><button class="pick">Choose a music folder</button></div>`;
+    el.querySelector(".pick").addEventListener("click", addFolder);
   });
   // Newly allowed: scan, so the tracks show up
   if (storageWas && storageWas !== access && access !== "none") api("/api/scan").then(() => watchScan()).catch(() => {});
   storageWas = access;
+}
+// Android's folder picker said (path: "" when cancelled, or a place ZyDeck can't read by path)
+window.zydekFolderPicked = async path => {
+  if (!path) return;
+  try {
+    const r = await api(`/api/folders/add?${qs({ path })}`);
+    toast(r.replaced ? `It replaces the whole storage: only tracks in ${path.split("/").pop()} stay; scanning…` : `Added ${path.split("/").pop()}; scanning for tracks…`, "ok");
+    loadFolders(); watchScan(); checkPermission();
+  } catch (e) { toast(e.message, "bad"); }
+};
+function addFolder() {
+  if (canPick()) { window.ZydekAndroid.pickFolder(); return; }
+  browseMode = "add"; folderRoots = null; $("#usehere").textContent = "Add this folder";
+  $("#browser").classList.add("on"); browse("");
 }
 window.zydekStorage = () => { checkPermission(); loadTracks(); };
 checkPermission();
@@ -2035,16 +2048,21 @@ async function loadFolders() {
   if (!list.length) box.innerHTML = `<div class="note">No music folders yet.</div>`;
 }
 let browsePath = "";
+// Without All files access the browser's roots are the music folders (what ZyDeck was given), by name, however
+// deep each one is: it can't go above them.
+let folderRoots = null;
 async function browse(path) {
   let r;
   try { r = await api(`/api/fs?${qs({ path })}`); } catch (e) { toast(e.message, "bad"); return; }
   browsePath = r.path;
-  $("#where").textContent = `${r.path}  ·  ${r.audioFiles} audio files here${r.readable ? "" : "  ·  can't read (allow All files access)"}`;
-  $("#up").disabled = !r.parent;
+  const here = r.path.replace(/\/$/, "");
+  $("#where").textContent = `${r.path}  ·  ${r.audioFiles} audio files here${r.readable ? "" : folderRoots ? "  ·  can't read" : "  ·  can't read (allow All files access)"}`;
+  $("#up").disabled = !r.parent || (folderRoots && (folderRoots.includes(here) || !folderRoots.some(f => here.startsWith(f + "/"))));
   $("#up").onclick = () => browse(r.parent);
   const roots = $("#roots"); roots.innerHTML = "";
-  (r.roots || []).forEach(root => {
-    const b = h("button", "chip", esc(root === "/storage/emulated/0" ? "Phone storage" : root.replace("/storage/", "Card ")));
+  (folderRoots || r.roots || []).forEach(root => {
+    const label = folderRoots ? root.split("/").pop() : root === "/storage/emulated/0" ? "Phone storage" : root.replace("/storage/", "Card ");
+    const b = h("button", "chip" + (folderRoots && (here === root || here.startsWith(root + "/")) ? " on" : ""), esc(label));
     b.addEventListener("click", () => browse(root));
     roots.appendChild(b);
   });
@@ -2055,10 +2073,7 @@ async function browse(path) {
     ul.appendChild(li);
   });
 }
-$("#addfolder").addEventListener("click", () => {
-  browseMode = "add"; $("#usehere").textContent = "Add this folder";
-  $("#browser").classList.add("on"); browse("");
-});
+$("#addfolder").addEventListener("click", addFolder);
 $("#closebr").addEventListener("click", () => $("#browser").classList.remove("on"));
 $("#usehere").addEventListener("click", async () => {
   if (browseMode === "exclude") {
@@ -2175,9 +2190,15 @@ async function loadExcluded() {
   });
   if (!list.length) box.innerHTML = `<div class="note">None: every track in the music folders shows.</div>`;
 }
-$("#exclfolder").addEventListener("click", () => {
+$("#exclfolder").addEventListener("click", async () => {
   browseMode = "exclude"; $("#usehere").textContent = "Exclude this folder";
-  $("#browser").classList.add("on"); browse(browsePath || "");
+  folderRoots = null;
+  if (storageNow() !== "all") {   // from the music folders it was given
+    try { folderRoots = (await api("/api/folders")).map(f => f.path.replace(/\/$/, "")); } catch {}
+    if (!folderRoots?.length) { toast("Add a music folder first", "bad"); folderRoots = null; return; }
+  }
+  $("#browser").classList.add("on");
+  browse(folderRoots ? (folderRoots.some(f => browsePath === f || browsePath.startsWith(f + "/")) ? browsePath : folderRoots[0]) : browsePath || "");
 });
 
 // Analyze all: Mixxx's own analysis (BPM, key, beat grid, waveform) of every track that has no BPM or key.
