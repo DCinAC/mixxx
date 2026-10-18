@@ -6,8 +6,11 @@
 #   ./launch.sh stop | restart | status
 #   ./launch.sh logs            follow its log (Ctrl+C stops following, not the bot)
 #   ./launch.sh invite          the link that adds the bot to a Discord server
-#   ./launch.sh phone <IP>      give ZyDeck on the phone this bot's address and stream key
+#   ./launch.sh phone <IP>      give ZyDeck on the phone this bot's address and stream key (add "tunnel": the
+#                               tunnel's address, for streaming from anywhere)
 #   ./launch.sh key             show the stream key (to type into ZyDeck by hand)
+#   ./launch.sh tunnel on|off   reachable from anywhere through a Cloudflare quick tunnel (or not)
+#   ./launch.sh link            the tunnel's address now (it changes when the tunnel restarts; /zydeck link too)
 set -euo pipefail
 ZYDEK="$(cd "$(dirname "$0")" && pwd)"
 BOT="$ZYDEK/discord-bot"
@@ -51,6 +54,8 @@ invite() {
 my_ip() { hostname -I | awk '{print $1}'; }
 port() { local p; p=$(get PORT); echo "${p:-8780}"; }
 recent_log() { sleep 3; journalctl --user -u $SVC -n "${1:-5}" --no-pager -o cat; }
+bot_status() { curl -s -m 3 -H "Authorization: Bearer $(get STREAM_KEY)" "localhost:$(port)/status"; }
+tunnel_url() { bot_status | sed -n 's/.*"tunnel":"\([^"]*\)".*/\1/p'; }
 
 case "${1:-start}" in
   start)
@@ -66,20 +71,39 @@ case "${1:-start}" in
   restart) systemctl --user restart $SVC; recent_log 3 ;;
   status)
     systemctl --user --no-pager status $SVC 2>/dev/null | sed -n '1,3p' || true
-    curl -s -m 3 "localhost:$(port)/status" && echo || say "Not answering on port $(port)"
+    bot_status && echo || say "Not answering on port $(port)"
     ;;
   logs) exec journalctl --user -u $SVC -f -o cat ;;
   invite) invite ;;
   key) get STREAM_KEY ;;
+  tunnel)
+    case "${2:-}" in
+      on) [ -x "$HOME/.local/bin/cloudflared" ] || { say "cloudflared isn't installed: bash $ZYDEK/mixxx/tools/zydeck-discord/install.sh"; exit 1; }
+          put TUNNEL 1 ;;
+      off) put TUNNEL 0 ;;
+      *) say "./launch.sh tunnel on | off"; exit 1 ;;
+    esac
+    systemctl --user restart $SVC
+    if [ "$2" = on ]; then
+      for _ in $(seq 1 20); do sleep 1; u=$(tunnel_url); [ -n "$u" ] && break; done
+      [ -n "$u" ] && say "From anywhere: $u" || say "The tunnel is starting: ./launch.sh link in a moment"
+    else say "Tunnel off: only on the home network now"; fi
+    ;;
+  link)
+    u=$(tunnel_url)
+    [ -n "$u" ] && echo "$u" || { say "No tunnel address (./launch.sh tunnel on, or it's starting)"; exit 1; }
+    ;;
   phone)
     [ -n "${2:-}" ] || { say "./launch.sh phone <the phone's IP, e.g. 192.168.0.123>"; exit 1; }
-    if curl -fsS -m 5 -G "http://$2:8766/api/discord" --data-urlencode "host=$(my_ip):$(port)" \
+    addr="$(my_ip):$(port)"
+    if [ "${3:-}" = tunnel ]; then addr=$(tunnel_url); [ -n "$addr" ] || { say "No tunnel address yet (./launch.sh tunnel on)"; exit 1; }; fi
+    if curl -fsS -m 5 -G "http://$2:8766/api/discord" --data-urlencode "host=$addr" \
         --data-urlencode "key=$(get STREAM_KEY)" >/dev/null; then
-      say "ZyDeck on $2 streams to $(my_ip):$(port) now: Settings › Discord › Go live"
+      say "ZyDeck on $2 streams to $addr now: Settings › Discord › Go live"
     else
       say "Couldn't reach ZyDeck at $2 (open it on the phone, on the same Wi-Fi)"
       exit 1
     fi
     ;;
-  *) sed -n '2,11p' "$0"; exit 1 ;;
+  *) sed -n '2,14p' "$0"; exit 1 ;;
 esac

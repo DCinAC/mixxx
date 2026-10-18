@@ -29,6 +29,14 @@ those packets to Discord unchanged. Listeners hear it about a second behind you.
 - `http://<computer>:8780/status` is the state as JSON; `http://<computer>:8780/listen?key=<stream key>` is the
   stream itself (for checking it in a browser).
 
+## From anywhere: a Cloudflare tunnel
+
+`launch.sh tunnel on` runs a Cloudflare quick tunnel (cloudflared, no account): the bot is then also at an
+`https://….trycloudflare.com` address. `/zydeck link` in Discord (or `launch.sh link`) tells it; put it in ZyDeck ›
+Settings › Discord › Bot address (or `launch.sh phone <phone IP> tunnel` while the phone is home). ZyDeck sends the
+stream through it over an encrypted WebSocket. A quick tunnel's address changes each time it starts (the
+computer restarting, say), so look it up again then.
+
 ## On a cloud server instead
 
 The same bot runs on any small Linux server: install it there, open port 8780 (TCP), and give ZyDeck the

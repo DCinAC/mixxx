@@ -24,6 +24,7 @@ class ZydekController;
 
 namespace zydek {
 class LiveStems;
+class DiscordRelay;
 
 /// The link between the Zydek pages (tablet controller, settings/debug page) and Mixxx.
 ///
@@ -129,6 +130,7 @@ class Hub : public QObject {
     // Discord bot (tools/zydeck-discord), which plays it in a voice channel
     QString m_discordHost;   // the bot: host[:port]
     QString m_discordKey;    // its stream key
+    DiscordRelay* m_pRelay = nullptr;   // Mixxx streams to it on this device; it sends on to the bot
     int m_discordStatus = -1;
     QJsonObject setDiscord(bool on);
     QJsonObject discordStatus() const;

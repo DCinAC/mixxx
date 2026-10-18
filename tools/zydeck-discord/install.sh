@@ -19,6 +19,14 @@ if [ ! -x "$HOME/.local/node/bin/node" ] || [ "$("$HOME/.local/node/bin/node" --
 fi
 export PATH="$HOME/.local/node/bin:$PATH"
 
+CLOUDFLARED_VERSION=2026.9.3   # for ./launch.sh tunnel on (a Cloudflare quick tunnel, no account)
+if [ ! -x "$HOME/.local/bin/cloudflared" ] || ! "$HOME/.local/bin/cloudflared" --version | grep -q "$CLOUDFLARED_VERSION"; then
+  echo "Installing cloudflared $CLOUDFLARED_VERSION in ~/.local/bin"
+  mkdir -p "$HOME/.local/bin"
+  curl -fsSL "https://github.com/cloudflare/cloudflared/releases/download/$CLOUDFLARED_VERSION/cloudflared-linux-amd64" -o "$HOME/.local/bin/cloudflared.new"
+  chmod +x "$HOME/.local/bin/cloudflared.new" && mv "$HOME/.local/bin/cloudflared.new" "$HOME/.local/bin/cloudflared"
+fi
+
 mkdir -p "$DEST"
 cp "$SRC/bot.mjs" "$SRC/package.json" "$SRC/README.md" "$DEST/"
 if [ ! -f "$DEST/.env" ]; then

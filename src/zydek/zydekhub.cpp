@@ -11,6 +11,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QSslSocket>
 #include <QTcpSocket>
 #include <QTimer>
 #include <QtEndian>
@@ -34,6 +35,7 @@
 #include "library/trackcollectionmanager.h"
 #include "mixer/playerinfo.h"
 #include "qml/qmllibraryproxy.h"
+#include "zydek/zydekdiscordrelay.h"
 #include "zydek/zydekmain.h"
 #include "moc_zydekhub.cpp"
 #include "effects/backends/effectmanifest.h"
@@ -421,6 +423,10 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
                 m_discordKey = query.value(QStringLiteral("key")).trimmed();
             }
             saveAudioPrefs();
+            if (m_pRelay && m_pRelay->state() > 0) {   // live: to the new address now
+                m_pRelay->start(m_discordHost, m_discordKey);
+                m_pRelay->reconnect();
+            }
         }
         if (query.contains(QStringLiteral("on"))) {
             return result(setDiscord(query.value(QStringLiteral("on")) == QLatin1String("1")));
@@ -1312,7 +1318,7 @@ QJsonObject Hub::setRecording(bool on) {
 }
 
 void Hub::recordTick() {
-    const int discord = static_cast<int>(ControlObject::get(ConfigKey(QStringLiteral("[Shoutcast]"), QStringLiteral("status"))));
+    const int discord = discordStatus().value(QStringLiteral("status")).toInt();
     if (discord != m_discordStatus) {   // 0 off · 1 connecting · 2 live · 3 failed · 4 (some failed)
         m_discordStatus = discord;
         m_botTick = 0;
@@ -1335,7 +1341,14 @@ void Hub::recordTick() {
 
 QJsonObject Hub::discordStatus() const {
     const bool enabled = ControlObject::get(ConfigKey(QStringLiteral("[Shoutcast]"), QStringLiteral("enabled"))) > 0;
-    const int status = static_cast<int>(ControlObject::get(ConfigKey(QStringLiteral("[Shoutcast]"), QStringLiteral("status"))));
+    // Mixxx's connection is to the relay on this device; the relay's to the bot is what counts
+    int status = static_cast<int>(ControlObject::get(ConfigKey(QStringLiteral("[Shoutcast]"), QStringLiteral("status"))));
+    const int relay = enabled && m_pRelay ? m_pRelay->state() : 0;
+    if (relay > 0) {
+        status = relay;
+    } else if (enabled && status == 2) {
+        status = 1;   // Mixxx is connected to the relay, which hasn't reached the bot yet
+    }
     QJsonObject out{{"ok", true}, {"host", m_discordHost}, {"hasKey", !m_discordKey.isEmpty()}, {"on", enabled},
             {"status", status}};
     if (!m_bot.isEmpty()) {
@@ -1343,7 +1356,9 @@ QJsonObject Hub::discordStatus() const {
     }
 #ifdef __BROADCAST__
     const std::shared_ptr<SoundManager> pManager = mixxx::qml::QmlSoundManagerProxy::registeredManager();
-    if (status == 3 && pManager) {   // failed: why (written by the connection before it gave up)
+    if (relay == 3) {
+        out.insert(QStringLiteral("error"), m_pRelay->error());
+    } else if (status == 3 && pManager) {   // failed: why (written by the connection before it gave up)
         QString error;
         runOnMain(
                 qApp,
@@ -1365,18 +1380,23 @@ QJsonObject Hub::discordStatus() const {
 }
 
 void Hub::checkBot() {
-    if (m_pBotCheck || m_discordHost.isEmpty()) {
+    const DiscordRelay::Target target = DiscordRelay::parseTarget(m_discordHost);
+    if (m_pBotCheck || !target.valid()) {
         return;
     }
-    const int colon = m_discordHost.lastIndexOf(QLatin1Char(':'));
-    const QString host = colon > 0 ? m_discordHost.left(colon) : m_discordHost;
-    const int port = colon > 0 ? m_discordHost.mid(colon + 1).toInt() : 8780;
-    QTcpSocket* pSocket = new QTcpSocket(this);
+    QTcpSocket* pSocket = target.tls ? new QSslSocket(this) : new QTcpSocket(this);
     m_pBotCheck = pSocket;
     auto pReply = std::make_shared<QByteArray>();
-    connect(pSocket, &QTcpSocket::connected, pSocket, [pSocket, host] {
-        pSocket->write("GET /status HTTP/1.0\r\nHost: " + host.toUtf8() + "\r\n\r\n");
-    });
+    const QByteArray request = "GET /status HTTP/1.0\r\nHost: " + target.host.toUtf8() + "\r\nAuthorization: Bearer " +
+            m_discordKey.toUtf8() + "\r\nUser-Agent: ZyDeck\r\n\r\n";
+    const auto send = [pSocket, request] {
+        pSocket->write(request);
+    };
+    if (target.tls) {
+        connect(static_cast<QSslSocket*>(pSocket), &QSslSocket::encrypted, pSocket, send);
+    } else {
+        connect(pSocket, &QTcpSocket::connected, pSocket, send);
+    }
     connect(pSocket, &QTcpSocket::readyRead, pSocket, [pSocket, pReply] {
         pReply->append(pSocket->readAll());
         if (pReply->size() > 65536) {
@@ -1396,8 +1416,12 @@ void Hub::checkBot() {
             pSocket->deleteLater();
         }
     });
-    QTimer::singleShot(5000, pSocket, [pSocket] { pSocket->abort(); pSocket->deleteLater(); });
-    pSocket->connectToHost(host, static_cast<quint16>(port));
+    QTimer::singleShot(8000, pSocket, [pSocket] { pSocket->abort(); pSocket->deleteLater(); });
+    if (target.tls) {
+        static_cast<QSslSocket*>(pSocket)->connectToHostEncrypted(target.host, target.port);
+    } else {
+        pSocket->connectToHost(target.host, target.port);
+    }
 }
 
 void Hub::onBotStatus(const QJsonObject& status) {
@@ -1435,6 +1459,17 @@ QJsonObject Hub::setDiscord(bool on) {
     if (!pManager) {
         return {{"ok", false}, {"error", "Mixxx isn't ready"}};
     }
+    if (!m_pRelay) {
+        m_pRelay = new DiscordRelay(this);
+    }
+    if (on && !DiscordRelay::parseTarget(m_discordHost).valid()) {
+        return {{"ok", false}, {"error", "That bot address doesn't look right"}};
+    }
+    if (on && !m_pRelay->start(m_discordHost, m_discordKey)) {
+        return {{"ok", false}, {"error", m_pRelay->error()}};
+    }
+    const quint16 relayPort = m_pRelay->port();
+    const QString relayPassword = m_pRelay->password();
     QString error;
     const bool ran = runOnMain(
             qApp,
@@ -1456,21 +1491,22 @@ QJsonObject Hub::setDiscord(bool on) {
                     enabled.set(0);
                     return;
                 }
+                if (enabled.toBool() && profiles.first()->getPort() != relayPort) {
+                    enabled.set(0);   // on, but to an earlier relay (it restarted): connect again
+                }
                 if (enabled.toBool()) {
                     return;   // already on (off and on again to change the address)
                 }
                 for (int i = 1; i < profiles.size(); ++i) {
                     profiles[i]->setEnabled(false);
                 }
-                // The bot takes an Icecast source; its settings are read when it connects
+                // To the relay on this device (an Icecast source); its settings are read when it connects
                 const BroadcastProfilePtr& pProfile = profiles.first();
-                const int colon = m_discordHost.lastIndexOf(QLatin1Char(':'));
-                const int port = colon > 0 ? m_discordHost.mid(colon + 1).toInt() : 0;
-                pProfile->setHost(colon > 0 ? m_discordHost.left(colon) : m_discordHost);
-                pProfile->setPort(port > 0 ? port : 8780);
+                pProfile->setHost(QStringLiteral("127.0.0.1"));
+                pProfile->setPort(relayPort);
                 pProfile->setServertype(QStringLiteral(BROADCAST_SERVER_ICECAST2));
                 pProfile->setLogin(QStringLiteral("source"));
-                pProfile->setPassword(m_discordKey);
+                pProfile->setPassword(relayPassword);
                 pProfile->setMountPoint(QStringLiteral("/zydeck"));
                 pProfile->setFormat(QStringLiteral(ENCODING_OPUS));   // 48 kHz, 20 ms packets: as Discord takes them
                 pProfile->setBitrate(128);
@@ -1487,6 +1523,9 @@ QJsonObject Hub::setDiscord(bool on) {
                 enabled.set(1);
             },
             5000);
+    if (!on) {
+        m_pRelay->stop();
+    }
     if (!ran) {
         return {{"ok", false}, {"error", "Mixxx is busy: try again"}};
     }
