@@ -28,6 +28,9 @@ const TOKEN = process.env.DISCORD_TOKEN, KEY = process.env.STREAM_KEY, PORT = +p
 // TUNNEL=1: also reachable from anywhere through a Cloudflare quick tunnel (cloudflared, no account; a new
 // https://….trycloudflare.com address each time it starts: /zydeck link tells it)
 const TUNNEL = /^(1|on|yes|true)$/i.test(process.env.TUNNEL || "");
+// PUBLIC_URL: a fixed address in front of the bot (a named Cloudflare tunnel on your domain, run anywhere on the
+// network): what /zydeck link gives, instead of a quick tunnel's
+const PUBLIC_URL = (process.env.PUBLIC_URL || "").replace(/\/+$/, "");
 const CLOUDFLARED = process.env.CLOUDFLARED || path.join(process.env.HOME || "", ".local/bin/cloudflared");
 const MOUNT = "/zydeck";
 if (!KEY) { console.error("STREAM_KEY is missing from .env"); process.exit(1); }
@@ -324,7 +327,7 @@ function status() {
     bot: client.user?.tag ?? null, live: !!live.source, liveSeconds: live.source ? Math.round((Date.now() - live.since) / 1000) : 0,
     server: ch?.guild.name ?? null, channel: ch?.name ?? null, inChannel: connection?.state.status === VoiceConnectionStatus.Ready,
     listeners: listeners(), buffered: live.queue.length * 20, skipped: live.dropped, ranDry: live.dry,
-    kicked: state.kicked ?? null, tunnel: tunnelUrl,
+    kicked: state.kicked ?? null, tunnel: PUBLIC_URL || tunnelUrl,
   };
 }
 function setPresence() {
@@ -354,10 +357,12 @@ client.on(Events.InteractionCreate, async i => {
   } else if (sub === "link") {   // only to whoever asked
     const lan = lanAddress();
     await i.reply({ flags: MessageFlags.Ephemeral, content:
-      (tunnelUrl ? `From anywhere: **${tunnelUrl}**` : TUNNEL ? "The tunnel is starting: try again in a few seconds" :
+      (PUBLIC_URL ? `From anywhere: **${PUBLIC_URL}**` : tunnelUrl ? `From anywhere: **${tunnelUrl}**` :
+        TUNNEL ? "The tunnel is starting: try again in a few seconds" :
         "The tunnel is off (`./launch.sh tunnel on` on the computer)") +
       (lan ? `\nOn the home network: \`${lan}:${PORT}\`` : "") +
-      "\nIn ZyDeck: Settings › Discord › Bot address (the stream key stays the same). The tunnel's address changes when it restarts." });
+      "\nIn ZyDeck: Settings › Discord › Bot address (the stream key stays the same)." +
+      (PUBLIC_URL ? "" : " A quick tunnel's address changes when it restarts.") });
   } else if (sub === "leave") {
     leavingAt = Date.now();
     getVoiceConnection(i.guildId)?.destroy();

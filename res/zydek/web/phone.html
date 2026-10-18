@@ -486,11 +486,14 @@
       <h3>Stem server (PC)</h3>
       <div class="row2"><input id="ss-addr" placeholder="192.168.0.100:8770" inputmode="url" autocomplete="off"
         autocapitalize="off" spellcheck="false"><button id="ss-save">Connect</button></div>
+      <div class="row2"><input id="ss-token" type="password" placeholder="Token (only from outside the home network)" autocomplete="off"
+        autocapitalize="off" spellcheck="false"></div>
       <div class="st" id="ss-st"></div>
       <label for="ss-model">Separation model</label><select id="ss-model">
         <option value="best">Best — BS-RoFormer SW (large)</option><option value="fast">Fast — HTDemucs FT</option></select>
       <div class="hint">Tap a track and choose "Make stems on the PC". A PC running Zydek's stem server splits tracks into vocals, drums, bass and other; they come back as
-        .stem.m4a files in Music/Zydek Web. Type its address and port (8770 if you leave it out).</div>
+        .stem.m4a files in Music/Zydek Web. Type its address and port (8770 if you leave it out). From anywhere:
+        its https:// address (a Cloudflare tunnel) and its token (stemserver/token on the PC).</div>
     </div>
     <div class="card">
       <h3>Audio output</h3>
@@ -1225,6 +1228,7 @@ async function loadStemServer() {
     stemServer = p.stemServer || ""; store.set("stemServer", stemServer);
     stemPreset = p.stemPreset || "best"; store.set("stemPreset", stemPreset); $("#ss-model").value = stemPreset;
     if (document.activeElement !== $("#ss-addr")) $("#ss-addr").value = stemServer;
+    $("#ss-token").placeholder = p.hasStemToken ? "Token: saved (type to change)" : "Token (only from outside the home network)";
     checkStemServer(stemServer);
   } catch {}
 }
@@ -1233,7 +1237,9 @@ $("#ss-save").addEventListener("click", async () => {
   const server = $("#ss-addr").value.trim() || $("#ss-addr").placeholder.trim();
   $("#ss-addr").value = server;
   try {
-    await webApi(`/api/web/prefs?${qs({ stemServer: server })}`);
+    const token = $("#ss-token").value.trim();
+    await webApi(`/api/web/prefs?${qs(token ? { stemServer: server, stemToken: token } : { stemServer: server })}`);
+    $("#ss-token").value = "";
     stemServer = server; store.set("stemServer", server);
     checkStemServer(server);
   } catch (e) { toast(e.message, "bad"); }

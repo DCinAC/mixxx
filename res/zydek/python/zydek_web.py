@@ -33,7 +33,9 @@ HIRES_FORMAT = "bestaudio[acodec=flac]/" + AUDIO_FORMAT
 # Bilibili sessions: written by the app's login (MainActivity.java), read (and refreshed) by yt-dlp.
 COOKIE_FILE = "bilibili-cookies.txt"
 PREFS_FILE = "zydek-web.json"
-DEFAULT_PREFS = {"biliHiRes": True, "stemServer": "", "stemPreset": "best"}
+# stemToken: the stem server's token (stemserver/token on the PC), for reaching it from outside the home network
+# (a Cloudflare tunnel, say); on the same network it isn't needed
+DEFAULT_PREFS = {"biliHiRes": True, "stemServer": "", "stemPreset": "best", "stemToken": ""}
 QUICKJS_STACK = 24 * 1024 * 1024
 THREAD_STACK = 64 * 1024 * 1024
 
@@ -387,7 +389,11 @@ def _stem_url(server=None):
 
 
 def _stem_request(url, method="GET", data=None, headers=None, timeout=15):
-    req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
+    headers = dict(headers or {})
+    token = _prefs().get("stemToken")
+    if token:
+        headers["X-Zydek-Token"] = token
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         return urllib.request.urlopen(req, timeout=timeout)
     except urllib.error.HTTPError as e:
@@ -665,9 +671,11 @@ def api(name, args_json):
             return json.dumps({"ok": True, "job": _stem_check(args.get("server"))["id"]})
         if name == "account":
             return json.dumps({"ok": True, "job": _account()["id"]})
-        if name == "prefs":   # ?biliHiRes=0|1, ?stemServer=host:port, ?stemPreset= to change, nothing to read
+        if name == "prefs":   # ?biliHiRes=0|1, ?stemServer=host:port, ?stemPreset=, ?stemToken= to change, nothing to read
             prefs = _prefs()
-            if args.keys() & {"biliHiRes", "stemServer", "stemPreset"}:
+            if args.keys() & {"biliHiRes", "stemServer", "stemPreset", "stemToken"}:
+                if "stemToken" in args:
+                    prefs["stemToken"] = args["stemToken"].strip()
                 if "stemPreset" in args:
                     prefs["stemPreset"] = args["stemPreset"]
                 if "biliHiRes" in args:
@@ -676,7 +684,8 @@ def api(name, args_json):
                     prefs["stemServer"] = args["stemServer"].strip()
                 with open(os.path.join(_dirs["data"], PREFS_FILE), "w") as f:
                     json.dump(prefs, f)
-            return json.dumps({"ok": True, **prefs})
+            shown = {k: v for k, v in prefs.items() if k != "stemToken"}   # the token stays on the phone
+            return json.dumps({"ok": True, **shown, "hasStemToken": bool(prefs.get("stemToken"))})
         if name == "status":
             js = _zydekjs.run("console.log([6 * 7, typeof BigInt, /\\p{L}+/u.test('音楽')].join())").strip()
             import yt_dlp.version

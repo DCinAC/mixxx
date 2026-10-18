@@ -10,7 +10,9 @@
 #                               tunnel's address, for streaming from anywhere)
 #   ./launch.sh key             show the stream key (to type into ZyDeck by hand)
 #   ./launch.sh tunnel on|off   reachable from anywhere through a Cloudflare quick tunnel (or not)
-#   ./launch.sh link            the tunnel's address now (it changes when the tunnel restarts; /zydeck link too)
+#   ./launch.sh link            the address from anywhere now (/zydeck link too)
+#   ./launch.sh public <URL>    a fixed address in front of the bot (a named Cloudflare tunnel on your domain);
+#                               the quick tunnel goes off. ./launch.sh public off: back to none
 set -euo pipefail
 ZYDEK="$(cd "$(dirname "$0")" && pwd)"
 BOT="$ZYDEK/discord-bot"
@@ -89,6 +91,12 @@ case "${1:-start}" in
       [ -n "$u" ] && say "From anywhere: $u" || say "The tunnel is starting: ./launch.sh link in a moment"
     else say "Tunnel off: only on the home network now"; fi
     ;;
+  public)
+    [ -n "${2:-}" ] || { say "./launch.sh public https://zydeck.example.com  (or: off)"; exit 1; }
+    if [ "$2" = off ]; then put PUBLIC_URL ""; else put PUBLIC_URL "${2%/}"; put TUNNEL 0; fi
+    systemctl --user restart $SVC; sleep 3
+    say "From anywhere: $(tunnel_url || true)"
+    ;;
   link)
     u=$(tunnel_url)
     [ -n "$u" ] && echo "$u" || { say "No tunnel address (./launch.sh tunnel on, or it's starting)"; exit 1; }
@@ -105,5 +113,5 @@ case "${1:-start}" in
       exit 1
     fi
     ;;
-  *) sed -n '2,14p' "$0"; exit 1 ;;
+  *) sed -n '2,16p' "$0"; exit 1 ;;
 esac
