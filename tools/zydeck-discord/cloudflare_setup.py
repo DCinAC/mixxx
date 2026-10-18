@@ -132,9 +132,11 @@ def main():
     say("DNS: the names point at the tunnel")
 
     if extras and emails:   # Cloudflare Access: a login (email + one-time code) before the extras
-        policy = call("POST", f"/accounts/{account}/access/policies", {
-            "name": "ZyDeck extras: these emails", "decision": "allow",
-            "include": [{"email": {"email": e}} for e in emails]})["id"]
+        rule = {"name": "ZyDeck extras: these emails", "decision": "allow",
+                "include": [{"email": {"email": e}} for e in emails]}
+        old = next((p for p in call("GET", f"/accounts/{account}/access/policies") if p.get("name") == rule["name"]), None)
+        policy = (call("PUT", f"/accounts/{account}/access/policies/{old['id']}", rule) if old
+                  else call("POST", f"/accounts/{account}/access/policies", rule))["id"]
         apps = call("GET", f"/accounts/{account}/access/apps")
         for host, _, _ in extras:
             body = {"name": host, "domain": host, "type": "self_hosted", "session_duration": "720h",
