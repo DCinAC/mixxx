@@ -194,7 +194,7 @@ const $ = s => document.querySelector(s);
 const QUICK = location.hash === "#quick" || window.ZYDEK_QUICK;
 // The whole intro the very first time, and every time with Settings > Start-up > "Show the full animation";
 // otherwise just the logo while Mixxx starts. (The phone page shares this page's storage: same origin.)
-const INTRO_FULL_DEFAULT = true;   // RELEASE: false. On while we're testing the intro
+const INTRO_FULL_DEFAULT = false;   // the short one (the logo deck, its tape counter the loading bar) after the first time
 const stored = k => { try { const v = localStorage.getItem("zphone." + k); return v == null ? null : JSON.parse(v); } catch { return null; } };
 const FULL = !stored("introSeen") || (stored("introFull") ?? INTRO_FULL_DEFAULT);
 // Which intro: "gild" (Gold leaf: a clay brick turns into the gold one, its waveform becomes the decks' tape) or
@@ -700,11 +700,33 @@ async function logo() {
   anim($("#logoName"), [{ opacity: 0 }, { opacity: 1 }], { duration: 380, delay: 150 });
   requestAnimationFrame(turn);
   setMode(reels[0], "play");
+  // The tape counter is the loading bar: 851, creeping on towards 851.7 while Mixxx loads, rolling over to 852
+  // once it's in (then the app)
+  const wheel = decks[0].querySelector(".wheel");
+  const setCounter = p => { counterP = p; wheel.style.transform = `translateY(${(-16 * p).toFixed(2)}px)`; };
+  let counterP = 0, counting = true;
+  setCounter(0);
+  const t0 = performance.now();
+  (function count() {
+    if (!counting) return;
+    setCounter(.7 * (1 - Math.exp(-(performance.now() - t0) / 2500)));
+    requestAnimationFrame(count);
+  })();
   await wait(700);
   let shown = false;
   while (!ready) { await wait(150); if (!shown) { shown = true; setTimeout(() => { if (!ready) $("#wait").style.opacity = 1; }, 1500); } }
   leaving = true;
   $("#wait").style.opacity = 0;
+  counting = false;
+  await new Promise(done => {   // 852
+    const from = counterP, t1 = performance.now();
+    (function roll(now) {
+      const q = Math.min(1, (now - t1) / 260);
+      setCounter(from + (1 - from) * (1 - (1 - q) ** 3));
+      if (q < 1) requestAnimationFrame(roll); else done();
+    })(t1);
+  });
+  await wait(200);
   anim(decks[0], [{ opacity: 1 }, { opacity: 0 }], { duration: 300 });
   anim($("#logoName"), [{ opacity: 1 }, { opacity: 0 }], { duration: 300 });
   await wait(320);

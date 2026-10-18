@@ -2094,7 +2094,7 @@ $("#kitsave").addEventListener("click", async () => {
 $("#kitname").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#kitsave").click(); } });
 
 // Start-up animation (intro.html reads the same setting: it runs on this page's origin)
-const INTRO_FULL_DEFAULT = true;   // RELEASE: false, as in intro.html
+const INTRO_FULL_DEFAULT = false;   // as in intro.html: the short one after the first time
 $("#introfull").checked = store.get("introFull", INTRO_FULL_DEFAULT);
 $("#introfull").addEventListener("change", () => store.set("introFull", $("#introfull").checked));
 const INTRO_STYLE_DEFAULT = "gild";   // RELEASE: as in intro.html
