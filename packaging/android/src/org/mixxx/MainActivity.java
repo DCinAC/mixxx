@@ -16,6 +16,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.DocumentsContract;
 import android.provider.Settings;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -200,6 +201,16 @@ public class MainActivity extends QtActivityBase {
         @JavascriptInterface
         public void setRealtimeInput(boolean on) {
             m_realtimeInput = on;
+        }
+
+        /// A knob's click (a detent): the system's short tick, as Android's own pickers do (no permission needed;
+        /// off when the phone's touch feedback is off).
+        @JavascriptInterface
+        public void tick() {
+            final WebView view = m_phoneView;
+            if (view != null) {
+                view.post(() -> view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK));
+            }
         }
 
         @JavascriptInterface

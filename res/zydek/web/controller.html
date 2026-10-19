@@ -760,6 +760,18 @@ function knobHoldOff(st) {
   st.fill.forEach(f => f.classList.remove("holding"));
 }
 function knob(label, get, set, def, bipolar, target = () => null, onTap = null, hold = null) {
+  // where the finger has turned it (st.raw); a knob with a centre (bipolar: EQ, filter, CUE MIX) clicks into the
+  // centre, held there within 4° of the knob's 270° either side, with a tick as it lands (or turns straight past)
+  const CENTRE_DZ = 4 / 270;
+  const turnTo = (st, raw) => {
+    const prev = st.raw ?? st.v;
+    st.raw = clamp(raw, 0, 1);
+    if (!bipolar) { st.v = st.raw; return; }
+    const centred = Math.abs(st.raw - .5) <= CENTRE_DZ, crossed = (prev - .5) * (st.raw - .5) < 0;
+    if ((centred || crossed) && !st.atCentre) tick();
+    st.atCentre = centred;
+    st.v = centred ? .5 : st.raw;
+  };
   const el = h("div", "knob", `<svg viewBox="0 0 40 40"><path class="ktrack" d="${arc(-135, 135)}"/><circle class="kbg" cx="20" cy="20" r="11"/>` +
     `<path class="karc"/><line class="kptr" x1="20" y1="20" x2="20" y2="11"/></svg><span>${label}</span>`);
   let lastTap = 0;
@@ -783,6 +795,7 @@ function knob(label, get, set, def, bipolar, target = () => null, onTap = null, 
       el.hold = { ctx };
       const r = cachedRect(el.querySelector("svg"));
       const st = { x: e.clientX, y: e.clientY, v: get(ctx), ctx, cx: r.left + r.width / 2, cy: r.top + r.height / 2, a: null,
+        atCentre: !!bipolar && Math.abs(get(ctx) - .5) <= CENTRE_DZ,   // starting there isn't landing there
         trail: [[e.clientX, e.clientY]], axis: null, pend: [0, 0], t0: now, x0: e.clientX, y0: e.clientY, v0: get(ctx) };
       if (hold) {
         st.fill = hold.fill(el);
@@ -814,7 +827,7 @@ function knob(label, get, set, def, bipolar, target = () => null, onTap = null, 
         if (st.a !== null) {
           let da = a - st.a;
           if (da > Math.PI) da -= 2 * Math.PI; else if (da < -Math.PI) da += 2 * Math.PI;
-          st.v = clamp(st.v + da / (2 * Math.PI), 0, 1);
+          turnTo(st, (st.raw ?? st.v) + da / (2 * Math.PI));
         }
         st.a = a;
         if (st.pr) drawProtractor(st.pr, st.cx, st.cy, e.clientX, e.clientY, st.v);
@@ -823,10 +836,10 @@ function knob(label, get, set, def, bipolar, target = () => null, onTap = null, 
         st.x = e.clientX; st.y = e.clientY;
         // dragH: only left/right movement counts · dragV: only up/down movement counts
         const delta = strokeDelta(st, ddx, ddy);
-        st.v = clamp(st.v + delta / mm(40), 0, 1);
+        turnTo(st, (st.raw ?? st.v) + delta / mm(40));
       }
       set(st.v, st.ctx);
-      const p = S.knobMode !== "spin" && predicted(e);
+      const p = S.knobMode !== "spin" && !st.atCentre && predicted(e);
       if (p) {   // drawn a little ahead, where the finger is going
         const px = p.clientX - e.clientX, py = p.clientY - e.clientY;
         const ahead = st.axis ? px * st.axis[0] + py * st.axis[1] : (px - py) / Math.SQRT2;
@@ -996,7 +1009,7 @@ function buildFxStrip(s, u) {
     let lastStep = -1;
     const beats = knob("BEAT", () => beatIdx() / (FX_BEAT_STEPS.length - 1), v => {
       const i = Math.round(v * (FX_BEAT_STEPS.length - 1));
-      if (i !== lastStep) { lastStep = i; fxSetBeats(unit(), 1, FX_BEAT_STEPS[i]); }
+      if (i !== lastStep) { if (lastStep >= 0) tick(); lastStep = i; fxSetBeats(unit(), 1, FX_BEAT_STEPS[i]); }
     }, null);
     beats.classList.add("stepped");
     const svg = beats.querySelector("svg");
@@ -1874,7 +1887,7 @@ function holdOrTap(onHold, onTap, el) {
 // in one of two layouts (S.fxMenu): "keys", every effect a key; "display", the effects on a display, a tap on one
 // or the selector knob (one click per effect) and Load.
 function fxMenu(s) {
-  document.getElementById("fxmenu")?.remove(); document.getElementById("fxmenu-hw")?.remove();
+  document.getElementById("fxmenu")?.remove(); document.getElementById("fxmenu-hw")?.close?.();
   if ((S.menuLook || "d") === "d") return fxMenuHw(s);
   const u = fxUnitOf(deckOf(s)), esc = t => String(t).replace(/</g, "&lt;");
   let slot = 0;
@@ -1915,24 +1928,35 @@ function fxMenuHw(s) {
   const box = h("div", `zm hw zfx${display ? " display" : ""}`);
   box.id = "fxmenu-hw";   // (not #fxmenu: Element's rules stay off it)
   box.style.setProperty("--zmm", S.pxmm + "px");
+  // Hardware 2: over the deck, dimmed (a tap there closes it), so the window can be bigger
+  const scrim = display ? h("div", "zfx-scrim") : null;
+  const close = () => { box.remove(); scrim?.remove(); };
+  scrim?.addEventListener("click", close);
+  box.close = close;
   const key = (label, attrs = "", on = false, lamp = true) =>
     `<button class="zk s${on ? " on" : ""}" ${attrs}>${lamp ? '<i class="zs" aria-hidden="true"></i>' : ""}${label}</button>`;
   const loaded = () => fxState[u - 1].loaded[slot] - 1;
-  function paintDisplay() {
+  // the display: every effect, four to a column like a file list, columns side by side (scrolls sideways);
+  // the highlight moves with the knob and stays in view
+  function paintDisplay(scroll) {
     const list = box.querySelector(".zfx-lcd"), knob = box.querySelector(".zfx-knob");
     if (!list) return;
-    const n = fxNames.length, top = Math.max(0, Math.min(n - 4, cur - 1));
-    list.innerHTML = fxNames.slice(top, top + 4).map((name, k) => { const i = top + k;
-      return `<button class="zfx-row${i === cur ? " cur" : ""}" data-fx="${i + 1}">${esc(name)}<span>${i === loaded() ? "loaded" : ""}</span></button>`; }).join("");
+    [...list.children].forEach((b, i) => { b.classList.toggle("cur", i === cur); b.querySelector("span").textContent = i === loaded() ? "loaded" : ""; });
     knob.style.setProperty("--a", `${turned * DETENT}deg`);
+    const c = list.children[cur];
+    if (scroll && c) {
+      const l = c.offsetLeft - list.offsetLeft, r = l + c.offsetWidth;
+      if (l < list.scrollLeft) list.scrollLeft = l;
+      else if (r > list.scrollLeft + list.clientWidth) list.scrollLeft = r - list.clientWidth;
+    }
   }
   const step = d => {
     if (!fxNames.length) return;
     const next = Math.max(0, Math.min(fxNames.length - 1, cur + d));
     if (next === cur) return;
     cur = next; turned += d;
-    try { navigator.vibrate?.(4); } catch {}
-    paintDisplay();
+    tick();
+    paintDisplay(true);
   };
   const render = () => {
     const multi = S.fxLayout === "multi";
@@ -1944,10 +1968,10 @@ function fxMenuHw(s) {
       <button class="zk close" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button></div>
       ${multi ? `<div class="zseg">${[0, 1, 2].map(j => key(`FX ${j + 1} · ${esc(fxName(u, j))}`, `data-slot="${j}"`, slot === j)).join("")}</div>` : ""}
       ${!fxNames.length ? none : display
-        ? `<div class="zfx-disp"><div class="zfx-lcd"></div><div class="zfx-enc"><div class="zfx-knob" role="slider" aria-label="Select an effect"></div>
-            <span>SELECT</span><button class="zk zfx-load">Load</button></div></div>`
+        ? `<div class="zfx-disp"><div class="zfx-lcd">${fxNames.map((n, i) => `<button class="zfx-row" data-fx="${i + 1}">${esc(n)}<span></span></button>`).join("")}</div>
+            <div class="zfx-enc"><div class="zfx-knob" role="slider" aria-label="Select an effect"></div><span>SELECT</span><button class="zk zfx-load">Load</button></div></div>`
         : `<div class="zfx-keys">${fxNames.map((n, i) => key(esc(n), `data-fx="${i + 1}"`, loaded() === i)).join("")}</div>`}`;
-    if (display) paintDisplay();
+    if (display) requestAnimationFrame(() => paintDisplay(true));
     // the selector knob: turning it clicks from one effect to the next (DETENT degrees each), drawn on the click
     const knob = box.querySelector(".zfx-knob");
     if (knob) {
@@ -1971,7 +1995,7 @@ function fxMenuHw(s) {
     fxState[u - 1].loaded[slot] = i;
     setCtl(fxSlotG(u, slot), "loaded_effect", i);
     schedulePaint();
-    box.remove();
+    close();
   };
   box.addEventListener("click", e => {
     const b = e.target.closest("button");
@@ -1980,9 +2004,10 @@ function fxMenuHw(s) {
     else if (b.dataset.slot) { slot = +b.dataset.slot; cur = -1; render(); }
     else if (b.dataset.fx) loadFx(+b.dataset.fx);
     else if (b.classList.contains("zfx-load")) { if (cur >= 0 && fxNames.length) loadFx(cur + 1); }
-    else if (b.classList.contains("close")) box.remove();
+    else if (b.classList.contains("close")) close();
   });
   render();
+  if (scrim) document.body.appendChild(scrim);
   document.body.appendChild(box);
 }
 // Multi-FX: a tap on an effect's knob turns it on or off (SHIFT: the next effect instead)
@@ -2767,6 +2792,8 @@ let fxNames = [];
 const fxBeat = [1, 1, 1, 1];
 const FX_BEATS = [.5, 1, 2, 4], FX_BEATS_SHIFT = [.125, .25, 8, 16];
 const FX_BEAT_STEPS = [.125, .25, .5, 1, 2, 4, 8];   // the strip's BEAT knob
+// A knob's click as it snaps to the next step: the device's short tick (the app's; a browser's vibration otherwise)
+const tick = () => { try { const b = window.ZydekAndroid || parent.ZydekAndroid; if (b?.tick) b.tick(); else navigator.vibrate?.(6); } catch {} };
 const fxUnitOf = d => d.n % 2 ? 1 : 2;
 const fxUnitG = u => `[EffectRack1_EffectUnit${u}]`;
 const fxSlotG = (u, j) => `[EffectRack1_EffectUnit${u}_Effect${j + 1}]`;
@@ -3065,6 +3092,7 @@ function onMixxx(m) {
   if (m.t === "rec") { ZydeckMenu.push(m); return paintRec(m.r); }
   if (m.t === "remote") { ZydeckMenu.push(m); return onRemote(m); }
   if (m.t === "opt" || m.t === "dc") return ZydeckMenu.push(m);
+  if (m.t === "cuelbl") { decks.forEach(d => { if (d.loaded !== false) loadCueLabels(d); }); return; }   // hot cues edited (the phone's library, a pad)
   if (m.t === "lat") { LAT = m.s || 0; return; }
   if (!live) return;
   const d = m.d !== undefined ? decks[m.d] : null;

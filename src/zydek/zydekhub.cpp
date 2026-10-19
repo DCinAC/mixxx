@@ -772,7 +772,11 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         if (arg("clear") == QLatin1String("1")) {
             change.insert(QStringLiteral("clear"), true);
         }
-        return result(m_library.editTrackCue(arg("id").toInt(), arg("n").toInt(), change));
+        const QJsonObject r = m_library.editTrackCue(arg("id").toInt(), arg("n").toInt(), change);
+        if (r.value(QStringLiteral("ok")).toBool()) {   // every page with this track on a deck reads its names again
+            emitJson({{"t", "cuelbl"}, {"id", arg("id").toInt()}});
+        }
+        return result(r);
     }
     if (path == QLatin1String("/api/cues")) {   // ?group=[ChannelN] -> {"labels": [8 hot cue names]}
         QJsonArray labels;
@@ -796,6 +800,7 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
             for (const CuePointer& pCue : pTrack->getCuePoints()) {
                 if (pCue->getHotCue() == n) {
                     pCue->setLabel(arg("label").trimmed().left(60));
+                    emitJson({{"t", "cuelbl"}, {"id", pTrack->getId().toVariant().toInt()}});
                     return result({{"ok", true}});
                 }
             }
