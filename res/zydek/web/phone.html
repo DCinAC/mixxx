@@ -235,10 +235,8 @@
   #sysmodal .x { position: absolute; top: calc(var(--mm) * 2); right: calc(var(--mm) * 2); width: calc(var(--mm) * 10);
     height: calc(var(--mm) * 10); font-size: calc(var(--mm) * 4); line-height: 1; padding: 0; }
   #sysmodal #p-set { display: block; }
-  #sysmodal #set-menus { display: flex; gap: calc(var(--mm) * .8); margin: 0 0 calc(var(--mm) * 1.5); }
-  #sysmodal #set-menus button { height: calc(var(--mm) * 7); }
-  #sysmodal #set-q { width: 100%; height: calc(var(--mm) * 7); margin: 0 0 calc(var(--mm) * 1); border-radius: calc(var(--mm) * 1.2); }
-  #sysmodal #set-q-other { width: 100%; margin: 0 0 calc(var(--mm) * 1); }
+  #sysmodal #set-head { margin: 0; font-size: inherit; }
+  #sysmodal.over { background: transparent; }   /* over the deck page's own settings: its backdrop already dims */
   #sysmodal #p-set .card { display: grid; grid-template-columns: calc(var(--mm) * 42) 1fr; column-gap: calc(var(--mm) * 2); grid-auto-flow: row dense;
     align-items: center; margin: 0; padding: calc(var(--mm) * 2) 0; border: 0; border-top: 1px solid #262626; border-radius: 0; background: none; }
   #sysmodal #p-set .card > * { grid-column: 2; }
@@ -247,12 +245,8 @@
   #sysmodal #p-set .card > .hint { margin-top: 2px; font-size: calc(var(--mm) * 1.8); }
   body.sysopen #toast { visibility: visible !important; z-index: 70; }
   /* System (this page's Settings) | Controller (the deck page's): the other one without turning the device */
-  #set-menus { display: flex; gap: 8px; margin: 12px 12px 8px; }
-  #set-menus button { flex: 1; min-height: 40px; }
-  #set-menus button.on { background: var(--text); color: #111; border-color: var(--text); }
-  #set-q { display: block; width: calc(100% - 24px); margin: 0 12px 4px; min-height: 40px; background: #1c1c1c; color: var(--text);
-    border: 1px solid #333; border-radius: 10px; padding: 0 12px; font: inherit; font-size: 15px; }
-  #set-q-other { display: block; width: calc(100% - 24px); margin: 4px 12px; min-height: 36px; color: var(--dim); }
+  #set-head { margin: 12px 12px 4px; font-size: 15px; }   /* the menus' head: zydeck-shared.css */
+  #ld { margin-top: 12px; }
   .card h3 { margin: 0 0 10px; font-size: 15px; color: var(--text); }
   .card label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; }
   .card select { width: 100%; height: 44px; border-radius: 10px; border: 1px solid #333; background: #181818; padding: 0 10px; color: var(--text); }
@@ -270,9 +264,6 @@
   #a-warn { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.4;
     background: #3a2a00; border: 1px solid #a07800; color: #ffd75e; }
   #a-warn.on { display: block; }
-  #ld-list .dev { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #1d1d1d; }
-  #ld-list .dev span { flex: 1; min-width: 0; color: var(--text); font-size: 15px; }
-  #ld-list .dev small { display: block; color: var(--dim); font-size: 12px; }
   #kitlist .kit { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #1d1d1d; }
   #kitlist .kit span { flex: 1; min-width: 0; color: var(--text); font-size: 14px; }
   #kitlist .kit small { display: block; color: var(--dim); font-size: 12px; }
@@ -374,6 +365,8 @@
   #boot .st { font-size: 13px; color: var(--dim); min-height: 1.2em; }
   @keyframes zspin { to { transform: rotate(360deg); } }
 </style>
+<link rel="stylesheet" href="/zydeck-shared.css">
+<script src="/zydeck-shared.js"></script>
 </head>
 <body>
 <div id="boot"><div class="st" id="boot-st"></div></div>
@@ -426,15 +419,12 @@
   </section>
 
   <section class="page" id="p-set">
-    <div class="menus" id="set-menus"><button class="on">System</button><button id="set-toctl">Controller</button></div>
-    <input id="set-q" type="search" placeholder="Search settings" autocomplete="off" spellcheck="false">
-    <button id="set-q-other" class="other" style="display:none"></button>
+    <div id="set-head"></div>
     <div class="card" id="linkdev">
       <h3>Link devices</h3>
       <div class="hint" style="margin-top:0">Control another ZyDeck on the same Wi-Fi (or this phone's hotspot) from here, like a
         Bluetooth controller: the tablet as the phone's decks, say. Back returns to this device.</div>
-      <div class="row2"><span id="ld-st"></span><button id="ld-scan">Scan</button></div>
-      <div id="ld-list"></div>
+      <div id="ld"></div>
     </div>
     <div class="card">
       <h3>Controller mode</h3>
@@ -758,34 +748,8 @@ function paintCtlMode() {
   box.querySelector(".forget")?.addEventListener("click", () => api("/api/controller?forget=1").catch(() => {}));
   box.querySelector(".off").addEventListener("click", () => api("/api/controller?on=0").catch(() => {}));
 }
-// Link devices: the other ZyDecks nearby (Android's network service discovery), and opening one's controller
-$("#ld-scan").addEventListener("click", async () => {
-  const bridge = window.ZydekAndroid;
-  if (!bridge || !bridge.linkScan) return toast("Only in the ZyDeck app", "bad");
-  bridge.linkScan();
-  $("#ld-st").textContent = "Looking…"; $("#ld-list").innerHTML = "";
-  for (let i = 0; i < 30; i++) {
-    await sleep(500);
-    let r; try { r = JSON.parse(bridge.linkDevices()); } catch { continue; }
-    const list = $("#ld-list"), seen = new Set([...list.children].map(x => x.dataset.key));
-    for (const d of r.devices) {
-      const key = d.host + ":" + d.port;
-      if (seen.has(key)) continue;
-      const row = h("div", "dev", `<span>${esc(d.name)}<small>${esc(d.host)}</small></span><button>Connect</button>`);
-      row.dataset.key = key;
-      row.querySelector("button").addEventListener("click", () => {
-        // the tablet controller on a tablet, the phone layout on a phone
-        // this device's own page (its version, and Real-time input), talking to that ZyDeck's server
-        const page = Math.min(screen.width, screen.height) >= 600 ? "/controller?" : "/controller?phone=1&";
-        bridge.linkOpen(`http://127.0.0.1:8766${page}hub=${encodeURIComponent(`${d.host}:${d.port}`)}`);
-      });
-      list.appendChild(row);
-    }
-    $("#ld-st").textContent = list.children.length ? `${list.children.length} found${r.scanning ? " · still looking" : ""}` :
-      r.scanning ? "Looking…" : "None found: is the other ZyDeck open, on the same Wi-Fi?";
-    if (!r.scanning && i > 4) break;
-  }
-});
+// Link devices: the same as the deck page's (zydeck-shared.js)
+ZydeckShared.linkDevices($("#ld"));
 $("#cm-layout").addEventListener("change", () => api(`/api/controller?layout=${$("#cm-layout").value}`).catch(e => toast(e.message, "bad")));
 $("#cm-on").addEventListener("change", () => api(`/api/controller?on=${$("#cm-on").checked ? 1 : 0}`).catch(e => toast(e.message, "bad")));
 
@@ -1815,53 +1779,68 @@ addEventListener("message", e => {
   loadViews(); loadTracks();   // a BPM may have changed (the editor saved it), a sample may have been added
 });
 
-// Settings: System (here) | Controller (the deck page's, sideways): either without turning the device; turning
-// it puts things back as usual. Search: cards with every word typed, and how many the other menu has.
+// Settings: one menu, System (here) | Controller (the deck page's), each laid out for the way the device is held:
+// sideways in the deck page's settings window, upright as this page (zydeck-shared.js: head, search, Link devices).
+// Switching shows the other tab first and takes the first away after, so nothing behind shows for a frame.
+// Turning the device puts things back as usual.
 const deckFrame = () => document.getElementById("deckview");
+const deckPost = m => deckFrame().contentWindow.postMessage(m, location.origin);
+const setHead = ZydeckShared.menuHead("system");
+$("#set-head").appendChild(setHead);
 function searchSet() {
-  const words = $("#set-q").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const hit = el => words.every(w => el.textContent.toLowerCase().includes(w));
-  document.querySelectorAll("#p-set .card").forEach(c => c.classList.toggle("hit-none", !!words.length && !hit(c)));
+  const m = ZydeckShared.matcher(setHead.q.value);
+  document.querySelectorAll("#p-set .card").forEach(c => c.classList.toggle("hit-none", m.any && !m.hit(c)));
   let n = 0;
-  if (words.length) { try { n = [...deckFrame().contentDocument.querySelectorAll("#settings .row")].filter(hit).length; } catch {} }
-  $("#set-q-other").style.display = n ? "" : "none";
-  $("#set-q-other").textContent = `${n} in Controller settings ›`;
+  if (m.any) { try { n = [...deckFrame().contentDocument.querySelectorAll("#settings .row")].filter(m.hit).length; } catch {} }
+  setHead.other.hidden = !n;
+  setHead.other.textContent = `${n} in Controller settings ›`;
 }
-$("#set-q").addEventListener("input", searchSet);
-// Sideways: the System tab is this window (the cards moved into it, so everything works as on their page)
-function openSystemWindow(q) {
+setHead.q.addEventListener("input", searchSet);
+// Sideways: the System tab is the settings window (the cards moved into it, so all works as on their page);
+// over: opened from the deck page's settings, which stay open under it (their backdrop) until it closes
+let sysOver = false;
+function openSystemWindow(q, over) {
   try {   // the deck page's own scale, so the window matches its settings exactly
     const mm = getComputedStyle(deckFrame().contentDocument.documentElement).getPropertyValue("--mm").trim();
     if (mm) $("#sysmodal").style.setProperty("--mm", mm);
   } catch {}
+  sysOver = !!over;
+  $("#sysmodal").classList.toggle("over", sysOver);
   $("#sysmodal .panel").appendChild($("#p-set"));
   $("#sysmodal").classList.add("open"); document.body.classList.add("sysopen");
-  $("#set-q").value = q || ""; searchSet(); loadSettingsPage();
+  setHead.q.value = q || ""; searchSet(); loadSettingsPage();
+  if (sysOver) requestAnimationFrame(() => deckPost({ zydek: "settings-under" }));   // its panel goes, under this one
 }
-function closeSystemWindow() {
+function closeSystemWindow(keepDeckSettings) {
   if (!$("#sysmodal").classList.contains("open")) return;
   $("#sysmodal").classList.remove("open"); document.body.classList.remove("sysopen");
   $("main").appendChild($("#p-set"));   // back to its page
+  if (sysOver && !keepDeckSettings) deckPost({ zydek: "close-settings" });
+  sysOver = false;
 }
-$("#sys-x").addEventListener("click", closeSystemWindow);
+$("#sys-x").addEventListener("click", () => closeSystemWindow());
 $("#sysmodal").addEventListener("click", e => { if (e.target.id === "sysmodal") closeSystemWindow(); });
-// The Controller tab: the deck page's settings; upright, as a page like this one (its rows stacked)
+// The Controller tab: the deck page's settings (upright, as a page where this one goes); this tab goes once
+// that one's drawn ("settings-shown", or after 400 ms)
+let whenShown = null;
 function openControllerMenu() {
-  const q = $("#set-q").value;
-  closeSystemWindow();
   const upright = innerHeight > innerWidth;
-  if (upright) document.body.classList.add("show-decks");
-  deckFrame().contentWindow.postMessage({ zydek: "open-settings", q, page: upright }, location.origin);
+  const swap = () => { if (upright) document.body.classList.add("show-decks"); else closeSystemWindow(true); };
+  whenShown = swap;
+  setTimeout(() => { if (whenShown === swap) { whenShown = null; swap(); } }, 400);
+  deckPost({ zydek: "open-settings", q: setHead.q.value, page: upright });
 }
-$("#set-toctl").addEventListener("click", openControllerMenu);
-$("#set-q-other").addEventListener("click", openControllerMenu);
+setHead.tab("controller").addEventListener("click", openControllerMenu);
+setHead.other.addEventListener("click", openControllerMenu);
 addEventListener("message", e => {
   if (e.origin !== location.origin) return;
-  if (e.data?.zydek === "menu" && e.data.to === "system") {
-    document.body.classList.remove("show-decks");
-    if (innerWidth > innerHeight) { openSystemWindow(e.data.q); return; }   // sideways: in the settings window
-    showPage("set"); scrollTo(0, 0);
-    $("#set-q").value = e.data.q || ""; searchSet();
+  if (e.data?.zydek === "settings-shown") {
+    if (whenShown) { const f = whenShown; whenShown = null; f(); }
+  } else if (e.data?.zydek === "menu" && e.data.to === "system") {
+    if (innerWidth > innerHeight) { openSystemWindow(e.data.q, true); return; }   // sideways: the window, over theirs
+    showPage("set");   // upright: this page (it takes the deck page's away: showPage)
+    scrollTo(0, 0);
+    setHead.q.value = e.data.q || ""; searchSet();
   } else if (e.data?.zydek === "settings-closed") {
     document.body.classList.remove("show-decks");
   }

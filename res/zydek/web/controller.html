@@ -6,6 +6,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0b0b0b">
 <link rel="manifest" href="/controller.webmanifest">
+<link rel="stylesheet" href="/zydeck-shared.css">
+<script src="/zydeck-shared.js"></script>
 <title>Mixxx Controller</title>
 <style>
   :root {
@@ -363,25 +365,16 @@
   #unloadask .seg { display: flex; gap: calc(var(--mm) * 1); }
   #unloadask .seg button { flex: 1; height: calc(var(--mm) * 7.5); }
   #unloadask .yes { background: var(--err); border-color: var(--err); color: #fff; }
-  /* System (the phone page's Settings, shown upright) | Controller (this one, sideways): switch without turning */
-  #settings .menus { display: flex; gap: calc(var(--mm) * .8); margin-bottom: calc(var(--mm) * 1.5); }
-  #settings .menus button { flex: 1; height: calc(var(--mm) * 7); }
-  #settings .menus button.on { background: var(--text); color: #111; border-color: var(--text); }
-  #settings #s-q { width: 100%; height: calc(var(--mm) * 7); border-radius: calc(var(--mm) * 1.2); border: 1px solid #333;
-    background: #1c1c1c; color: var(--text); padding: 0 calc(var(--mm) * 2); font: inherit; margin-bottom: calc(var(--mm) * 1); }
-  #settings .other { width: 100%; height: calc(var(--mm) * 6); margin-bottom: calc(var(--mm) * 1); color: var(--dim); }
+  /* the head (System | Controller, search) and Link devices: zydeck-shared.css, as on the phone page */
   #settings .row.hit-none { display: none; }
-  /* upright (the phone page's Controller tab): a page like the System one, each row's label above its controls */
+  #settings.under .panel { visibility: hidden; }   /* sideways, the System window is over it (its backdrop stays) */
   /* upright, the Controller tab is the System page to the letter: its place (between the phone page's decks and
      tabs), cards, sizes; no title, close or Done (the tabs and the page's own tab bar do that) */
   #settings.aspage { background: #0b0b0b; align-items: stretch; }
   #settings.aspage .panel { width: 100%; max-height: none; height: 100%; border: 0; border-radius: 0; padding: 0 0 12px;
     background: #0b0b0b; font-size: 14px; }
   #settings.aspage h2, #settings.aspage .x, #settings.aspage .close { display: none; }
-  #settings.aspage .menus { margin: 12px 12px 8px; gap: 8px; }
-  #settings.aspage .menus button { height: auto; min-height: 40px; font-size: 14px; border-radius: 10px; }
-  #settings.aspage #s-q { width: calc(100% - 24px); margin: 0 12px 4px; height: 40px; border-radius: 10px; font-size: 15px; }
-  #settings.aspage .other { width: calc(100% - 24px); margin: 4px 12px; height: auto; min-height: 36px; font-size: 14px; border-radius: 10px; }
+  #settings.aspage #s-head { margin: 12px 12px 4px; font-size: 15px; }   /* as #set-head on the phone page */
   #settings.aspage .row { display: block; margin: 12px; padding: 12px 14px; border: 1px solid #2c2c2c; border-radius: 12px; background: #121212; }
   #settings.aspage .row > div:first-child { font-size: 15px; font-weight: 700; }
   #settings.aspage .row small { font-size: 12px; font-weight: 400; margin-top: 8px; line-height: 1.4; }
@@ -525,11 +518,9 @@
 <div id="settings"><div class="panel">
   <button class="x" id="s-x" aria-label="Close">✕</button>
   <h2>Settings<small id="s-status">UI test · simulated Mixxx</small></h2>
-  <div class="menus" id="s-menus"><button id="s-tosys">System</button><button class="on">Controller</button></div>
-  <input id="s-q" type="search" placeholder="Search settings" autocomplete="off" spellcheck="false">
-  <button id="s-q-other" class="other" style="display:none"></button>
+  <div id="s-head"></div>
   <div class="row"><div>Link devices<small>Control another ZyDeck on the same Wi-Fi (or this phone's hotspot) from here, like a Bluetooth controller: the tablet as the phone's decks, say. ◀ Back to this device returns</small></div>
-    <div><div class="seg"><button id="s-ld-scan">Scan</button></div><small id="s-ld-st"></small><div class="seg" id="s-ld-list" style="margin-top:6px"></div></div></div>
+    <div id="s-ld"></div></div>
   <div class="row"><div>Unload<small>Hold a paused deck's title (on its waveform) for half a second: the eject sign comes up beside it; tap it to unload (asking first, or not). Touching anything else puts it away</small></div>
     <div class="seg" id="s-unload"></div></div>
   <div class="row"><div>Layout<small>Strips on top: both platter strips stacked across the top like Mixxx's waveforms (about twice as long), the top-bar buttons beside them</small></div>
@@ -2654,44 +2645,48 @@ decks.forEach(d => {
 // =====================================================================================================
 // Top bar, settings
 // =====================================================================================================
-document.getElementById("gear").addEventListener("click", () => { paintSettings(); paintFs(); document.getElementById("settings").classList.remove("aspage"); document.getElementById("settings").classList.add("open"); });
+document.getElementById("gear").addEventListener("click", () => { paintSettings(); paintFs(); document.getElementById("settings").classList.remove("aspage", "under"); document.getElementById("settings").classList.add("open"); });
 document.getElementById("s-close").addEventListener("click", () => document.getElementById("settings").classList.remove("open"));
 const closeSettings = () => {
-  document.getElementById("settings").classList.remove("open", "aspage");
+  document.getElementById("settings").classList.remove("open", "aspage", "under");
   if (IN_SHELL) parent.postMessage({ zydek: "settings-closed" }, location.origin);
 };
-// Inside the phone page (its deck view): System = the phone page's own Settings, without turning the device
+// Inside the phone page (its deck view): its Settings are the System tab of the same menu (zydeck-shared.js)
 const IN_SHELL = (() => { try { return parent !== window && parent.location.origin === location.origin && !!parent.document.getElementById("p-set"); } catch { return false; } })();
-document.getElementById("s-menus").style.display = IN_SHELL ? "" : "none";
-const toSystem = q => parent.postMessage({ zydek: "menu", to: "system", q: q || "" }, location.origin);
-document.getElementById("s-tosys").addEventListener("click", () => { document.getElementById("settings").classList.remove("open", "aspage"); toSystem(document.getElementById("s-q").value); });
-// Search: rows whose text has every word typed; Advanced opens for one inside it; the other menu's count
+const sHead = ZydeckShared.menuHead("controller");
+document.getElementById("s-head").appendChild(sHead);
+sHead.querySelector(".zs-tabs").hidden = !IN_SHELL;
+// to System: the phone page puts it up first, then asks this one to go (no frame of what's behind)
+const toSystem = () => parent.postMessage({ zydek: "menu", to: "system", q: sHead.q.value }, location.origin);
+sHead.tab("system").addEventListener("click", toSystem);
+sHead.other.addEventListener("click", toSystem);
+// Search: rows with every word typed; Advanced opens for one inside it; the other menu's count
 function searchSettings() {
-  const q = document.getElementById("s-q").value.trim().toLowerCase(), words = q.split(/\s+/).filter(Boolean);
-  const hit = el => words.every(w => el.textContent.toLowerCase().includes(w));
+  const m = ZydeckShared.matcher(sHead.q.value);
   const rows = [...document.querySelectorAll("#settings .row")];
-  rows.forEach(r => r.classList.toggle("hit-none", !!words.length && !hit(r)));
+  rows.forEach(r => r.classList.toggle("hit-none", m.any && !m.hit(r)));
   const adv = document.querySelector("#settings details.adv");
-  if (adv) { if (words.length) { adv._was ??= adv.open; adv.open = rows.some(r => adv.contains(r) && hit(r)); } else if (adv._was !== undefined) { adv.open = adv._was; adv._was = undefined; } }
-  const other = document.getElementById("s-q-other");
+  if (adv) { if (m.any) { adv._was ??= adv.open; adv.open = rows.some(r => adv.contains(r) && m.hit(r)); } else if (adv._was !== undefined) { adv.open = adv._was; adv._was = undefined; } }
   let n = 0;
-  if (words.length && IN_SHELL) { try { n = [...parent.document.querySelectorAll("#p-set .card")].filter(hit).length; } catch {} }
-  other.style.display = n ? "" : "none";
-  other.textContent = `${n} in System settings ›`;
+  if (m.any && IN_SHELL) { try { n = [...parent.document.querySelectorAll("#p-set .card")].filter(m.hit).length; } catch {} }
+  sHead.other.hidden = !n;
+  sHead.other.textContent = `${n} in System settings ›`;
 }
-document.getElementById("s-q").addEventListener("input", searchSettings);
-document.getElementById("s-q-other").addEventListener("click", () => { document.getElementById("settings").classList.remove("open", "aspage"); toSystem(document.getElementById("s-q").value); });
-// the phone page asks for this menu (its Controller switch), with what was searched there
+sHead.q.addEventListener("input", searchSettings);
+// The phone page: open this menu (its Controller tab; upright as a page), keep the backdrop under its System
+// window, or close; "settings-shown" once this one's drawn, so it can take its own away without a gap
 addEventListener("message", e => {
-  if (e.origin === location.origin && e.data?.zydek === "close-settings") {   // the phone page went to another page
-    document.getElementById("settings").classList.remove("open", "aspage");
-    return;
-  }
-  if (e.origin !== location.origin || e.data?.zydek !== "open-settings") return;
-  document.getElementById("settings").classList.toggle("aspage", !!e.data.page);   // upright: a page, rows stacked
+  if (e.origin !== location.origin) return;
+  const st = document.getElementById("settings");
+  if (e.data?.zydek === "close-settings") { st.classList.remove("open", "aspage", "under"); return; }
+  if (e.data?.zydek === "settings-under") { st.classList.add("under"); return; }
+  if (e.data?.zydek !== "open-settings") return;
+  st.classList.remove("under");
+  st.classList.toggle("aspage", !!e.data.page);
   paintSettings(); paintFs();
-  document.getElementById("s-q").value = e.data.q || ""; searchSettings();
-  document.getElementById("settings").classList.add("open");
+  sHead.q.value = e.data.q || ""; searchSettings();
+  st.classList.add("open");
+  requestAnimationFrame(() => requestAnimationFrame(() => parent.postMessage({ zydek: "settings-shown" }, location.origin)));
 });
 document.getElementById("s-x").addEventListener("click", closeSettings);
 // Tapping the darkened area outside the panel closes it too.
@@ -2772,36 +2767,8 @@ document.addEventListener("click", async e => {
   if (r.ok === false) toast(r.error || "Couldn't start the test");
 });
 
-// Link devices (from the landscape menu too): the other ZyDecks nearby, through the app's network discovery
-const appBridge = () => { try { return window.ZydekAndroid || parent.ZydekAndroid; } catch { return window.ZydekAndroid; } };
-let ldScanning = false;
-document.addEventListener("click", async e => {
-  if (e.target.id !== "s-ld-scan" || ldScanning) return;
-  const bridge = appBridge(), st = document.getElementById("s-ld-st"), list = document.getElementById("s-ld-list");
-  if (!bridge?.linkScan) { st.textContent = "Only in the ZyDeck app"; return; }
-  ldScanning = true;
-  bridge.linkScan();
-  st.textContent = "Looking…"; list.innerHTML = "";
-  try {
-    for (let i = 0; i < 30; i++) {
-      await new Promise(r => setTimeout(r, 500));
-      let r; try { r = JSON.parse(bridge.linkDevices()); } catch { continue; }
-      const seen = new Set([...list.children].map(x => x.dataset.key));
-      for (const d of r.devices) {
-        const key = `${d.host}:${d.port}`;
-        if (seen.has(key)) continue;
-        const b = h("button", "", `${d.name.replace(/</g, "&lt;")}<small>${d.host}</small>`);
-        b.dataset.key = key;
-        // this device's own page (its version, and Real-time input), talking to that ZyDeck's server
-        b.addEventListener("click", () => bridge.linkOpen(`http://127.0.0.1:8766/controller?${PHONE ? "phone=1&" : ""}hub=${encodeURIComponent(key)}`));
-        list.appendChild(b);
-      }
-      st.textContent = list.children.length ? `${list.children.length} found${r.scanning ? " · still looking" : ": tap one to control it"}`
-        : r.scanning ? "Looking…" : "None found: is the other ZyDeck open, on the same Wi-Fi?";
-      if (!r.scanning && i > 4) break;
-    }
-  } finally { ldScanning = false; }
-});
+// Link devices: the same as the phone page's (zydeck-shared.js)
+ZydeckShared.linkDevices(document.getElementById("s-ld"));
 
 // Discord: streaming the mix to the ZyDeck Discord bot (its address and key: the phone page's Settings, or
 // launch.sh phone on the computer); the hub asks the bot who's listening (dc.bot)

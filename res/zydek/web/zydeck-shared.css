@@ -1,0 +1,17 @@
+/* ZyDeck: the two settings menus' shared parts (zydeck-shared.js). In em, so each takes its menu's scale: the
+   upright page's (px) or the sideways window's (the deck page's --mm). */
+.zs-head { margin-bottom: .45em; }
+.zs-tabs { display: flex; gap: .55em; margin-bottom: .6em; }
+.zs-tabs button { flex: 1; min-height: 2.85em; height: auto; font: inherit; border-radius: .7em; }
+.zs-tabs button.on { background: var(--text); color: #111; border-color: var(--text); }
+.zs-q { display: block; box-sizing: border-box; width: 100%; min-height: 2.85em; margin: 0; padding: 0 .85em; background: #1c1c1c;
+  color: var(--text); border: 1px solid #333; border-radius: .7em; font: inherit; font-size: 1.05em; }
+.zs-other { display: block; box-sizing: border-box; width: 100%; min-height: 2.6em; margin-top: .45em; font: inherit; color: var(--dim);
+  border-radius: .7em; }
+.zs-other[hidden] { display: none; }
+.zs-row { display: flex; gap: .55em; align-items: center; }
+.zs-row .zs-st { flex: 1; min-width: 0; font-size: .86em; color: var(--dim); }
+.zs-row button, .zs-dev button { min-height: 2.85em; height: auto; padding: 0 1em; font: inherit; border-radius: .7em; }
+.zs-dev { display: flex; gap: .55em; align-items: center; padding: .55em 0; border-bottom: 1px solid #1d1d1d; }
+.zs-dev span { flex: 1; min-width: 0; color: var(--text); font-size: 1.07em; }
+.zs-dev small { display: block; color: var(--dim); font-size: .8em; }
