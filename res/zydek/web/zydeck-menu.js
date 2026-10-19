@@ -99,7 +99,7 @@
   const TABS = { system: "System", controller: "Controller" };
   const SECTIONS = [
     ["system", "conn", "Connections"], ["system", "audio", "Audio"], ["system", "library", "Library"], ["system", "stems", "Stems"],
-    ["system", "acc", "Accounts"], ["system", "rec", "Recording & streaming"], ["system", "look", "Look"], ["system", "start", "Start-up"],
+    ["system", "acc", "Accounts"], ["system", "rec", "Record & stream"], ["system", "look", "Look"], ["system", "start", "Start-up"],
     ["system", "dev", "Developer"],
     ["controller", "decks", "Decks"], ["controller", "fx", "Effects"], ["controller", "sampler", "Sampler"], ["controller", "touch", "Touch"],
     ["controller", "screen", "Screen"],
@@ -461,7 +461,7 @@
         <label class="zm-q"><span class="zm-vh">Search settings</span><input class="zf" type="search" placeholder="Search both tabs" autocomplete="off" spellcheck="false"></label>
         <button class="zk zm-back"><span></span></button><button class="zk zm-fs"></button>
         <button class="zk zm-x" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button></div>
-      <div class="zm-body"><nav class="zm-rail" aria-label="Sections"></nav><div class="zm-rows"></div></div></div>`;
+      <div class="zm-body"><div class="zm-rail" role="navigation" aria-label="Sections"></div><div class="zm-rows"></div></div></div>`;
     box.replaceChildren(root);
     const $ = s => root.querySelector(s);
     ui = { root, layout, head: $(".zm-head"), q: $(".zm-q input"), rail: $(".zm-rail"), rows: $(".zm-rows"), back: $(".zm-back"), fs: $(".zm-fs"), x: $(".zm-x"), list: [] };
@@ -484,9 +484,10 @@
   addEventListener("scroll", () => { if (ui?.layout === "page") onScroll(); }, { passive: true });
   document.addEventListener("fullscreenchange", refresh);
 
-  let winBox = null;
+  let winBox = null, pageBox = null;   // the page's place, drawn again when a window over it closes
   function open({ tab, layout = "window", into, q } = {}) {
     if (tab) curTab = tab;
+    if (layout === "page") pageBox = into;
     if (layout === "window") {
       if (!winBox) { winBox = el("div", "zm-win"); document.body.appendChild(winBox); }
       winBox.style.setProperty("--zmm", host.mm?.() || "5.93px");
@@ -497,7 +498,10 @@
     loadAll();
   }
   function close() {
-    if (ui?.layout === "window") { winBox.classList.remove("open"); winBox.replaceChildren(); ui = null; host.closed?.(); }
+    if (ui?.layout === "window") {
+      winBox.classList.remove("open"); winBox.replaceChildren(); ui = null; host.closed?.();
+      if (pageBox?.isConnected) build(pageBox, "page");
+    }
   }
   const isOpen = () => !!ui && (ui.layout === "page" ? ui.root.isConnected && ui.root.offsetParent !== null : winBox?.classList.contains("open"));
 
