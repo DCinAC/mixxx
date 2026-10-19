@@ -203,6 +203,7 @@ body.skin-d #app .pad[data-pm="smp"] > small { font-size: calc(var(--pfs3, 14px)
    lane marker on its own GPU layer. Each is drawn once (soft shadows and all) and kept; a change redraws only that
    one small layer, and a fader cap or marker that moves just moves its layer, so the panel around it is never
    repainted. The look is the same. ---------------- */
-body.skin-d.sk-layers #app button:not(.psw), body.skin-d.sk-layers #app .pad, body.skin-d.sk-layers #app .knob,
-body.skin-d.sk-layers #app .fader .cap, body.skin-d.sk-layers #app #xf .cap, body.skin-d.sk-layers #app .lane .mark,
-body.skin-d.sk-layers #app .nudge { will-change: transform; }
+/* (both looks: Element's parts get their own layers the same way) */
+body.sk-layers #app button:not(.psw), body.sk-layers #app .pad, body.sk-layers #app .knob,
+body.sk-layers #app .fader .cap, body.sk-layers #app #xf .cap, body.sk-layers #app .lane .mark,
+body.sk-layers #app .nudge { will-change: transform; }
