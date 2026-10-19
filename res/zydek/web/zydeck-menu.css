@@ -210,6 +210,8 @@
 .zfx-keys { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: calc(var(--zmm) * 1.3); }
 .zfx-keys .zk { width: 100%; padding: 0 calc(var(--zmm) * 1.2); overflow: hidden; text-overflow: ellipsis; }
 .zfx-none { color: #8f8f8f; font-size: calc(var(--zmm) * 2.2); }
+.zfx-hint { color: #8f8f8f; font-size: calc(var(--zmm) * 2.1); }
+.zfx-n { margin-left: calc(var(--zmm) * 1.2); font-size: calc(var(--zmm) * 1.9); font-weight: 700; color: var(--lamp); }
 /* Hardware 2: bigger, over the dimmed deck */
 .zfx-scrim { position: fixed; inset: 0; z-index: 46; background: rgba(0,0,0,.66); }
 .zm.zfx.display { width: min(96vw, calc(var(--zmm) * 176)); max-height: 94vh; gap: calc(var(--zmm) * 2.4); padding: calc(var(--zmm) * 3.4) calc(var(--zmm) * 3); }
