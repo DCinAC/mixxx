@@ -2802,13 +2802,10 @@ let fxNames = [];
 const fxBeat = [1, 1, 1, 1];
 const FX_BEATS = [.5, 1, 2, 4], FX_BEATS_SHIFT = [.125, .25, 8, 16];
 const FX_BEAT_STEPS = [.125, .25, .5, 1, 2, 4, 8];   // the strip's BEAT knob
-// A knob's click as it snaps to the next step: the device's short tick (the app's); where there's nothing to feel
-// it with (a tablet has no vibration motor, or a browser), what clicked flashes briefly instead
+// A knob's click as it snaps to the next step: the device's short tick (the app's), on a device that can vibrate
+// (a tablet usually can't: nothing then; a centre knob shows it's home by its arc going)
 const VIBRATES = (() => { try { const b = window.ZydekAndroid || parent.ZydekAndroid; return !!(b?.tick && b.hasVibrator?.()); } catch { return false; } })();
-const tick = el => {
-  if (VIBRATES) { try { (window.ZydekAndroid || parent.ZydekAndroid).tick(); } catch {} return; }
-  el?.animate?.([{ filter: "brightness(1.9)" }, { filter: "brightness(1)" }], { duration: 170, easing: "ease-out" });
-};
+const tick = () => { if (VIBRATES) try { (window.ZydekAndroid || parent.ZydekAndroid).tick(); } catch {} };
 const fxUnitOf = d => d.n % 2 ? 1 : 2;
 const fxUnitG = u => `[EffectRack1_EffectUnit${u}]`;
 const fxSlotG = (u, j) => `[EffectRack1_EffectUnit${u}_Effect${j + 1}]`;
