@@ -42,6 +42,8 @@ body.skin-d #app button[data-ls]:not([data-ls=""])::before { content: ""; positi
 body.skin-d #app button[data-ls="b"]::before, body.skin-d #app button[data-ls="bh"]::before {
   left: 50%; bottom: 0; width: var(--sk-lampW); margin-left: calc(var(--sk-lampW) / -2); height: var(--sk-lampH); }
 body.skin-d #app button[data-ls="bh"]::before { height: 9px; }
+/* keys that aren't about square: the lamp twice as wide */
+body.skin-d #app button[data-lw="2"][data-ls="b"]::before, body.skin-d #app button[data-lw="2"][data-ls="bh"]::before { width: calc(var(--sk-lampW) * 2); margin-left: calc(var(--sk-lampW) * -1); }
 body.skin-d #app button[data-ls="s"]::before { left: 7px; right: 7px; bottom: 0; height: var(--sk-stripH); box-shadow: inset 0 0 0 1.5px #383a3e; }
 body.skin-d #app button[data-ls="l"]::before, body.skin-d #app button[data-ls="r"]::before {
   top: 50%; width: var(--sk-sideW); height: var(--sk-sideH); margin-top: calc(var(--sk-sideH) / -2); }
@@ -65,16 +67,20 @@ body.skin-d #app .play.on.preview[data-ls]::before { animation: sk-blink .5s ste
 body.skin-d #app .sync:not(.tempo):not(.beat) {
   box-shadow: inset 0 0 0 2px rgba(255,255,255, calc(.9 * var(--glow, 0))), inset 1px 1px 0 rgba(255,255,255,.2), 3px 4px 8px rgba(0,0,0,.45),
     0 0 calc(10px * var(--glow, 0)) rgba(255,255,255, calc(.5 * var(--glow, 0))) !important; }
-body.skin-d #app .sync:not(.tempo):not(.beat)[data-ls]::before { background: color-mix(in srgb, #fff calc(var(--glow, 0) * 90%), #202226); }
+body.skin-d #app .sync:not(.tempo):not(.beat)[data-ls]::before {
+  background: radial-gradient(70% 60% at 50% 55%, color-mix(in srgb, #fff calc(var(--glow, 0) * 100%), #202226), color-mix(in srgb, #e6e6e6 calc(var(--glow, 0) * 100%), #202226) 55%, color-mix(in srgb, #8c8c8c calc(var(--glow, 0) * 100%), #202226));
+  box-shadow: inset 0 0 0 2.5px rgba(56,58,62, calc(1 - var(--glow, 0) * 3)), 0 0 calc(7px * var(--glow, 0)) rgba(255,255,255, calc(.45 * var(--glow, 0))); }
 body.skin-d #app .sync.matched:not(.tempo):not(.beat) {
   box-shadow: inset 0 0 0 2px var(--play), inset 1px 1px 0 rgba(255,255,255,.2), 3px 4px 8px rgba(0,0,0,.45), 0 0 10px color-mix(in srgb, var(--play) 55%, transparent) !important; }
-body.skin-d #app .sync.matched:not(.tempo):not(.beat)[data-ls]::before { background: var(--play); box-shadow: 0 0 6px var(--play); }
+body.skin-d #app .sync.matched:not(.tempo):not(.beat)[data-ls]::before {
+  background: radial-gradient(70% 60% at 50% 55%, color-mix(in srgb, var(--play) 70%, #fff), var(--play) 55%, color-mix(in srgb, var(--play) 80%, #000));
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.35), 0 0 7px color-mix(in srgb, var(--play) 45%, transparent); }
 body.skin-d #app .sync.tempo, body.skin-d #app .sync.beat {
   box-shadow: inset 0 0 0 2px var(--acc), inset 1px 1px 0 rgba(255,255,255,.2), 3px 4px 8px rgba(0,0,0,.45), 0 0 8px color-mix(in srgb, var(--acc) 45%, transparent) !important; }
 
 /* adaptive text: the size skin-e.js works out for each key (Element's own sizes otherwise) */
 body.skin-d.adaptive #app button[data-afs] { font-size: var(--afs) !important; line-height: 1.05; }
-body.skin-d.adaptive #app button[data-afs] small { font-size: .58em !important; }
+body.skin-d.adaptive #app button[data-afs] > small { font-size: .58em !important; }
 body.skin-d.adaptive #app button[data-afs] .two > b, body.skin-d.adaptive #app button[data-afs] .two > small { transition: none !important; }
 
 /* ---------------- pads (Ember: lit from behind, brightest in the middle, no edge) ---------------- */
@@ -153,3 +159,6 @@ body.skin-d #app .nudge > canvas.sk-jog { position: absolute; inset: 0; width: 1
 /* the lower nudge bar (under the second waveform) is the same wheel seen from below: its light ring toward its waveform */
 body.skin-d #app #nudge1 .nudge > canvas.sk-jog { transform: scaleY(-1); }
 #app .nudge > canvas.sk-jog { display: none; } body.skin-d #app .nudge > canvas.sk-jog { display: block; }
+/* SHIFT on SYNC: MASTER full size too (Element holds it at .74em so the key can't widen; the adaptive size already
+   leaves room for it) */
+body.skin-d.adaptive #app .sync .two.alt > small { font-size: 1em !important; }

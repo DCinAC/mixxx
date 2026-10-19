@@ -55,10 +55,17 @@
       else ls = PHONE || r.height / mm() < 8.5 ? "bh" : "b";
     }
     if (b.dataset.ls !== ls) b.dataset.ls = ls;
+    const lw = (ls === "b" || ls === "bh") && Math.abs(Math.log(r.width / r.height)) > Math.log(1.25) ? "2" : "";   // not square: a lamp twice as wide
+    if ((b.dataset.lw || "") !== lw) b.dataset.lw = lw;
     if (ADAPT) fitKey(b, r);
   }
+  const norm = t => (t || "").replace(/\d/g, "8").trim();
   function fitKey(b, r) {
     for (const x of b.querySelectorAll(".two > b, .two > small")) x.style.removeProperty("font-size");   // Element's own squeeze
+    // the same shape and words (SHIFT only swaps which of the two is big): the same size as last time
+    const sig = `${Math.round(r.width)}x${Math.round(r.height)}|${b.dataset.ls}|${norm(b.querySelector(".two > b")?.textContent)}|${norm(b.querySelector(".two > small")?.textContent)}|${b.querySelector(".two") ? "" : norm(b.textContent)}`;
+    if (b._sig === sig && b._afs) { b.style.setProperty("--afs", (b._row || b._afs).toFixed(1) + "px"); return; }
+    b._sig = sig; b._row = 0;
     const cs = getComputedStyle(b);
     const W = b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 2;
     const H = b.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 1;
@@ -82,7 +89,7 @@
       const sib = [...row.children].filter(k => k.tagName === "BUTTON" && k._afs);
       if (sib.length < 2) continue;
       const m = Math.min(...sib.map(k => k._afs));
-      for (const k of sib) k.style.setProperty("--afs", m.toFixed(1) + "px");
+      for (const k of sib) { k._row = m; k.style.setProperty("--afs", m.toFixed(1) + "px"); }
     }
   }
 
@@ -96,6 +103,9 @@
     p.classList.toggle("hasname", !!lbl);
     p.classList.toggle("numonly", !lbl && /^\d+$/.test(numText));   // a cue without a name: just its number
     const r = p.getBoundingClientRect(); if (!r.width) return;
+    const sig = `${Math.round(r.width)}x${Math.round(r.height)}|${norm(lbl?.textContent)}|${norm(numText)}|${norm(tm?.textContent)}|${norm(p.querySelector("small")?.textContent)}`;
+    if (p._sig === sig) return;
+    p._sig = sig;
     const W = r.width - 14, H = r.height - 12;
     // the number: one size for every pad of this shape: 2.5 times the old small number (half a name's size)
     const nominal = Math.min(Math.sqrt(fill(r.width, r.height) * r.width * r.height / (5 * .56 * 1.6)), .93 * W / (5 * .56), H / 1.7);
@@ -132,7 +142,7 @@
     const off = parseFloat(n.style.getPropertyValue("--off")) || 0, held = n.classList.contains("held");
     const acc = getComputedStyle(n).getPropertyValue("--acc").trim() || "#ff8a1e";
     const R = W / 2, teeth = 44, step = Math.PI * 2 / teeth, angle = off * dpr / R;
-    const top = snap(H * .22), bot = H - snap(H * .14);
+    const top = 0, bot = H - snap(H * .14);
     g.fillStyle = "#141416"; g.fillRect(0, top, W, bot - top);
     for (let i = 0; i < teeth; i++) {
       const a0 = (((i * step + angle) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) - Math.PI, a1 = a0 + step;
@@ -140,13 +150,11 @@
       const x0 = R + R * Math.sin(Math.max(-Math.PI / 2, a0)), x1 = R + R * Math.sin(Math.min(Math.PI / 2, a1)), w = x1 - x0;
       const light = .3 + .7 * Math.max(0, Math.cos((a0 + a1) / 2 + .4));
       if (w < 3) continue;
-      // a round dot: as wide as it is tall facing you, narrower as it turns away
-      const c2 = 10 + 36 * light | 0, ry = Math.min((bot - top) * .3, R * step * .3), rx = Math.max(1.5, w * .3);
+      // a round dot: a circle where it faces you, narrower only as it turns away (the projection)
+      const c2 = 10 + 36 * light | 0, rd = Math.min((bot - top) * .3, R * step * .3), ry = rd, rx = Math.max(1.5, rd * w / (R * step));
       g.fillStyle = `rgb(${c2},${c2},${c2 + 2})`; g.beginPath();
       g.ellipse(x0 + w / 2, (top + bot) / 2, rx, ry, 0, 0, Math.PI * 2); g.fill();
     }
-    const lip = g.createLinearGradient(0, 0, 0, top); lip.addColorStop(0, "#b4b6ba"); lip.addColorStop(.5, "#8a8c90"); lip.addColorStop(1, "#5a5c60");
-    g.fillStyle = lip; g.fillRect(0, 0, W, top);
     g.globalAlpha = held ? 1 : .4; g.fillStyle = acc; g.fillRect(0, bot, W, H - bot); g.globalAlpha = 1;
     const edge = g.createLinearGradient(0, 0, W, 0);
     edge.addColorStop(0, "rgba(0,0,0,.85)"); edge.addColorStop(.16, "rgba(0,0,0,.08)"); edge.addColorStop(.84, "rgba(0,0,0,.15)"); edge.addColorStop(1, "rgba(0,0,0,.88)");
@@ -168,9 +176,9 @@
   var queued = new Set(), all = true;
   const run = () => {
     PHONE = app.classList.contains("phone"); body.classList.toggle("sk-phone", PHONE);
-    if (on) jogs();
-    const els = all ? [...app.querySelectorAll("button"), ...app.querySelectorAll(".pad")] : [...queued];
+    const whole = all, els = all ? [...app.querySelectorAll("button"), ...app.querySelectorAll(".pad")] : [...queued];
     all = false; queued = new Set();
+    if (whole && on) jogs();
     for (const el of els) { if (!el.isConnected) continue; if (el.classList.contains("pad")) pad(el); else key(el); }
     if (ADAPT) evenRows(els.filter(el => el.tagName === "BUTTON"));
   };
@@ -182,7 +190,7 @@
       if (el && app.contains(el)) queued.add(el);
       if (m.type === "childList" && [...m.addedNodes].some(n => n.nodeType === 1 && (n.matches("button, .pad") || n.querySelector?.("button, .pad")))) all = true;
     }
-    later();
+    if (on) run();   // a microtask: before this frame is drawn
   }).observe(app, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["class"] });
   addEventListener("resize", () => { all = true; later(); });
   document.fonts?.ready.then(() => { all = true; later(); });
