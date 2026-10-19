@@ -17,6 +17,7 @@ import android.os.Looper;
 import android.provider.DocumentsContract;
 import android.provider.Settings;
 import android.view.HapticFeedbackConstants;
+import android.os.Vibrator;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -205,6 +206,13 @@ public class MainActivity extends QtActivityBase {
 
         /// A knob's click (a detent): the system's short tick, as Android's own pickers do (no permission needed;
         /// off when the phone's touch feedback is off).
+        /// False on a device without a vibration motor (most tablets): the page shows its ticks instead.
+        @JavascriptInterface
+        public boolean hasVibrator() {
+            final Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+            return v != null && v.hasVibrator();
+        }
+
         @JavascriptInterface
         public void tick() {
             final WebView view = m_phoneView;

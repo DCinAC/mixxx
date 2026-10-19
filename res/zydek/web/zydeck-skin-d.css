@@ -176,6 +176,7 @@ body.skin-d #app .knob .kbg { r: 12.5px; fill: url(#sk-knob-skirt); stroke: #000
 body.skin-d #app .knob.held .kbg { stroke: var(--acc, #fff); }
 body.skin-d #app .knob .ktrack { stroke: #2a2a2c; stroke-width: 2.6; }
 body.skin-d #app .knob .karc { stroke-width: 2.6; }
+body.skin-d #app .knob.centred .ktrack { stroke: color-mix(in srgb, var(--acc, #fff) 55%, #2a2a2c); }
 body.skin-d #app .knob .kptr { stroke: #dcdcdc; stroke-width: 2.4; stroke-linecap: round; stroke-dasharray: 6.3 40; stroke-dashoffset: -4.2; }
 body.skin-d #app .knob .ktick { stroke: #6a6a6e; stroke-width: 1.4; }
 /* the key's − and + 4 px smaller than the rest of their row */

@@ -316,6 +316,7 @@
   .knob .kbg { fill: #222; stroke: #3a3a3a; stroke-width: 1.5; }
   .knob .ktrack { fill: none; stroke: #2e2e2e; stroke-width: 3; stroke-linecap: round; }
   .knob .karc { fill: none; stroke: var(--acc, var(--text)); stroke-width: 3; stroke-linecap: round; }
+  .knob.centred .ktrack { stroke: color-mix(in srgb, var(--acc, var(--text)) 55%, #2e2e2e); }   /* on its centre: the ring lit */
   .knob .kptr { stroke: #eee; stroke-width: 3; stroke-linecap: round; }
   .knob span { font-size: calc(var(--mm) * 1.55); color: var(--dim); margin-top: calc(var(--mm) * .3); }
   .knob.held .kbg { stroke: var(--acc, var(--text)); }
@@ -768,7 +769,7 @@ function knob(label, get, set, def, bipolar, target = () => null, onTap = null, 
     st.raw = clamp(raw, 0, 1);
     if (!bipolar) { st.v = st.raw; return; }
     const centred = Math.abs(st.raw - .5) <= CENTRE_DZ, crossed = (prev - .5) * (st.raw - .5) < 0;
-    if ((centred || crossed) && !st.atCentre) tick();
+    if ((centred || crossed) && !st.atCentre) tick(el);
     st.atCentre = centred;
     st.v = centred ? .5 : st.raw;
   };
@@ -782,7 +783,10 @@ function knob(label, get, set, def, bipolar, target = () => null, onTap = null, 
     if (v === el._v) return;
     el._v = v;
     const a = -135 + v * 270;
-    karc.setAttribute("d", arc(bipolar ? 0 : -135, a));
+    // a knob with a centre, on it: no arc (it'd be a dot), its ring lit instead
+    const centred = !!bipolar && v === .5;
+    if (el._centred !== centred) { el._centred = centred; el.classList.toggle("centred", centred); }
+    karc.setAttribute("d", centred ? "" : arc(bipolar ? 0 : -135, a));
     const [x, y] = polar(a, 10.5);
     kptr.setAttribute("x2", x); kptr.setAttribute("y2", y);
   };
@@ -1009,7 +1013,7 @@ function buildFxStrip(s, u) {
     let lastStep = -1;
     const beats = knob("BEAT", () => beatIdx() / (FX_BEAT_STEPS.length - 1), v => {
       const i = Math.round(v * (FX_BEAT_STEPS.length - 1));
-      if (i !== lastStep) { if (lastStep >= 0) tick(); lastStep = i; fxSetBeats(unit(), 1, FX_BEAT_STEPS[i]); }
+      if (i !== lastStep) { if (lastStep >= 0) tick(beats); lastStep = i; fxSetBeats(unit(), 1, FX_BEAT_STEPS[i]); }
     }, null);
     beats.classList.add("stepped");
     const svg = beats.querySelector("svg");
@@ -1955,7 +1959,7 @@ function fxMenuHw(s) {
     const next = Math.max(0, Math.min(fxNames.length - 1, cur + d));
     if (next === cur) return;
     cur = next; turned += d;
-    tick();
+    tick(box.querySelector(".zfx-knob"));
     paintDisplay(true);
   };
   const render = () => {
@@ -2792,8 +2796,13 @@ let fxNames = [];
 const fxBeat = [1, 1, 1, 1];
 const FX_BEATS = [.5, 1, 2, 4], FX_BEATS_SHIFT = [.125, .25, 8, 16];
 const FX_BEAT_STEPS = [.125, .25, .5, 1, 2, 4, 8];   // the strip's BEAT knob
-// A knob's click as it snaps to the next step: the device's short tick (the app's; a browser's vibration otherwise)
-const tick = () => { try { const b = window.ZydekAndroid || parent.ZydekAndroid; if (b?.tick) b.tick(); else navigator.vibrate?.(6); } catch {} };
+// A knob's click as it snaps to the next step: the device's short tick (the app's); where there's nothing to feel
+// it with (a tablet has no vibration motor, or a browser), what clicked flashes briefly instead
+const VIBRATES = (() => { try { const b = window.ZydekAndroid || parent.ZydekAndroid; return !!(b?.tick && b.hasVibrator?.()); } catch { return false; } })();
+const tick = el => {
+  if (VIBRATES) { try { (window.ZydekAndroid || parent.ZydekAndroid).tick(); } catch {} return; }
+  el?.animate?.([{ filter: "brightness(1.9)" }, { filter: "brightness(1)" }], { duration: 170, easing: "ease-out" });
+};
 const fxUnitOf = d => d.n % 2 ? 1 : 2;
 const fxUnitG = u => `[EffectRack1_EffectUnit${u}]`;
 const fxSlotG = (u, j) => `[EffectRack1_EffectUnit${u}_Effect${j + 1}]`;
