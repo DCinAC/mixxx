@@ -7,6 +7,7 @@
 <meta name="theme-color" content="#0b0b0b">
 <link rel="manifest" href="/controller.webmanifest">
 <link rel="stylesheet" href="/zydeck-shared.css">
+<link rel="stylesheet" href="/zydeck-skin-d.css">
 <script src="/zydeck-shared.js"></script>
 <title>Mixxx Controller</title>
 <style>
@@ -523,6 +524,8 @@
     <div id="s-ld"></div></div>
   <div class="row"><div>Unload<small>Hold a paused deck's title (on its waveform) for half a second: the eject sign comes up beside it; tap it to unload (asking first, or not). Touching anything else puts it away</small></div>
     <div class="seg" id="s-unload"></div></div>
+  <div class="row"><div>Look<small>Hardware: keys in a frame with a lamp that lights, rubber pads lit from behind, a jog wheel's edge for nudging. Element: ZyDeck's flat look</small></div>
+    <div class="seg" id="s-theme"></div></div>
   <div class="row"><div>Layout<small>Strips on top: both platter strips stacked across the top like Mixxx's waveforms (about twice as long), the top-bar buttons beside them</small></div>
     <div class="seg" id="s-layout"></div></div>
   <div class="row"><div>Platter strip<small>How much of the record one full strip covers</small></div>
@@ -552,6 +555,10 @@
     <div class="seg" id="s-skl"></div></div>
   <div class="row"><div>Fullscreen<small>Enter fullscreen on the first touch</small></div><div class="seg" id="s-fs-auto"></div></div>
   <details class="adv"><summary>Advanced</summary>
+  <div class="row"><div>Lamp on wide keys<small>Hardware look: where the lamp sits on the long, flat keys</small></div>
+    <div class="seg" id="s-lampside"></div></div>
+  <div class="row"><div>Key text<small>Hardware look: adaptive sizes each key's text to the key (bigger on small keys, the same along a row); fixed keeps ZyDeck's sizes</small></div>
+    <div class="seg" id="s-keytext"></div></div>
   <div class="row"><div>Unload button<small>Where the eject sign comes up on the waveform: any of them (left and left-mid would overlap, so one of those). Left-mid ends where the track's name does</small></div>
     <div class="seg" id="s-ejectat"></div></div>
   <div class="row"><div>Slipmat grip<small>After you let go, the slipmat pulls the record to the platter's speed at a steady rate, from however fast you flicked it. Set as the time from a standstill to full speed</small></div>
@@ -583,6 +590,7 @@
   <button class="close" id="s-close" style="float:right">Done</button>
 </div></div>
 <div id="rotate">Turn the tablet to landscape</div>
+<script src="/zydeck-skin-d.js"></script>
 <script>
 // The hub this page talks to: the server that served it, or (?hub=host:port, Link devices) another ZyDeck's,
 // with the page itself from this device's own server. Then it's this device's version of the page, and a
@@ -599,7 +607,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision" };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive" };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
 // Android, which knows the screen's real pixel density.
@@ -678,7 +686,10 @@ function applySettings() {
   r.setProperty("--mm", S.pxmm + "px");
   r.setProperty("--bar", `calc(var(--mm) * ${S.bar})`);
   r.setProperty("--knob", `calc(var(--mm) * ${S.knobSize})`);
+  applyLook();
 }
+// The look (zydeck-skin-d.js): Hardware over Element, or Element as it is
+function applyLook() { window.zydeckSkin?.apply({ theme: S.theme || "d", lamp: S.lampSide, text: S.keyText, ptl: "top" }); }
 
 // =====================================================================================================
 // Simulated Mixxx state (replaced by the real connection later)
@@ -2867,6 +2878,9 @@ function paintSettings(soft) {
     });
   }
   seg("s-layout", [["stacked", "Strips on top"], ["side", "Side by side"]], () => S.layout, v => S.layout = v);
+  seg("s-theme", [["d", "Hardware"], ["element", "Element"]], () => S.theme || "d", v => { S.theme = v; applyLook(); });
+  seg("s-lampside", [["left", "Left"], ["right", "Right"], ["bottom", "Bottom"]], () => S.lampSide || "left", v => { S.lampSide = v; applyLook(); });
+  seg("s-keytext", [["adaptive", "Adaptive"], ["element", "Fixed"]], () => S.keyText || "adaptive", v => { S.keyText = v; applyLook(); });
   const stripMm = ui.sides[0]?.strip ? ui.sides[0].strip.clientWidth / S.pxmm : 70;
   document.getElementById("s-revs-info").textContent =
     `${stripSeconds().toFixed(1)} s of audio across ${stripMm.toFixed(0)} mm · ${(stripSeconds() * 1000 / stripMm).toFixed(0)} ms per mm`;

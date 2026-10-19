@@ -1,0 +1,153 @@
+/* ZyDeck's "Hardware" look (skin D) over the deck page (zydeck-skin-d.js switches it). Only paint: no size or position of
+   anything changes. The frame is drawn as the button's own border (inside its box), the lamp as a ::before
+   inside it, the shadow outside it. Everything is under body.skin-d, so without ?skin=d this is Element. */
+
+/* ---------------- keys ---------------- */
+body.skin-d #app button:not(.psw) {
+  border: 3px solid #050505 !important; border-radius: 4px !important;
+  background: linear-gradient(#5b5e63, #46494d 55%, #404348) !important;
+  color: #f1f1f1 !important; text-shadow: 0 -1px 0 rgba(0,0,0,.55);
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,.2), inset -1px -2px 0 rgba(0,0,0,.3), 3px 4px 8px rgba(0,0,0,.45) !important;
+  --lc: var(--sk-led);
+}
+body.skin-d { --sk-led: #3a86ff; --sk-lampH: 17px; --sk-lampW: 16px; --sk-stripH: 7px; --sk-sideW: 11px; --sk-sideH: 18px; }
+body.skin-d.sk-phone { --sk-lampH: 9px; --sk-stripH: 5px; --sk-sideW: 8px; --sk-sideH: 14px; }
+body.skin-d #app button:not(.psw):active { background: linear-gradient(#404347, #4a4d51) !important;
+  box-shadow: inset 2px 2px 4px rgba(0,0,0,.45), 1px 1px 2px rgba(0,0,0,.45) !important; }
+/* labels stay white; the lamp says what's on. The deck switch keeps the deck's colour in its text */
+body.skin-d #app button.switch { color: var(--acc) !important; }
+body.skin-d #app button small { color: #b9bcc2 !important; }
+body.skin-d #app .two > small { color: #b9bcc2 !important; opacity: .9 !important; }
+/* SHIFT held: nothing moves; the lower legend grows (Element's .two.alt), in the deck's colour */
+body.skin-d #app .two.alt > small { color: var(--acc, #ff8a1e) !important; opacity: 1 !important; }
+body.skin-d #app .two.alt > b { color: #9a9da2 !important; }
+body.skin-d #app .transport .sync.beat .two > small, body.skin-d #app .transport .sync.beat .two > small.on { color: #b9bcc2 !important; opacity: .9 !important; }
+
+/* which colour each key's lamp lights in */
+body.skin-d #app .play { --lc: var(--play); }
+body.skin-d #app .cuebtn, body.skin-d #app .pfl { --lc: var(--cue); }
+body.skin-d #app .sync, body.skin-d #app .flags button, body.skin-d #app .modes button { --lc: var(--acc); }
+body.skin-d #app .shift, body.skin-d #app .ol, body.skin-d #app .sshift, body.skin-d #app .mute, body.skin-d #app #rec { --lc: var(--err); }
+body.skin-d #app .smpbtn, body.skin-d #app .loopbox .loop, body.skin-d #app .adj { --lc: var(--play); }
+body.skin-d #app .fxstrip button { --lc: var(--fx); }
+
+/* the lamp: data-ls (set by skin-e.js from the key's shape): b = bottom (N9-1), bh = bottom, half height,
+   s = a strip (selectors), l / r = at the left / right end (wide, flat keys) */
+body.skin-d #app button[data-ls]:not([data-ls=""])::before { content: ""; position: absolute; pointer-events: none; z-index: 1;
+  background: #202226; box-shadow: inset 0 0 0 2.5px #383a3e; }
+body.skin-d #app button[data-ls="b"]::before, body.skin-d #app button[data-ls="bh"]::before {
+  left: 50%; bottom: 0; width: var(--sk-lampW); margin-left: calc(var(--sk-lampW) / -2); height: var(--sk-lampH); }
+body.skin-d #app button[data-ls="bh"]::before { height: 9px; }
+body.skin-d #app button[data-ls="s"]::before { left: 7px; right: 7px; bottom: 0; height: var(--sk-stripH); box-shadow: inset 0 0 0 1.5px #383a3e; }
+body.skin-d #app button[data-ls="l"]::before, body.skin-d #app button[data-ls="r"]::before {
+  top: 50%; width: var(--sk-sideW); height: var(--sk-sideH); margin-top: calc(var(--sk-sideH) / -2); }
+body.skin-d #app button[data-ls="l"]::before { left: 4px; } body.skin-d #app button[data-ls="r"]::before { right: 4px; }
+/* room for it, inside the button (border-box: the button's size doesn't change) */
+body.skin-d #app button[data-ls="b"] { padding-bottom: calc(var(--sk-lampH) * .75) !important; }
+body.skin-d #app button[data-ls="bh"] { padding-bottom: 6px !important; }
+body.skin-d #app button[data-ls="s"] { padding-bottom: calc(var(--sk-stripH) + 1px) !important; }
+body.skin-d #app button[data-ls="l"] { padding-left: calc(var(--sk-sideW) + 8px) !important; }
+body.skin-d #app button[data-ls="r"] { padding-right: calc(var(--sk-sideW) + 8px) !important; }
+/* lit: the whole window lights, brightest in the middle (N3's light) */
+body.skin-d #app button.on[data-ls]::before, body.skin-d #app button.adj[data-ls]::before, body.skin-d #app .sync.beat[data-ls]::before {
+  background: radial-gradient(70% 60% at 50% 55%, color-mix(in srgb, var(--lc) 70%, #fff), var(--lc) 55%, color-mix(in srgb, var(--lc) 80%, #000));
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.35), 0 0 7px color-mix(in srgb, var(--lc) 45%, transparent); }
+body.skin-d #app button.on:active[data-ls]::before { filter: brightness(1.15); }
+body.skin-d #app .play.on.preview[data-ls]::before { animation: sk-blink .5s steps(1) infinite; }
+@keyframes sk-blink { 50% { background: #202226; box-shadow: inset 0 0 0 2.5px #383a3e; } }
+
+/* SYNC: edge and lamp. Off: the face's edge (and the lamp) glow white as the BPMs converge, green once matched.
+   TEMPO sync: the edge lit in the deck's colour. BEAT sync: the edge and the lamp. */
+body.skin-d #app .sync:not(.tempo):not(.beat) {
+  box-shadow: inset 0 0 0 2px rgba(255,255,255, calc(.9 * var(--glow, 0))), inset 1px 1px 0 rgba(255,255,255,.2), 3px 4px 8px rgba(0,0,0,.45),
+    0 0 calc(10px * var(--glow, 0)) rgba(255,255,255, calc(.5 * var(--glow, 0))) !important; }
+body.skin-d #app .sync:not(.tempo):not(.beat)[data-ls]::before { background: color-mix(in srgb, #fff calc(var(--glow, 0) * 90%), #202226); }
+body.skin-d #app .sync.matched:not(.tempo):not(.beat) {
+  box-shadow: inset 0 0 0 2px var(--play), inset 1px 1px 0 rgba(255,255,255,.2), 3px 4px 8px rgba(0,0,0,.45), 0 0 10px color-mix(in srgb, var(--play) 55%, transparent) !important; }
+body.skin-d #app .sync.matched:not(.tempo):not(.beat)[data-ls]::before { background: var(--play); box-shadow: 0 0 6px var(--play); }
+body.skin-d #app .sync.tempo, body.skin-d #app .sync.beat {
+  box-shadow: inset 0 0 0 2px var(--acc), inset 1px 1px 0 rgba(255,255,255,.2), 3px 4px 8px rgba(0,0,0,.45), 0 0 8px color-mix(in srgb, var(--acc) 45%, transparent) !important; }
+
+/* adaptive text: the size skin-e.js works out for each key (Element's own sizes otherwise) */
+body.skin-d.adaptive #app button[data-afs] { font-size: var(--afs) !important; line-height: 1.05; }
+body.skin-d.adaptive #app button[data-afs] small { font-size: .58em !important; }
+body.skin-d.adaptive #app button[data-afs] .two > b, body.skin-d.adaptive #app button[data-afs] .two > small { transition: none !important; }
+
+/* ---------------- pads (Ember: lit from behind, brightest in the middle, no edge) ---------------- */
+body.skin-d #app .pads { background: #060606; border-radius: 6px; box-shadow: 0 0 0 4px #060606; }
+body.skin-d #app .pad:not(.asknob) { border: 0 !important; border-radius: 5px; color: #6a6a70;
+  background: radial-gradient(110% 90% at 45% 30%, #36363a, #29292c 65%, #232326);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.07), inset 0 -2px 0 rgba(0,0,0,.35), 0 2px 3px rgba(0,0,0,.45); }
+body.skin-d #app .pad.lit { color: var(--fg, #111);
+  background: radial-gradient(90% 85% at 50% 45%, color-mix(in srgb, var(--c) 82%, #fff), var(--c) 50%, color-mix(in srgb, var(--c) 78%, #000)); box-shadow: 0 2px 3px rgba(0,0,0,.45); }
+body.skin-d #app .pad.tint { color: color-mix(in srgb, var(--c) 55%, #fff);
+  background: radial-gradient(90% 85% at 50% 45%, color-mix(in srgb, var(--c) 34%, #232326), color-mix(in srgb, var(--c) 18%, #141416)); box-shadow: 0 2px 3px rgba(0,0,0,.45); }
+body.skin-d #app .pad.down { background: radial-gradient(90% 85% at 50% 45%, color-mix(in srgb, var(--c, #888) 82%, #fff), var(--c, #888) 50%, color-mix(in srgb, var(--c, #888) 78%, #000)) !important;
+  color: var(--fg, #111) !important; filter: brightness(1.2); }
+
+/* pad text: the number (or a pad's main word) is .pn (wrapped by skin-e.js), the name .lbl, the second line small.
+   Sizes: --pfs (the name), --pfs2 (the small lines), from skin-e.js */
+body.skin-d #app .pad:not(.asknob) { padding: 6px 7px; font-size: var(--pfs, calc(var(--mm) * 2.9)); }
+body.skin-d #app .pad:not(.asknob) small, body.skin-d #app .pad .lbl { line-height: 1.05; }
+body.skin-d #app .pad .pn, body.skin-d #app .pad .lbl, body.skin-d #app .pad small { position: relative; z-index: 1; max-width: 100%; }
+body.skin-d #app .pad small { font-size: var(--pfs2, calc(var(--mm) * 1.5)) !important; margin-top: 2px; }
+/* a pad with a name: the number is the small one */
+body.skin-d #app .pad.hasname .pn, body.skin-d #app .pad.numonly .pn { font-size: var(--pfn); font-weight: 800; line-height: 1; opacity: .92; }
+/* the cue's time, on the number's line at the right */
+body.skin-d #app .pad .tm { position: absolute; right: 7px; top: 7px; z-index: 1; font: 600 var(--pfs2)/1 "JetBrains Mono", ui-monospace, monospace; opacity: .8; }
+body.skin-d #app .pad.hasname .lbl { font-size: var(--pfs) !important; font-weight: 700; opacity: 1; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: normal; word-break: keep-all; overflow-wrap: normal; }
+
+/* Top-down: everything from the top-left, the lower part left for the finger */
+body.skin-d.ptl-top #app .pad:not(.asknob), body.skin-d.ptl-band #app .pad:not(.asknob), body.skin-d.ptl-tape #app .pad:not(.asknob), body.skin-d.ptl-num #app .pad:not(.asknob) {
+  justify-content: flex-start; align-items: flex-start; text-align: left; }
+/* Top band: the same on a darker band across the top, like a printed label strip */
+body.skin-d.ptl-band #app .pad:not(.asknob)::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 46%; background: rgba(0,0,0,.28); pointer-events: none; }
+body.skin-d.ptl-band #app .pad.lit .pn, body.skin-d.ptl-band #app .pad.lit .lbl, body.skin-d.ptl-band #app .pad.lit small { color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+/* Tape: a strip of white tape across the top with the name written on it, as DJs label their gear */
+body.skin-d.ptl-tape #app .pad:not(.asknob) { padding-top: 0; }
+body.skin-d.ptl-tape #app .pad.hasname .lbl, body.skin-d.ptl-tape #app .pad:not(.hasname) .pn {
+  margin: 4px -3px 2px; padding: 2px 5px; background: #ece6d4; color: #1b1b1b !important; text-shadow: none; border-radius: 1px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.35); width: calc(100% + 6px); box-sizing: border-box; }
+body.skin-d.ptl-tape #app .pad.hasname .pn { order: 2; }
+/* Split: number top-left, the name in the middle, the second line bottom-right */
+body.skin-d.ptl-split #app .pad.hasname .pn { position: absolute; left: 7px; top: 6px; }
+body.skin-d.ptl-split #app .pad small { position: absolute; right: 7px; bottom: 6px; }
+/* Numeral: the name top-left, the pad's number big and faint in the bottom-right corner */
+body.skin-d.ptl-num #app .pad.hasname .pn { position: absolute; right: 6px; bottom: 2px; font-size: calc(var(--pfs) * 2.2); opacity: .22; font-weight: 800; }
+/* names start at the left (Element centres them) */
+body.skin-d #app .pad .lbl { margin: 0 !important; max-width: 100% !important; text-align: inherit; }
+body.skin-d.ptl-split #app .pad .lbl { text-align: center; }
+/* a cue's name 0.3 of a line below its number; in the other modes (stems, Stem FX, loops…) the second line 1.5x */
+body.skin-d #app .pad.hasname .lbl { margin-top: .3em !important; }
+body.skin-d #app .pad:not(.hasname):not(.numonly) small { font-size: var(--pfs3, calc(var(--mm) * 2.2)) !important; }
+/* pads: the small lines not bold */
+body.skin-d #app .pad small, body.skin-d #app .pad .tm { font-weight: 400 !important; }
+
+/* ---------------- tempo lane: a rubber touchpad; the ribs run under the finger (--sk-ty, from skin-e.js), a tick
+   each 1 % down the right edge (Element's --tick), the marker a flat fader cap with the deck's line ---------------- */
+body.skin-d #app .lane { border: 0 !important; border-radius: 4px !important;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 calc(var(--tick) - 1px), rgba(255,255,255,.2) calc(var(--tick) - 1px) var(--tick)) right 0 top 0 / 6px 100% no-repeat,
+    repeating-linear-gradient(180deg, rgba(255,255,255,.075) 0 2px, transparent 2px 6px) 0 var(--sk-ty, 0px) / 100% 6px,
+    linear-gradient(90deg, rgba(0,0,0,.45), transparent 18%, transparent 82%, rgba(0,0,0,.45)), #141416 !important;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.85), 0 1px 0 rgba(255,255,255,.05) !important; }
+body.skin-d #app .lane .zero { background: rgba(255,255,255,.22); }
+body.skin-d #app .lane .mark { left: 6% !important; right: 6% !important; border-radius: 2px !important;
+  background: linear-gradient(transparent calc(50% - 1px), var(--acc) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)), #242426 !important;
+  box-shadow: 0 0 0 1px #000, inset 0 1px 0 rgba(255,255,255,.08), 0 2px 4px rgba(0,0,0,.5); }
+body.skin-d #app .lane.held .mark { box-shadow: 0 0 0 1px #000, 0 0 10px color-mix(in srgb, var(--acc) 60%, transparent); }
+body.skin-d #app .lane .end { color: #9a9a9a !important; text-shadow: 0 1px 2px #000; }
+body.skin-d #app .tread { font-family: "JetBrains Mono", ui-monospace, monospace; color: #ffcf73 !important; }
+body.skin-d #app .tread.over { color: #ff6a5a !important; }
+
+/* ---------------- nudge bar: a CDJ jog wheel's edge (drawn by skin-e.js on a canvas, turned by Element's --off) ---------------- */
+body.skin-d #app .nudge { border: 0 !important; background: #0b0b0c !important; box-shadow: inset 0 1px 2px rgba(0,0,0,.8), 0 1px 0 rgba(255,255,255,.05);
+  color: transparent !important; }
+body.skin-d #app .nudge > canvas.sk-jog { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* "NUDGE" in the middle for the first 20 s, then it goes */
+body.skin-d #app .nudge::after { content: "NUDGE"; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 1px 6px; border-radius: 3px;
+  font: 700 calc(var(--mm) * 1.4)/1 sans-serif; letter-spacing: .18em; color: #d8d8d8; background: rgba(0,0,0,.6); transition: opacity 1.2s; pointer-events: none; }
+body.skin-d.learned #app .nudge::after { opacity: 0; }
+/* the lower nudge bar (under the second waveform) is the same wheel seen from below: its light ring toward its waveform */
+body.skin-d #app #nudge1 .nudge > canvas.sk-jog { transform: scaleY(-1); }
+#app .nudge > canvas.sk-jog { display: none; } body.skin-d #app .nudge > canvas.sk-jog { display: block; }

@@ -388,6 +388,9 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     if (path == QLatin1String("/zydeck-shared.js") || path == QLatin1String("/zydeck-shared.css")) {   // both settings menus' parts
         return staticFile(path.mid(1));
     }
+    if (path == QLatin1String("/zydeck-skin-d.js") || path == QLatin1String("/zydeck-skin-d.css")) {   // the deck page's Hardware look
+        return staticFile(path.mid(1));
+    }
     if (path.startsWith(QLatin1String("/waveform/"))) {
         const QByteArray data = waveform(path.mid(10).toInt());
         if (data.isEmpty()) {
