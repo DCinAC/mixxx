@@ -1196,6 +1196,7 @@ async function openSheet(t) {
     facts.after(top);
     top.append(s.querySelector(".loads"), right);
     right.append(facts, ...[s.querySelector(".pvn"), s.querySelector(".more")].filter(Boolean));
+    s.querySelector(".pv").textContent = "Preview"; s.querySelector(".smp").textContent = "To sampler";
   }
   s.querySelector(".pv").disabled = t.missing;
   s.querySelector(".pv").addEventListener("click", () => previewing(t) ? stopPreview() : preview(t, true));
@@ -1532,7 +1533,7 @@ function previewNeedle(box, t) {
     if (on && !wf && !wfBusy && performance.now() - wfTried > 1500) getWaveform();
     tm.textContent = on ? `${fmtTime(f * dur())} / ${fmtTime(dur())}` : fmtTime(dur());
     const btn = $("#sheet .pv");
-    if (btn) { btn.textContent = on ? "Stop preview" : "Preview (headphones)"; btn.classList.toggle("on", on); }
+    if (btn) { const short = btn.closest(".hw"); btn.textContent = on ? (short ? "Stop" : "Stop preview") : short ? "Preview" : "Preview (headphones)"; btn.classList.toggle("on", on); }
     if (sizeCanvas(c)) draw();
     requestAnimationFrame(frame);
   })();

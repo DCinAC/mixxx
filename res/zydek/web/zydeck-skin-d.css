@@ -30,9 +30,9 @@ body.skin-d #app .play { --lc: var(--play); }
 body.skin-d #app .cuebtn { --lc: var(--play); }
 body.skin-d #app .pfl { --lc: var(--cue); }
 body.skin-d #app .flags button, body.skin-d #app .modes button { --lc: var(--acc); }
-/* SYNC: green when synced; white on the deck that's the master */
+/* SYNC: green when synced; steady on the deck that's the master (its MASTER lit), flashing on the ones following it */
 body.skin-d #app .sync { --lc: var(--play); }
-body.skin-d #app .sync.beat:has(small.on, small.lit) { --lc: #f4f4f4; }
+body.skin-d #app .sync.beat:not(:has(small.on, small.lit))[data-ls]::before { animation: sk-blink 1s steps(1) infinite; }
 body.skin-d #app .shift, body.skin-d #app .ol, body.skin-d #app .sshift, body.skin-d #app .mute, body.skin-d #app #rec { --lc: var(--err); }
 body.skin-d #app .smpbtn, body.skin-d #app .loopbox .loop, body.skin-d #app .adj { --lc: var(--play); }
 body.skin-d #app .fxstrip button { --lc: var(--fx); }
