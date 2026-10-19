@@ -45,6 +45,9 @@ body.skin-d #app button[data-ls="b"]::before, body.skin-d #app button[data-ls="b
 body.skin-d #app button[data-ls="bh"]::before { height: 9px; }
 /* keys that aren't about square: the lamp twice as wide */
 body.skin-d #app button[data-lw="2"][data-ls="b"]::before, body.skin-d #app button[data-lw="2"][data-ls="bh"]::before { width: calc(var(--sk-lampW) * 2); margin-left: calc(var(--sk-lampW) * -1); }
+/* …and below the waveforms, 80 % as tall */
+body.skin-d #app button[data-lw="2"][data-low="1"][data-ls="b"]::before { height: calc(var(--sk-lampH) * .8); }
+body.skin-d #app button[data-lw="2"][data-low="1"][data-ls="bh"]::before { height: 7px; }
 body.skin-d #app button[data-ls="s"]::before { left: 7px; right: 7px; bottom: 0; height: var(--sk-stripH); box-shadow: inset 0 0 0 1.5px #383a3e; }
 body.skin-d #app button[data-ls="l"]::before, body.skin-d #app button[data-ls="r"]::before {
   top: 50%; width: var(--sk-sideW); height: var(--sk-sideH); margin-top: calc(var(--sk-sideH) / -2); }

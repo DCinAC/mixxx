@@ -57,8 +57,14 @@
     if (b.dataset.ls !== ls) b.dataset.ls = ls;
     const lw = (ls === "b" || ls === "bh") && Math.abs(Math.log(r.width / r.height)) > Math.log(1.15) ? "2" : "";   // not square: a lamp twice as wide
     if ((b.dataset.lw || "") !== lw) b.dataset.lw = lw;
+    // below the waveforms (SHIFT, TEMPO BOOST, headphones, MUTE, FX…), a wide lamp is 80 % as tall
+    const low = lw && r.top >= stripsBottom() - 1 ? "1" : "";
+    if ((b.dataset.low || "") !== low) b.dataset.low = low;
     if (ADAPT) fitKey(b, r);
   }
+  // where the waveforms end (the lowest strip's bottom edge), once per layout
+  let _sb = null;
+  const stripsBottom = () => _sb ?? (_sb = Math.max(0, ...[...app.querySelectorAll(".strip")].map(e => e.getBoundingClientRect().bottom)));
   const norm = t => (t || "").replace(/\d/g, "8").trim();
   function fitKey(b, r) {
     for (const x of b.querySelectorAll(".two > b, .two > small")) x.style.removeProperty("font-size");   // Element's own squeeze
@@ -142,7 +148,7 @@
     const off = parseFloat(n.style.getPropertyValue("--off")) || 0, held = n.classList.contains("held");
     const acc = getComputedStyle(n).getPropertyValue("--acc").trim() || "#ff8a1e";
     const R = W / 2, teeth = 44, step = Math.PI * 2 / teeth, angle = off * dpr / R;
-    const top = 0, bot = H - snap(H * .14);
+    const top = Math.max(2, snap(3 * dpr)), bot = H - snap(H * .14);   // a 3 px lit lip along the top
     g.fillStyle = "#141416"; g.fillRect(0, top, W, bot - top);
     for (let i = 0; i < teeth; i++) {
       const a0 = (((i * step + angle) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) - Math.PI, a1 = a0 + step;
@@ -155,6 +161,9 @@
       g.fillStyle = `rgb(${c2},${c2},${c2 + 2})`; g.beginPath();
       g.ellipse(x0 + w / 2, (top + bot) / 2, rx, ry, 0, 0, Math.PI * 2); g.fill();
     }
+    // the lip: light at its top edge, darker the lower it goes (light falling off round the rim)
+    const lip = g.createLinearGradient(0, 0, 0, top); lip.addColorStop(0, "#e2e3e6"); lip.addColorStop(1, "#4a4c50");
+    g.fillStyle = lip; g.fillRect(0, 0, W, top);
     g.globalAlpha = held ? 1 : .4; g.fillStyle = acc; g.fillRect(0, bot, W, H - bot); g.globalAlpha = 1;
     const edge = g.createLinearGradient(0, 0, W, 0);
     edge.addColorStop(0, "rgba(0,0,0,.85)"); edge.addColorStop(.16, "rgba(0,0,0,.08)"); edge.addColorStop(.84, "rgba(0,0,0,.15)"); edge.addColorStop(1, "rgba(0,0,0,.88)");
@@ -194,6 +203,7 @@
   var queued = new Set(), all = true;
   const run = () => {
     PHONE = app.classList.contains("phone"); body.classList.toggle("sk-phone", PHONE);
+    if (all) _sb = null;
     const whole = all, els = all ? [...app.querySelectorAll("button"), ...app.querySelectorAll(".pad")] : [...queued];
     all = false; queued = new Set();
     if (whole && on) { jogs(); knobs(); }
