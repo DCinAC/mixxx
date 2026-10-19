@@ -75,7 +75,7 @@ class Hub : public QObject {
     HttpServer::Response handleHttp(const QString& path, const HttpServer::Query& query);
     HttpServer::Response handleApi(const QString& path, const HttpServer::Query& query);
     HttpServer::Response staticFile(const QString& name) const;
-    QByteArray waveform(int trackId) const;
+    QByteArray waveform(int trackId, bool stems = false) const;
     QByteArray beats(int trackId) const;
     // Sampler pad modes (ZyDeck's own, shared by every page): "oneshot" plays to the end (a tap restarts it),
     // "hold" plays while held, "loop" starts and stops on alternate taps. Kept in zydek-samplers.json.

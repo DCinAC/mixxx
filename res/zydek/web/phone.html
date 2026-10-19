@@ -241,6 +241,40 @@
   #sheet .more button { min-height: 48px; }
   #sheet .more button small { display: block; font-size: 11px; color: var(--dim); margin-top: 2px; }
 
+  /* track sheet, Menu UI Hardware (#sheet.hw): the decks' keys and lamps; the deck keys stacked beside a display */
+  #sheet.hw { background: linear-gradient(#1c1d20, #161719); border-top: 3px solid #050505; box-shadow: 0 -12px 40px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.06); }
+  #sheet.hw button { position: relative; border: 3px solid #050505; border-radius: 4px; color: #f1f1f1; text-shadow: 0 -1px 0 rgba(0,0,0,.55); font-weight: 600;
+    background: linear-gradient(#55575c, #414448 55%, #3c3e43); box-shadow: inset 1px 1px 0 rgba(255,255,255,.2), inset -1px -2px 0 rgba(0,0,0,.3), 3px 4px 8px rgba(0,0,0,.45); filter: none; }
+  #sheet.hw button:active:not(:disabled) { background: linear-gradient(#404347, #4a4d51); box-shadow: inset 2px 2px 4px rgba(0,0,0,.45), 1px 1px 2px rgba(0,0,0,.45); transform: translate(1px, 1px); filter: none; }
+  #sheet.hw button:disabled { opacity: 1; color: #7b7e83; text-shadow: none; background: linear-gradient(#3a3c40, #323438); }
+  #sheet.hw button small { color: #b8b8bc; font-weight: 500; }
+  #sheet.hw .facts { margin: 0; gap: 1px; padding: 8px 6px; border-radius: 4px; background: #07090a; border: 1px solid #000; box-shadow: inset 0 2px 6px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.06); }
+  #sheet.hw .facts div { background: none; text-align: center; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #7d8a8f; padding: 2px; }
+  #sheet.hw .facts b { font: 500 18px ui-monospace, "Roboto Mono", monospace; color: #eaf2f4; letter-spacing: 0; }
+  #sheet.hw .hwtop { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; margin-top: 12px; }
+  #sheet.hw .hwtop .loads { display: flex; flex-direction: column; gap: 8px; }
+  #sheet.hw .hwtop .loads button { flex: 1; min-height: 52px; padding: 2px 4px 10px; font-size: 15px; border-color: #050505; color: #f1f1f1; }
+  #sheet.hw .hwtop .loads button small { overflow: hidden; text-overflow: ellipsis; }
+  #sheet.hw .hwright { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  #sheet.hw .hwright .pvn { flex: 1; margin: 0; min-height: 56px; background: #07090a; border: 1px solid #000; box-shadow: inset 0 2px 6px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.06); }
+  #sheet.hw .hwright .more { margin: 0; }
+  /* lamps: a strip under a deck key (green: playing, its deck's colour: loaded); a square at the left end of a key
+     that's on (preview, the Stems crate, a crate it's in) or armed (red: tap again) */
+  #sheet.hw .loads button::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 28px; margin-left: -14px; height: 7px;
+    background: #202226; box-shadow: inset 0 0 0 1.5px #383a3e; }
+  #sheet.hw .pv, #sheet.hw .scrate, #sheet.hw .hide, #sheet.hw .delete, #sheet.hw .analyze, #sheet.hw .crates button { padding-left: 34px; }
+  #sheet.hw .pv::before, #sheet.hw .scrate::before, #sheet.hw .hide::before, #sheet.hw .delete::before, #sheet.hw .analyze::before, #sheet.hw .crates button::before { content: ""; position: absolute; left: 10px; top: 50%;
+    width: 15px; height: 21px; margin-top: -10.5px; background: #202226; box-shadow: inset 0 0 0 2.5px #383a3e; }
+  #sheet.hw .loads .loaded.d12 { --lc: var(--deck12); } #sheet.hw .loads .loaded.d34 { --lc: var(--deck34); } #sheet.hw .loads .playing { --lc: var(--play); }
+  #sheet.hw .crates .on, #sheet.hw .pv.on, #sheet.hw .scrate[data-on="1"] { --lc: #ffc23d; }
+  #sheet.hw .armed { --lc: #ff4a3d; }
+  #sheet.hw .loads .loaded::after, #sheet.hw .loads .playing::after, #sheet.hw .crates .on::before, #sheet.hw .pv.on::before, #sheet.hw .scrate[data-on="1"]::before, #sheet.hw .armed::before {
+    background: radial-gradient(70% 60% at 50% 55%, color-mix(in srgb, var(--lc) 70%, #fff), var(--lc) 55%, color-mix(in srgb, var(--lc) 80%, #000));
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,.35), 0 0 8px color-mix(in srgb, var(--lc) 50%, transparent); }
+  #sheet.hw .crates .box { display: none; }
+  #sheet.hw hr { border-top-color: #000; box-shadow: 0 1px 0 rgba(255,255,255,.05); }
+  #sheet.hw .newcrate input { background: #0c0c0d; border: 1px solid #000; border-radius: 4px; box-shadow: inset 0 2px 5px rgba(0,0,0,.85), 0 1px 0 rgba(255,255,255,.06); }
+
   /* track sheet */
   #scrim { position: fixed; inset: 0; z-index: 8; background: rgba(0,0,0,.6); opacity: 0; pointer-events: none; transition: opacity .18s; }
   #scrim.on { opacity: 1; pointer-events: auto; }
@@ -1146,13 +1180,23 @@ async function openSheet(t) {
     `<div class="more">${removal}</div>` +
     `<div class="sub">Crates · tap one to add or remove</div><div class="crates"></div>` +
     `<div class="newcrate"><input placeholder="New crate name" enterkeyhint="done"><button>Make crate</button></div>`;
-  [1, 2, 3, 4].forEach(n => {
+  // Menu UI (the deck page's Look setting): Hardware lays the sheet out as a mixer strip (the deck keys stacked
+  // 3 1 2 4 as on the decks, beside the facts' display and the preview); Element keeps it as it was
+  const hw = menuHw();
+  s.classList.toggle("hw", hw);
+  (hw ? [3, 1, 2, 4] : [1, 2, 3, 4]).forEach(n => {
     const d = decks[n - 1];
-    const b = h("button", n > 2 ? "d34" : "d12", `Deck ${n}<small>${d.playing ? "playing" : d.loaded ? esc(d.title || "loaded") : "empty"}</small>`);
+    const b = h("button", (n > 2 ? "d34" : "d12") + (d.playing ? " playing" : d.loaded ? " loaded" : ""), `Deck ${n}<small>${d.playing ? "playing" : d.loaded ? esc(d.title || "loaded") : "empty"}</small>`);
     b.disabled = d.playing || t.missing;
     b.addEventListener("click", () => load(t, "deck" + n));
     s.querySelector(".loads").appendChild(b);
   });
+  if (hw) {
+    const top = h("div", "hwtop"), right = h("div", "hwright"), facts = s.querySelector(".facts");
+    facts.after(top);
+    top.append(s.querySelector(".loads"), right);
+    right.append(facts, ...[s.querySelector(".pvn"), s.querySelector(".more")].filter(Boolean));
+  }
   s.querySelector(".pv").disabled = t.missing;
   s.querySelector(".pv").addEventListener("click", () => previewing(t) ? stopPreview() : preview(t, true));
   if (!t.missing) previewNeedle(s.querySelector(".pvn"), t);
@@ -1225,6 +1269,7 @@ async function openSheet(t) {
 // or not the track is on a deck; setting new cues happens on the decks.
 const CUE_PALETTE = ["#c50a08", "#32be44", "#42d4f4", "#f8d200", "#0044ff", "#af00cc", "#fca6d7", "#f2f2ff"];   // Mixxx's
 async function openCueEditor(t) {
+  $("#sheet").classList.remove("hw");
   let r;
   try { r = await api(`/api/library/cues?${qs({ id: t.id })}`); } catch (e) { return toast(e.message, "bad"); }
   const s = $("#sheet"), byN = Object.fromEntries(r.cues.map(c => [c.n, c]));
@@ -1312,6 +1357,7 @@ const INTRO_STYLE_DEFAULT = "gild";   // RELEASE: as in intro.html
 // Settings page, under the waveforms; sideways it's a window over the decks (their gear asks for it). The
 // Controller settings are the deck page's (in its frame).
 const deckFrame = () => document.getElementById("deckview");
+const menuHw = () => { try { return (deckFrame().contentWindow.ZydeckMenu.providers.controller.S().menuLook || "d") === "d"; } catch { return true; } };
 ZydeckMenu.setup({
   page: "phone", toast, ctl: () => deckFrame().contentWindow.ZydeckMenu?.providers.controller,
   mm: () => { try { return getComputedStyle(deckFrame().contentDocument.documentElement).getPropertyValue("--mm").trim(); } catch { return ""; } },
@@ -1486,7 +1532,7 @@ function previewNeedle(box, t) {
     if (on && !wf && !wfBusy && performance.now() - wfTried > 1500) getWaveform();
     tm.textContent = on ? `${fmtTime(f * dur())} / ${fmtTime(dur())}` : fmtTime(dur());
     const btn = $("#sheet .pv");
-    if (btn) btn.textContent = on ? "Stop preview" : "Preview (headphones)";
+    if (btn) { btn.textContent = on ? "Stop preview" : "Preview (headphones)"; btn.classList.toggle("on", on); }
     if (sizeCanvas(c)) draw();
     requestAnimationFrame(frame);
   })();

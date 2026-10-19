@@ -392,7 +392,7 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         return staticFile(path.mid(1));
     }
     if (path.startsWith(QLatin1String("/waveform/"))) {
-        const QByteArray data = waveform(path.mid(10).toInt());
+        const QByteArray data = waveform(path.mid(10).toInt(), query.value(QStringLiteral("stems")) == QLatin1String("1"));
         if (data.isEmpty()) {
             return {404, "text/plain", "not analysed yet\n", {}};
         }
@@ -864,7 +864,9 @@ HttpServer::Response Hub::staticFile(const QString& name) const {
 
 /// "MXWF", visual rate (float32 LE), point count (uint32 LE), then all/low/mid/high per point
 /// (the louder of left and right) — the format the controller page draws on the platter strip.
-QByteArray Hub::waveform(int trackId) const {
+/// stems (?stems=1), and the track has them: "MXWS", the same, then each stem's level per point too
+/// (Mixxx's order: drums, bass, other, vocals), 8 bytes a point, so the page can draw each stem on its own.
+QByteArray Hub::waveform(int trackId, bool stems) const {
     const auto tracks = PlayerInfo::instance().getLoadedTracks();
     for (const TrackPointer& pTrack : tracks) {
         if (!pTrack || pTrack->getId().toVariant().toInt() != trackId) {
@@ -877,8 +879,10 @@ QByteArray Hub::waveform(int trackId) const {
         }
         const int points = pWaveform->getDataSize() / 2;
         const WaveformData* pData = pWaveform->data();
-        QByteArray out(12 + points * 4, Qt::Uninitialized);
-        memcpy(out.data(), "MXWF", 4);
+        const int stemCount = stems ? std::min(pWaveform->getStemCount(), mixxx::kMaxSupportedStems) : 0;
+        const int stride = stemCount > 0 ? 8 : 4;
+        QByteArray out(12 + points * stride, Qt::Uninitialized);
+        memcpy(out.data(), stemCount > 0 ? "MXWS" : "MXWF", 4);
         // Points per second of audio (441 for Mixxx's analysis; the rate itself isn't public).
         const double duration = pTrack->getDuration();
         const float rate = static_cast<float>(duration > 0 ? points / duration : 441.0);
@@ -888,10 +892,14 @@ QByteArray Hub::waveform(int trackId) const {
         for (int i = 0; i < points; ++i) {
             const WaveformFilteredData& l = pData[2 * i].filtered;
             const WaveformFilteredData& r = pData[2 * i + 1].filtered;
-            p[4 * i] = std::max(l.all, r.all);
-            p[4 * i + 1] = std::max(l.low, r.low);
-            p[4 * i + 2] = std::max(l.mid, r.mid);
-            p[4 * i + 3] = std::max(l.high, r.high);
+            unsigned char* q = p + stride * i;
+            q[0] = std::max(l.all, r.all);
+            q[1] = std::max(l.low, r.low);
+            q[2] = std::max(l.mid, r.mid);
+            q[3] = std::max(l.high, r.high);
+            for (int s = 0; s < 4 && stemCount > 0; ++s) {
+                q[4 + s] = s < stemCount ? std::max(pData[2 * i].stems[s], pData[2 * i + 1].stems[s]) : 0;
+            }
         }
         return out;
     }

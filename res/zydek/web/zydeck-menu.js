@@ -118,7 +118,7 @@
   const mmss = s => { s = Math.floor(s || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
   const ROWS = [
     // System › Connections
-    { id: "link", sec: "conn", name: "Link devices", kind: "custom", build: buildLink, st: () => linkSt(),
+    { id: "link", sec: "pin", name: "Link devices", kind: "custom", build: buildLink, st: () => linkSt(),
       desc: "Control another ZyDeck on the same Wi-Fi or hotspot from here, like a Bluetooth controller.",
       more: "The tablet as the phone's decks, say: everything you touch goes to the other ZyDeck, which plays the music. ◀ Back to this device returns." },
     { id: "ctlmode", sec: "conn", name: "Controller mode", ...onOff(() => !!sys.remote.on, v => api(`/api/controller?on=${v ? 1 : 0}`).then(() => { sys.remote.on = v; refresh(); })),
@@ -225,6 +225,9 @@
       desc: "The decks. Hardware: keys in a frame with a lamp, rubber pads lit from behind, a jog wheel's edge for nudging. Element: ZyDeck's flat look." },
     { id: "menulook", sec: "look", name: "Menu UI", kind: "seg", opts: () => [["d", "Hardware"], ["element", "Element"]], ...C("menuLook", "d", () => paintLook()),
       desc: "The menus: these settings, the FX menu and the track menu. The library keeps its own look." },
+    { id: "fxmenu", sec: "look", name: "FX menu", kind: "seg", opts: () => [["keys", "Hardware"], ["display", "Hardware 2"]], ...C("fxMenu", "keys"),
+      show: () => (S().menuLook || "d") === "d",
+      desc: "Hardware: every effect a key. Hardware 2: the effects on a display, with a selector knob that clicks from one to the next." },
     { id: "lampside", sec: "look", name: "Lamp on wide keys", kind: "seg", opts: () => [["left", "Left"], ["right", "Right"], ["bottom", "Bottom"]], ...C("lampSide", "left"),
       desc: "Hardware decks: where the lamp sits on the long, flat keys." },
     { id: "keytext", sec: "look", name: "Key text", kind: "seg", opts: () => [["adaptive", "Adaptive"], ["element", "Fixed"]], ...C("keyText", "adaptive"),
@@ -287,11 +290,14 @@
       fmt: v => `${v} mm`, st: () => ctl()?.info?.knob?.() || "", desc: "Knob diameter; the mixer widens to fit." },
     { id: "bar", sec: "screen", name: "Top bar height", kind: "slider", min: 12, max: 28, step: 1, ...C("bar", 15), show: () => ctl() && !ctl().phone,
       fmt: v => `${v} mm`, desc: "The row with the waveforms and the top-bar keys." },
+    { id: "wavemode", sec: "screen", name: "Waveform rendering mode", kind: "seg", opts: () => [["live", "Live render"], ["extreme", "Live render · extreme"]], ...C("waveMode", "live"),
+      desc: "Live render: stems drawn once by the phone's Mixxx, and the gain only changes the height. Extreme: everything drawn again as it changes, the EQ included." ,
+      more: "Live render costs almost nothing while you play: each stem is its own layer, so muting one just folds it away. Extreme redraws what's on the strip (at most 16 times a second) whenever an EQ, gain or stem moves: closest to what you hear, more work for the screen." },
     { id: "pxmm", sec: "screen", name: "Screen scale", kind: "slider", min: 3.5, max: 8.5, step: .01, ...C("pxmm", 5.93), ruler: true,
       fmt: v => `${(+v).toFixed(2)} px/mm`, desc: "Adjust until the bar below measures 50 mm with a ruler." },
   ];
   const ROW = Object.fromEntries(ROWS.map(r => [r.id, r]));
-  ROWS.forEach(r => { r.tab = SECTIONS.find(s => s[1] === r.sec)[0]; });
+  ROWS.forEach(r => { r.tab = (SECTIONS.find(s => s[1] === r.sec) || ["both"])[0]; });   // "pin": above both tabs
 
   // ---- drawing ----
   const PL = '<i class="zpl" aria-hidden="true"><i></i><i></i><i></i><i></i></i>';
@@ -396,7 +402,7 @@
   function draw() {
     if (!ui) return;
     const q = ui.q.value.trim().toLowerCase(), words = q.split(/\s+/).filter(Boolean);
-    const hit = r => words.every(w => `${r.name} ${r.desc || ""} ${r.more || ""} ${SECTIONS.find(s => s[1] === r.sec)[2]}`.toLowerCase().includes(w));
+    const hit = r => words.every(w => `${r.name} ${r.desc || ""} ${r.more || ""} ${(SECTIONS.find(s => s[1] === r.sec) || [])[2] || ""}`.toLowerCase().includes(w));
     ui.tabs.forEach(b => { const on = !words.length && b._tab === curTab; b.classList.toggle("on", on); b.setAttribute("aria-selected", on); });
     ui.rows.replaceChildren();
     ui.rail.replaceChildren();
@@ -442,7 +448,7 @@
   function refresh() {
     if (!ui || refreshing) return;
     refreshing = true;
-    requestAnimationFrame(() => { refreshing = false; if (ui) { paintLook(); ui.list.forEach(x => x.upd()); paintHeadState(); } });
+    requestAnimationFrame(() => { refreshing = false; if (ui) { paintLook(); ui.pin.upd(); ui.list.forEach(x => x.upd()); paintHeadState(); } });
   }
   function paintHeadState() {
     if (!ui) return;
@@ -461,10 +467,14 @@
         <label class="zm-q"><span class="zm-vh">Search settings</span><input class="zf" type="search" placeholder="Search both tabs" autocomplete="off" spellcheck="false"></label>
         <button class="zk zm-back"><span></span></button><button class="zk zm-fs"></button>
         <button class="zk zm-x" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button></div>
+      <div class="zm-link"></div>
       <div class="zm-body"><div class="zm-rail" role="navigation" aria-label="Sections"></div><div class="zm-rows"></div></div></div>`;
     box.replaceChildren(root);
     const $ = s => root.querySelector(s);
     ui = { root, layout, head: $(".zm-head"), q: $(".zm-q input"), rail: $(".zm-rail"), rows: $(".zm-rows"), back: $(".zm-back"), fs: $(".zm-fs"), x: $(".zm-x"), list: [] };
+    // Link devices: above both tabs, drawn once, so it stays put while the tabs change under it
+    ui.pin = rowEl(ROW.link);
+    $(".zm-link").appendChild(ui.pin.el);
     if (layout === "page") new ResizeObserver(() => root.style.setProperty("--zm-headh", ui.head.offsetHeight + "px")).observe(ui.head);
     ui.tabs = Object.entries(TABS).map(([t, name]) => {
       const b = key(`<i class="zs" aria-hidden="true"></i>${name}`, "s");
@@ -507,44 +517,52 @@
 
   // ---- the custom rows ----
   let linkSt = () => "";
+  const link = { scanning: false, found: [] };   // kept between windows
   function buildLink(c) {
-    const box = el("div", "zm-sub"), scan = procKey("Scan", "scan");
+    const tray = el("div", "zm-tray"), scan = procKey("Scan", "scan");
     c.appendChild(scan);
-    let scanning = false, found = [];
-    linkSt = () => host.linked ? `Linked to ${host.hubHost.replace(/:\d+$/, "")}` : scanning ? (found.length ? `${found.length} found · still looking` : "Looking…")
-      : pl.scan === "err" ? (bridge()?.linkScan ? "None found: is the other ZyDeck open, on the same Wi-Fi?" : "") : found.length ? `${found.length} found` : "";
+    linkSt = () => host.linked ? `Linked to ${host.hubHost.replace(/:\d+$/, "")}` : link.scanning ? (link.found.length ? `${link.found.length} found · still looking` : "Looking…")
+      : pl.scan === "err" ? (bridge()?.linkScan ? "None found" : "") : link.found.length ? `${link.found.length} found` : "";
     scan.addEventListener("click", async () => {
       const b = bridge();
       if (!b || !b.linkScan) { host.toast("Only in the ZyDeck app", "bad"); setPl("scan", "err"); return; }
-      if (scanning) return;
-      scanning = true; found = []; pl.scan = "busy"; refresh();
+      if (link.scanning) return;
+      link.scanning = true; link.found = []; pl.scan = "busy"; refresh();
       b.linkScan();
       try {
         for (let i = 0; i < 30; i++) {
           await sleep(500);
           let r; try { r = JSON.parse(b.linkDevices()); } catch { continue; }
-          for (const d of r.devices) if (!found.some(f => f.host === d.host && f.port === d.port)) found.push(d);
+          for (const d of r.devices) if (!link.found.some(f => f.host === d.host && f.port === d.port)) link.found.push(d);
           refresh();
           if (!r.scanning && i > 4) break;
         }
-      } finally { scanning = false; setPl("scan", found.length ? "ok" : "err"); }
+      } finally { link.scanning = false; setPl("scan", link.found.length ? "ok" : "err"); }
     });
+    let sig = "";
     return () => {
       const row = scan.closest(".zm-row");
-      if (row && !box.isConnected) row.after(box);
+      if (row && !tray.isConnected) row.after(tray);
       lampOf(scan, pl.scan || "");
-      box.replaceChildren(...found.map(d => {
-        const r = el("div", "zm-row sub", `<div class="zm-lbl"><b>${esc(d.name)}</b><small>${esc(d.host)}</small></div><div class="zm-ctl"></div>`);
-        const go = procKey("Connect", "conn-" + d.host);
-        go.addEventListener("click", () => {
-          setPl("conn-" + d.host, "busy");
-          const page = isTablet() ? "/controller?" : "/controller?phone=1&";
-          bridge().linkOpen(`http://127.0.0.1:8766${page}hub=${encodeURIComponent(`${d.host}:${d.port}`)}`);
-        });
-        lampOf(go, pl["conn-" + d.host] || "");
-        r.querySelector(".zm-ctl").appendChild(go);
-        return r;
-      }));
+      const s2 = JSON.stringify([link.found, link.scanning, pl.scan, host.linked]);
+      if (s2 !== sig) {
+        sig = s2;
+        const note = host.linked ? `This device is the other ZyDeck's controller now: ◀ Back to this device returns.`
+          : link.scanning ? "Looking for ZyDecks on this Wi-Fi…" : pl.scan === "err" ? "None found: is the other ZyDeck open, on the same Wi-Fi or hotspot?"
+          : "ZyDecks nearby show up here: Scan looks for them.";
+        tray.replaceChildren(...(link.found.length ? link.found.map(d => {
+          const r = el("div", "zm-dev", `<span class="who"><b>${esc(d.name)}</b><small>${esc(d.host)}</small></span>`);
+          const go = procKey("Connect", "conn-" + d.host);
+          go.addEventListener("click", () => {
+            setPl("conn-" + d.host, "busy");
+            const page = isTablet() ? "/controller?" : "/controller?phone=1&";
+            bridge().linkOpen(`http://127.0.0.1:8766${page}hub=${encodeURIComponent(`${d.host}:${d.port}`)}`);
+          });
+          lampOf(go, pl["conn-" + d.host] || "");
+          r.appendChild(go);
+          return r;
+        }) : [el("div", "zm-trayempty", esc(note))]));
+      }
     };
   }
   function buildTablet(c) {

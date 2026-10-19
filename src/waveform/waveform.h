@@ -136,6 +136,9 @@ class Waveform {
     bool hasStem() const {
         return m_stemCount > 0;
     }
+    int getStemCount() const {
+        return m_stemCount;
+    }
 
     void dump() const;
 
