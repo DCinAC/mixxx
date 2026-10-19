@@ -43,10 +43,12 @@
     return r < l ? { width: 0, height: 0 } : { width: r - l, height: b - t };
   };
 
-  function key(b) {
+  function key(b, fresh) {
     if (!on || b.matches(SKIP)) return;
-    const r = b.getBoundingClientRect(); if (!r.width || !r.height) return;
-    if (getComputedStyle(b).position === "static") b.style.position = "relative";
+    // its shape: measured when the layout may have changed, else the one we have (measuring forces a layout
+    // in the middle of a touch)
+    const r = !fresh && b._r ? b._r : (b._r = b.getBoundingClientRect()); if (!r.width || !r.height) return;
+    if (!b._pos) { b._pos = 1; if (getComputedStyle(b).position === "static") b.style.position = "relative"; }
     if (b.classList.contains("on")) b.dataset.seenOn = "1";
     let ls = "";
     if (b.matches(LAMPED) || b.dataset.seenOn) {
@@ -99,7 +101,7 @@
     }
   }
 
-  function pad(p) {
+  function pad(p, fresh) {
     if (!on || p.classList.contains("asknob")) return;
     // the leading bare text (the pad's number, or its word) gets a span, so it can be placed
     const first = p.firstChild;
@@ -108,7 +110,11 @@
     const numText = pn?.textContent.trim() || "";
     p.classList.toggle("hasname", !!lbl);
     p.classList.toggle("numonly", !lbl && /^\d+$/.test(numText));   // a cue without a name: just its number
-    const r = p.getBoundingClientRect(); if (!r.width) return;
+    // how its text sits: roll and jump pads (their colour says which) centred; sampler pads (a numbered sample)
+    // their sample's name centred, smaller and bold; the rest from the top
+    const c = p.style.getPropertyValue("--c"), pm = /--(roll|jump)/.test(c) ? "center" : p.querySelector(":scope > .n") ? "smp" : "";
+    if ((p.dataset.pm || "") !== pm) p.dataset.pm = pm;
+    const r = !fresh && p._r ? p._r : (p._r = p.getBoundingClientRect()); if (!r.width) return;
     const sig = `${Math.round(r.width)}x${Math.round(r.height)}|${norm(lbl?.textContent)}|${norm(numText)}|${norm(tm?.textContent)}|${norm(p.querySelector("small")?.textContent)}`;
     if (p._sig === sig) return;
     p._sig = sig;
@@ -207,19 +213,28 @@
     const whole = all, els = all ? [...app.querySelectorAll("button"), ...app.querySelectorAll(".pad")] : [...queued];
     all = false; queued = new Set();
     if (whole && on) { jogs(); knobs(); }
-    for (const el of els) { if (!el.isConnected) continue; if (el.classList.contains("pad")) pad(el); else key(el); }
+    for (const el of els) { if (!el.isConnected) continue; if (el.classList.contains("pad")) pad(el, whole); else key(el, whole); }
     if (ADAPT) evenRows(els.filter(el => el.tagName === "BUTTON"));
   };
   var raf = 0;
   function later() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; run(); }); }
+  const PRESS = new Set(["down", "held", "holding"]);
+  const onlyPress = m => {
+    if (m.type !== "attributes") return false;
+    const a = new Set((m.oldValue || "").split(/\s+/).filter(Boolean)), b = new Set(m.target.classList);
+    for (const c of a) if (!b.has(c) && !PRESS.has(c)) return false;
+    for (const c of b) if (!a.has(c) && !PRESS.has(c)) return false;
+    return true;
+  };
   new MutationObserver(ms => {
     for (const m of ms) {
+      if (onlyPress(m)) continue;
       const el = (m.target.nodeType === 1 ? m.target : m.target.parentElement)?.closest?.("button, .pad");
       if (el && app.contains(el)) queued.add(el);
       if (m.type === "childList" && [...m.addedNodes].some(n => n.nodeType === 1 && (n.matches("button, .pad, .knob") || n.querySelector?.("button, .pad, .knob")))) all = true;
     }
     if (on) run();   // a microtask: before this frame is drawn
-  }).observe(app, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["class"] });
+  }).observe(app, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["class"], attributeOldValue: true });
   addEventListener("resize", () => { all = true; later(); });
   document.fonts?.ready.then(() => { all = true; later(); });
   later();
