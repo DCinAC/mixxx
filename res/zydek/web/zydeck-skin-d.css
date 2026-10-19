@@ -162,3 +162,14 @@ body.skin-d #app #nudge1 .nudge > canvas.sk-jog { transform: scaleY(-1); }
 /* SHIFT on SYNC: MASTER full size too (Element holds it at .74em so the key can't widen; the adaptive size already
    leaves room for it) */
 body.skin-d.adaptive #app .sync .two.alt > small { font-size: 1em !important; }
+
+/* ---------------- knobs: Mixxx's flat knob. A black cap with a short bevelled skirt (lit at the top) and a level top
+   (.sk-face, added by zydeck-skin-d.js), the pointer a short bar near the rim, the value arc round it ---------------- */
+#app .knob .sk-face { display: none; }
+body.skin-d #app .knob .sk-face { display: inline; fill: url(#sk-knob-face); stroke: rgba(0,0,0,.6); stroke-width: .8; }
+body.skin-d #app .knob .kbg { r: 12.5px; fill: url(#sk-knob-skirt); stroke: #000; stroke-width: 1.2; filter: drop-shadow(1.5px 2px 2px rgba(0,0,0,.45)); }
+body.skin-d #app .knob.held .kbg { stroke: var(--acc, #fff); }
+body.skin-d #app .knob .ktrack { stroke: #2a2a2c; stroke-width: 2.6; }
+body.skin-d #app .knob .karc { stroke-width: 2.6; }
+body.skin-d #app .knob .kptr { stroke: #dcdcdc; stroke-width: 2.4; stroke-linecap: round; stroke-dasharray: 0 4.2 7; }
+body.skin-d #app .knob .ktick { stroke: #6a6a6e; stroke-width: 1.4; }

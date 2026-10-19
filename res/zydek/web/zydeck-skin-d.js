@@ -165,6 +165,24 @@
     .observe(app, { subtree: true, attributes: true, attributeFilter: ["style", "class"] });
   setTimeout(() => body.classList.add("learned"), 20000);
 
+  // ---- knobs: the flat top (a circle over Element's cap) and the gradients both use, once for the page ----
+  if (!document.getElementById("sk-defs")) {
+    const d = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    d.id = "sk-defs"; d.setAttribute("width", "0"); d.setAttribute("height", "0"); d.style.position = "absolute";
+    d.innerHTML = `<defs><linearGradient id="sk-knob-skirt" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3c3c3e"/><stop offset=".5" stop-color="#1a1a1b"/><stop offset="1" stop-color="#0d0d0e"/></linearGradient>` +
+      `<linearGradient id="sk-knob-face" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#252527"/><stop offset="1" stop-color="#1b1b1d"/></linearGradient></defs>`;
+    body.appendChild(d);
+  }
+  function knobs() {
+    for (const svg of app.querySelectorAll(".knob svg")) {
+      if (svg.querySelector(".sk-face")) continue;
+      const bg = svg.querySelector(".kbg"); if (!bg) continue;
+      const f = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      f.setAttribute("class", "sk-face"); f.setAttribute("cx", "20"); f.setAttribute("cy", "20"); f.setAttribute("r", "9.6");
+      bg.after(f);   // over the cap, under the arc and the pointer
+    }
+  }
+
   // ---- the tempo lanes: the ribs run under the finger (only the look: Element does the tempo) ----
   const laneY = new WeakMap();
   app.addEventListener("pointerdown", e => { const l = e.target.closest?.(".lane"); if (l) laneY.set(l, { y: e.clientY, off: parseFloat(l.style.getPropertyValue("--sk-ty")) || 0 }); }, true);
@@ -178,7 +196,7 @@
     PHONE = app.classList.contains("phone"); body.classList.toggle("sk-phone", PHONE);
     const whole = all, els = all ? [...app.querySelectorAll("button"), ...app.querySelectorAll(".pad")] : [...queued];
     all = false; queued = new Set();
-    if (whole && on) jogs();
+    if (whole && on) { jogs(); knobs(); }
     for (const el of els) { if (!el.isConnected) continue; if (el.classList.contains("pad")) pad(el); else key(el); }
     if (ADAPT) evenRows(els.filter(el => el.tagName === "BUTTON"));
   };
@@ -188,7 +206,7 @@
     for (const m of ms) {
       const el = (m.target.nodeType === 1 ? m.target : m.target.parentElement)?.closest?.("button, .pad");
       if (el && app.contains(el)) queued.add(el);
-      if (m.type === "childList" && [...m.addedNodes].some(n => n.nodeType === 1 && (n.matches("button, .pad") || n.querySelector?.("button, .pad")))) all = true;
+      if (m.type === "childList" && [...m.addedNodes].some(n => n.nodeType === 1 && (n.matches("button, .pad, .knob") || n.querySelector?.("button, .pad, .knob")))) all = true;
     }
     if (on) run();   // a microtask: before this frame is drawn
   }).observe(app, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["class"] });
