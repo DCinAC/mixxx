@@ -138,13 +138,13 @@ body.skin-d #app .pad:not(.hasname):not(.numonly) small { font-size: var(--pfs3,
 /* pads: the small lines not bold */
 body.skin-d #app .pad small, body.skin-d #app .pad .tm { font-weight: 400 !important; }
 
-/* ---------------- tempo lane: a rubber touchpad; the ribs run under the finger (--sk-ty, from skin-e.js), a tick
-   each 1 % down the right edge (Element's --tick), the marker a flat fader cap with the deck's line ---------------- */
+/* ---------------- tempo lane: a touchpad; the scale (a tick each 1 %) across its right 40 %, the marker a flat fader
+   cap with the deck's line ---------------- */
 body.skin-d #app .lane { border: 0 !important; border-radius: 4px !important;
+  /* no backdrop: just the scale, a line each 1 % (Element's --tick) across the right 40 % of the lane */
   background:
-    repeating-linear-gradient(0deg, transparent 0 calc(var(--tick) - 1px), rgba(255,255,255,.2) calc(var(--tick) - 1px) var(--tick)) right 0 top 0 / 6px 100% no-repeat,
-    repeating-linear-gradient(180deg, rgba(255,255,255,.075) 0 2px, transparent 2px 6px) 0 var(--sk-ty, 0px) / 100% 6px,
-    linear-gradient(90deg, rgba(0,0,0,.45), transparent 18%, transparent 82%, rgba(0,0,0,.45)), #141416 !important;
+    repeating-linear-gradient(0deg, transparent 0 calc(var(--tick) - 1px), rgba(255,255,255,.24) calc(var(--tick) - 1px) var(--tick)) right 0 top 0 / 40% 100% no-repeat,
+    #121214 !important;
   box-shadow: inset 0 1px 3px rgba(0,0,0,.85), 0 1px 0 rgba(255,255,255,.05) !important; }
 body.skin-d #app .lane .zero { background: rgba(255,255,255,.22); }
 body.skin-d #app .lane .mark { left: 6% !important; right: 6% !important; border-radius: 2px !important;
