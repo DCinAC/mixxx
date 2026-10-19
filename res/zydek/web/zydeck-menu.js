@@ -404,7 +404,7 @@
     const q = ui.q.value.trim().toLowerCase(), words = q.split(/\s+/).filter(Boolean);
     const hit = r => words.every(w => `${r.name} ${r.desc || ""} ${r.more || ""} ${(SECTIONS.find(s => s[1] === r.sec) || [])[2] || ""}`.toLowerCase().includes(w));
     ui.tabs.forEach(b => { const on = !words.length && b._tab === curTab; b.classList.toggle("on", on); b.setAttribute("aria-selected", on); });
-    ui.rows.replaceChildren();
+    ui.rows.replaceChildren(ui.pinBox);
     ui.rail.replaceChildren();
     ui.list = [];
     const secs = SECTIONS.filter(s => words.length || s[0] === curTab);
@@ -467,14 +467,15 @@
         <label class="zm-q"><span class="zm-vh">Search settings</span><input class="zf" type="search" placeholder="Search both tabs" autocomplete="off" spellcheck="false"></label>
         <button class="zk zm-back"><span></span></button><button class="zk zm-fs"></button>
         <button class="zk zm-x" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button></div>
-      <div class="zm-link"></div>
       <div class="zm-body"><div class="zm-rail" role="navigation" aria-label="Sections"></div><div class="zm-rows"></div></div></div>`;
     box.replaceChildren(root);
     const $ = s => root.querySelector(s);
     ui = { root, layout, head: $(".zm-head"), q: $(".zm-q input"), rail: $(".zm-rail"), rows: $(".zm-rows"), back: $(".zm-back"), fs: $(".zm-fs"), x: $(".zm-x"), list: [] };
-    // Link devices: above both tabs, drawn once, so it stays put while the tabs change under it
+    // Link devices: first in both tabs, the same one (drawn once, put back on top when the list changes), so it
+    // doesn't move when the tab does; it scrolls with the list
     ui.pin = rowEl(ROW.link);
-    $(".zm-link").appendChild(ui.pin.el);
+    ui.pinBox = el("div", "zm-link");
+    ui.pinBox.appendChild(ui.pin.el);
     if (layout === "page") new ResizeObserver(() => root.style.setProperty("--zm-headh", ui.head.offsetHeight + "px")).observe(ui.head);
     ui.tabs = Object.entries(TABS).map(([t, name]) => {
       const b = key(`<i class="zs" aria-hidden="true"></i>${name}`, "s");

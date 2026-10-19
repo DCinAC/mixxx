@@ -47,11 +47,10 @@
 .zm.page .zf { flex: 1 1 100%; }
 .zm.page .zk.pick.wide { flex: 1; width: auto; min-width: 0; }
 
-/* ---- Link devices: above both tabs (it stays put while they change), its devices in a tray one level in ---- */
-.zm-link { flex: none; padding: 0 calc(var(--zmm) * 3.6) calc(var(--zmm) * 1.6) calc(var(--zmm) * 3.2); }
-.zm.window .zm-link { border-bottom: 1px solid #000; }
-.zm.el.window .zm-link { border-bottom-color: #262626; }
-.zm.page .zm-link { padding: 0 12px 10px; }
+/* ---- Link devices: first in both tabs (the same one, so it doesn't move with them), its devices in a tray
+   one level in ---- */
+.zm-link { padding-bottom: calc(var(--zmm) * 1.6); border-bottom: 1px solid #000; }
+.zm.el .zm-link { border-bottom-color: #262626; }
 .zm-link .zm-row { border-top: 0; }
 .zm-tray { display: flex; flex-direction: column; gap: calc(var(--zmm) * 1); min-height: calc(var(--zmm) * 9);
   margin-left: calc(var(--zmm) * 6.8); padding: calc(var(--zmm) * 1.2) calc(var(--zmm) * 2); justify-content: center; border-radius: 4px; }
