@@ -55,7 +55,7 @@
       else ls = PHONE || r.height / mm() < 8.5 ? "bh" : "b";
     }
     if (b.dataset.ls !== ls) b.dataset.ls = ls;
-    const lw = (ls === "b" || ls === "bh") && Math.abs(Math.log(r.width / r.height)) > Math.log(1.25) ? "2" : "";   // not square: a lamp twice as wide
+    const lw = (ls === "b" || ls === "bh") && Math.abs(Math.log(r.width / r.height)) > Math.log(1.15) ? "2" : "";   // not square: a lamp twice as wide
     if ((b.dataset.lw || "") !== lw) b.dataset.lw = lw;
     if (ADAPT) fitKey(b, r);
   }

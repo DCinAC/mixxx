@@ -8,8 +8,9 @@ body.skin-d #app button:not(.psw) {
   background: linear-gradient(#55575c, #414448 55%, #3c3e43) !important;   /* 7 % darker than the first try, for contrast */
   color: #f1f1f1 !important; text-shadow: 0 -1px 0 rgba(0,0,0,.55);
   box-shadow: inset 1px 1px 0 rgba(255,255,255,.2), inset -1px -2px 0 rgba(0,0,0,.3), 3px 4px 8px rgba(0,0,0,.45) !important;
-  --lc: var(--sk-led);
 }
+/* the lamp's colour: blue unless a rule below says otherwise (no weight of its own, so those rules win) */
+body.skin-d #app :where(button) { --lc: var(--sk-led); }
 body.skin-d { --sk-led: #3a86ff; --sk-lampH: 17px; --sk-lampW: 16px; --sk-stripH: 7px; --sk-sideW: 11px; --sk-sideH: 18px; }
 body.skin-d.sk-phone { --sk-lampH: 9px; --sk-stripH: 5px; --sk-sideW: 8px; --sk-sideH: 14px; }
 body.skin-d #app button:not(.psw):active { background: linear-gradient(#3c3e42, #45484b) !important;
