@@ -197,79 +197,11 @@
   #login.intl .acts button.primary { color: #031820; }
   #login .acts button.ghost { background: none; min-height: 40px; font-weight: 500; font-size: 13px; color: var(--dim); }
 
-  /* settings: tablet controller QR */
-  #tabctl .nets { display: flex; gap: 6px; flex-wrap: wrap; }
-  #tabctl .nets button { min-height: 34px; padding: 0 12px; border-radius: 17px; font-size: 13px; }
-  #tabctl .nets button.on { border-color: var(--deck34); color: var(--deck34); }
-  #tabctl .qr2 { width: 200px; height: 200px; margin: 12px auto 6px; background: #fff; border-radius: 14px; padding: 8px;
-    box-sizing: border-box; display: grid; place-content: center; }
-  #tabctl .qr2 svg { width: 184px; height: 184px; display: block; }
-  #tabctl .qr2 .wait { color: #555; font-size: 13px; text-align: center; padding: 0 12px; }
-  #tabctl .addr { text-align: center; font: 600 15px ui-monospace, monospace; color: var(--text); user-select: all; -webkit-user-select: all; }
+  /* settings: the menu (zydeck-menu.js), upright under the decks */
+  #p-set .zm.page { --zm-top: var(--decks-h, 0px); }
 
-  /* settings: Bilibili accounts */
-  .acct { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid #222; }
-  .acct .who { flex: 1; min-width: 0; font-size: 13px; color: var(--text); }
-  .acct .who small { display: block; color: var(--dim); font-size: 11px; }
-  .acct .st { font-size: 12px; color: var(--dim); margin-top: 3px; }
-  .acct .st.on { color: var(--play); }
-  .acct button { min-height: 38px; padding: 0 12px; }
-  .chk { display: flex !important; gap: 8px; align-items: center; color: var(--text) !important; font-size: 13px !important; margin-top: 12px !important; }
-  #bili details { margin-top: 10px; font-size: 13px; color: var(--dim); }
-  #bili details > * { margin-top: 8px; }
-  #bili textarea { width: 100%; box-sizing: border-box; border-radius: 10px; border: 1px solid #333; background: #181818; color: var(--text); padding: 8px; font: 12px monospace; }
   .badge.bilitv { color: #00a1d6; }
 
-  /* settings */
-  .card { margin: 12px; padding: 12px 14px; border: 1px solid var(--edge); border-radius: 12px; background: #121212; }
-  .card.hit-none { display: none; }
-  /* Sideways, the System settings open in the deck page's settings window (over the decks): the same cards,
-     two columns */
-  /* the deck page's settings window, to the letter (its --mm, set when it opens): rows, label left, controls right */
-  #sysmodal { --mm: 5.93px; position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.72); display: none; align-items: center; justify-content: center; }
-  #sysmodal.open { display: flex; }
-  #sysmodal .panel { position: relative; width: min(92vw, calc(var(--mm) * 150)); max-height: 92vh; overflow: auto; background: #151515;
-    border: 1px solid #333; border-radius: calc(var(--mm) * 2.5); padding: calc(var(--mm) * 4); color: var(--text);
-    font-size: calc(var(--mm) * 2.3); font-weight: 500; }
-  #sysmodal h2 { margin: 0 0 calc(var(--mm) * 2); font-size: calc(var(--mm) * 3.2); }
-  #sysmodal .x { position: absolute; top: calc(var(--mm) * 2); right: calc(var(--mm) * 2); width: calc(var(--mm) * 10);
-    height: calc(var(--mm) * 10); font-size: calc(var(--mm) * 4); line-height: 1; padding: 0; }
-  #sysmodal #p-set { display: block; }
-  #sysmodal #set-head { margin: 0; font-size: inherit; }
-  #sysmodal.over { background: transparent; }   /* over the deck page's own settings: its backdrop already dims */
-  #sysmodal #p-set .card { display: grid; grid-template-columns: calc(var(--mm) * 42) 1fr; column-gap: calc(var(--mm) * 2); grid-auto-flow: row dense;
-    align-items: center; margin: 0; padding: calc(var(--mm) * 2) 0; border: 0; border-top: 1px solid #262626; border-radius: 0; background: none; }
-  #sysmodal #p-set .card > * { grid-column: 2; }
-  #sysmodal #p-set .card > h3, #sysmodal #p-set .card > .hint { grid-column: 1; }
-  #sysmodal #p-set .card > h3 { margin: 0; font-size: calc(var(--mm) * 2.3); font-weight: 500; }
-  #sysmodal #p-set .card > .hint { margin-top: 2px; font-size: calc(var(--mm) * 1.8); }
-  body.sysopen #toast { visibility: visible !important; z-index: 70; }
-  /* System (this page's Settings) | Controller (the deck page's): the other one without turning the device */
-  #set-head { margin: 12px 12px 4px; font-size: 15px; }   /* the menus' head: zydeck-shared.css */
-  #ld { margin-top: 12px; }
-  .card h3 { margin: 0 0 10px; font-size: 15px; color: var(--text); }
-  .card label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; }
-  .card select { width: 100%; height: 44px; border-radius: 10px; border: 1px solid #333; background: #181818; padding: 0 10px; color: var(--text); }
-  .card .hint { font-size: 12px; color: var(--dim); margin-top: 10px; line-height: 1.4; }
-  .card .row2 { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
-  .card .row2 span { flex: 1; font-size: 12px; color: var(--dim); }
-  .card .row2 input { flex: 1; min-width: 0; height: 44px; box-sizing: border-box; border-radius: 10px; border: 1px solid #333;
-    background: #181818; padding: 0 10px; color: var(--text); font: 15px system-ui, sans-serif; }
-  .card .pick { display: flex; gap: 8px; }
-  .card .pick select:first-child { flex: 1; min-width: 0; }
-  .card .pick select.ch { width: 108px; flex: none; }
-  .card .segs { display: flex; gap: 6px; flex-wrap: wrap; }
-  .card .segs button { flex: 1 1 60px; min-height: 40px; font-size: 13px; }
-  .card .segs button.on { border-color: var(--play); color: var(--play); }
-  #a-warn { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.4;
-    background: #3a2a00; border: 1px solid #a07800; color: #ffd75e; }
-  #a-warn.on { display: block; }
-  #kitlist .kit { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #1d1d1d; }
-  #kitlist .kit span { flex: 1; min-width: 0; color: var(--text); font-size: 14px; }
-  #kitlist .kit small { display: block; color: var(--dim); font-size: 12px; }
-  #kitlist .kit button.x { width: 36px; padding: 0; }
-  #stemsrv .st { font-size: 12px; color: var(--dim); margin-top: 8px; }
-  #stemsrv .st.on { color: var(--play); }
   #sheet .more .wide { grid-column: 1 / -1; }
   #sheet .pvn { position: relative; height: 64px; margin-top: 10px; border-radius: 8px; background: #0b0b0b; border: 1px solid #262626;
     touch-action: none; overflow: hidden; }
@@ -306,6 +238,7 @@
   #sheet hr { border: 0; border-top: 1px solid #333; margin: 14px 0 6px; }
   #sheet .sub { font-size: 12px; color: var(--dim); margin: 12px 0 0; }
   #sheet .more button.armed { border-color: var(--warn, #e0a000); color: var(--warn, #e0a000); }
+  #sheet .more button { min-height: 48px; }
   #sheet .more button small { display: block; font-size: 11px; color: var(--dim); margin-top: 2px; }
 
   /* track sheet */
@@ -327,7 +260,6 @@
   #sheet .loads button small { display: block; font-size: 11px; font-weight: 500; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #sheet .loads .d12 { border-color: var(--deck12); color: var(--deck12); }
   #sheet .loads .d34 { border-color: var(--deck34); color: var(--deck34); }
-  #sheet .more button { min-height: 48px; }
 
   #toast { position: fixed; left: 50%; top: calc(64px + var(--safe-t)); z-index: 10; transform: translate(-50%, -20px); opacity: 0;
     transition: all .2s; background: #222; border: 1px solid #3a3a3a; border-radius: 10px; padding: 10px 14px; max-width: 92vw;
@@ -345,13 +277,6 @@
   @media (orientation: landscape) {
     #deckview { visibility: visible; }
     body > header, body > main, body > nav, #toast { visibility: hidden; }
-    body.show-system #deckview { visibility: hidden; }   /* System settings, sideways (Controller › System) */
-    body.show-system > header, body.show-system > main, body.show-system > nav, body.show-system #toast { visibility: visible; }
-  }
-  @media (orientation: portrait) {   /* the deck page's settings, upright (System › Controller): where the page goes */
-    body.show-decks #deckview { visibility: visible; top: var(--decks-h, 0px); bottom: auto;
-      height: calc(100% - var(--decks-h, 0px) - var(--nav-h, 0px)); }
-    body.show-decks > main { visibility: hidden; }
   }
   /* Starting up: dark (the intro, intro.html, ends dark) until the library and the decks are ready */
   #boot { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column; align-items: center;
@@ -365,8 +290,8 @@
   #boot .st { font-size: 13px; color: var(--dim); min-height: 1.2em; }
   @keyframes zspin { to { transform: rotate(360deg); } }
 </style>
-<link rel="stylesheet" href="/zydeck-shared.css">
-<script src="/zydeck-shared.js"></script>
+<link rel="stylesheet" href="/zydeck-menu.css">
+<script src="/zydeck-menu.js"></script>
 </head>
 <body>
 <div id="boot"><div class="st" id="boot-st"></div></div>
@@ -418,139 +343,7 @@
     <ul class="list" id="wres"></ul>
   </section>
 
-  <section class="page" id="p-set">
-    <div id="set-head"></div>
-    <div class="card" id="linkdev">
-      <h3>Link devices</h3>
-      <div class="hint" style="margin-top:0">Control another ZyDeck on the same Wi-Fi (or this phone's hotspot) from here, like a
-        Bluetooth controller: the tablet as the phone's decks, say. Back returns to this device.</div>
-      <div id="ld"></div>
-    </div>
-    <div class="card">
-      <h3>Controller mode</h3>
-      <label class="chk"><input type="checkbox" id="cm-on"> Control DJ software on a computer</label>
-      <label for="cm-layout">MIDI layout</label><select id="cm-layout">
-        <option value="zydeck">ZyDeck: Mixxx with the ZyDeck mapping (everything, with waveforms)</option>
-        <option value="standard">Standard MIDI: Serato, rekordbox, Traktor… (MIDI Learn)</option></select>
-      <div class="hint">Turns this phone into a MIDI controller for Mixxx on a computer. Over the USB cable: choose
-        <b>MIDI</b> in Android's USB notification, then in Mixxx open Preferences › Controllers, pick the phone and
-        load the <b>ZyDeck</b> mapping. With <b>ZyDeck Link</b> running on the computer, ZyDeck offers to link over
-        Wi-Fi, so you can unplug the cable. Track names and waveforms need ZyDeck Link too.<br>
-        <b>Standard MIDI</b> sends plain notes and CCs (decks on MIDI channels 1–4, mixer and samplers on 16) for
-        MIDI Learn in Serato DJ Pro, rekordbox or Traktor. Those apps don't send back positions or waveforms, so the
-        decks show only what their LEDs say. The chart: tools/zydeck-link/MIDI.md in ZyDeck's source.</div>
-    </div>
-    <div class="card" id="tabctl">
-      <h3>Connect a tablet controller</h3>
-      <div class="nets" id="tc-nets"></div>
-      <div class="qr2" id="tc-qr"><div class="wait">…</div></div>
-      <div class="addr" id="tc-addr"></div>
-      <div class="hint">Scan the code with the tablet's camera, or type the address in its browser. The tablet has to be on
-        the same Wi-Fi as this phone, or on this phone's hotspot.</div>
-    </div>
-    <div class="card" id="bili">
-      <h3>Bilibili accounts</h3>
-      <div class="acct" data-site="cn"><div class="who"><b>Bilibili</b><small>bilibili.com links and BV codes</small>
-        <div class="st">…</div></div><button class="in">Log in</button><button class="out">Log out</button></div>
-      <div class="acct" data-site="intl"><div class="who"><b>Bilibili International</b><small>bilibili.tv links</small>
-        <div class="st">…</div></div><button class="in">Log in</button><button class="out">Log out</button></div>
-      <label class="chk"><input type="checkbox" id="b-hires"> Hi-Res lossless (FLAC) when the account has it</label>
-      <details><summary>Paste cookies instead</summary>
-        <select id="b-site"><option value="cn">Bilibili (bilibili.com)</option><option value="intl">Bilibili International (bilibili.tv)</option></select>
-        <textarea id="b-cookies" rows="3" placeholder="SESSDATA=…; bili_jct=…   (or a cookies.txt)"></textarea>
-        <button id="b-paste">Save</button></details>
-      <div class="hint">You log in on Bilibili's own page; Zydek keeps only the session cookie, privately on this phone, and
-        uses it for downloads (no more blocks, and Hi-Res audio with premium). Sessions run out after a while: log in again then.
-        Dolby audio is skipped: Mixxx here can't decode it.</div>
-    </div>
-    <div class="card">
-      <h3>Start-up</h3>
-      <label for="introstyle">Intro</label><select id="introstyle">
-        <option value="gild">Gold leaf: a clay brick turns to gold, its waveform becomes the decks' tape</option>
-        <option value="drop">Drop: the gold brick falls into the screen and bounces up as the decks</option></select>
-      <label class="chk"><input type="checkbox" id="introfull"> Show the full animation every time (a tap skips it)</label>
-      <div class="hint">Off: the full intro plays only the very first time; after that, just the logo while Mixxx starts.</div>
-    </div>
-    <div class="card">
-      <h3>Library</h3>
-      <label for="keyfmt">Key notation</label><select id="keyfmt">
-        <option value="camelot">Camelot (8A)</option><option value="open">Open Key (1m)</option><option value="musical">Musical (Am)</option></select>
-    </div>
-    <div class="card">
-      <h3>Live stems</h3>
-      <label class="chk"><input type="checkbox" id="lstems"> Make stems when a deck loads a track</label>
-      <div class="hint">The phone separates the track into drums, bass, other and vocals itself (a small model, ready in
-        about half a minute) and swaps in the stems version; if the deck is already playing, the STEM pads offer the
-        switch (it makes a short gap). Stems files go to Music/ZyDeck Stems and are reused next time. For the best
-        quality, the stem server on a PC is still better.</div>
-    </div>
-    <div class="card" id="reccard">
-      <h3>Recording</h3>
-      <div class="row2"><span id="r-st" style="flex:1">Not recording</span><button id="r-btn">● Record</button></div>
-      <div class="hint">Records what the main output plays (effects, EQ and faders included; not the headphones) as
-        FLAC in Music/ZyDeck Recordings, with a .cue tracklist beside it. Its level follows the main volume.</div>
-      <div class="row2"><span style="flex:1">This session's tracklist</span><button id="r-tl">Copy tracklist</button></div>
-      <div class="hint" id="r-tl-text" style="white-space:pre-line"></div>
-    </div>
-    <div class="card" id="dccard">
-      <h3>Discord</h3>
-      <div class="row2"><span id="dc-st" style="flex:1">Not streaming</span><button id="dc-btn">Go live</button></div>
-      <div class="hint">Plays the mix in a Discord voice channel, through the ZyDeck Discord bot running on a computer
-        or a server (tools/zydeck-discord in ZyDeck's source). The same signal as a recording; listeners hear it about a
-        second behind you. In Discord: <b>/zydeck join</b> from a voice channel.</div>
-      <div class="row2"><input id="dc-host" placeholder="Bot address: 192.168.0.100:8780, or https://….trycloudflare.com" inputmode="url" autocomplete="off" style="flex:1"></div>
-      <div class="row2"><input id="dc-key" type="password" placeholder="Stream key (from the bot's .env)" autocomplete="off" style="flex:1"><button id="dc-save">Save</button></div>
-    </div>
-    <div class="card">
-      <h3>Default behaviour on assignment</h3>
-      <label class="chk"><input type="checkbox" id="samplesync"> Follow the master tempo</label>
-      <label class="chk"><input type="checkbox" id="samplekeylock"> Keylock</label>
-      <div class="hint">What a pad gets when a track, a capture or a cut sample is put on it. Each pad can change
-        both afterwards: SHIFT + the pad on the decks.</div>
-    </div>
-    <div class="card" id="kits">
-      <h3>Sampler kits</h3>
-      <div id="kitlist"></div>
-      <div class="row2"><input id="kitname" placeholder="Kit name" autocomplete="off" enterkeyhint="done"><button id="kitsave">Save the pads</button></div>
-      <div class="hint">A kit remembers what's on the 32 sampler pads, with each pad's mode (one-shot, hold, loop) and tempo
-        setting. Loading one fills the pads, and empties the ones that were empty in it.</div>
-    </div>
-    <div class="card" id="stemsrv">
-      <h3>Stem server (PC)</h3>
-      <div class="row2"><input id="ss-addr" placeholder="192.168.0.100:8770" inputmode="url" autocomplete="off"
-        autocapitalize="off" spellcheck="false"><button id="ss-save">Connect</button></div>
-      <div class="row2"><input id="ss-token" type="password" placeholder="Token (only from outside the home network)" autocomplete="off"
-        autocapitalize="off" spellcheck="false"></div>
-      <div class="st" id="ss-st"></div>
-      <label for="ss-model">Separation model</label><select id="ss-model">
-        <option value="best">Best — BS-RoFormer SW (large)</option><option value="fast">Fast — HTDemucs FT</option></select>
-      <div class="hint">Tap a track and choose "Make stems on the PC". A PC running Zydek's stem server splits tracks into vocals, drums, bass and other; they come back as
-        .stem.m4a files in Music/Zydek Web. Type its address and port (8770 if you leave it out). From anywhere:
-        its https:// address (a Cloudflare tunnel) and its token (stemserver/token on the PC).</div>
-    </div>
-    <div class="card">
-      <h3>Audio output</h3>
-      <label for="a-main">Main mix</label>
-      <div class="pick"><select id="a-main"></select><select id="a-main-ch" class="ch" aria-label="Main mix channels"></select></div>
-      <label for="a-phones">Headphones (cue)</label>
-      <div class="pick"><select id="a-phones"></select><select id="a-phones-ch" class="ch" aria-label="Headphones channels"></select></div>
-      <div id="a-warn"></div>
-      <div class="row2"><span id="a-info"></span><button id="a-apply">Apply</button></div>
-      <label>Audio buffer<small style="display:inline;margin-left:6px">smaller answers sooner; bigger if the sound breaks up</small></label>
-      <div class="segs" id="a-buf"></div>
-      <div class="row2"><span id="a-opt-st">Optimize: tests the phone under a heavy load (silently, decks empty) and keeps the smallest buffer that doesn't break up</span><button id="a-opt">Optimize</button></div>
-      <label>Latency compensation</label>
-      <div class="row2"><span id="a-lat">…</span><button id="a-measure">Measure again</button></div>
-      <div class="row2"><input type="range" id="a-off" min="-100" max="300" step="5" style="flex:1"><span id="a-off-v" style="flex:none;width:70px;text-align:right"></span></div>
-      <div class="hint">ZyDeck measures how late the sound comes out of the current output (Bluetooth adds a lot)
-        and draws the waveforms that much later, so they match what you hear. Fine-tune with the slider if the
-        beats still look early or late.</div>
-      <div class="hint">"Android: follow the system" plays wherever Android sends music: Bluetooth or USB when connected,
-        the speaker otherwise. Bluetooth adds a lot of delay: use wired or USB audio to mix.<br>
-        Android plays to one device at a time, so main and headphones go on one device's channels: a USB interface
-        with 4 outputs (main 1–2, headphones 3–4), or split one pair of earphones (main on 1 left, headphones on 2 right).</div>
-    </div>
-  </section>
+  <section class="page" id="p-set"></section>
 </main>
 
 <div id="login">
@@ -571,7 +364,6 @@
 </div>
 <div id="pv"><span></span><button id="pvstop">Stop preview</button></div>
 <iframe id="deckview" title="Decks"></iframe>
-<div id="sysmodal"><div class="panel"><button class="x" id="sys-x" aria-label="Close">✕</button><h2>Settings</h2></div></div>
 <script>
   // a tablet gets the tablet controller, a phone the phone layout (smallest side under 600 CSS px)
   document.getElementById("deckview").src = Math.min(screen.width, screen.height) >= 600 ? "/controller" : "/controller?phone=1";
@@ -616,17 +408,12 @@ function toast(msg, kind = "") {
 // Tabs
 // ---------------------------------------------------------------------------------------------------
 let page = store.get("page", "lib");
-const loadSettingsPage = () => { loadTablet(); loadAudio(); loadBili(); loadStemServer(); loadKits(); loadRecording(); loadDiscord(); };
 function showPage(p) {
-  if (document.body.classList.contains("show-decks")) {   // leaving the Controller tab for another page
-    document.body.classList.remove("show-decks");
-    deckFrame().contentWindow.postMessage({ zydek: "close-settings" }, location.origin);
-  }
   page = p; store.set("page", p);
   document.querySelectorAll(".page").forEach(e => e.classList.toggle("on", e.id === "p-" + p));
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.page === p));
   if (p === "fold") { loadFolders(); loadExcluded(); watchAnalysis(); }
-  if (p === "set") loadSettingsPage();
+  if (p === "set") ZydeckMenu.open({ layout: "page", into: $("#p-set") });
   if (p === "web") webJobs();
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
@@ -713,8 +500,6 @@ function onRemote(r) {
   const was = remote;
   remote = r;
   document.body.classList.toggle("remote", !!r.on);
-  $("#cm-on").checked = !!r.on;
-  $("#cm-layout").value = r.layout || "zydeck";
   $("#link").textContent = linkText();
   if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`, "ok");
   if (!!was.on !== !!r.on || was.http !== r.http) decks.forEach(d => { loadWaveform(d, d.wfFor); loadBeats(d, d.beatsFor); });
@@ -748,20 +533,15 @@ function paintCtlMode() {
   box.querySelector(".forget")?.addEventListener("click", () => api("/api/controller?forget=1").catch(() => {}));
   box.querySelector(".off").addEventListener("click", () => api("/api/controller?on=0").catch(() => {}));
 }
-// Link devices: the same as the deck page's (zydeck-shared.js)
-ZydeckShared.linkDevices($("#ld"));
-$("#cm-layout").addEventListener("change", () => api(`/api/controller?layout=${$("#cm-layout").value}`).catch(e => toast(e.message, "bad")));
-$("#cm-on").addEventListener("change", () => api(`/api/controller?on=${$("#cm-on").checked ? 1 : 0}`).catch(e => toast(e.message, "bad")));
 
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
+    ZydeckMenu.push(m);   // what the settings show: remote, opt, rec, dc, init
     if (m.t === "remote") return onRemote(m);
     if (m.t === "lat") { LAT = m.s || 0; return; }
-    if (m.t === "opt") { showOptimize(m.o); return; }
-    if (m.t === "rec") { showRecording(m.r); return; }
-    if (m.t === "dc") { showDiscord(m.d); return; }
+    if (m.t === "opt" || m.t === "rec" || m.t === "dc") return;
     if (m.t === "notice") { toast(m.m, "bad"); return; }
     if (m.init) {
       if (m.init.notice) toast(m.init.notice, "ok");
@@ -1237,51 +1017,8 @@ async function stemsFor(path, title, trackId) {
     stemRows.delete(path);
   }
 }
-async function checkStemServer(server) {
-  const st = $("#ss-st");
-  st.className = "st"; st.textContent = server ? "Connecting…" : "Not set";
-  if (!server) return;
-  try {
-    const h = await webJob(`/api/web/stemcheck?${qs({ server })}`);
-    st.className = "st on";
-    const sel = $("#ss-model");   // the models this server offers
-    sel.innerHTML = Object.entries(h.presets).map(([k, label]) => `<option value="${esc(k)}">${esc(label)}</option>`).join("");
-    Object.assign(STEM_MODELS, h.presets);
-    sel.value = stemPreset;
-    st.textContent = `Connected · ${h.gpu}${h.busy ? " · separating" : ""}${h.queued ? ` · ${h.queued} queued` : ""}`;
-  } catch (e) { st.textContent = e.message; }
-}
-async function loadStemServer() {
-  try {
-    const p = await webApi("/api/web/prefs");
-    if (p.starting) return;
-    stemServer = p.stemServer || ""; store.set("stemServer", stemServer);
-    stemPreset = p.stemPreset || "best"; store.set("stemPreset", stemPreset); $("#ss-model").value = stemPreset;
-    if (document.activeElement !== $("#ss-addr")) $("#ss-addr").value = stemServer;
-    $("#ss-token").placeholder = p.hasStemToken ? "Token: saved (type to change)" : "Token (only from outside the home network)";
-    checkStemServer(stemServer);
-  } catch {}
-}
-$("#ss-save").addEventListener("click", async () => {
-  // nothing typed: the address shown dimmed in the box
-  const server = $("#ss-addr").value.trim() || $("#ss-addr").placeholder.trim();
-  $("#ss-addr").value = server;
-  try {
-    const token = $("#ss-token").value.trim();
-    await webApi(`/api/web/prefs?${qs(token ? { stemServer: server, stemToken: token } : { stemServer: server })}`);
-    $("#ss-token").value = "";
-    stemServer = server; store.set("stemServer", server);
-    checkStemServer(server);
-  } catch (e) { toast(e.message, "bad"); }
-});
-$("#ss-model").addEventListener("change", async () => {
-  try {
-    await webApi(`/api/web/prefs?${qs({ stemPreset: $("#ss-model").value })}`);
-    stemPreset = $("#ss-model").value; store.set("stemPreset", stemPreset);
-    toast(`Stems with ${STEM_MODELS[stemPreset] || stemPreset}`, "ok");
-  } catch (e) { toast(e.message, "bad"); }
-});
-$("#ss-addr").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#ss-addr").blur(); $("#ss-save").click(); } });
+// (set in Settings › Stems: zydeck-menu.js tells this page through changed())
+webApi("/api/web/prefs").then(p => { if (p && !p.starting) { stemServer = p.stemServer || ""; stemPreset = p.stemPreset || "best"; store.set("stemServer", stemServer); store.set("stemPreset", stemPreset); } }).catch(() => {});
 
 function webJobs() {}   // (downloads started on this page show above; nothing to restore yet)
 
@@ -1370,230 +1107,17 @@ $("#lg-page").addEventListener("click", () => {
   const site = lg.site; closeLogin(); bridge.bilibiliLogin(site);
 });
 
-// Settings: connect a tablet controller. One QR code per address of this phone (its Wi-Fi, its hotspot).
-let tcUrl = store.get("tcUrl", null);
-async function loadTablet() {
-  let urls = [];
-  try { urls = await api("/lan-urls"); } catch {}
-  const nets = $("#tc-nets"); nets.innerHTML = "";
-  if (!urls.length) { $("#tc-qr").innerHTML = `<div class="wait">Not on Wi-Fi: join one, or turn on the hotspot</div>`; $("#tc-addr").textContent = ""; return; }
-  if (!urls.some(u => u.url === tcUrl)) tcUrl = urls[0].url;
-  urls.forEach(u => {
-    const b = h("button", u.url === tcUrl ? "on" : "", `${esc(u.label)} · ${esc(u.url.replace(/^http:\/\//, "").replace(/:\d+$/, ""))}`);
-    b.addEventListener("click", () => { tcUrl = u.url; store.set("tcUrl", tcUrl); loadTablet(); });
-    nets.appendChild(b);
-  });
-  if (urls.length < 2) nets.innerHTML = "";
-  const link = `${tcUrl}/controller`;
-  $("#tc-addr").textContent = link.replace(/^http:\/\//, "");
-  for (;;) {
-    const r = await webApi(`/api/web/qr?${qs({ text: link })}`).catch(e => ({ error: e.message }));
-    if (r.svg) { $("#tc-qr").innerHTML = r.svg; return; }
-    $("#tc-qr").innerHTML = `<div class="wait">${esc(r.error || "…")}</div>`;
-    if (!r.starting) return;
-    await sleep(1500);
-  }
-}
-
-// Settings: Bilibili accounts. Logging in and the cookies are the app's (window.ZydekAndroid, MainActivity.java);
-// who's logged in and the Hi-Res choice come from zydek_web.py.
+// Bilibili accounts (Settings › Accounts). Logging in and the cookies are the app's (window.ZydekAndroid,
+// MainActivity.java); who's logged in comes from zydek_web.py.
 const bridge = window.ZydekAndroid;
-async function loadBili() {
-  const local = bridge && bridge.bilibiliState ? JSON.parse(bridge.bilibiliState()) : null;
-  document.querySelectorAll("#bili .acct").forEach(a => {
-    const site = a.dataset.site, has = local && local[site];
-    a.querySelector(".in").style.display = local && !has ? "" : "none";
-    a.querySelector(".out").style.display = has ? "" : "none";
-    const st = a.querySelector(".st");
-    st.className = "st" + (has ? " on" : "");
-    st.textContent = !local ? "Log in from the Zydek app on the phone" : has ? "Logged in" : "Not logged in";
-  });
-  try {
-    const acc = await webJob("/api/web/account");
-    $("#b-hires").checked = acc.hiRes;
-    const cn = document.querySelector('#bili .acct[data-site="cn"] .st');
-    biliAcc = acc;
-    if (acc.cn.login) { cn.textContent = `Logged in as ${acc.cn.name}${acc.cn.premium ? ` · ${acc.cn.vip || "premium"}: Hi-Res` : " · no premium: standard audio"}`; cn.className = "st on"; }
-    else if (local && local.cn) { cn.textContent = "Session ran out: log in again"; cn.className = "st"; }
-  } catch {}
+async function loadBili() {   // who's logged in, for the login screen; the menu's Accounts rows follow
+  try { biliAcc = await webJob("/api/web/account"); } catch {}
+  ZydeckMenu.reload("acc");
 }
 window.zydekBilibili = (site, ok) => {
   toast(ok ? "Logged in to Bilibili" : "Logged out", ok ? "ok" : "");
   if (ok && $("#login").classList.contains("on")) closeLogin(); else loadBili();
 };
-document.querySelectorAll("#bili .acct").forEach(a => {
-  a.querySelector(".in").addEventListener("click", () => openLogin(a.dataset.site));
-  a.querySelector(".out").addEventListener("click", () => bridge.bilibiliLogout(a.dataset.site));
-});
-$("#b-hires").addEventListener("change", () => webApi(`/api/web/prefs?${qs({ biliHiRes: $("#b-hires").checked ? 1 : 0 })}`).catch(() => {}));
-$("#b-paste").addEventListener("click", () => {
-  if (!bridge) return toast("Only in the Zydek app on the phone", "bad");
-  const err = bridge.bilibiliPaste($("#b-site").value, $("#b-cookies").value);
-  if (err) return toast(err, "bad");
-  $("#b-cookies").value = ""; toast("Saved the Bilibili login", "ok"); loadBili();
-});
-
-// Settings: audio outputs (Mixxx's sound hardware, the main mix and the headphones), each on a device's channels:
-// "base,count" values, "0,2" = 1–2, "1,1" = 2 alone.
-let audioDevices = [];
-function channelOptions(device, sel) {
-  const d = audioDevices.find(x => x.name === device), n = d ? d.channels : 2, out = [];
-  for (let b = 0; b + 1 < n; b += 2) out.push([`${b},2`, `${b + 1}–${b + 2}`]);
-  for (let b = 0; b < n; b++) out.push([`${b},1`, `${b + 1}${b === 0 ? " left" : b === 1 ? " right" : ""}`]);
-  if (!out.some(o => o[0] === sel)) sel = out[0] && out[0][0];
-  return out.map(([v, t]) => `<option value="${v}"${v === sel ? " selected" : ""}>${t}</option>`).join("");
-}
-const chRange = v => { const [b, c] = (v || "0,2").split(",").map(Number); return [b, b + c]; };
-function audioWarn() {
-  const phones = $("#a-phones").value, same = phones && phones === $("#a-main").value;
-  const [m0, m1] = chRange($("#a-main-ch").value), [p0, p1] = chRange($("#a-phones-ch").value);
-  const shared = same && m0 < p1 && p0 < m1;
-  $("#a-phones-ch").disabled = !phones;
-  $("#a-main-ch").disabled = !$("#a-main").value;
-  $("#a-warn").classList.toggle("on", shared);
-  $("#a-warn").innerHTML = shared ? `<b>Headphones share the main's channels.</b> Everything you cue is mixed into the ` +
-    `main output, so anyone listening hears it too. Fine for practising on one pair of earphones, not for a crowd.` : "";
-  return shared;
-}
-async function loadAudio() {
-  let a;
-  try { a = await api("/api/audio"); } catch (e) { $("#a-info").innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
-  audioDevices = a.devices;
-  const opts = (sel, none) => (none ? `<option value=""${sel ? "" : " selected"}>${none}</option>` : "") +
-    a.devices.map(d => `<option${d.name === sel ? " selected" : ""}>${esc(d.name)}</option>`).join("");
-  $("#a-main").innerHTML = opts(a.main, "None: only the headphones play (recording and Discord still get the mix)");
-  $("#a-phones").innerHTML = opts(a.headphones, "None");
-  $("#a-main-ch").innerHTML = channelOptions($("#a-main").value, a.mainChannels);
-  $("#a-phones-ch").innerHTML = channelOptions($("#a-phones").value, a.headphonesChannels);
-  $("#a-info").textContent = a.main || a.headphones ? `${a.latencyMs ? a.latencyMs.toFixed(1) + " ms buffer · " : ""}${a.api}` +
-    (a.dropouts ? ` · ${a.dropouts} dropouts` : "") + (a.main ? "" : " · no main output: the main mix only records and streams")
-    : "No output: Mixxx is silent";
-  audioWarn();
-  const BUFS = [[3, "5 ms"], [4, "11 ms"], [5, "21 ms"], [6, "43 ms"], [7, "85 ms"]];
-  $("#a-buf").innerHTML = "";
-  BUFS.forEach(([i, label]) => {
-    const b = h("button", i === a.buffer ? "on" : "", label);
-    b.addEventListener("click", async () => {
-      try { await api(`/api/audio/buffer?index=${i}`); toast(`Audio buffer ${label}`, "ok"); } catch (e) { toast(e.message, "bad"); }
-      loadAudio();
-    });
-    $("#a-buf").appendChild(b);
-  });
-  paintLatency(a);
-}
-function paintLatency(a) {
-  $("#a-lat").textContent = a.measuredMs >= 0
-    ? `${Math.round(a.latencyMs)} ms buffer + ${a.measuredMs} ms output${a.route ? " (" + a.route + ")" : ""} · drawing ${a.totalMs} ms later`
-    : `Output not measured yet · drawing ${a.totalMs} ms later (the buffer)`;
-  $("#a-off").value = a.offsetMs; $("#a-off-v").textContent = `${a.offsetMs > 0 ? "+" : ""}${a.offsetMs} ms`;
-}
-$("#a-off").addEventListener("input", () => { $("#a-off-v").textContent = `${+$("#a-off").value > 0 ? "+" : ""}${$("#a-off").value} ms`; });
-$("#a-off").addEventListener("change", async () => { try { paintLatency(await api(`/api/audio/latency?offset=${$("#a-off").value}`)); } catch {} });
-// Recording the set, and this session's tracklist (Mixxx's History)
-let recOn = false;
-function showRecording(r) {
-  if (!r) return;
-  recOn = !!r.on;
-  const t = Math.floor(r.seconds || 0);
-  $("#r-st").textContent = r.status === 2 ? `Recording · ${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")} · ${(r.file || "").split("/").pop()}`
-    : r.status === 1 ? "Starting…" : `Not recording · ${r.preFx ? "before effects" : "everything you hear"} (the deck page's Settings › Advanced)`;
-  $("#r-btn").textContent = recOn ? "■ Stop" : "● Record";
-}
-// Discord: the hub streams to the bot, and asks it every 10 s who's listening (d.bot: the bot's /status)
-let dcOn = false, dcHost = "";
-const DC_STATE = ["Not streaming", "Connecting to the bot…", "Live", "Can't reach the bot", "Live (with problems)"];
-const botLine = b => !b.bot ? "Live · the bot isn't signed in to Discord (its token)"
-  : b.kicked && !b.inChannel ? `Live · the bot was kicked from ${b.kicked.channel || "its channel"}: /zydeck join to bring it back`
-  : !b.channel ? "Live · in Discord: /zydeck join from a voice channel"
-  : `Live in ${b.channel}${b.server ? ` (${b.server})` : ""} · ${b.listeners} listening`;
-function showDiscord(d) {
-  if (!d) return;
-  dcOn = !!d.on; dcHost = d.host || "";
-  if (document.activeElement !== $("#dc-host")) $("#dc-host").value = dcHost;
-  $("#dc-key").placeholder = d.hasKey ? "Stream key: saved (type to change)" : "Stream key (from the bot's .env)";
-  $("#dc-st").textContent = !dcOn ? "Not streaming" : d.status === 2 && d.bot ? botLine(d.bot)
-    : (DC_STATE[d.status] || "…") + (d.status === 3 && d.error ? ` · ${d.error}` : "");
-  $("#dc-btn").textContent = dcOn ? "■ Stop" : "Go live";
-}
-async function loadDiscord() {
-  try { showDiscord(await api("/api/discord")); } catch {}
-  if (!$("#dc-host").value && typeof stemServer === "string" && stemServer)   // the stem server's computer, likely
-    $("#dc-host").placeholder = `Bot address, e.g. ${stemServer.replace(/:\d+$/, "")}:8780`;
-}
-$("#dc-save").addEventListener("click", async () => {
-  const host = $("#dc-host").value.trim(), key = $("#dc-key").value.trim();
-  try {
-    showDiscord(await api(`/api/discord?${qs(key ? { host, key } : { host })}`));
-    $("#dc-key").value = "";
-    toast("Saved", "ok");
-  } catch (e) { toast(e.message, "bad"); }
-});
-$("#dc-btn").addEventListener("click", async () => {
-  try { showDiscord(await api(`/api/discord?on=${dcOn ? 0 : 1}`)); }
-  catch (e) { toast(e.message, "bad"); }
-});
-async function loadRecording() {
-  try { showRecording(await api("/api/record")); } catch {}
-  try {
-    const tl = await api("/api/tracklist");
-    $("#r-tl-text").textContent = tl.text || "Nothing played yet this session";
-  } catch {}
-}
-$("#r-btn").addEventListener("click", async () => {
-  try {
-    const r = await api(`/api/record?on=${recOn ? 0 : 1}`);
-    if (recOn) toast("Saved in Music/ZyDeck Recordings, with a .cue tracklist", "ok");
-    showRecording(await api("/api/record"));
-  } catch (e) { toast(e.message, "bad"); }
-});
-$("#r-tl").addEventListener("click", async () => {
-  try {
-    const tl = await api("/api/tracklist");
-    $("#r-tl-text").textContent = tl.text || "Nothing played yet this session";
-    if (!tl.text) return;
-    await navigator.clipboard.writeText(tl.text);
-    toast(`Tracklist copied (${tl.tracks.length} tracks)`, "ok");
-  } catch (e) { toast("Couldn't copy: select the list below instead", "bad"); }
-});
-
-// One-tap optimisation (the hub runs it: decks empty, the main output silent meanwhile)
-let optRunning = false;
-function showOptimize(o) {
-  optRunning = !!o.running;
-  $("#a-opt").textContent = optRunning ? "Cancel" : "Optimize";
-  const tried = (o.results || []).map(r => `buffer ${r.buffer}: ${r.dropouts ? r.dropouts + " dropouts" : "clean"}`).join(" · ");
-  $("#a-opt-st").textContent = o.running ? `${o.state} ${tried}` : o.error ? `${o.error}${tried ? " · " + tried : ""}`
-    : o.chosen ? `Kept buffer ${o.chosen}${tried ? " · " + tried : ""}` : $("#a-opt-st").textContent;
-  if (!o.running && o.chosen) loadAudio();
-}
-$("#a-opt").addEventListener("click", async () => {
-  try { showOptimize(await api(`/api/audio/optimize${optRunning ? "?cancel=1" : ""}`)); } catch (e) { toast(e.message, "bad"); }
-});
-$("#a-measure").addEventListener("click", async () => {
-  $("#a-lat").textContent = "Measuring…";
-  await api("/api/audio/latency?measure=1").catch(() => {});
-  setTimeout(async () => { try { paintLatency(await api("/api/audio")); } catch {} }, 2500);
-});
-// A new device: main on its 1–2; headphones on the main's 3–4 when it has them, else 1–2 (shared, with the warning).
-$("#a-main").addEventListener("change", () => {
-  $("#a-main-ch").innerHTML = channelOptions($("#a-main").value, "0,2"); audioWarn();
-});
-$("#a-phones").addEventListener("change", () => {
-  const d = audioDevices.find(x => x.name === $("#a-phones").value);
-  const four = d && d.channels >= 4 && d.name === $("#a-main").value;
-  $("#a-phones-ch").innerHTML = channelOptions($("#a-phones").value, four ? "2,2" : "0,2"); audioWarn();
-});
-["#a-main-ch", "#a-phones-ch"].forEach(id => $(id).addEventListener("change", audioWarn));
-$("#a-apply").addEventListener("click", async () => {
-  $("#a-apply").disabled = true;
-  try {
-    const r = await api(`/api/audio/set?${qs({ main: $("#a-main").value, mainChannels: $("#a-main-ch").value,
-      headphones: $("#a-phones").value, headphonesChannels: $("#a-phones-ch").value })}`);
-    toast(r.shared ? "Audio output changed: the cue plays on the main output too" : "Audio output changed", r.shared ? "" : "ok");
-  } catch (e) { toast(e.message, "bad"); }
-  $("#a-apply").disabled = false;
-  loadAudio();
-});
 
 // Track sheet (a tap or a long press): load it into a deck or sampler and preview it; under the line, the
 // tools (sample, beat grid, analysis, stems) and its crates.
@@ -1779,73 +1303,32 @@ addEventListener("message", e => {
   loadViews(); loadTracks();   // a BPM may have changed (the editor saved it), a sample may have been added
 });
 
-// Settings: one menu, System (here) | Controller (the deck page's), each laid out for the way the device is held:
-// sideways in the deck page's settings window, upright as this page (zydeck-shared.js: head, search, Link devices).
-// Switching shows the other tab first and takes the first away after, so nothing behind shows for a frame.
-// Turning the device puts things back as usual.
+// Start-up animation (intro.html reads the same setting, zphone.introStyle / introFull: it runs on this page's
+// origin); set in Settings › Start-up
+const INTRO_FULL_DEFAULT = false;   // as in intro.html: the short one after the first time
+const INTRO_STYLE_DEFAULT = "gild";   // RELEASE: as in intro.html
+
+// Settings: the menu (zydeck-menu.js), System and Controller, one list for both pages. Upright it's this page's
+// Settings page, under the waveforms; sideways it's a window over the decks (their gear asks for it). The
+// Controller settings are the deck page's (in its frame).
 const deckFrame = () => document.getElementById("deckview");
-const deckPost = m => deckFrame().contentWindow.postMessage(m, location.origin);
-const setHead = ZydeckShared.menuHead("system");
-$("#set-head").appendChild(setHead);
-function searchSet() {
-  const m = ZydeckShared.matcher(setHead.q.value);
-  document.querySelectorAll("#p-set .card").forEach(c => c.classList.toggle("hit-none", m.any && !m.hit(c)));
-  let n = 0;
-  if (m.any) { try { n = [...deckFrame().contentDocument.querySelectorAll("#settings .row")].filter(m.hit).length; } catch {} }
-  setHead.other.hidden = !n;
-  setHead.other.textContent = `${n} in Controller settings ›`;
-}
-setHead.q.addEventListener("input", searchSet);
-// Sideways: the System tab is the settings window (the cards moved into it, so all works as on their page);
-// over: opened from the deck page's settings, which stay open under it (their backdrop) until it closes
-let sysOver = false;
-function openSystemWindow(q, over) {
-  try {   // the deck page's own scale, so the window matches its settings exactly
-    const mm = getComputedStyle(deckFrame().contentDocument.documentElement).getPropertyValue("--mm").trim();
-    if (mm) $("#sysmodal").style.setProperty("--mm", mm);
-  } catch {}
-  sysOver = !!over;
-  $("#sysmodal").classList.toggle("over", sysOver);
-  $("#sysmodal .panel").appendChild($("#p-set"));
-  $("#sysmodal").classList.add("open"); document.body.classList.add("sysopen");
-  setHead.q.value = q || ""; searchSet(); loadSettingsPage();
-  if (sysOver) requestAnimationFrame(() => deckPost({ zydek: "settings-under" }));   // its panel goes, under this one
-}
-function closeSystemWindow(keepDeckSettings) {
-  if (!$("#sysmodal").classList.contains("open")) return;
-  $("#sysmodal").classList.remove("open"); document.body.classList.remove("sysopen");
-  $("main").appendChild($("#p-set"));   // back to its page
-  if (sysOver && !keepDeckSettings) deckPost({ zydek: "close-settings" });
-  sysOver = false;
-}
-$("#sys-x").addEventListener("click", () => closeSystemWindow());
-$("#sysmodal").addEventListener("click", e => { if (e.target.id === "sysmodal") closeSystemWindow(); });
-// The Controller tab: the deck page's settings (upright, as a page where this one goes); this tab goes once
-// that one's drawn ("settings-shown", or after 400 ms)
-let whenShown = null;
-function openControllerMenu() {
-  const upright = innerHeight > innerWidth;
-  const swap = () => { if (upright) document.body.classList.add("show-decks"); else closeSystemWindow(true); };
-  whenShown = swap;
-  setTimeout(() => { if (whenShown === swap) { whenShown = null; swap(); } }, 400);
-  deckPost({ zydek: "open-settings", q: setHead.q.value, page: upright });
-}
-setHead.tab("controller").addEventListener("click", openControllerMenu);
-setHead.other.addEventListener("click", openControllerMenu);
-addEventListener("message", e => {
-  if (e.origin !== location.origin) return;
-  if (e.data?.zydek === "settings-shown") {
-    if (whenShown) { const f = whenShown; whenShown = null; f(); }
-  } else if (e.data?.zydek === "menu" && e.data.to === "system") {
-    if (innerWidth > innerHeight) { openSystemWindow(e.data.q, true); return; }   // sideways: the window, over theirs
-    showPage("set");   // upright: this page (it takes the deck page's away: showPage)
-    scrollTo(0, 0);
-    setHead.q.value = e.data.q || ""; searchSet();
-  } else if (e.data?.zydek === "settings-closed") {
-    document.body.classList.remove("show-decks");
-  }
+ZydeckMenu.setup({
+  page: "phone", toast, ctl: () => deckFrame().contentWindow.ZydeckMenu?.providers.controller,
+  mm: () => { try { return getComputedStyle(deckFrame().contentDocument.documentElement).getPropertyValue("--mm").trim(); } catch { return ""; } },
+  go: p => { showPage(p); scrollTo(0, 0); }, openLogin,
+  introDefaults: { style: INTRO_STYLE_DEFAULT, full: INTRO_FULL_DEFAULT },
+  changed(key, v) {
+    if (key === "keyNotation") loadTracks();
+    if (key === "stemServer") stemServer = v;
+    if (key === "stemPreset") stemPreset = v;
+  },
 });
-matchMedia("(orientation: landscape)").addEventListener("change", () => { closeSystemWindow(); document.body.classList.remove("show-system", "show-decks"); });
+addEventListener("message", e => {
+  if (e.origin !== location.origin || e.data?.zydek !== "open-menu") return;
+  if (innerWidth > innerHeight) ZydeckMenu.open({ tab: e.data.tab, layout: "window" });
+  else { showPage("set"); scrollTo(0, 0); }
+});
+matchMedia("(orientation: landscape)").addEventListener("change", () => ZydeckMenu.close());
 
 // Crates: the track sheet lists them (tap to add the track or take it out); "+ Crate" makes a new one.
 let crateList = [];
@@ -2160,50 +1643,6 @@ function keyChip(t) {
   if (!txt) return `<span class="kchip none">–</span>`;
   return `<span class="kchip" style="--h:${k ? (k.camelot - 1) * 30 : 0}">${esc(txt)}</span>`;
 }
-// Sampler kits (Zydek's server keeps them): load, delete, save the pads as one
-async function loadKits() {
-  let r;
-  try { r = await api("/api/kits"); } catch { return; }
-  const box = $("#kitlist"); box.innerHTML = "";
-  if (!r.kits.length) box.innerHTML = `<div class="note">No kits yet: fill some pads, then save them here.</div>`;
-  r.kits.forEach(k => {
-    const row = h("div", "kit", `<span>${esc(k.name)}<small>${k.pads} pad${k.pads === 1 ? "" : "s"}${k.missing ? ` · ${k.missing} file${k.missing > 1 ? "s" : ""} missing` : ""}</small></span>`);
-    const load = h("button", "", "Load"), del = h("button", "x", "✕");
-    load.addEventListener("click", async () => {
-      try { const x = await api(`/api/kits/load?${qs({ name: k.name })}`); toast(`Loaded ${k.name}: ${x.pads} pads${x.missing ? `, ${x.missing} missing` : ""}`, "ok"); }
-      catch (e) { toast(e.message, "bad"); }
-    });
-    del.addEventListener("click", async () => {
-      if (!confirm(`Delete the kit "${k.name}"? (The sample files stay.)`)) return;
-      try { await api(`/api/kits/delete?${qs({ name: k.name })}`); loadKits(); } catch (e) { toast(e.message, "bad"); }
-    });
-    row.append(load, del); box.appendChild(row);
-  });
-}
-$("#kitsave").addEventListener("click", async () => {
-  const name = $("#kitname").value.trim();
-  if (!name) return toast("Give the kit a name", "bad");
-  try { const r = await api(`/api/kits/save?${qs({ name })}`); toast(`Saved ${name}: ${r.pads} pads`, "ok"); $("#kitname").value = ""; loadKits(); }
-  catch (e) { toast(e.message, "bad"); }
-});
-$("#kitname").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#kitsave").click(); } });
-
-// Start-up animation (intro.html reads the same setting: it runs on this page's origin)
-const INTRO_FULL_DEFAULT = false;   // as in intro.html: the short one after the first time
-$("#introfull").checked = store.get("introFull", INTRO_FULL_DEFAULT);
-$("#introfull").addEventListener("change", () => store.set("introFull", $("#introfull").checked));
-const INTRO_STYLE_DEFAULT = "gild";   // RELEASE: as in intro.html
-$("#introstyle").value = store.get("introStyle", INTRO_STYLE_DEFAULT);
-$("#introstyle").addEventListener("change", () => { store.set("introStyle", $("#introstyle").value); toast("Shows next time ZyDeck starts", "ok"); });
-$("#samplesync").checked = store.get("sampleSync", true);
-$("#samplesync").addEventListener("change", () => store.set("sampleSync", $("#samplesync").checked));
-api("/api/livestems").then(j => { $("#lstems").checked = j.auto !== false; $("#lstems").disabled = !j.available; }).catch(() => {});
-$("#lstems").addEventListener("change", () => api(`/api/livestems?auto=${$("#lstems").checked ? 1 : 0}`).catch(() => {}));
-$("#samplekeylock").checked = store.get("sampleKeylock", true);
-$("#samplekeylock").addEventListener("change", () => store.set("sampleKeylock", $("#samplekeylock").checked));
-$("#keyfmt").value = store.get("keyNotation", "camelot");
-$("#keyfmt").addEventListener("change", () => { store.set("keyNotation", $("#keyfmt").value); loadTracks(); });
-
 // Excluded folders: hidden from the library (and from "Analyze all"); Mixxx itself still has them.
 let browseMode = "add";
 async function loadExcluded() {

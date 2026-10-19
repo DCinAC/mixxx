@@ -385,7 +385,7 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     if (path == QLatin1String("/controller.webmanifest")) {
         return staticFile(QStringLiteral("controller.webmanifest"));
     }
-    if (path == QLatin1String("/zydeck-shared.js") || path == QLatin1String("/zydeck-shared.css")) {   // both settings menus' parts
+    if (path == QLatin1String("/zydeck-menu.js") || path == QLatin1String("/zydeck-menu.css")) {   // the settings menu, both pages
         return staticFile(path.mid(1));
     }
     if (path == QLatin1String("/zydeck-skin-d.js") || path == QLatin1String("/zydeck-skin-d.css")) {   // the deck page's Hardware look

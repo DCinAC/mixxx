@@ -6,9 +6,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0b0b0b">
 <link rel="manifest" href="/controller.webmanifest">
-<link rel="stylesheet" href="/zydeck-shared.css">
+<link rel="stylesheet" href="/zydeck-menu.css">
 <link rel="stylesheet" href="/zydeck-skin-d.css">
-<script src="/zydeck-shared.js"></script>
+<script src="/zydeck-menu.js"></script>
 <title>Mixxx Controller</title>
 <style>
   :root {
@@ -60,7 +60,6 @@
   #rec.on { border-color: #ff3b30; color: #fff; background: #b3261e; }
   #rec.wait { border-color: #ff3b30; color: #ff6b61; }
   #gear.live { border-color: var(--play); color: var(--play); }   /* connected to Mixxx */
-  #settings h2 small { font-size: calc(var(--mm) * 2); color: var(--dim); font-weight: 500; margin-left: calc(var(--mm) * 1.5); }
 
   .side { --acc: var(--deck12); display: grid; gap: var(--gap); min-width: 0; min-height: 0; }
   .side.d34 { --acc: var(--deck34); }
@@ -343,13 +342,6 @@
   #xf.held .cap { background: #fff; box-shadow: 0 0 calc(var(--mm) * 1.2) #fff; }
   #xf .mid { position: absolute; left: 50%; top: 18%; bottom: 18%; width: 1px; background: #444; }
 
-  /* ---- settings ---- */
-  #settings { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: none; align-items: center; justify-content: center; z-index: 10; }
-  #settings.open { display: flex; }
-  #settings .panel { width: min(92vw, calc(var(--mm) * 150)); max-height: 92vh; overflow: auto; background: #151515; border: 1px solid #333;
-    border-radius: calc(var(--mm) * 2.5); padding: calc(var(--mm) * 4); color: var(--text); touch-action: pan-y;
-    font-size: calc(var(--mm) * 2.3); font-weight: 500; }
-  #settings h2 { margin: 0 0 calc(var(--mm) * 2); font-size: calc(var(--mm) * 3.2); }
   /* unload: the eject sign, the waveform's height, beside the title; and its question */
   .strip .ejecticon { position: absolute; top: 4%; bottom: 4%; aspect-ratio: 1; opacity: 0; transition: opacity .5s; pointer-events: none; z-index: 4; }
   .strip .ejecticon.on { opacity: .92; }
@@ -366,41 +358,6 @@
   #unloadask .seg { display: flex; gap: calc(var(--mm) * 1); }
   #unloadask .seg button { flex: 1; height: calc(var(--mm) * 7.5); }
   #unloadask .yes { background: var(--err); border-color: var(--err); color: #fff; }
-  /* the head (System | Controller, search) and Link devices: zydeck-shared.css, as on the phone page */
-  #settings .row.hit-none { display: none; }
-  #settings.under .panel { visibility: hidden; }   /* sideways, the System window is over it (its backdrop stays) */
-  /* upright, the Controller tab is the System page to the letter: its place (between the phone page's decks and
-     tabs), cards, sizes; no title, close or Done (the tabs and the page's own tab bar do that) */
-  #settings.aspage { background: #0b0b0b; align-items: stretch; }
-  #settings.aspage .panel { width: 100%; max-height: none; height: 100%; border: 0; border-radius: 0; padding: 0 0 12px;
-    background: #0b0b0b; font-size: 14px; }
-  #settings.aspage h2, #settings.aspage .x, #settings.aspage .close { display: none; }
-  #settings.aspage #s-head { margin: 12px 12px 4px; font-size: 15px; }   /* as #set-head on the phone page */
-  #settings.aspage .row { display: block; margin: 12px; padding: 12px 14px; border: 1px solid #2c2c2c; border-radius: 12px; background: #121212; }
-  #settings.aspage .row > div:first-child { font-size: 15px; font-weight: 700; }
-  #settings.aspage .row small { font-size: 12px; font-weight: 400; margin-top: 8px; line-height: 1.4; }
-  #settings.aspage .row > :not(:first-child) { margin-top: 10px; }
-  #settings.aspage .seg { gap: 8px; }
-  #settings.aspage .seg button { height: auto; min-height: 40px; padding: 0 14px; font-size: 14px; border-radius: 10px; }
-  #settings.aspage details.adv { margin: 12px; border-top: 0; }
-  #settings.aspage details.adv > summary { padding: 8px 2px; font-size: 13px; }
-  #settings.aspage details.adv .row { margin: 12px 0; }
-  #settings .row { display: grid; grid-template-columns: calc(var(--mm) * 42) 1fr; gap: calc(var(--mm) * 2); align-items: center;
-    padding: calc(var(--mm) * 2) 0; border-top: 1px solid #262626; }
-  #settings .row small { display: block; color: var(--dim); font-size: calc(var(--mm) * 1.8); margin-top: 2px; }
-  #settings .seg { display: flex; gap: calc(var(--mm) * 1); flex-wrap: wrap; }
-  #settings .seg button { height: calc(var(--mm) * 8); padding: 0 calc(var(--mm) * 3); }
-  #settings input[type=range] { width: 100%; height: calc(var(--mm) * 6); accent-color: var(--deck12); }
-  #settings details.adv { margin-top: calc(var(--mm) * 2); border-top: 1px solid #333; }
-  #settings details.adv > summary { cursor: pointer; padding: calc(var(--mm) * 2) 0; font-weight: 700; color: var(--dim); }
-  #settings details.adv[open] > summary { color: var(--text); }
-  #settings .val { color: var(--deck12); font-variant-numeric: tabular-nums; }
-  #ruler { height: calc(var(--mm) * 3); width: calc(var(--mm) * 50); border: 2px solid var(--deck12); border-top: 0; margin-top: 6px;
-    background: repeating-linear-gradient(90deg, var(--deck12) 0 2px, transparent 2px calc(var(--mm) * 10)); }
-  #settings .panel { position: relative; }
-  #settings .x { position: absolute; top: calc(var(--mm) * 2); right: calc(var(--mm) * 2); width: calc(var(--mm) * 10);
-    height: calc(var(--mm) * 10); font-size: calc(var(--mm) * 4); line-height: 1; }
-  #settings .close { height: calc(var(--mm) * 9); padding: 0 calc(var(--mm) * 5); margin-top: calc(var(--mm) * 3); }
 
   /* ---- phone (?phone=1): one phone held sideways, inside the phone page (portrait there is the library) ----
      tempo lanes on the outer edges (full height), both strips across the top, under them deck | mixer | deck. */
@@ -483,7 +440,6 @@
   #rotate { position: fixed; inset: 0; background: var(--bg); color: var(--text); display: none; align-items: center; justify-content: center;
     font-size: 22px; text-align: center; z-index: 20; padding: 24px; }
   @media (orientation: portrait) { #rotate { display: flex; } }
-  #settings.aspage { z-index: 30; }   /* upright on purpose (the Controller tab): over the turn-me notice */
   /* two-function controls (CUE · SLIP, PLAY · CENSOR, SYNC · MASTER, the mode buttons, the EQ labels): see two() */
   #app .two { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
   #app .two > b, #app .two > small { display: block; margin: 0; white-space: nowrap; letter-spacing: .02em;
@@ -516,81 +472,6 @@
   <div id="dr"></div>
   <div id="stack"><div id="sideL"></div><div id="nudge0"></div><div id="strip0"></div><div id="strip1"></div><div id="nudge1"></div><div id="sideR"></div></div>
 </div>
-<div id="settings"><div class="panel">
-  <button class="x" id="s-x" aria-label="Close">✕</button>
-  <h2>Settings<small id="s-status">UI test · simulated Mixxx</small></h2>
-  <div id="s-head"></div>
-  <div class="row"><div>Link devices<small>Control another ZyDeck on the same Wi-Fi (or this phone's hotspot) from here, like a Bluetooth controller: the tablet as the phone's decks, say. ◀ Back to this device returns</small></div>
-    <div id="s-ld"></div></div>
-  <div class="row"><div>Unload<small>Hold a paused deck's title (on its waveform) for half a second: the eject sign comes up beside it; tap it to unload (asking first, or not). Touching anything else puts it away</small></div>
-    <div class="seg" id="s-unload"></div></div>
-  <div class="row"><div>Look<small>Hardware: keys in a frame with a lamp that lights, rubber pads lit from behind, a jog wheel's edge for nudging. Element: ZyDeck's flat look</small></div>
-    <div class="seg" id="s-theme"></div></div>
-  <div class="row"><div>Layout<small>Strips on top: both platter strips stacked across the top like Mixxx's waveforms (about twice as long), the top-bar buttons beside them</small></div>
-    <div class="seg" id="s-layout"></div></div>
-  <div class="row"><div>Platter strip<small>How much of the record one full strip covers</small></div>
-    <div><div class="seg" id="s-revs"></div><small id="s-revs-info"></small></div></div>
-  <div class="row"><div>On a new track<small>KEY LOCK, QUANTIZE and SLIP when a deck loads a track (switching to its live stems doesn't count): on, off, or as they were</small></div>
-    <div><div class="seg" id="s-dk"></div><div class="seg" id="s-dq" style="margin-top:6px"></div><div class="seg" id="s-ds" style="margin-top:6px"></div></div></div>
-  <div class="row"><div>Tempo direction</div><div class="seg" id="s-dir"></div></div>
-  <div class="row"><div>Audio buffer<small id="s-buf-note">How much sound Mixxx makes at a time: smaller answers sooner, but breaks up if the device can't keep up. Optimize tests this device under a heavy load (silently, decks empty) and keeps the smallest that doesn't break up</small></div>
-    <div><div class="seg" id="s-buf"></div><button id="s-opt" style="margin-top:6px">Optimize</button></div></div>
-  <div class="row"><div>Key notation<small>How the deck shows its current key (after key shift, and tempo when key lock is off)</small></div>
-    <div class="seg" id="s-keyfmt"></div></div>
-  <div class="row"><div>FX layout<small>Beat FX: one effect per side with its beat length, LEVEL and ON, like Pioneer's. Multi-FX: three effects at once, a knob each (tap it: on/off; SHIFT + tap: next effect) and MIX, like Serato's</small></div>
-    <div class="seg" id="s-fxlayout"></div></div>
-  <div class="row"><div>Live stems<small>When a deck loads a track without stems, the phone separates it (about half a minute) and swaps in the stems version; STEM pads show how far it is</small></div>
-    <div class="seg" id="s-lstems"></div></div>
-  <div class="row"><div>Controller mode<small>Control Mixxx on a computer instead: over the USB cable (set it to MIDI in Android's USB notification, then pick the ZyDeck mapping for it in Mixxx), or over Wi-Fi with ZyDeck Link running on the computer</small></div>
-    <div class="seg" id="s-remote"></div></div>
-  <div class="row"><div>MIDI layout<small>ZyDeck: Mixxx with the ZyDeck mapping (everything). Standard: plain notes and CCs for MIDI Learn in Serato, rekordbox or Traktor (no waveforms or positions come back)</small></div>
-    <div class="seg" id="s-midilayout"></div></div>
-  <div class="row"><div>Discord<small>Plays the mix in a Discord voice channel through the ZyDeck Discord bot (on the computer: launch.sh; in Discord: /zydeck join from the voice channel). Listeners hear it about a second behind</small></div>
-    <div><div class="seg"><button id="s-dc">Go live</button></div><small id="s-dc-st"></small></div></div>
-  <div class="row"><div>Sampler kits<small>Load a set of pads (with their modes) or save what's on them now</small></div>
-    <div class="seg" id="s-kits"></div></div>
-  <div class="row"><div>Default behaviour on assignment: follow the master tempo<small>What a pad gets when a track, capture or cut sample goes on it: playing in time with the decks. SHIFT + a loaded pad changes it for that pad (⇄ on the pad)</small></div>
-    <div class="seg" id="s-ssync"></div></div>
-  <div class="row"><div>Default behaviour on assignment: keylock<small>The sample keeps its pitch when its tempo changes. SHIFT + a loaded pad changes it for that pad</small></div>
-    <div class="seg" id="s-skl"></div></div>
-  <div class="row"><div>Fullscreen<small>Enter fullscreen on the first touch</small></div><div class="seg" id="s-fs-auto"></div></div>
-  <details class="adv"><summary>Advanced</summary>
-  <div class="row"><div>Lamp on wide keys<small>Hardware look: where the lamp sits on the long, flat keys</small></div>
-    <div class="seg" id="s-lampside"></div></div>
-  <div class="row"><div>Drawing<small>Pre-rendered draws each key, pad, knob and fader cap once and keeps it, so a touch redraws only what it changed (much less work for the screen); live redraws the area round it every time. They look the same</small></div>
-    <div class="seg" id="s-drawmode"></div></div>
-  <div class="row"><div>Key text<small>Hardware look: adaptive sizes each key's text to the key (bigger on small keys, the same along a row); fixed keeps ZyDeck's sizes</small></div>
-    <div class="seg" id="s-keytext"></div></div>
-  <div class="row"><div>Unload button<small>Where the eject sign comes up on the waveform: any of them (left and left-mid would overlap, so one of those). Left-mid ends where the track's name does</small></div>
-    <div class="seg" id="s-ejectat"></div></div>
-  <div class="row"><div>Slipmat grip<small>After you let go, the slipmat pulls the record to the platter's speed at a steady rate, from however fast you flicked it. Set as the time from a standstill to full speed</small></div>
-    <div><input type="range" id="s-catchup" min="0" max="800" step="10"><small><span class="val" id="s-catchup-v"></span></small></div></div>
-  <div class="row"><div>Tempo sensitivity<small>Tempo change per mm of drag</small></div>
-    <div><input type="range" id="s-sens" min="0.04" max="0.4" step="0.01"><small><span class="val" id="s-sens-v"></span></small></div></div>
-  <div class="row"><div>Nudge sensitivity<small>How much the nudge bars bend the speed: lower is finer, for nudging the beats into line</small></div>
-    <div><input type="range" id="s-nudge" min="0.1" max="1" step="0.05"><small><span class="val" id="s-nudge-v"></span></small></div></div>
-  <div class="row"><div>Touch input<small id="s-input-note">Precision: moves line up with the screen, and knobs and faders are drawn ahead of the finger. Real-time: each move goes to Mixxx the moment it arrives, up to a frame sooner (the touch to sound path), without the drawing ahead</small></div>
-    <div class="seg" id="s-input"></div></div>
-  <div class="row"><div>Knob gesture<small>Drag: the distance you move, up or right = turn up. Spin: circle the knob; the farther out you circle, the finer it gets</small></div>
-    <div class="seg" id="s-knob"></div></div>
-  <div class="row"><div>Mixer knob size<small>Knob diameter; the mixer widens to fit</small></div>
-    <div><input type="range" id="s-knobsize" min="9" max="18" step="0.5"><small><span class="val" id="s-knobsize-v"></span></small></div></div>
-  <div class="row"><div>Telemetry<small>Send debug data (touch rate, deck state, events) to the Mac's settings page</small></div>
-    <div class="seg" id="s-tele"></div></div>
-  <div class="row"><div>Top bar height</div>
-    <div><input type="range" id="s-bar" min="12" max="28" step="1"><small><span class="val" id="s-bar-v"></span></small></div></div>
-  <div class="row"><div>Screen scale<small>Adjust until the bar below measures 50 mm with a ruler</small></div>
-    <div><input type="range" id="s-pxmm" min="3.5" max="8.5" step="0.01"><small><span class="val" id="s-pxmm-v"></span></small><div id="ruler"></div></div></div>
-  <div class="row"><div>Palm rejection<small>Ignore touches wider than this</small></div>
-    <div><input type="range" id="s-palm" min="0" max="30" step="1"><small><span class="val" id="s-palm-v"></span></small></div></div>
-  <div class="row"><div>Recording point<small>After everything: what's heard (effects, EQ, filter, faders). Before effects: the effect units left out of the recording; EQ, filter and faders stay (they're the mixer)</small></div>
-    <div class="seg" id="s-recpt"></div></div>
-  </details>
-  <button class="close" id="s-back" style="display:none">◀ Back to this device</button>
-  <button class="close" id="s-fs">Fullscreen</button>
-  <button class="close" id="s-reset">Reset to defaults</button>
-  <button class="close" id="s-close" style="float:right">Done</button>
-</div></div>
 <div id="rotate">Turn the tablet to landscape</div>
 <script src="/zydeck-skin-d.js"></script>
 <script>
@@ -600,6 +481,8 @@
 const HUB_HOST = new URLSearchParams(location.search).get("hub") || location.host;
 const HUB = `${location.protocol}//${HUB_HOST}`;
 const HUB_ELSEWHERE = HUB_HOST !== location.host;
+// This page from another ZyDeck, in this device's app (Link devices): the menu offers the way back
+const LINKED = !!window.ZydekAndroid && (HUB_ELSEWHERE || !["127.0.0.1", "localhost"].includes(location.hostname));
 if (HUB_ELSEWHERE) {
   const pageFetch = window.fetch.bind(window);
   window.fetch = (url, opts) => pageFetch(typeof url === "string" && url.startsWith("/") ? HUB + url : url, opts);
@@ -609,7 +492,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers" };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d" };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
 // Android, which knows the screen's real pixel density.
@@ -2668,156 +2551,17 @@ decks.forEach(d => {
 // =====================================================================================================
 // Top bar, settings
 // =====================================================================================================
-document.getElementById("gear").addEventListener("click", () => { paintSettings(); paintFs(); document.getElementById("settings").classList.remove("aspage", "under"); document.getElementById("settings").classList.add("open"); });
-document.getElementById("s-close").addEventListener("click", () => document.getElementById("settings").classList.remove("open"));
-const closeSettings = () => {
-  document.getElementById("settings").classList.remove("open", "aspage", "under");
-  if (IN_SHELL) parent.postMessage({ zydek: "settings-closed" }, location.origin);
-};
-// Inside the phone page (its deck view): its Settings are the System tab of the same menu (zydeck-shared.js)
-const IN_SHELL = (() => { try { return parent !== window && parent.location.origin === location.origin && !!parent.document.getElementById("p-set"); } catch { return false; } })();
-const sHead = ZydeckShared.menuHead("controller");
-document.getElementById("s-head").appendChild(sHead);
-sHead.querySelector(".zs-tabs").hidden = !IN_SHELL;
-// to System: the phone page puts it up first, then asks this one to go (no frame of what's behind)
-const toSystem = () => parent.postMessage({ zydek: "menu", to: "system", q: sHead.q.value }, location.origin);
-sHead.tab("system").addEventListener("click", toSystem);
-sHead.other.addEventListener("click", toSystem);
-// Search: rows with every word typed; Advanced opens for one inside it; the other menu's count
-function searchSettings() {
-  const m = ZydeckShared.matcher(sHead.q.value);
-  const rows = [...document.querySelectorAll("#settings .row")];
-  rows.forEach(r => r.classList.toggle("hit-none", m.any && !m.hit(r)));
-  const adv = document.querySelector("#settings details.adv");
-  if (adv) { if (m.any) { adv._was ??= adv.open; adv.open = rows.some(r => adv.contains(r) && m.hit(r)); } else if (adv._was !== undefined) { adv.open = adv._was; adv._was = undefined; } }
-  let n = 0;
-  if (m.any && IN_SHELL) { try { n = [...parent.document.querySelectorAll("#p-set .card")].filter(m.hit).length; } catch {} }
-  sHead.other.hidden = !n;
-  sHead.other.textContent = `${n} in System settings ›`;
-}
-sHead.q.addEventListener("input", searchSettings);
-// The phone page: open this menu (its Controller tab; upright as a page), keep the backdrop under its System
-// window, or close; "settings-shown" once this one's drawn, so it can take its own away without a gap
-addEventListener("message", e => {
-  if (e.origin !== location.origin) return;
-  const st = document.getElementById("settings");
-  if (e.data?.zydek === "close-settings") { st.classList.remove("open", "aspage", "under"); return; }
-  if (e.data?.zydek === "settings-under") { st.classList.add("under"); return; }
-  if (e.data?.zydek !== "open-settings") return;
-  st.classList.remove("under");
-  st.classList.toggle("aspage", !!e.data.page);
-  paintSettings(); paintFs();
-  sHead.q.value = e.data.q || ""; searchSettings();
-  st.classList.add("open");
-  requestAnimationFrame(() => requestAnimationFrame(() => parent.postMessage({ zydek: "settings-shown" }, location.origin)));
-});
-document.getElementById("s-x").addEventListener("click", closeSettings);
-// Tapping the darkened area outside the panel closes it too.
-document.getElementById("settings").addEventListener("click", e => { if (e.target.id === "settings") closeSettings(); });
-const paintFs = () => { document.getElementById("s-fs").textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"; };
-document.addEventListener("fullscreenchange", paintFs);
+// The settings menu (zydeck-menu.js): this page's settings are its Controller tab. Inside the phone page, that
+// page draws the menu (over these decks sideways, as its own page upright); on its own, this page does.
+const IN_SHELL = (() => { try { return parent !== window && parent.location.origin === location.origin && !!parent.ZydeckMenu; } catch { return false; } })();
 let fsPaused = false;                    // an explicit "Exit fullscreen" pauses auto-fullscreen until re-entered
-document.getElementById("s-fs").addEventListener("click", () => {
-  const d = document.documentElement;
-  fsPaused = !!document.fullscreenElement;
-  (document.fullscreenElement ? document.exitFullscreen() : d.requestFullscreen({ navigationUI: "hide" })).catch(() => {});
-  closeSettings();
-});
-document.getElementById("s-reset").addEventListener("click", () => { S = { ...DEFAULTS }; saveSettings(); applySettings(); paintSettings(); build(); });
-
-// Sampler kits in the settings: one button per kit (loads it), and "+ Save the pads"
-async function paintKits() {
-  const box = document.getElementById("s-kits");
-  if (!live) { box.textContent = "(live only)"; return; }
-  if (REMOTE.on) { box.textContent = "(not in controller mode)"; return; }
-  let r;
-  try { r = await (await fetch("/api/kits")).json(); } catch { return; }
-  box.replaceChildren(...r.kits.map(k => {
-    const b = h("button", "", `${k.name} <small style="opacity:.6">${k.pads}</small>`);
-    b.addEventListener("click", async () => { await fetch(`/api/kits/load?name=${encodeURIComponent(k.name)}`); b.classList.add("on"); });
-    return b;
-  }), (() => {
-    const b = h("button", "", "+ Save the pads");
-    b.addEventListener("click", () => askText("Name for this kit", "", async name => {
-      await fetch(`/api/kits/save?name=${encodeURIComponent(name)}`); paintKits();
-    }));
-    return b;
-  })());
-}
-
-// Mixxx's audio buffer (the hub's /api/audio) and the one-tap optimisation (/api/audio/optimize)
-const BUFFERS = [[3, "5 ms"], [4, "11 ms"], [5, "21 ms"], [6, "43 ms"]];
-let optimizing = null;   // the optimisation's state while it runs
-async function paintAudioBuffer() {
-  const box = document.getElementById("s-buf"), opt = document.getElementById("s-opt"), note = document.getElementById("s-buf-note");
-  if (!box) return;
-  if (!live || REMOTE.on) {
-    box.innerHTML = ""; opt.style.display = "none";
-    note.textContent = REMOTE.on ? "Set on the computer's Mixxx" : "Once Mixxx is connected";
-    return;
-  }
-  opt.style.display = "";
-  let a;
-  try { a = await (await fetch("/api/audio")).json(); } catch { return; }
-  box.innerHTML = "";
-  BUFFERS.forEach(([i, label]) => {
-    const b = h("button", i === a.buffer ? "on" : "", label);
-    b.addEventListener("click", async () => {
-      try {
-        const r = await (await fetch(`/api/audio/buffer?index=${i}`)).json();
-        if (r.ok === false) toast(r.error || "Couldn't change the buffer");
-      } catch {}
-      paintAudioBuffer();
-    });
-    box.appendChild(b);
-  });
-  paintOptimize(optimizing);
-}
-function paintOptimize(o) {
-  const opt = document.getElementById("s-opt"), note = document.getElementById("s-buf-note");
-  if (!opt) return;
-  optimizing = o && o.running ? o : null;
-  opt.textContent = optimizing ? "Cancel" : "Optimize";
-  if (o && (o.running || o.state)) {
-    const tried = (o.results || []).map(r => `${BUFFERS.find(b => b[0] === r.buffer)?.[1] || r.buffer}: ${r.dropouts ? r.dropouts + " dropouts" : "clean"}`).join(" · ");
-    note.textContent = o.running ? `${o.state} ${tried}` : o.error ? `${o.error}${tried ? " · " + tried : ""}`
-      : `Kept ${BUFFERS.find(b => b[0] === o.chosen)?.[1] || o.chosen}${tried ? " · " + tried : ""}`;
-  }
-}
-document.addEventListener("click", async e => {
-  if (e.target.id !== "s-opt") return;
-  const r = await (await fetch(`/api/audio/optimize${optimizing ? "?cancel=1" : ""}`)).json().catch(() => ({}));
-  if (r.ok === false) toast(r.error || "Couldn't start the test");
+ZydeckMenu.setup({ page: "deck", linked: LINKED, hubHost: HUB_HOST, ctl: () => ZydeckMenu.providers.controller, toast: m => toast(m),
+  mm: () => S.pxmm + "px", fsToggled: () => { fsPaused = !!document.fullscreenElement; } });
+document.getElementById("gear").addEventListener("click", () => {
+  if (IN_SHELL) parent.postMessage({ zydek: "open-menu", tab: "controller" }, location.origin);
+  else ZydeckMenu.open({ tab: "controller" });
 });
 
-// Link devices: the same as the phone page's (zydeck-shared.js)
-ZydeckShared.linkDevices(document.getElementById("s-ld"));
-
-// Discord: streaming the mix to the ZyDeck Discord bot (its address and key: the phone page's Settings, or
-// launch.sh phone on the computer); the hub asks the bot who's listening (dc.bot)
-let dc = null;
-const DC_STATE = ["Not streaming", "Connecting to the bot…", "Live", "Can't reach the bot", "Live (with problems)"];
-function paintDiscord(d) {
-  dc = d || dc;
-  const b = document.getElementById("s-dc"), st = document.getElementById("s-dc-st");
-  if (!b || !dc) return;
-  b.textContent = dc.on ? "■ Stop" : "Go live";
-  b.classList.toggle("on", !!dc.on);
-  const bot = dc.bot;
-  st.textContent = !dc.host || !dc.hasKey ? "Not set up: the bot's address and key (on the computer: launch.sh phone <this device's IP>)"
-    : !dc.on ? `Bot: ${dc.host}`
-    : dc.status === 2 && bot ? (!bot.bot ? "Live · the bot isn't signed in to Discord"
-      : bot.kicked && !bot.inChannel ? `Live · the bot was kicked from ${bot.kicked.channel || "its channel"}: /zydeck join to bring it back`
-      : !bot.channel ? "Live · in Discord: /zydeck join from a voice channel"
-      : `Live in ${bot.channel} · ${bot.listeners} listening`)
-    : DC_STATE[dc.status] + (dc.status === 3 && dc.error ? ` · ${dc.error}` : "");
-}
-const loadDiscord = () => fetch("/api/discord").then(r => r.json()).then(paintDiscord).catch(() => {});
-document.addEventListener("click", async e => {
-  if (e.target.id !== "s-dc" || !dc) return;
-  const r = await (await fetch(`/api/discord?on=${dc.on ? 0 : 1}`)).json().catch(() => ({}));
-  if (r.ok === false) toast(r.error || "Couldn't start it"); else paintDiscord(r);
-});
 
 // A stem server is set (the Web tab's settings): live stems are made on the PC first
 let stemServer = false;
@@ -2840,102 +2584,44 @@ document.getElementById("rec").addEventListener("click", async () => {
   else if (rec?.on) toast("Saved in Music/ZyDeck Recordings, with a .cue tracklist");
 });
 
-function seg(id, options, get, set) {
-  const box = document.getElementById(id);
-  box.innerHTML = "";
-  options.forEach(([v, label]) => {
-    const b = h("button", get() === v ? "on" : "", label);
-    b.addEventListener("click", () => { set(v); saveSettings(); paintSettings(); build(); });
-    box.appendChild(b);
-  });
-}
-function slider(id, key, fmt) {
-  const inp = document.getElementById(id);
-  inp.value = S[key];
-  document.getElementById(id + "-v").textContent = fmt(S[key]);
-  inp.oninput = () => { S[key] = +inp.value; saveSettings(); applySettings(); document.getElementById(id + "-v").textContent = fmt(S[key]); paintSettings(true); };
-  inp.onchange = () => build();
-}
 // On a new track: the hub's KEY LOCK / QUANTIZE / SLIP defaults (1 on, 0 off, -1 as they were)
 let deckDefaults = [-1, -1, -1];
-function deckDefaultSeg(id, i, label) {
-  seg(id, [[1, `${label} on`], [0, `${label} off`], [-1, "As it was"]], () => deckDefaults[i], v => {
-    deckDefaults[i] = v;
-    fetch(`/api/deckdefaults?${["keylock", "quantize", "slip"][i]}=${v}`).catch(() => {});
-  });
-}
-function paintSettings(soft) {
-  deckDefaultSeg("s-dk", 0, "Key lock"); deckDefaultSeg("s-dq", 1, "Quantize"); deckDefaultSeg("s-ds", 2, "Slip");
-  if (!soft) loadDiscord();
-  seg("s-revs", [[.5, "½ rev"], [1, "1 rev"], [2, "2 rev"]], () => S.revs, v => S.revs = v);
-  seg("s-unload", [[true, "Ask every time"], [false, "Don't ask"]], () => S.askUnload !== false, v => S.askUnload = v);
-  {   // Unload button: several at once (not left with left-mid; at least one)
-    const box = document.getElementById("s-ejectat");
-    box.innerHTML = "";
-    EJECT_PLACES.forEach(([place, label]) => {
-      const b = h("button", ejectPlaces().includes(place) ? "on" : "", label);
-      b.addEventListener("click", () => {
-        let now = ejectPlaces().slice();
-        if (now.includes(place)) now = now.filter(p => p !== place);
-        else {
-          now.push(place);
-          if (place === "left") now = now.filter(p => p !== "leftmid");
-          if (place === "leftmid") now = now.filter(p => p !== "left");
-        }
-        if (!now.length) return;   // one at least
-        S.ejectAt = EJECT_PLACES.map(([p]) => p).filter(p => now.includes(p));
-        saveSettings(); paintSettings(true);
-      });
-      box.appendChild(b);
-    });
-  }
-  seg("s-layout", [["stacked", "Strips on top"], ["side", "Side by side"]], () => S.layout, v => S.layout = v);
-  seg("s-theme", [["d", "Hardware"], ["element", "Element"]], () => S.theme || "d", v => { S.theme = v; applyLook(); });
-  seg("s-lampside", [["left", "Left"], ["right", "Right"], ["bottom", "Bottom"]], () => S.lampSide || "left", v => { S.lampSide = v; applyLook(); });
-  seg("s-keytext", [["adaptive", "Adaptive"], ["element", "Fixed"]], () => S.keyText || "adaptive", v => { S.keyText = v; applyLook(); });
-  seg("s-drawmode", [["layers", "Pre-rendered"], ["live", "Live"]], () => S.drawMode || "layers", v => { S.drawMode = v; applyLook(); });
-  const stripMm = ui.sides[0]?.strip ? ui.sides[0].strip.clientWidth / S.pxmm : 70;
-  document.getElementById("s-revs-info").textContent =
-    `${stripSeconds().toFixed(1)} s of audio across ${stripMm.toFixed(0)} mm · ${(stripSeconds() * 1000 / stripMm).toFixed(0)} ms per mm`;
-  seg("s-dir", [[true, "Down = faster"], [false, "Up = faster"]], () => S.fasterDown, v => S.fasterDown = v);
-  seg("s-knob", [["drag", "Drag"], ["spin", "Spin"]], () => S.knobMode, v => S.knobMode = v);
-  seg("s-recpt", [[false, "After everything"], [true, "Before effects"]], () => !!rec?.preFx, v => {
-    if (rec) rec.preFx = v;
-    fetch(`/api/record?prefx=${v ? 1 : 0}`).then(r => r.json()).then(paintRec).catch(() => {});
-  });
-  paintAudioBuffer();
-  seg("s-input", RAW_INPUT ? [["precision", "Precision"], ["realtime", "Real-time"]] : [["precision", "Precision"]],
-    () => realtimeInput() ? "realtime" : "precision", v => { S.inputMode = v; tellApp(); });
-  if (!RAW_INPUT) document.getElementById("s-input-note").textContent =
-    "Real-time needs ZyDeck's own app on this device (a browser doesn't allow it here): moves line up with the screen";
-  seg("s-keyfmt", [["camelot", "Camelot 8A"], ["open", "Open Key 1m"], ["musical", "Musical Am"]], () => S.keyNotation, v => S.keyNotation = v);
-  seg("s-fs-auto", [[true, "On"], [false, "Off"]], () => S.autoFs, v => S.autoFs = v);
-  seg("s-tele", [[true, "On"], [false, "Off"]], () => S.telemetry, v => S.telemetry = v);
-  seg("s-ssync", [[true, "On"], [false, "Off"]], () => S.sampleSync, v => S.sampleSync = v);
-  seg("s-skl", [[true, "On"], [false, "Off"]], () => S.sampleKeylock !== false, v => S.sampleKeylock = v);
-  seg("s-fxlayout", [["beat", "Beat FX"], ["multi", "Multi-FX"]], () => S.fxLayout || "beat", v => S.fxLayout = v);
-  seg("s-lstems", [[true, "On load"], [false, "Off"]], () => liveStemsAuto, v => { liveStemsAuto = v; fetch(`/api/livestems?auto=${v ? 1 : 0}`).catch(() => {}); });
-  seg("s-midilayout", [["zydeck", "ZyDeck"], ["standard", "Standard"]], () => REMOTE.layout || "zydeck",
-    v => { fetch(`/api/controller?layout=${v}`).catch(() => {}); REMOTE.layout = v; });
-  seg("s-remote", [[true, "On"], [false, "Off"]], () => !!REMOTE.on, v => { fetch(`/api/controller?on=${v ? 1 : 0}`).catch(() => {}); REMOTE.on = v; });
-  if (!soft) paintKits();
-  if (soft) return;
-  slider("s-nudge", "nudgeSens", v => `${Math.round(v * 100)} % · ±${(v * 8 * 50 / 50).toFixed(1)} % speed at 50 mm/s`);
-  slider("s-sens", "sens", v => `${v.toFixed(2)} % per mm · ±8 % over ${(8 / v).toFixed(0)} mm of drag · ${(v * 1.28).toFixed(2)} BPM per mm at 128`);
-  slider("s-bar", "bar", v => `${v} mm`);
-  slider("s-pxmm", "pxmm", v => `${v.toFixed(2)} px per mm`);
-  slider("s-palm", "palm", v => v ? `${v} mm` : "off");
-  slider("s-catchup", "catchup", v => v ? `${v} ms from a stop to full speed` : "off: the record snaps straight back to speed");
-  slider("s-knobsize", "knobSize", v => {
-    const c = ui.chans[0]?.el, m = document.getElementById("mixer");
-    if (!c) return `${v} mm`;
-    const over = c.scrollHeight - c.clientHeight;
-    const knobs = [...c.querySelectorAll(".knob svg")].map(x => x.getBoundingClientRect());
-    const gap = knobs.length > 1 ? (knobs[1].top - knobs[0].bottom) / S.pxmm : 0;
-    return `${v} mm · mixer ${(m.getBoundingClientRect().width / S.pxmm).toFixed(0)} mm wide · ` +
-      (over > 1 ? `doesn't fit: ${(over / S.pxmm).toFixed(0)} mm too tall` : `${gap.toFixed(1)} mm between knobs`);
-  });
-}
+// This page's settings, for the menu's Controller tab (and its Look rows): the menu reads S and sets through here
+ZydeckMenu.provide("controller", {
+  S: () => S, phone: PHONE, rawInput: RAW_INPUT,
+  set(k, v, final = true) { S[k] = v; saveSettings(); applySettings(); tellApp(); if (final) build(); },
+  reset() { S = { ...DEFAULTS }; saveSettings(); applySettings(); tellApp(); build(); },
+  deckDefaults: () => deckDefaults,
+  setDeckDefault(i, v) { deckDefaults[i] = v; fetch(`/api/deckdefaults?${["keylock", "quantize", "slip"][i]}=${v}`).catch(() => {}); },
+  ejectPlaces,
+  toggleEject(place) {   // several at once (not left with left-mid; at least one)
+    let now = ejectPlaces().slice();
+    if (now.includes(place)) now = now.filter(p => p !== place);
+    else {
+      now.push(place);
+      if (place === "left") now = now.filter(p => p !== "leftmid");
+      if (place === "leftmid") now = now.filter(p => p !== "left");
+    }
+    if (!now.length) return;
+    S.ejectAt = EJECT_PLACES.map(([p]) => p).filter(p => now.includes(p));
+    saveSettings();
+  },
+  info: {
+    revs() {
+      const stripMm = ui.sides[0]?.strip ? ui.sides[0].strip.clientWidth / S.pxmm : 70;
+      return `${stripSeconds().toFixed(1)} s of audio across ${stripMm.toFixed(0)} mm · ${(stripSeconds() * 1000 / stripMm).toFixed(0)} ms per mm`;
+    },
+    knob() {
+      const c = ui.chans[0]?.el, m = document.getElementById("mixer");
+      if (!c) return "";
+      const over = c.scrollHeight - c.clientHeight;
+      const knobs = [...c.querySelectorAll(".knob svg")].map(x => x.getBoundingClientRect());
+      const gap = knobs.length > 1 ? (knobs[1].top - knobs[0].bottom) / S.pxmm : 0;
+      return `Mixer ${(m.getBoundingClientRect().width / S.pxmm).toFixed(0)} mm wide · ` +
+        (over > 1 ? `doesn't fit: ${(over / S.pxmm).toFixed(0)} mm too tall` : `${gap.toFixed(1)} mm between knobs`);
+    },
+  },
+});
 
 // Browsers only allow fullscreen from a touch, so the first touch anywhere enters it (and locks landscape).
 addEventListener("pointerdown", () => {
@@ -3164,7 +2850,6 @@ function goLive(init) {
   if (init.remote) REMOTE = init.remote;
   topNote.textContent = liveText();
   if (PHONE) try { parent.postMessage({ zydek: "deck-live" }, location.origin); } catch {}
-  document.getElementById("s-status").textContent = liveText();
   document.getElementById("gear").classList.add("live");
   decks.forEach((d, i) => Object.assign(d, {
     title: `Deck ${d.n}`, artist: "", bpm: 120, dur: 0, pos: 0, pt: undefined, ratio: 1, playing: false, loaded: false,
@@ -3190,13 +2875,6 @@ function goLive(init) {
   build();
 }
 
-// This page from another ZyDeck, in this device's app (Link devices): a way back, and which device it is
-const LINKED = !!window.ZydekAndroid && (HUB_ELSEWHERE || !["127.0.0.1", "localhost"].includes(location.hostname));
-if (LINKED) {
-  const b = document.getElementById("s-back");
-  b.style.display = "";
-  b.addEventListener("click", () => window.ZydekAndroid.linkClose());
-}
 function liveText() {
   if (LINKED) return `Linked · ${HUB_HOST.replace(/:\d+$/, "")}`;
   if (!REMOTE.on) return "Live · Mixxx";
@@ -3207,7 +2885,7 @@ function liveText() {
 function onRemote(r) {
   const was = REMOTE;
   REMOTE = r;
-  if (live) { topNote.textContent = liveText(); document.getElementById("s-status").textContent = liveText(); }
+  if (live) topNote.textContent = liveText();
   if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`);
   if (r.on && !r.live && was.live) toast(r.usb === 2 || r.via ? "Mixxx on the computer isn't answering: is the ZyDeck mapping on?" : "The computer is gone: plug the cable back in");
   // ZyDeck Link answered over the cable: offer the wireless link
@@ -3221,7 +2899,7 @@ function onRemote(r) {
     box.querySelector(".no").addEventListener("click", () => { box.remove(); fetch("/api/controller?link=0").catch(() => {}); });
     document.body.appendChild(box);
   }
-  if (document.getElementById("settings").classList.contains("open")) paintSettings();
+  ZydeckMenu.refresh();
 }
 // A small text box over the page (the app's WebView has no prompt()): onOk(text) unless cancelled.
 function askText(title, value, onOk) {
@@ -3259,9 +2937,10 @@ function loadCueLabels(d) {
 }
 
 function onMixxx(m) {
-  if (m.init) { if (m.init.notice) toast(m.init.notice); LAT = m.init.lat || 0; if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
-  if (m.t === "rec") return paintRec(m.r);
-  if (m.t === "remote") return onRemote(m);
+  if (m.init) { ZydeckMenu.push(m); if (m.init.notice) toast(m.init.notice); LAT = m.init.lat || 0; if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
+  if (m.t === "rec") { ZydeckMenu.push(m); return paintRec(m.r); }
+  if (m.t === "remote") { ZydeckMenu.push(m); return onRemote(m); }
+  if (m.t === "opt" || m.t === "dc") return ZydeckMenu.push(m);
   if (m.t === "lat") { LAT = m.s || 0; return; }
   if (!live) return;
   const d = m.d !== undefined ? decks[m.d] : null;
@@ -3278,14 +2957,12 @@ function onMixxx(m) {
     case "stem": d.stems[m.k] = m.v; return markDirty("deck", d);
     case "fx": fxLive[m.u][m.j] = m.v; break;
     case "smode": samplerModes[m.i] = m.v; break;
-    case "opt": paintOptimize(m.o); if (!m.o.running) paintAudioBuffer(); return;
-    case "dc": paintDiscord(m.d); return;
     case "notice": toast(m.m); return;
     case "slip": if (decks[m.d]) onSlip(decks[m.d], m.p); return;
     case "sfx": if (decks[m.d]) { decks[m.d].sfx = m.f; markDirty("deck", decks[m.d]); } return;
     case "lstem": if (decks[m.d]) { decks[m.d].lstem = { s: m.s, p: m.p, e: m.e, pc: m.pc }; markDirty("deck", decks[m.d]); } return;
     case "ssrv": stemServer = !!m.on; decks.forEach(d => markDirty("deck", d)); return;
-    case "ddef": deckDefaults = m.v; if (document.getElementById("settings").classList.contains("open")) paintSettings(true); return;
+    case "ddef": deckDefaults = m.v; ZydeckMenu.refresh(); return;
     default: return;
   }
   schedulePaint();
@@ -3330,7 +3007,7 @@ function ctlConnect() {
     migrateSettings(S);
     // Repaint only (no rebuild), so a finger holding a control keeps it while settings change.
     saveSettings(); applySettings(); requestAnimationFrame(paintAll);
-    if (document.getElementById("settings").classList.contains("open")) paintSettings();
+    ZydeckMenu.refresh();
     applyingRemote = false;
     if (migrated) saveSettings();   // tell the hub about the new knob default
   };
@@ -3515,8 +3192,6 @@ function armTrace(p) {
 
 if (PHONE) {   // the tablet's screen and debug settings don't apply here
   document.getElementById("rotate").remove();
-  ["s-layout", "s-knobsize", "s-tele", "s-fs-auto", "s-bar", "s-palm"].forEach(id => document.getElementById(id).closest(".row").style.display = "none");
-  document.getElementById("s-fs").style.display = "none";
 }
 applySettings();
 build();
