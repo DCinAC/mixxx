@@ -557,6 +557,8 @@
   <details class="adv"><summary>Advanced</summary>
   <div class="row"><div>Lamp on wide keys<small>Hardware look: where the lamp sits on the long, flat keys</small></div>
     <div class="seg" id="s-lampside"></div></div>
+  <div class="row"><div>Drawing<small>Hardware look: pre-rendered draws each key, pad, knob and fader cap once and keeps it, so a touch redraws only what it changed (much less work for the screen); live redraws the area round it every time. They look the same</small></div>
+    <div class="seg" id="s-drawmode"></div></div>
   <div class="row"><div>Key text<small>Hardware look: adaptive sizes each key's text to the key (bigger on small keys, the same along a row); fixed keeps ZyDeck's sizes</small></div>
     <div class="seg" id="s-keytext"></div></div>
   <div class="row"><div>Unload button<small>Where the eject sign comes up on the waveform: any of them (left and left-mid would overlap, so one of those). Left-mid ends where the track's name does</small></div>
@@ -607,7 +609,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive" };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers" };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
 // Android, which knows the screen's real pixel density.
@@ -689,7 +691,7 @@ function applySettings() {
   applyLook();
 }
 // The look (zydeck-skin-d.js): Hardware over Element, or Element as it is
-function applyLook() { window.zydeckSkin?.apply({ theme: S.theme || "d", lamp: S.lampSide, text: S.keyText, ptl: "top" }); }
+function applyLook() { window.zydeckSkin?.apply({ theme: S.theme || "d", lamp: S.lampSide, text: S.keyText, ptl: "top", layers: (S.drawMode || "layers") === "layers" }); }
 
 // =====================================================================================================
 // Simulated Mixxx state (replaced by the real connection later)
@@ -980,8 +982,10 @@ function fader(get, set, label, horizontal, target = () => null) {
       const g = geom(), p = horizontal ? e.clientX : e.clientY, ctx = target();
       el.hold = { ctx };
       let v = get(ctx);
-      const c = cap.getBoundingClientRect();
-      const onCap = e.clientX >= c.left && e.clientX <= c.right && e.clientY >= c.top && e.clientY <= c.bottom;
+      // on the cap (or within 2 mm of it: a fingertip's slop): it stays put until the finger has moved 2 mm;
+      // anywhere else on the fader: the cap jumps to the finger
+      const c = cap.getBoundingClientRect(), slop = mm(2);
+      const onCap = e.clientX >= c.left - slop && e.clientX <= c.right + slop && e.clientY >= c.top - slop && e.clientY <= c.bottom + slop;
       if (!onCap) { v = valueAt(g, p); set(v, ctx); el.paint(); }
       el.classList.add("held");
       return { p, v, g, ctx, dead: onCap };
@@ -2889,6 +2893,7 @@ function paintSettings(soft) {
   seg("s-theme", [["d", "Hardware"], ["element", "Element"]], () => S.theme || "d", v => { S.theme = v; applyLook(); });
   seg("s-lampside", [["left", "Left"], ["right", "Right"], ["bottom", "Bottom"]], () => S.lampSide || "left", v => { S.lampSide = v; applyLook(); });
   seg("s-keytext", [["adaptive", "Adaptive"], ["element", "Fixed"]], () => S.keyText || "adaptive", v => { S.keyText = v; applyLook(); });
+  seg("s-drawmode", [["layers", "Pre-rendered"], ["live", "Live"]], () => S.drawMode || "layers", v => { S.drawMode = v; applyLook(); });
   const stripMm = ui.sides[0]?.strip ? ui.sides[0].strip.clientWidth / S.pxmm : 70;
   document.getElementById("s-revs-info").textContent =
     `${stripSeconds().toFixed(1)} s of audio across ${stripMm.toFixed(0)} mm · ${(stripSeconds() * 1000 / stripMm).toFixed(0)} ms per mm`;

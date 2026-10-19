@@ -16,6 +16,7 @@
     body.classList.add("ptl-" + (cfg.ptl || "top"));
     body.classList.toggle("sk-phone", PHONE);
     body.classList.toggle("adaptive", on && ADAPT);
+    body.classList.toggle("sk-layers", on && cfg.layers !== false);   // pre-rendered: each part on its own GPU layer
     all = true; later();
   } };
   const app = document.getElementById("app");

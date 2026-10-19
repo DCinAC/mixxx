@@ -198,3 +198,11 @@ body.skin-d #app .pad[data-pm="center"] { justify-content: center !important; al
 /* sampler pads: the sample's name in the middle, smaller and bold (the pad's number stays in its corner) */
 body.skin-d #app .pad[data-pm="smp"] { justify-content: center !important; align-items: center !important; text-align: center !important; }
 body.skin-d #app .pad[data-pm="smp"] > small { font-size: calc(var(--pfs3, 14px) * .8) !important; font-weight: 700 !important; opacity: .95; }
+
+/* ---------------- pre-rendered (Settings › Advanced › Drawing: Pre-rendered): every key, pad, knob, fader cap and
+   lane marker on its own GPU layer. Each is drawn once (soft shadows and all) and kept; a change redraws only that
+   one small layer, and a fader cap or marker that moves just moves its layer, so the panel around it is never
+   repainted. The look is the same. ---------------- */
+body.skin-d.sk-layers #app button:not(.psw), body.skin-d.sk-layers #app .pad, body.skin-d.sk-layers #app .knob,
+body.skin-d.sk-layers #app .fader .cap, body.skin-d.sk-layers #app #xf .cap, body.skin-d.sk-layers #app .lane .mark,
+body.skin-d.sk-layers #app .nudge { will-change: transform; }
