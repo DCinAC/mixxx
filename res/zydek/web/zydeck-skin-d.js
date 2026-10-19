@@ -28,6 +28,7 @@
 
   // How much of a key its text fills, by the key's size against a thumb: 15 mm and up about 20 %, 8 mm and under
   // about 70 %, in between in between; then shrunk until it fits.
+  const BIG = .7;   // the main text at 70 % of what the fill rule gives
   const fill = (w, h) => { const m = Math.sqrt(w * h) / mm(); return m >= 15 ? .2 : m <= 8 ? .7 : .7 - (m - 8) / 7 * .5; };
   const range = document.createRange();
   // the box the text itself takes (its glyphs, not the spans around them, which may be as wide as the key)
@@ -71,6 +72,7 @@
       const t = textBox(b); if ((t.width <= W && t.height <= H) || s <= 8) break;
       s *= .92;
     }
+    s = Math.max(8, s * BIG); b.style.setProperty("--afs", s.toFixed(1) + "px");
     b._afs = s;
   }
   // keys side by side in one row share one size: the largest that fits all of them
@@ -109,9 +111,9 @@
     const room = lbl ? H - num * 1.02 - 3 : H - small * 1.5 * 1.3;   // other modes: their second line half as big again
     let s = Math.sqrt(fill(r.width, r.height) * r.width * r.height / (per * (lines + .6)));
     s = Math.max(10, Math.min(s, .93 * W / per, room / (lines * 1.08 + (lbl ? .3 : 0))));   // a cue's name starts 0.3 of a line lower
-    p.style.setProperty("--pfs", s.toFixed(1) + "px");
+    p.style.setProperty("--pfs", Math.max(10, s * BIG).toFixed(1) + "px");
     p.style.setProperty("--pfs2", small.toFixed(1) + "px");
-    p.style.setProperty("--pfn", num.toFixed(1) + "px");
+    p.style.setProperty("--pfn", Math.max(10, num * BIG).toFixed(1) + "px");
     p.style.setProperty("--pfs3", (small * 1.5).toFixed(1) + "px");
   }
 
@@ -138,9 +140,10 @@
       const x0 = R + R * Math.sin(Math.max(-Math.PI / 2, a0)), x1 = R + R * Math.sin(Math.min(Math.PI / 2, a1)), w = x1 - x0;
       const light = .3 + .7 * Math.max(0, Math.cos((a0 + a1) / 2 + .4));
       if (w < 3) continue;
-      const c2 = 10 + 36 * light | 0, dw = w * .6, dh = (bot - top) * .64;
+      // a round dot: as wide as it is tall facing you, narrower as it turns away
+      const c2 = 10 + 36 * light | 0, ry = Math.min((bot - top) * .3, R * step * .3), rx = Math.max(1.5, w * .3);
       g.fillStyle = `rgb(${c2},${c2},${c2 + 2})`; g.beginPath();
-      g.roundRect(snap(x0 + w * .2), snap(top + (bot - top) * .18), Math.max(2, snap(dw)), snap(dh), Math.min(dw, dh) * .2); g.fill();
+      g.ellipse(x0 + w / 2, (top + bot) / 2, rx, ry, 0, 0, Math.PI * 2); g.fill();
     }
     const lip = g.createLinearGradient(0, 0, 0, top); lip.addColorStop(0, "#b4b6ba"); lip.addColorStop(.5, "#8a8c90"); lip.addColorStop(1, "#5a5c60");
     g.fillStyle = lip; g.fillRect(0, 0, W, top);

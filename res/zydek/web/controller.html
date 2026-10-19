@@ -1744,7 +1744,15 @@ function buildLoops() {
   });
 }
 
+// ½ and ×2 land on a power of two: a loop of 3 beats halves to 2 (not 1.5) and doubles to 8 (not 6)
+const pow2 = b => Math.min(512, Math.max(1 / 32, 2 ** Math.round(Math.log2(b))));
 function loopAction(d, key, down) {
+  const step = key === "loop_halve" ? .5 : key === "loop_double" ? 2 : 0;
+  if (step && down && pow2(d.loopSize * step) !== d.loopSize * step) {   // not a power of two now: set the size
+    const size = pow2(d.loopSize * step);
+    if (live) setCtl(ch(d.n), "beatloop_size", size);
+    d.loopSize = size; paintAll(); return;
+  }
   send("loop", d.n, key, down);
   if (!live && down) {
     if (key === "loop_halve") d.loopSize = Math.max(1 / 32, d.loopSize / 2);
