@@ -743,7 +743,12 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/livestems/swap")) {   // ?deck=1..4: load its stems, where it is
         return result(swapToStems(arg("deck").toInt() - 1, true));
     }
-    if (path == QLatin1String("/api/calibrate")) {   // ?on=1: the test pattern on a sampler · ?on=0: done
+    if (path == QLatin1String("/api/calibrate")) {   // ?on=1: the test pattern in the headphones · ?on=0: done · ?state=1
+        if (arg("state") == QLatin1String("1")) {   // the test pattern's track, once it's loaded (for its waveform)
+            const TrackPointer pTrack = m_calib.group.isEmpty() ? TrackPointer() : PlayerInfo::instance().getTrackInfo(m_calib.group);
+            const bool ours = pTrack && pTrack->getLocation() == calibrationFile();
+            return json({{"ok", true}, {"group", m_calib.group}, {"id", ours ? pTrack->getId().toVariant().toInt() : 0}});
+        }
         return result(calibrate(arg("on") == QLatin1String("1")));
     }
     if (path == QLatin1String("/api/library/remove")) {   // ?id=&delete=1: the file too
