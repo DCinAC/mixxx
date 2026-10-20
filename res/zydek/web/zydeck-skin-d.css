@@ -13,6 +13,9 @@ body.skin-d #app button:not(.psw) {
 body.skin-d #app :where(button) { --lc: var(--sk-led); }
 body.skin-d { --sk-led: #3a86ff; --sk-lampH: 17px; --sk-lampW: 16px; --sk-stripH: 7px; --sk-sideW: 11px; --sk-sideH: 18px; }
 body.skin-d.sk-phone { --sk-lampH: 9px; --sk-stripH: 5px; --sk-sideW: 8px; --sk-sideH: 14px; }
+/* latched in: loop IN / OUT adjust while it's on (SHIFT + ½ / ×2), like a pick-one key that's chosen */
+body.skin-d #app .loopbox button.adj:not(.psw) { background: linear-gradient(#3b3d41, #45484c) !important; color: #e6e6e6 !important;
+  box-shadow: inset 2px 3px 6px rgba(0,0,0,.6), 1px 1px 2px rgba(0,0,0,.45) !important; transform: translate(1px, 2px); }
 /* pressed: the moment the finger lands (Element's .down, set on pointerdown), not the browser's late :active */
 body.skin-d #app button:not(.psw).down, body.skin-d #app button:not(.psw):active { background: linear-gradient(#3c3e42, #45484b) !important;
   box-shadow: inset 2px 2px 4px rgba(0,0,0,.45), 1px 1px 2px rgba(0,0,0,.45) !important; }
@@ -23,16 +26,19 @@ body.skin-d #app .two > small { color: #b9bcc2 !important; opacity: .9 !importan
 /* SHIFT held: nothing moves; the lower legend grows (Element's .two.alt), in the deck's colour */
 body.skin-d #app .two.alt > small { color: var(--acc, #ff8a1e) !important; opacity: 1 !important; }
 body.skin-d #app .two.alt > b { color: #9a9da2 !important; }
-body.skin-d #app .transport .sync.beat .two > small, body.skin-d #app .transport .sync.beat .two > small.on { color: #b9bcc2 !important; opacity: .9 !important; }
+/* SYNC as on a CDJ: the lamp steady green on every synced deck; the master's MASTER legend lit (shine-through: milky
+   on the others, orange from inside on the master) */
+body.skin-d #app .transport .sync .two > small { color: #b9bcc2 !important; opacity: .9 !important; }
+body.skin-d #app .transport .sync.beat .two > small.on { color: #ffb24a !important; opacity: 1 !important; font-weight: 800 !important;
+  text-shadow: 0 0 4px rgba(255,150,40,.85), 0 0 10px rgba(255,140,30,.5) !important; }
 
 /* which colour each key's lamp lights in */
 body.skin-d #app .play { --lc: var(--play); }
 body.skin-d #app .cuebtn { --lc: var(--play); }
 body.skin-d #app .pfl { --lc: var(--cue); }
 body.skin-d #app .flags button, body.skin-d #app .modes button { --lc: var(--acc); }
-/* SYNC: green when synced; steady on the deck that's the master (its MASTER lit), flashing on the ones following it */
+/* SYNC: green, steady, when synced (the master is told by its MASTER legend, above) */
 body.skin-d #app .sync { --lc: var(--play); }
-body.skin-d #app .sync.beat:not(:has(small.on, small.lit))[data-ls]::before { animation: sk-blink 1s steps(1) infinite; }
 body.skin-d #app .shift, body.skin-d #app .ol, body.skin-d #app .sshift, body.skin-d #app .mute, body.skin-d #app #rec { --lc: var(--err); }
 body.skin-d #app .smpbtn, body.skin-d #app .loopbox .loop, body.skin-d #app .adj { --lc: var(--play); }
 body.skin-d #app .fxstrip button { --lc: var(--fx); }
