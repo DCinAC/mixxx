@@ -252,3 +252,23 @@
 .zfx .zk.slot .zs { width: 60%; margin-left: -30%; }
 .zfx .zk.slot:not(.cur) .zs { filter: brightness(.6); box-shadow: inset 0 0 0 1px rgba(0,0,0,.35), 0 0 4px color-mix(in srgb, var(--lc) 35%, transparent); }
 .zfx .zk.slot.cur .zs { box-shadow: inset 0 0 0 1px rgba(0,0,0,.35), 0 0 12px color-mix(in srgb, var(--lc) 70%, transparent); }
+
+/* ---- pick one and pick any (Hardware): pick one is a bank, the keys butted together in one recessed frame, the
+   chosen one latched in (pushed down, its strip lit), like a radio's preset keys; pick any is separate keys with
+   gaps, each with a checkmark window at its left end, lit when it's on ---- */
+.zm.hw .zseg:not(.multi) { gap: 0; padding: 4px; border-radius: 6px; background: #0a0a0b; box-shadow: inset 0 2px 5px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.06); flex-wrap: nowrap; }
+.zm.hw .zseg:not(.multi) > .zk { border-radius: 0; border-left-width: 1.5px; border-right-width: 1.5px; }
+.zm.hw .zseg:not(.multi) > .zk:first-child { border-radius: 4px 0 0 4px; border-left-width: 3px; }
+.zm.hw .zseg:not(.multi) > .zk:last-child { border-radius: 0 4px 4px 0; border-right-width: 3px; }
+.zm.hw .zseg:not(.multi) > .zk.on:not(.slot), .zm.hw .zseg > .zk.slot.cur {
+  background: linear-gradient(#3b3d41, #45484c); box-shadow: inset 2px 3px 6px rgba(0,0,0,.6); transform: translateY(2px); color: #e6e6e6; }
+.zm.hw .zseg.multi { gap: calc(var(--zmm) * 2); }
+.zm .zk.m { justify-content: flex-start; padding-left: calc(var(--zmm) * 1.8); gap: calc(var(--zmm) * 1.4); }
+.zm .zc { flex: none; display: grid; place-items: center; width: calc(var(--zmm) * 3.4); height: calc(var(--zmm) * 3.4); }
+.zm .zc svg { width: 100%; height: 100%; fill: none; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.zm.hw .zc { background: #202226; box-shadow: inset 0 0 0 2px #383a3e; border-radius: 2px; }
+.zm.hw .zc svg { stroke: #30333a; }
+.zm.hw .zk.on .zc svg { stroke: color-mix(in srgb, var(--lamp) 80%, #fff); filter: drop-shadow(0 0 2px var(--lamp)) drop-shadow(0 0 5px color-mix(in srgb, var(--lamp) 60%, transparent)); }
+.zm.el .zc svg { stroke: #444; }
+.zm.el .zk.on .zc svg { stroke: var(--lamp); }
+.zm.page .zseg.multi .zk { flex: 0 1 auto; }

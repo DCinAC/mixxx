@@ -228,6 +228,8 @@
     { id: "fxmenu", sec: "look", name: "FX menu", kind: "seg", opts: () => [["keys", "Hardware"], ["display", "Hardware 2"]], ...C("fxMenu", "keys"),
       show: () => (S().menuLook || "d") === "d",
       desc: "Hardware: every effect a key. Hardware 2: the effects on a display, with a selector knob that clicks from one to the next." },
+    { id: "knobcentre", sec: "look", name: "Knob at centre", kind: "seg", opts: () => [["lit", "Ring lit"], ["dark", "Dark"]], ...C("knobCentre", "lit"),
+      desc: "A knob with a centre (gain, EQ, filter), on it: its ring lit, or left dark." },
     { id: "lampside", sec: "look", name: "Lamp on wide keys", kind: "seg", opts: () => [["left", "Left"], ["right", "Right"], ["bottom", "Bottom"]], ...C("lampSide", "left"),
       desc: "Hardware decks: where the lamp sits on the long, flat keys." },
     { id: "keytext", sec: "look", name: "Key text", kind: "seg", opts: () => [["adaptive", "Adaptive"], ["element", "Fixed"]], ...C("keyText", "adaptive"),
@@ -301,6 +303,8 @@
 
   // ---- drawing ----
   const PL = '<i class="zpl" aria-hidden="true"><i></i><i></i><i></i><i></i></i>';
+  // pick any: a window cut as a tick, lit from behind when it's on
+  const CHECK = '<i class="zc" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.2 8.6l3.1 3.1 6.5-7"/></svg></i>';
   const key = (label, cls = "") => el("button", "zk " + cls, label);
   const procKey = (label, k) => { const b = key(`<span>${esc(label)}</span>${PL}`, "proc"); b.dataset.pl = k; return b; };
   function lampOf(b, s) { const p = b.querySelector(".zpl"); if (p) p.className = "zpl" + (s ? " " + s : ""); }
@@ -330,8 +334,8 @@
           b.querySelector("span").textContent = on ? (r.onLabel || "On") : (r.offLabel || "Off"); });
         break;
       }
-      case "seg": {
-        const box = el("div", "zseg");
+      case "seg": {   // pick one: a bank; pick any (multi): separate keys, each with a checkmark window
+        const box = el("div", r.multi ? "zseg multi" : "zseg");
         c.appendChild(box);
         let sig = "";
         upds.push(() => {
@@ -339,7 +343,7 @@
           if (s2 !== sig) {
             sig = s2; box.innerHTML = "";
             opts.forEach(([v, label]) => {
-              const b = key(`<i class="zs" aria-hidden="true"></i>${esc(label)}`, "s");
+              const b = key(`${r.multi ? CHECK : '<i class="zs" aria-hidden="true"></i>'}${esc(label)}`, r.multi ? "s m" : "s");
               b.addEventListener("click", async () => { try { await r.set(v); } catch (err) { host.toast(err.message, "bad"); } refresh(); });
               b._v = v; box.appendChild(b);
             });

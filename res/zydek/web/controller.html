@@ -317,6 +317,7 @@
   .knob .ktrack { fill: none; stroke: #2e2e2e; stroke-width: 3; stroke-linecap: round; }
   .knob .karc { fill: none; stroke: var(--acc, var(--text)); stroke-width: 3; stroke-linecap: round; }
   .knob.centred .ktrack { stroke: color-mix(in srgb, var(--acc, var(--text)) 55%, #2e2e2e); }   /* on its centre: the ring lit */
+  body.kc-dark .knob.centred .ktrack { stroke: #161616; }                                           /* (Look › Knob at centre: dark) */
   .knob .kptr { stroke: #eee; stroke-width: 3; stroke-linecap: round; }
   .knob span { font-size: calc(var(--mm) * 1.55); color: var(--dim); margin-top: calc(var(--mm) * .3); }
   .knob.held .kbg { stroke: var(--acc, var(--text)); }
@@ -497,7 +498,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", fxMenu: "keys", waveMode: "live" };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", fxMenu: "keys", waveMode: "live", knobCentre: "lit" };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
 // Android, which knows the screen's real pixel density.
@@ -579,7 +580,7 @@ function applySettings() {
   applyLook();
 }
 // The look (zydeck-skin-d.js): Hardware over Element, or Element as it is
-function applyLook() { window.zydeckSkin?.apply({ theme: S.theme || "d", lamp: S.lampSide, text: S.keyText, ptl: "top", layers: (S.drawMode || "layers") === "layers" }); }
+function applyLook() { document.body.classList.toggle("kc-dark", S.knobCentre === "dark"); window.zydeckSkin?.apply({ theme: S.theme || "d", lamp: S.lampSide, text: S.keyText, ptl: "top", layers: (S.drawMode || "layers") === "layers" }); }
 
 // =====================================================================================================
 // Simulated Mixxx state (replaced by the real connection later)
