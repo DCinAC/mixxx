@@ -347,6 +347,7 @@
 </style>
 <link rel="stylesheet" href="/zydeck-menu.css">
 <script src="/zydeck-menu.js"></script>
+<script src="/zydeck-position.js"></script>
 </head>
 <body>
 <div id="boot"><div class="st" id="boot-st"></div></div>
@@ -779,61 +780,13 @@ function drawBeats(g, d, start, sec, pxPerSec, left, H) {
     else { g.fillStyle = "rgba(255,255,255,.5)"; g.fillRect(x, 0, dpr, tick); g.fillRect(x, H - tick, dpr, tick); }
   }
 }
-// Play position between Mixxx's updates (about 30 a second, only when it changed). Each update carries the
-// hub's clock (ts, ms) from the moment Mixxx reported the position, so network delay doesn't jitter the
-// timing: hub time maps onto this page's clock through the fastest delivery seen in the last 5 s. Between
-// updates the position runs on at the speed the updates show, at most 120 ms past the last one (no update
-// means it stopped). What's drawn never steps back while the music runs forward: if the drawing got ahead it
-// waits; if it's behind it catches up over a few frames; a real jump (seek, scratch) goes straight there.
-const clockSync = { samples: [], off: null };
-function hubTime(ts, now) {   // ts on the hub's clock -> this page's clock
-  if (ts == null) return now;
-  clockSync.samples.push([now, now - ts]);
-  while (clockSync.samples.length > 1 && now - clockSync.samples[0][0] > 5000) clockSync.samples.shift();
-  clockSync.off = clockSync.samples.reduce((m, x) => Math.min(m, x[1]), Infinity);
-  return ts + clockSync.off;
-}
-function posSeed(d, p, v, now) { Object.assign(d, { pp: p, pt: now, pv: v, shown: undefined }); }
+// Play position between Mixxx's updates, and where to draw it: zydeck-position.js (the same as the deck page and
+// the calibration page draw by)
+const { hubTime, posSeed, posModel, posUpdate } = ZydeckPos;
 // LAT: how far the sound runs behind Mixxx's play position (the output's measured latency, from the hub).
 // Positions are drawn that much earlier while playing, so the waveform matches what you hear.
 let LAT = 0;
-function posModel(d, now, lat = 0) {
-  return d.pt === undefined ? d.pos || 0 : d.pp + d.pv * Math.max(-1.2, Math.min((now - d.pt) / 1000 - lat, .25));
-}
-function posAt(d, now) {   // what to draw now
-  const target = posModel(d, now, LAT);
-  let shown = d.shown;
-  const dir = d.pv > .05 ? 1 : d.pv < -.05 ? -1 : 0;
-  if (shown === undefined || Math.abs(target - shown) > .25 || !dir) shown = target;
-  else if ((target - shown) * dir < 0) { /* ahead of the music: hold until it catches up */ }
-  else shown += (target - shown) * .5;
-  d.shown = shown;
-  return shown;
-}
-// Mixxx moves the position once per audio buffer (~21 ms) and it's read every 33 ms, so single steps say
-// 0.6x or 1.3x in turn. The speed is the deck's tempo unless the last 300 ms clearly say otherwise
-// (scratching, nudging), and each reading moves the drawing only 15 % of the way to it.
-function posUpdate(d, p, now, ts) {   // p in seconds
-  const t = Math.min(now, hubTime(ts, now));
-  const nominal = d.playing ? d.ratio || 1 : 0;
-  if (d.pt === undefined || Math.abs(p - posModel(d, t)) > .3) {   // a jump: follow it
-    d.hist = [[t, p]];
-    return posSeed(d, p, nominal, t);
-  }
-  const hist = d.hist || (d.hist = []);
-  hist.push([t, p]);
-  while (hist.length > 2 && t - hist[0][0] > 300) hist.shift();
-  let v = nominal;
-  if (hist.length >= 4) {
-    const mt = hist.reduce((a, x) => a + x[0], 0) / hist.length, mp = hist.reduce((a, x) => a + x[1], 0) / hist.length;
-    let num = 0, den = 0;
-    for (const [ht, hp] of hist) { num += (ht - mt) * (hp - mp); den += (ht - mt) ** 2; }
-    const slope = den ? num / den * 1000 : nominal;
-    if (Math.abs(slope - nominal) > .08) v = slope;
-  }
-  const pred = posModel(d, t);
-  d.pp = pred + (p - pred) * .15; d.pt = t; d.pv = v;
-}
+const posAt = (d, now) => ZydeckPos.posAt(d, now, LAT);   // what to draw now
 
 function frame(now) {
   if (innerWidth > innerHeight) { requestAnimationFrame(frame); return; }   // landscape: the deck view is on top

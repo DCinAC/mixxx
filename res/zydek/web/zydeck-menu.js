@@ -76,8 +76,22 @@
     } catch (e) { sys.stemCheck = { error: e.message }; setPl("stems", "err"); }
   }
 
-  // ---- Audio output: the pickers' choice before Apply ----
+  // ---- Audio output: applied as it's picked (the pickers' choice until Mixxx has it) ----
   const pend = { main: null, phones: null };
+  let applying = false, applyT = null;
+  function applyOutputs() {   // a moment after the last pick (a device, then its channels, is one change)
+    clearTimeout(applyT);
+    applyT = setTimeout(async () => {
+      const [main, mainChannels] = outNow("main"), [headphones, headphonesChannels] = outNow("phones");
+      applying = true; refresh();
+      try {
+        const r = await api(`/api/audio/set?${qs({ main, mainChannels, headphones, headphonesChannels })}`);
+        host.toast(r.shared ? "Outputs changed: the cue plays on the main output too" : "Outputs changed", r.shared ? "" : "ok");
+      } catch (e) { host.toast(e.message, "bad"); }
+      applying = false;
+      await loads.audio(); refresh();
+    }, 400);
+  }
   const devOpts = none => [["", none], ...(sys.audio?.devices || []).map(d => [d.name, d.name])];
   function chOpts(device) {
     const d = (sys.audio?.devices || []).find(x => x.name === device), n = d ? d.channels : 2, out = [];
@@ -133,19 +147,12 @@
     // System › Audio
     { id: "audio-remote", sec: "audio", name: "Audio", kind: "note", show: () => !!sys.remote.on, desc: "Set on the computer's Mixxx while controller mode is on." },
     { id: "main", sec: "audio", name: "Main mix", kind: "custom", build: r => buildOut(r, "main"), show: () => !sys.remote.on,
+      st: () => { const a = sys.audio; if (applying) return "Applying…"; if (!a) return ""; if (a.error) return a.error;
+        return a.main || a.headphones ? `${a.latencyMs ? a.latencyMs.toFixed(1) + " ms buffer · " : ""}${a.api || ""}${a.dropouts ? ` · ${a.dropouts} dropouts` : ""}` : "No output: Mixxx is silent"; },
       desc: "" },
     { id: "phones", sec: "audio", name: "Headphones (cue)", kind: "custom", build: r => buildOut(r, "phones"), show: () => !sys.remote.on,
       desc: "", st: () => sharedOut() ? "Shares the main's channels: everyone hears what you cue" : "",
       more: "Android plays to one device at a time, so main and headphones go on one device's channels: a USB interface with 4 outputs (main 1–2, headphones 3–4), or one pair of earphones split (main on the left, headphones on the right). “Android: follow the system” plays wherever Android sends music; Bluetooth adds a lot of delay." },
-    { id: "apply", sec: "audio", name: "Apply the outputs", bare: true, kind: "proc", label: () => "Apply", show: () => !sys.remote.on,
-      disabled: () => !pend.main && !pend.phones,
-      st: () => { const a = sys.audio; if (!a) return ""; if (a.error) return a.error; return a.main || a.headphones ? `${a.latencyMs ? a.latencyMs.toFixed(1) + " ms buffer · " : ""}${a.api || ""}${a.dropouts ? ` · ${a.dropouts} dropouts` : ""}` : "No output: Mixxx is silent"; },
-      act: async () => {
-        const [main, mainChannels] = outNow("main"), [headphones, headphonesChannels] = outNow("phones");
-        const r = await api(`/api/audio/set?${qs({ main, mainChannels, headphones, headphonesChannels })}`);
-        host.toast(r.shared ? "Outputs changed: the cue plays on the main output too" : "Outputs changed", r.shared ? "" : "ok");
-        await loads.audio();
-      }, desc: "" },
     { id: "buffer", sec: "audio", name: "Audio buffer", kind: "seg", opts: () => BUFS, show: () => !sys.remote.on && !!sys.audio?.devices,
       get: () => sys.audio?.buffer, set: async v => { await api(`/api/audio/buffer?index=${v}`); await loads.audio(); refresh(); },
       desc: "" },
@@ -188,7 +195,7 @@
       more: "The PC splits tracks into vocals, drums, bass and other; they come back as .stem.m4a files in Music/ZyDeck Web. From anywhere: its https:// address (a Cloudflare tunnel) and its token." },
     { id: "stemtoken", sec: "stems", name: "Stem server token", kind: "field",
       fields: [{ ph: () => sys.prefs?.hasStemToken ? "Saved (type to change)" : "Token", secret: true, get: () => "" }],
-      btn: { key: "token", label: "Save", act: async ([token]) => { if (!token.trim()) throw new Error("Type the token first"); await api(`/api/web/prefs?${qs({ stemToken: token.trim() })}`); await loads.prefs(); return true; } },
+      btn: { key: "token", label: "Save", act: async ([token]) => { await api(`/api/web/prefs?${qs({ stemToken: token.trim() })}`); await loads.prefs(); host.toast("Token saved", "ok"); return true; } },
       desc: "Only from outside the home network: stemserver/token on the PC." },
     { id: "stemmodel", sec: "stems", name: "Separation model", kind: "seg",
       opts: () => Object.entries(sys.stemCheck?.presets || { best: "Best", fast: "Fast" }).map(([k, v]) => [k, String(v).split(/ [—-] /)[0]]),
@@ -222,7 +229,7 @@
     { id: "dcbot", sec: "rec", name: "Discord bot", kind: "field",
       fields: [{ ph: "Address: 192.168.0.100:8780 or https://…", get: () => sys.dc?.host || "", mode: "url" },
                { ph: () => sys.dc?.hasKey ? "Stream key: saved (type to change)" : "Stream key", secret: true, get: () => "" }],
-      btn: { key: "dc", label: "Save", act: async ([h, k]) => { sys.dc = await api(`/api/discord?${qs(k.trim() ? { host: h.trim(), key: k.trim() } : { host: h.trim() })}`); return true; } },
+      btn: { key: "dc", label: "Save", act: async ([h, k]) => { sys.dc = await api(`/api/discord?${qs(k.trim() ? { host: h.trim(), key: k.trim() } : { host: h.trim() })}`); host.toast("Saved", "ok"); return true; } },
       desc: "Its address, and the stream key from the bot's .env." },
     // System › Look
     { id: "theme", sec: "look", name: "Controller UI", kind: "seg", opts: () => [["d", "Hardware"], ["element", "Element"]], ...C("theme", "d"),
@@ -377,9 +384,13 @@
           i.setAttribute("aria-label", typeof f.ph === "function" ? f.ph() : f.ph);
           c.appendChild(i); return i;
         });
-        const b = procKey(r.btn.label, r.btn.key);
-        b.addEventListener("click", () => run(r.btn.key, async () => { const ok = await r.btn.act(ins.map(i => i.value)); r.fields.forEach((f, k) => { if (f.secret) ins[k].value = ""; }); return ok; }).then(refresh));
-        ins.forEach(i => i.addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); i.blur(); b.click(); } }));
+        // saved as it's left (Enter, or tapping away): no key to press; a lamp beside it says how it went
+        const b = el("span", "zm-autolamp", PL);
+        const save = () => run(r.btn.key, async () => { const ok = await r.btn.act(ins.map(i => i.value)); r.fields.forEach((f, k) => { if (f.secret) ins[k].value = ""; ins[k]._typed = false; }); return ok; }).then(refresh);
+        ins.forEach(i => {
+          i.addEventListener("change", () => { if (i.value.trim() || !r.fields[ins.indexOf(i)].secret) save(); });
+          i.addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); i.blur(); } });
+        });
         c.appendChild(b);
         upds.push(() => {
           r.fields.forEach((f, k) => { const i = ins[k]; i.placeholder = typeof f.ph === "function" ? f.ph() : f.ph; if (document.activeElement !== i && !f.secret && !i._typed) i.value = f.get(); });
@@ -631,9 +642,9 @@
     dev.addEventListener("change", () => {
       const d = (sys.audio?.devices || []).find(x => x.name === dev.value);
       const four = which === "phones" && d && d.channels >= 4 && d.name === outNow("main")[0];
-      pend[which] = [dev.value, four ? "2,2" : "0,2"]; refresh();
+      pend[which] = [dev.value, four ? "2,2" : "0,2"]; refresh(); applyOutputs();
     });
-    ch.addEventListener("change", () => { pend[which] = [dev.value, ch.value]; refresh(); });
+    ch.addEventListener("change", () => { pend[which] = [dev.value, ch.value]; refresh(); applyOutputs(); });
     c.append(dev, ch);
     let sig = "";
     return () => {

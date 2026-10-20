@@ -50,6 +50,7 @@
 <div class="pads" id="pads"></div>
 <div class="dots" id="dots"></div>
 <div class="acts"><button id="again">Start again</button><button class="yes" id="save" disabled>Save</button></div>
+<script src="/zydeck-position.js"></script>
 <script>
 // A test pattern (the hub's, /api/calibrate) plays through Mixxx on the preview deck, in the headphones (the buffer,
 // the output, Bluetooth, the link to this device): only you hear it. A rising C major arpeggio, C E G C, a note a beat at 120 BPM.
@@ -66,20 +67,15 @@ const HUB = `${location.protocol}//${HUB_HOST}`;
 const api = async path => (await fetch(HUB + path)).json();
 const $ = id => document.getElementById(id);
 const TAPS = 16, NOTES = ["C", "E", "G", "C"], INK = ["#ff5a4a", "#ffb43d", "#3ddc84", "#3d9bff"];   // low to high
-let LAT = 0, pat = null, ws = null, anchor = null, playing = false, dur = 40;
+let LAT = 0, pat = null, ws = null, playing = false, dur = 40;
+// the pattern's position, kept and drawn by zydeck-position.js, exactly as the decks are
+const d = { playing: false, ratio: 1, pos: 0 };
+let anchor = null;   // (set once a position has come in)
 let wf = null, wfImg = null;   // the pattern's waveform: {rate, n, data} (all, low, mid, high per point), drawn once
 let errs = [], est = null, delta = null;
 
-// the hub's clock onto this page's: the fastest delivery seen lately (as the decks do)
-const sync = { samples: [], off: null };
-function hubTime(ts, now) {
-  sync.samples.push([now, now - ts]);
-  while (sync.samples.length > 1 && now - sync.samples[0][0] > 5000) sync.samples.shift();
-  sync.off = sync.samples.reduce((m, x) => Math.min(m, x[1]), Infinity);
-  return ts + sync.off;
-}
-// where the drawing is at time t (this page's clock): the position run on at normal speed, LAT earlier
-const drawn = t => !anchor ? 0 : anchor.p + (playing ? 1 : 0) * Math.max(-1.2, Math.min((t - anchor.t) / 1000 - LAT, .25));
+// where the drawing is at time t (this page's clock): the decks' own model, LAT earlier
+const drawn = t => ZydeckPos.posModel(d, t, LAT);
 
 function connect() {
   ws = new WebSocket(`ws://${HUB_HOST}/ws`);
@@ -90,8 +86,8 @@ function connect() {
     if (m.t !== "cv" || !pat || !m.k.startsWith(pat.group + ",")) return;
     const key = m.k.slice(pat.group.length + 1);
     if (key === "duration" && m.v > 0) dur = m.v;
-    else if (key === "play") playing = m.v > 0;
-    else if (key === "playposition") anchor = { p: m.v * dur, t: m.ts != null ? Math.min(now, hubTime(m.ts, now)) : now };
+    else if (key === "play") { playing = d.playing = m.v > 0; if (!playing) ZydeckPos.posStop(d, now); }
+    else if (key === "playposition") { ZydeckPos.posUpdate(d, m.v * dur, now, m.ts); anchor = true; }
   };
   ws.onopen = () => { if (pat) subscribe(); };
   ws.onclose = () => setTimeout(connect, 1200);
@@ -106,7 +102,7 @@ async function start() {
   let r;
   try { r = await api("/api/calibrate?on=1"); } catch { r = { ok: false, error: "Couldn't reach Mixxx" }; }
   if (!r.ok) { $("msg").textContent = r.error || "Couldn't start the test pattern"; return; }
-  pat = r; anchor = null; dur = r.seconds || 40;
+  pat = r; anchor = null; dur = r.seconds || 40; delete d.pt;
   subscribe();
   loadWaveform();
   $("msg").textContent = `In your headphones: C E G C, rising, over and over. Watch each note's start cross the white line as you hear it: if it's early or late, nudge it. Or tap along, in time like playing it (any bar; start on a low C): ${TAPS} taps.`;
@@ -196,23 +192,10 @@ async function loadWaveform() {
 const SPAN = 2;   // seconds each side of the cursor
 // the whole pattern drawn once at the strip's scale, as Mixxx's RGB waveform: the loudest low / mid / high in a
 // column mix red / green / blue, the height its loudness
-function waveImage(W, H) {
+function waveImage(W, H) {   // the decks' own columns (zydeck-position.js)
   const pxPerSec = W / 2 / SPAN, cols = Math.ceil(wf.n / wf.rate * pxPerSec), c = document.createElement("canvas");
   c.width = cols; c.height = H;
-  const g = c.getContext("2d"), a = wf.data, per = wf.rate / pxPerSec, mid = H / 2;
-  for (let x = 0; x < cols; x++) {
-    const i0 = Math.floor(x * per), i1 = Math.max(i0 + 1, Math.floor((x + 1) * per));
-    let all = 0, lo = 0, mi = 0, hi = 0;
-    for (let i = i0; i < Math.min(wf.n, i1); i++) {
-      const j = i * 4;
-      if (a[j] > all) all = a[j]; if (a[j + 1] > lo) lo = a[j + 1]; if (a[j + 2] > mi) mi = a[j + 2]; if (a[j + 3] > hi) hi = a[j + 3];
-    }
-    const m = Math.max(lo, mi, hi);
-    if (!m || !all) continue;
-    g.fillStyle = `rgb(${Math.round(255 * lo / m)},${Math.round(255 * mi / m)},${Math.round(255 * hi / m)})`;
-    const h = Math.max(1, all / 255 * mid * .95);
-    g.fillRect(x, mid - h, 1, h * 2);
-  }
+  ZydeckPos.waveColumns(c.getContext("2d"), wf, 0, cols, H, pxPerSec);
   return { c, pxPerSec, W, H };
 }
 // the strip: the waveform where it's drawn now (the cursor in the middle, SPAN seconds each side)
@@ -224,7 +207,7 @@ function frame() {
   g.fillStyle = "#2a2a2a"; g.fillRect(0, H / 2 - dpr / 2, W, dpr);   // the axis
   if (pat && anchor && wf) {
     if (!wfImg || wfImg.W !== W || wfImg.H !== H) wfImg = waveImage(W, H);
-    const pos = drawn(performance.now());
+    const pos = ZydeckPos.posAt(d, performance.now(), LAT);   // drawn as the decks draw it
     g.drawImage(wfImg.c, Math.round(W / 2 - pos * wfImg.pxPerSec), 0);
   }
   requestAnimationFrame(frame);
