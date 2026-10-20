@@ -133,11 +133,11 @@
     // System › Audio
     { id: "audio-remote", sec: "audio", name: "Audio", kind: "note", show: () => !!sys.remote.on, desc: "Set on the computer's Mixxx while controller mode is on." },
     { id: "main", sec: "audio", name: "Main mix", kind: "custom", build: r => buildOut(r, "main"), show: () => !sys.remote.on,
-      desc: "Where the mix plays, and on which channels." },
+      desc: "" },
     { id: "phones", sec: "audio", name: "Headphones (cue)", kind: "custom", build: r => buildOut(r, "phones"), show: () => !sys.remote.on,
-      desc: "Where the cue plays.", st: () => sharedOut() ? "Shares the main's channels: everyone hears what you cue" : "",
+      desc: "", st: () => sharedOut() ? "Shares the main's channels: everyone hears what you cue" : "",
       more: "Android plays to one device at a time, so main and headphones go on one device's channels: a USB interface with 4 outputs (main 1–2, headphones 3–4), or one pair of earphones split (main on the left, headphones on the right). “Android: follow the system” plays wherever Android sends music; Bluetooth adds a lot of delay." },
-    { id: "apply", sec: "audio", name: "Apply the outputs", kind: "proc", label: () => "Apply", show: () => !sys.remote.on,
+    { id: "apply", sec: "audio", name: "Apply the outputs", bare: true, kind: "proc", label: () => "Apply", show: () => !sys.remote.on,
       disabled: () => !pend.main && !pend.phones,
       st: () => { const a = sys.audio; if (!a) return ""; if (a.error) return a.error; return a.main || a.headphones ? `${a.latencyMs ? a.latencyMs.toFixed(1) + " ms buffer · " : ""}${a.api || ""}${a.dropouts ? ` · ${a.dropouts} dropouts` : ""}` : "No output: Mixxx is silent"; },
       act: async () => {
@@ -145,23 +145,23 @@
         const r = await api(`/api/audio/set?${qs({ main, mainChannels, headphones, headphonesChannels })}`);
         host.toast(r.shared ? "Outputs changed: the cue plays on the main output too" : "Outputs changed", r.shared ? "" : "ok");
         await loads.audio();
-      }, desc: "Changes to the outputs take effect here." },
+      }, desc: "" },
     { id: "buffer", sec: "audio", name: "Audio buffer", kind: "seg", opts: () => BUFS, show: () => !sys.remote.on && !!sys.audio?.devices,
       get: () => sys.audio?.buffer, set: async v => { await api(`/api/audio/buffer?index=${v}`); await loads.audio(); refresh(); },
-      desc: "Smaller answers sooner; bigger if the sound breaks up." },
+      desc: "" },
     { id: "optimize", sec: "audio", name: "Optimize", kind: "proc", show: () => !sys.remote.on && !!sys.audio?.devices,
       label: () => sys.opt?.running ? "Cancel" : "Optimize",
       lamp: () => sys.opt?.running ? "busy" : sys.opt?.error ? "err" : sys.opt?.chosen ? "ok" : "",
       st: () => { const o = sys.opt; if (!o) return ""; const tried = (o.results || []).map(r => `${bufName(r.buffer)}: ${r.dropouts ? r.dropouts + " dropouts" : "clean"}`).join(" · ");
         return o.running ? `${o.state || ""} ${tried}` : o.error ? o.error : o.chosen ? `Kept ${bufName(o.chosen)}${tried ? " · " + tried : ""}` : ""; },
       act: async () => { const o = await api(`/api/audio/optimize${sys.opt?.running ? "?cancel=1" : ""}`); if (o && o.state !== undefined) sys.opt = o; },
-      desc: "Tests this device under a heavy load (silently, decks empty) and keeps the smallest buffer that holds." },
+      desc: "" },
     { id: "latency", sec: "audio", name: "Latency compensation", kind: "slider", min: -200, max: 800, step: 5, show: () => !sys.remote.on && !!sys.audio?.devices,
       get: () => sys.audio?.offsetMs ?? 0, fmt: v => `${v > 0 ? "+" : ""}${v} ms`,
       set: async (v, final) => { if (!final) return; try { const a = await api(`/api/audio/latency?offset=${v}`); Object.assign(sys.audio, a); refresh(); } catch {} },
       st: () => { const a = sys.audio; if (!a || a.totalMs == null) return ""; return a.measuredMs >= 0 ? `${Math.round(a.latencyMs)} ms buffer + ${a.measuredMs} ms output${a.route ? ` (${a.route})` : ""} · drawn ${a.totalMs} ms later` : `Output not measured yet · drawn ${a.totalMs} ms later`; },
       extra: { key: "measure", label: "Measure", act: async () => { await api("/api/audio/latency?measure=1"); await sleep(2500); await loads.audio(); } },
-      desc: "Draws the waveforms this much later, to match what you hear." },
+      desc: "" },
     { id: "calibrate", sec: "pinctl", name: "Line up by ear", kind: "proc", label: () => "Calibrate", lampless: true,
       show: () => !sys.remote.on,
       act: async () => { openPage(`/calibrate${host.linked ? `?hub=${encodeURIComponent(host.hubHost)}` : ""}`, () => loads.audio().then(refresh)); },
@@ -319,9 +319,9 @@
   function paintLook() { if (ui) ui.root.classList.toggle("hw", (S().menuLook || "d") === "d"), ui.root.classList.toggle("el", (S().menuLook || "d") !== "d"); }
 
   function rowEl(r) {
-    const e = el("div", "zm-row" + (r.kind === "note" ? " note" : ""));
+    const e = el("div", "zm-row" + (r.kind === "note" ? " note" : "") + (r.bare ? " bare" : ""));
     e.dataset.id = r.id;
-    const lbl = el("div", "zm-lbl", `<b>${esc(r.name)}${r.more ? '<button class="zm-more" aria-label="More about this">i</button>' : ""}</b><small>${esc(r.desc || "")}</small>`);
+    const lbl = el("div", "zm-lbl", `<b>${esc(r.name)}${r.more ? '<button class="zm-more" aria-label="More about this">i</button>' : ""}</b>${r.desc ? `<small>${esc(r.desc)}</small>` : ""}`);
     const more = r.more ? el("p", "zm-moretext", esc(r.more)) : null;
     if (more) { more.hidden = true; lbl.appendChild(more); lbl.querySelector(".zm-more").addEventListener("click", () => { more.hidden = !more.hidden; }); }
     const c = el("div", "zm-ctl"), st = el("span", "zm-st");

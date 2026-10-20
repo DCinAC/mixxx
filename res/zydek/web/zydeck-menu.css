@@ -69,6 +69,9 @@
 .zm-row { display: grid; grid-template-columns: minmax(0, calc(var(--zmm) * 56)) minmax(0, 1fr); gap: calc(var(--zmm) * 3.6); align-items: center;
   padding: calc(var(--zmm) * 2) 0; border-top: 1px solid #232323; }
 .zm-row.sub { padding-left: calc(var(--zmm) * 3.4); }
+/* a row that belongs to the one above (Apply under the outputs): no name, no line between */
+.zm-row.bare { border-top: 0; padding-top: 0; grid-template-columns: minmax(0, 1fr); }
+.zm-row.bare > .zm-lbl { display: none; }
 .zm-row.sub .zm-lbl b { font-weight: 500; }
 .zm-row.note .zm-lbl small { color: #c8c8c8; }
 @container (max-width: 560px) { .zm-row { grid-template-columns: minmax(0, 1fr); gap: calc(var(--zmm) * 1.6); } .zm-ctl { justify-content: flex-start !important; } }
