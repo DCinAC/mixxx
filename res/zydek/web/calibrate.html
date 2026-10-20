@@ -159,11 +159,11 @@ function frame() {
     for (let k = Math.max(0, Math.floor((pos - span - pat.first) / pat.beat)); ; k++) {
       const t = pat.first + k * pat.beat, x = W / 2 + (t - pos) * px;
       if (x > W + 20) break;
-      const n = k % 4, lane = H / 4, y = H - (n + 1) * lane;   // at its pitch: low C at the bottom, high C at the top
+      const n = k % 4, base = H - 6 * dpr, h = (.3 + n * .18) * (H - 28 * dpr);   // all on the ground, taller low to high
       g.fillStyle = INK[n];
-      g.fillRect(x - 4 * dpr, y + lane * .15, 8 * dpr, lane * .7);
-      g.textAlign = "left"; g.textBaseline = "middle";
-      g.fillText(NOTES[n], x + 8 * dpr, y + lane / 2);
+      g.fillRect(x - 4 * dpr, base - h, 8 * dpr, h);
+      g.textAlign = "center"; g.textBaseline = "bottom";
+      g.fillText(NOTES[n], x, base - h - 4 * dpr);
     }
   }
   requestAnimationFrame(frame);
