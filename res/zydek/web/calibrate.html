@@ -18,12 +18,13 @@
   button:disabled { opacity: .4; }
   .msg { margin: 0; color: #cfcfcf; min-height: 2.8em; }
   /* the strip: the test pattern's notes rolling past the cursor where they're drawn (as on the decks) */
-  .strip { position: relative; height: 92px; border-radius: 10px; background: #101010; overflow: hidden; border: 1px solid #262626; }
+  .strip { position: relative; height: 120px; border-radius: 10px; background: #101010; overflow: hidden; border: 1px solid #262626; }
   .strip canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   .strip .cur { position: absolute; left: 50%; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: #fff; }
   /* four pads, low to high: C E G C, each in its note's colour */
-  .pads { flex: 1; min-height: 140px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-  .pad { height: 100%; min-height: 140px; font-size: 24px; font-weight: 800; border-radius: 18px; touch-action: none; padding: 0;
+  .pads { flex: 1; min-height: 160px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: end; }
+  /* a staircase, low to high */
+  .pad { min-height: 0; height: var(--h); font-size: 24px; font-weight: 800; border-radius: 18px; touch-action: none; padding: 0;
     color: var(--k); border: 2px solid color-mix(in srgb, var(--k) 70%, #000); background: color-mix(in srgb, var(--k) 14%, #161616); }
   .pad small { display: block; font-size: 12px; font-weight: 600; color: #a8a8a8; }
   .pad.hit { background: color-mix(in srgb, var(--k) 45%, #161616); }
@@ -98,14 +99,14 @@ async function start() {
   if (!r.ok) { $("msg").textContent = r.error || "Couldn't start the test pattern"; return; }
   pat = r; anchor = null; dur = r.seconds || 40;
   subscribe();
-  $("msg").textContent = `In your headphones: C E G C, rising, over and over. Tap the pad for each note as you hear it (low to high, left to right). ${TAPS} taps.`;
+  $("msg").textContent = `In your headphones: C E G C, rising, over and over. Tap the tones as you hear them, from low to high: C, E, G, C, the pads left to right. ${TAPS} taps.`;
   pads.forEach(p => p.disabled = false);
 }
 
 // the pads: C E G C, low to high
 const pads = NOTES.map((n, i) => {
   const b = document.createElement("button");
-  b.className = "pad"; b.disabled = true; b.style.setProperty("--k", INK[i]);
+  b.className = "pad"; b.disabled = true; b.style.setProperty("--k", INK[i]); b.style.setProperty("--h", `${55 + i * 15}%`);
   b.innerHTML = `${n}<small>${["low", "", "", "high"][i]}</small>`;
   b.addEventListener("pointerdown", e => tap(i, e));
   $("pads").appendChild(b);
@@ -158,10 +159,11 @@ function frame() {
     for (let k = Math.max(0, Math.floor((pos - span - pat.first) / pat.beat)); ; k++) {
       const t = pat.first + k * pat.beat, x = W / 2 + (t - pos) * px;
       if (x > W + 20) break;
-      const n = k % 4, h = (.35 + n * .15) * H;   // rising
+      const n = k % 4, lane = H / 4, y = H - (n + 1) * lane;   // at its pitch: low C at the bottom, high C at the top
       g.fillStyle = INK[n];
-      g.fillRect(x - 3 * dpr, (H - h) / 2, 6 * dpr, h);
-      g.fillText(NOTES[n], x, H - 6 * dpr);
+      g.fillRect(x - 4 * dpr, y + lane * .15, 8 * dpr, lane * .7);
+      g.textAlign = "left"; g.textBaseline = "middle";
+      g.fillText(NOTES[n], x + 8 * dpr, y + lane / 2);
     }
   }
   requestAnimationFrame(frame);
