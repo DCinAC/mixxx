@@ -798,7 +798,7 @@ function posSeed(d, p, v, now) { Object.assign(d, { pp: p, pt: now, pv: v, shown
 // Positions are drawn that much earlier while playing, so the waveform matches what you hear.
 let LAT = 0;
 function posModel(d, now, lat = 0) {
-  return d.pt === undefined ? d.pos || 0 : d.pp + d.pv * Math.max(-.6, Math.min((now - d.pt) / 1000 - lat, .25));
+  return d.pt === undefined ? d.pos || 0 : d.pp + d.pv * Math.max(-1.2, Math.min((now - d.pt) / 1000 - lat, .25));
 }
 function posAt(d, now) {   // what to draw now
   const target = posModel(d, now, LAT);
