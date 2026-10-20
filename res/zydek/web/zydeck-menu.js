@@ -165,7 +165,7 @@
     { id: "calibrate", sec: "audio", name: "Line up by ear", kind: "proc", label: () => "Calibrate", lampless: true,
       show: () => !sys.remote.on,
       act: async () => { openPage(`/calibrate${host.linked ? `?hub=${encodeURIComponent(host.hubHost)}` : ""}`, () => loads.audio().then(refresh)); },
-      desc: "A page of its own: a rising C E G C plays on a free sampler; tap along, and it measures how far the waveform runs from what you hear (Bluetooth, the screen, the link) and sets the compensation." },
+      desc: "A page of its own: a rising C E G C plays in your headphones; tap along, and it measures how far the waveform runs from what you hear (Bluetooth, the screen, the link) and sets the compensation." },
     // System › Library
     { id: "keyfmt", sec: "library", name: "Key notation", kind: "seg", opts: () => [["camelot", "Camelot 8A"], ["open", "Open Key 1m"], ["musical", "Musical Am"]],
       ...shared("keyNotation", "keyNotation", "camelot"), desc: "How keys are written, on the decks and in the library." },

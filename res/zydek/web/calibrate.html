@@ -21,38 +21,42 @@
   .strip { position: relative; height: 92px; border-radius: 10px; background: #101010; overflow: hidden; border: 1px solid #262626; }
   .strip canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   .strip .cur { position: absolute; left: 50%; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: #fff; }
-  .pad { flex: 1; min-height: 140px; font-size: 22px; font-weight: 700; border-radius: 18px; touch-action: none; }
-  .pad.hit { background: #2a2a2a; }
+  /* four pads, low to high: C E G C, each in its note's colour */
+  .pads { flex: 1; min-height: 140px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .pad { height: 100%; min-height: 140px; font-size: 24px; font-weight: 800; border-radius: 18px; touch-action: none; padding: 0;
+    color: var(--k); border: 2px solid color-mix(in srgb, var(--k) 70%, #000); background: color-mix(in srgb, var(--k) 14%, #161616); }
+  .pad small { display: block; font-size: 12px; font-weight: 600; color: #a8a8a8; }
+  .pad.hit { background: color-mix(in srgb, var(--k) 45%, #161616); }
+  .pad:disabled { opacity: .35; }
   .dots { display: flex; gap: 8px; justify-content: center; }
   .dots i { width: 12px; height: 12px; border-radius: 50%; background: #333; }
-  .dots i.on { background: var(--play); }
+  .dots i.on { background: var(--k, var(--play)); }
   .acts { display: flex; gap: 10px; }
   .acts button { flex: 1; }
   .yes:not(:disabled) { border-color: var(--play); color: var(--play); }
-  @media (orientation: landscape) { body { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto auto 1fr auto; column-gap: 24px; }
-    header, .msg, .strip { grid-column: 1 / -1; } .pad { grid-row: 4 / 6; grid-column: 2; } .dots { grid-column: 1; align-self: end; } .acts { grid-column: 1; } }
 </style>
 </head>
 <body>
 <header><h1>Line the waveform up with the sound</h1><button id="close">Close</button></header>
 <p class="msg" id="msg">Starting the test pattern…</p>
 <div class="strip"><canvas id="cv"></canvas><div class="cur"></div></div>
-<button class="pad" id="pad" disabled>Tap on each note</button>
+<div class="pads" id="pads"></div>
 <div class="dots" id="dots"></div>
 <div class="acts"><button id="again">Start again</button><button class="yes" id="save" disabled>Save</button></div>
 <script>
-// A test pattern (the hub's, /api/calibrate) plays on a sampler through Mixxx: the music's own way out (the buffer,
-// the output, Bluetooth, the link to this device). A rising C major arpeggio, C E G C, a note a beat at 120 BPM.
+// A test pattern (the hub's, /api/calibrate) plays through Mixxx on the preview deck, in the headphones (the buffer,
+// the output, Bluetooth, the link to this device): only you hear it. A rising C major arpeggio, C E G C, a note a beat at 120 BPM.
 // This page follows the sampler's position as the decks do (the hub's time stamps, its latency) and draws the notes
 // rolling past the cursor where they're drawn; you tap on the notes you hear, from a low C. Each tap's moment (the
 // touch's own time stamp) gives where the drawing was; its distance from the note is how far the drawing runs ahead
-// of the sound. The first tap, on a C, is read against the bar (four notes: up to 1.8 s late, unmistakable); the
-// rest against the note nearest to where the sound is. The median, added to the hub's offset, lines them up.
+// of the sound. There's a pad for each note, low to high: a tap says which note it was for, so each is read against
+// that note in the bar (up to 1.8 s late, unmistakable), from any note. The median, added to the hub's offset, lines
+// them up.
 const HUB_HOST = new URLSearchParams(location.search).get("hub") || location.host;
 const HUB = `${location.protocol}//${HUB_HOST}`;
 const api = async path => (await fetch(HUB + path)).json();
 const $ = id => document.getElementById(id);
-const TAPS = 16, NOTES = ["C", "E", "G", "C"], INK = ["#ff8a3d", "#3ddcff", "#c77dff", "#ffd23d"];
+const TAPS = 16, NOTES = ["C", "E", "G", "C"], INK = ["#ff5a4a", "#ffb43d", "#3ddc84", "#3d9bff"];   // low to high
 let LAT = 0, pat = null, ws = null, anchor = null, playing = false, dur = 40;
 let errs = [], est = null, delta = null;
 
@@ -86,7 +90,7 @@ const subscribe = () => ws?.readyState === 1 && ws.send(JSON.stringify({ sub: [[
 
 async function start() {
   errs = []; est = null; delta = null;
-  $("save").disabled = true; $("pad").disabled = true;
+  $("save").disabled = true; pads.forEach(p => p.disabled = true);
   $("dots").innerHTML = "<i></i>".repeat(TAPS);
   $("msg").textContent = "Starting the test pattern…";
   let r;
@@ -94,33 +98,39 @@ async function start() {
   if (!r.ok) { $("msg").textContent = r.error || "Couldn't start the test pattern"; return; }
   pat = r; anchor = null; dur = r.seconds || 40;
   subscribe();
-  $("msg").textContent = `Listen: C E G C, rising, over and over. Tap on every note you hear, starting on a low C (the lowest). ${TAPS} taps.`;
-  $("pad").disabled = false;
+  $("msg").textContent = `In your headphones: C E G C, rising, over and over. Tap the pad for each note as you hear it (low to high, left to right). ${TAPS} taps.`;
+  pads.forEach(p => p.disabled = false);
 }
 
-$("pad").addEventListener("pointerdown", e => {
+// the pads: C E G C, low to high
+const pads = NOTES.map((n, i) => {
+  const b = document.createElement("button");
+  b.className = "pad"; b.disabled = true; b.style.setProperty("--k", INK[i]);
+  b.innerHTML = `${n}<small>${["low", "", "", "high"][i]}</small>`;
+  b.addEventListener("pointerdown", e => tap(i, e));
+  $("pads").appendChild(b);
+  return b;
+});
+function tap(note, e) {
   if (!pat || errs.length >= TAPS || !playing || !anchor) return;
-  $("pad").classList.add("hit"); setTimeout(() => $("pad").classList.remove("hit"), 90);
-  const pos = drawn(e.timeStamp), BEAT = pat.beat, BAR = BEAT * pat.bar, FIRST = pat.first;
-  let err;
-  if (est === null) {   // the first: a low C, read against the bar
-    err = pos - (FIRST + Math.floor((pos - FIRST + .4 * BEAT) / BAR) * BAR);
-  } else {              // the rest: the note nearest to where the sound is
-    err = pos - (FIRST + Math.round((pos - est - FIRST) / BEAT) * BEAT);
-  }
+  const b = pads[note]; b.classList.add("hit"); setTimeout(() => b.classList.remove("hit"), 90);
+  // that note in the bar: the one that makes the gap fall from 0.4 beat early to the rest of the bar late
+  const pos = drawn(e.timeStamp), BEAT = pat.beat, BAR = BEAT * pat.bar, at = pat.first + note * BEAT;
+  const err = pos - (at + Math.floor((pos - at + .4 * BEAT) / BAR) * BAR);
   errs.push(err);
   const sorted = errs.slice().sort((a, b) => a - b);
   est = sorted[sorted.length >> 1];
   $("dots").children[errs.length - 1].classList.add("on");
+  $("dots").children[errs.length - 1].style.setProperty("--k", INK[note]);
   if (errs.length < TAPS) { $("msg").textContent = `${TAPS - errs.length} to go…`; return; }
   const use = errs.slice(2).map(x => x * 1000).sort((a, b) => a - b), med = use[use.length >> 1];
   const spread = use.map(x => Math.abs(x - med)).sort((a, b) => a - b)[use.length >> 1];
-  if (spread > 45) { $("msg").textContent = "The taps were too uneven to read: Start again, one tap a note, from a low C."; return; }
+  if (spread > 45) { $("msg").textContent = "The taps were too uneven to read: Start again, the pad for each note as you hear it."; return; }
   delta = Math.round(med / 5) * 5;
   $("msg").textContent = Math.abs(delta) < 10 ? "Already lined up (within 10 ms)."
     : `The waveform runs ${Math.abs(delta)} ms ${delta > 0 ? "ahead of" : "behind"} the sound. Save to line them up.`;
   $("save").disabled = Math.abs(delta) < 10;
-});
+}
 
 $("save").addEventListener("click", async () => {
   try {

@@ -2822,8 +2822,8 @@ QJsonObject Hub::swapToOriginal(int deck) {
 }
 
 // ---- lining the waveform up by ear -----------------------------------------------------------------------
-// A test pattern played through Mixxx like any track (so it takes the music's own way out: the buffer, the output,
-// Bluetooth, and to a linked device the link): a rising C major arpeggio, C E G C, one note a beat at 120 BPM from
+// A test pattern played through Mixxx on the preview deck, in the headphones (the buffer, the output, Bluetooth,
+// and to a linked device the link, as the cue you mix by): a rising C major arpeggio, C E G C, one note a beat at 120 BPM from
 // 0.5 s, 40 s long. The page knows where each note is, and the listener taps on them, starting on a low C: the bar
 // makes even a delay of more than a beat unmistakable.
 
@@ -2870,6 +2870,7 @@ QString Hub::calibrationFile() {
 }
 
 QJsonObject Hub::calibrate(bool on) {
+    // On the preview deck: in the headphones only (no one else hears it), and no deck or sampler taken
     const auto key = [](const QString& g, const char* k) { return ConfigKey(g, QLatin1String(k)); };
     if (!on) {
         if (!m_calib.group.isEmpty()) {
@@ -2882,48 +2883,25 @@ QJsonObject Hub::calibrate(bool on) {
                 ControlObject::set(key(g, "eject"), 0);
                 m_library.removeTrack(pTrack->getId().toVariant().toInt(), false);   // not in the library
             }
-            ControlObject::set(key(g, "volume"), m_calib.volume);
-            ControlObject::set(key(g, "orientation"), m_calib.orientation);
-            if (!m_calib.previous.isEmpty()) {   // the sample it borrowed the slot from, back
-                const QString target = QStringLiteral("sampler") + g.mid(8, g.size() - 9);
-                const QString previous = m_calib.previous;
-                QTimer::singleShot(400, this, [this, previous, target] { m_library.loadLocation(previous, target, true); });
-            }
-            m_calib.previous.clear();
         }
         return {{"ok", true}};
     }
     if (m_controllerMode) {
         return {{"ok", false}, {"error", "Not in controller mode: calibrate on the computer's Mixxx"}};
     }
+    if (audioStatus().value(QStringLiteral("headphones")).toString().isEmpty()) {
+        return {{"ok", false}, {"error", "The test pattern plays in the headphones: set a headphones output first (Settings › Audio)"}};
+    }
     const QString file = calibrationFile();
     if (file.isEmpty()) {
         return {{"ok", false}, {"error", "Couldn't make the test pattern"}};
     }
-    if (!m_calib.group.isEmpty()) {
-        calibrate(false);
-    }
-    // an empty sampler; all full: the last one, its sample put back after
-    QJsonObject r = m_library.loadLocation(file, QStringLiteral("sampler"), true);
+    const QJsonObject r = m_library.loadLocation(file, QStringLiteral("preview"), true);
     if (!r.value(QStringLiteral("ok")).toBool()) {
-        const int count = static_cast<int>(ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("num_samplers"))));
-        if (count < 1) {
-            return {{"ok", false}, {"error", "No sampler to play the test pattern on"}};
-        }
-        const QString g = QStringLiteral("[Sampler%1]").arg(count);
-        const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(g);
-        m_calib.previous = pTrack ? pTrack->getLocation() : QString();
-        r = m_library.loadLocation(file, QStringLiteral("sampler%1").arg(count), true);
-        if (!r.value(QStringLiteral("ok")).toBool()) {
-            return {{"ok", false}, {"error", "Couldn't load the test pattern"}};
-        }
+        return {{"ok", false}, {"error", r.value(QStringLiteral("error")).toString(QStringLiteral("Couldn't load the test pattern"))}};
     }
     const QString g = r.value(QStringLiteral("group")).toString();
     m_calib.group = g;
-    m_calib.volume = ControlObject::get(key(g, "volume"));
-    m_calib.orientation = ControlObject::get(key(g, "orientation"));
-    ControlObject::set(key(g, "volume"), 1);
-    ControlObject::set(key(g, "orientation"), 1);   // both sides of the crossfader
     QTimer::singleShot(900, this, [this, g, key] {
         if (m_calib.group == g) {
             ControlObject::set(key(g, "rate"), 0);
