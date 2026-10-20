@@ -83,6 +83,17 @@ const GROUP = params.get("group") || "[PreviewDeck1]", TRACK = +params.get("trac
 const PREVIEW = GROUP.startsWith("[PreviewDeck");
 const st = { pos: 0, dur: 0, ratio: 1, playing: false, bpm: 0, posAt: 0, wf: null, beats: null, bar: 0, locked: false, zoom: 4 };
 const ZOOMS = [1, 2, 4, 8, 16, 32];   // seconds across the view
+// Each position comes with the hub's time of reading it (ts): mapped onto this page's clock through the fastest
+// delivery seen lately (as the decks do), so the drawing runs on from when Mixxx was there, not from when the
+// message happened to arrive (that delay is why it used to trail while playing)
+const clockSync = { samples: [], off: null };
+function hubTime(ts, now) {
+  if (ts == null) return now;
+  clockSync.samples.push([now, now - ts]);
+  while (clockSync.samples.length > 1 && now - clockSync.samples[0][0] > 5000) clockSync.samples.shift();
+  clockSync.off = clockSync.samples.reduce((m, x) => Math.min(m, x[1]), Infinity);
+  return Math.min(now, ts + clockSync.off);
+}
 
 // ---- Mixxx: Zydek's /ws (set and subscribe to controls) -----------------------------------------------
 let ws;
@@ -98,7 +109,7 @@ function connect() {
     if (m.t === "lat") LAT = m.s || 0;
     if (m.t !== "cv" || !m.k.startsWith(GROUP + ",")) return;
     const k = m.k.slice(GROUP.length + 1), v = m.v;
-    if (k === "playposition") { if (!dragging) { st.pos = v * st.dur; st.posAt = performance.now(); } }
+    if (k === "playposition") { const now = performance.now(), at = hubTime(m.ts, now); if (!dragging) { st.pos = v * st.dur; st.posAt = at; } }
     else if (k === "duration") st.dur = v;
     else if (k === "rate_ratio") st.ratio = v;
     else if (k === "play") { st.playing = v > 0; $("#play").textContent = st.playing ? "❚❚" : "▶"; }
@@ -138,7 +149,7 @@ function draw(now) {
   const dpr = devicePixelRatio || 1, r = cv.getBoundingClientRect(), W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   // drawn LAT behind Mixxx's position while playing: where the sound you hear is (the output's latency)
-  const pos = st.playing && !dragging ? st.pos + ((now - st.posAt) / 1000 - LAT) * st.ratio : st.pos;
+  const pos = st.playing && !dragging ? st.pos + Math.max(-1.2, Math.min((now - st.posAt) / 1000 - LAT, .25)) * st.ratio : st.pos;
   const sec = ZOOMS[zi], pxs = W / sec, start = pos - sec / 2, mid = H / 2;
   g.clearRect(0, 0, W, H);
   g.fillStyle = "rgba(255,255,255,.25)"; g.fillRect(0, Math.floor(mid), W, Math.max(1, dpr * .6));
