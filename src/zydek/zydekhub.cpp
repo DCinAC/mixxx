@@ -2770,6 +2770,9 @@ QJsonObject Hub::swapToStems(int deck, bool keepPosition) {
         if (m_deckStems[deck].trackId != expectId) {
             return;   // something else was loaded meanwhile
         }
+        if (m_pLiveStems) {   // the stems version has the original's cues as they are now (set or edited since)
+            m_pLiveStems->syncCues(expectId, path, true);
+        }
         if (!m_library.loadLocation(path, QStringLiteral("deck%1").arg(deck + 1), true).value(QStringLiteral("ok")).toBool()) {
             m_pendingSeek.remove(group);
         }
@@ -2804,6 +2807,7 @@ QJsonObject Hub::swapToOriginal(int deck) {
             {ControlObject::get(ConfigKey(group, QStringLiteral("playposition"))),
                     ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0,
                     path});
+    m_pLiveStems->syncCues(original, pTrack->getLocation(), false);   // cues set on the stems come along
     if (!m_library.loadLocation(path, QStringLiteral("deck%1").arg(deck + 1), true).value(QStringLiteral("ok")).toBool()) {
         m_pendingSeek.remove(group);
         return {{"ok", false}, {"error", "Couldn't load the original"}};

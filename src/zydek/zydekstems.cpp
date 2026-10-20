@@ -835,6 +835,49 @@ QString LiveStems::separateOnPc(const TrackPointer& pTrack, int id) {
     qInfo() << "Zydek live stems: made on the PC:" << path;
     return path;
 }
+namespace {
+/// from's hot cues, loops and main cue onto to, in place of to's own (the same audio, frame for frame).
+void copyCues(const TrackPointer& from, const TrackPointer& to) {
+    for (const CuePointer& pCue : to->getCuePoints()) {
+        if (pCue->getType() != mixxx::CueType::MainCue) {
+            to->removeCue(pCue);
+        }
+    }
+    to->setMainCuePosition(from->getMainCuePosition());
+    for (const CuePointer& pCue : from->getCuePoints()) {
+        if (pCue->getType() == mixxx::CueType::MainCue) {
+            continue;
+        }
+        const CuePointer pCopy = to->createAndAddCue(pCue->getType(),
+                pCue->getHotCue(),
+                pCue->getPosition(),
+                pCue->getEndPosition(),
+                pCue->getColor());
+        if (pCopy) {
+            pCopy->setLabel(pCue->getLabel());
+        }
+    }
+}
+} // namespace
+
+void LiveStems::syncCues(int originalId, const QString& stemsPath, bool toStems) {
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (!pLibrary || originalId <= 0 || stemsPath.isEmpty()) {
+        return;
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    runOnMain(pCollection, [pCollection, originalId, stemsPath, toStems] {
+        const TrackPointer pOriginal = pCollection->getTrackById(TrackId(QVariant(originalId)));
+        const TrackPointer pStems = pCollection->getOrAddTrack(TrackRef::fromFilePath(stemsPath));
+        if (!pOriginal || !pStems) {
+            return;
+        }
+        const TrackPointer& pTo = toStems ? pStems : pOriginal;
+        copyCues(toStems ? pOriginal : pStems, pTo);
+        pCollection->saveTrack(pTo);
+    });
+}
+
 /// The stems file into the library as the same track: its beat grid, key, cues and loops (same sample rate,
 /// same frames), with the original's title.
 bool LiveStems::addStemsTrack(const QString& path, const TrackPointer& pTrack, QString* pError) {
@@ -863,20 +906,7 @@ bool LiveStems::addStemsTrack(const QString& path, const TrackPointer& pTrack, Q
                     pStems->trySetBeats(pBeats);
                 }
                 pStems->setBpmLocked(pTrack->isBpmLocked());
-                pStems->setMainCuePosition(pTrack->getMainCuePosition());
-                for (const CuePointer& pCue : pTrack->getCuePoints()) {
-                    if (pCue->getType() == mixxx::CueType::MainCue) {
-                        continue;
-                    }
-                    const CuePointer pCopy = pStems->createAndAddCue(pCue->getType(),
-                            pCue->getHotCue(),
-                            pCue->getPosition(),
-                            pCue->getEndPosition(),
-                            pCue->getColor());
-                    if (pCopy) {
-                        pCopy->setLabel(pCue->getLabel());
-                    }
-                }
+                copyCues(pTrack, pStems);
                 added = pCollection->saveTrack(pStems) != TrackCollectionManager::SaveTrackResult::Failed;
             }, 60000, &m_stop);
     if (!added) {

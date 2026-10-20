@@ -270,8 +270,8 @@
      that's on (preview, the Stems crate, a crate it's in) or armed (red: tap again) */
   #sheet.hw .loads button::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 28px; margin-left: -14px; height: 7px;
     background: #202226; box-shadow: inset 0 0 0 1.5px #383a3e; }
-  #sheet.hw .pv, #sheet.hw .scrate, #sheet.hw .hide, #sheet.hw .delete, #sheet.hw .analyze, #sheet.hw .crates button { padding-left: 34px; }
-  #sheet.hw .pv::before, #sheet.hw .scrate::before, #sheet.hw .hide::before, #sheet.hw .delete::before, #sheet.hw .analyze::before, #sheet.hw .crates button::before { content: ""; position: absolute; left: 10px; top: 50%;
+  #sheet.hw .pv, #sheet.hw .scrate, #sheet.hw .analyze, #sheet.hw .crates button { padding-left: 34px; }
+  #sheet.hw .pv::before, #sheet.hw .scrate::before, #sheet.hw .analyze::before, #sheet.hw .crates button::before { content: ""; position: absolute; left: 10px; top: 50%;
     width: 15px; height: 21px; margin-top: -10.5px; background: #202226; box-shadow: inset 0 0 0 2.5px #383a3e; }
   #sheet.hw .loads .loaded.d12 { --lc: var(--deck12); } #sheet.hw .loads .loaded.d34 { --lc: var(--deck34); } #sheet.hw .loads .playing { --lc: var(--play); }
   #sheet.hw .crates .on, #sheet.hw .pv.on, #sheet.hw .scrate[data-on="1"] { --lc: #ffc23d; }
@@ -282,6 +282,19 @@
   #sheet.hw .crates .box { display: none; }
   #sheet.hw hr { border-top-color: #000; box-shadow: 0 1px 0 rgba(255,255,255,.05); }
   #sheet.hw .newcrate input { background: #0c0c0d; border: 1px solid #000; border-radius: 4px; box-shadow: inset 0 2px 5px rgba(0,0,0,.85), 0 1px 0 rgba(255,255,255,.06); }
+
+  /* the remove question (askRemove): Element's look whatever Menu UI says, for reading it right */
+  #ask { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 20px; }
+  #ask .box { width: min(100%, 420px); background: #161616; border: 1px solid #333; border-radius: 16px; padding: 20px; display: grid; gap: 14px; }
+  #ask b { font-size: 18px; }
+  #ask p { margin: 0; font-size: 15px; line-height: 1.45; color: #cfcfcf; }
+  #ask .chk { display: flex; gap: 12px; align-items: flex-start; font-size: 15px; color: var(--text); padding: 12px; border-radius: 12px; background: #1d1d1d; cursor: pointer; }
+  #ask .chk input { width: 22px; height: 22px; margin: 1px 0 0; accent-color: var(--err); flex: none; }
+  #ask .chk small { display: block; color: var(--dim); font-size: 13px; margin-top: 3px; }
+  #ask .acts { display: flex; gap: 10px; }
+  #ask .acts button { flex: 1; min-height: 48px; font-size: 15px; font-weight: 600; }
+  #ask .yes { border-color: var(--err); color: var(--err); }
+  #ask .yes.danger { background: var(--err); color: #fff; }
 
   /* track sheet */
   #scrim { position: fixed; inset: 0; z-index: 8; background: rgba(0,0,0,.6); opacity: 0; pointer-events: none; transition: opacity .18s; }
@@ -1175,8 +1188,7 @@ async function openSheet(t) {
     `<button class="cues">Edit hot cues<small>names and colours</small></button>` +
     `<button class="scrate">Prepare stems<small>…</small></button>` +
     `<button class="rename">Rename<small>the title in the library</small></button>` : "";
-  const removal = `<button class="hide">Remove from library<small>the file stays</small></button>` +
-    `<button class="delete">Delete the file<small>from the phone, for good</small></button>`;
+  const removal = `<button class="remove wide">Remove file from library<small>asks first; the file stays unless you say</small></button>`;
   s.innerHTML = `<div class="grip"></div><div class="t">${esc(t.title)}</div>` +
     `<div class="a">${esc(t.artist || "Unknown artist")}${t.album ? " · " + esc(t.album) : ""}</div>` +
     `<div class="facts"><div><b>${t.bpm ? t.bpm.toFixed(1) : "—"}</b>BPM</div><div><b>${esc(keyText(t) || "—")}</b>Key</div>` +
@@ -1230,22 +1242,15 @@ async function openSheet(t) {
       } catch (e) { toast(e.message, "bad"); }
     });
   }
-  // Removing or deleting: the first tap only asks
-  [[".hide", 0, "Tap again to remove it"], [".delete", 1, "Tap again: delete for good"]].forEach(([sel, del, ask]) => {
-    const b = s.querySelector(sel);
-    b.addEventListener("click", async () => {
-      if (!b.classList.contains("armed")) {
-        const was = b.innerHTML;
-        b.classList.add("armed"); b.innerHTML = ask;
-        setTimeout(() => { if (b.isConnected) { b.classList.remove("armed"); b.innerHTML = was; } }, 4000);
-        return;
-      }
-      try {
-        await api(`/api/library/remove?${qs({ id: t.id, delete: del })}`);
-        toast(del ? `Deleted ${t.title}` : `Removed ${t.title} from the library`, "ok");
-        closeSheet(); loadViews(); loadTracks();
-      } catch (e) { toast(e.message, "bad"); }
-    });
+  // Removing: asks first (and whether the file goes too), in plain words whatever the look
+  s.querySelector(".remove").addEventListener("click", async () => {
+    const del = await askRemove(t);
+    if (del === null) return;
+    try {
+      await api(`/api/library/remove?${qs({ id: t.id, delete: del ? 1 : 0 })}`);
+      toast(del ? `Deleted ${t.title}` : `Removed ${t.title} from the library`, "ok");
+      closeSheet(); loadViews(); loadTracks();
+    } catch (e) { toast(e.message, "bad"); }
   });
   s.querySelector(".cues")?.addEventListener("click", () => openCueEditor(t));
   s.querySelector(".rename")?.addEventListener("click", () => {
@@ -1274,6 +1279,29 @@ async function openSheet(t) {
   });
   fillCrates(s, t);
   $("#scrim").classList.add("on"); s.classList.add("on");
+}
+// Remove from the library: a plain question (Element's look in either Menu UI, for reading it right), with
+// "also delete the file" to tick. true = delete the file too, false = only the library, null = cancelled.
+function askRemove(t) {
+  return new Promise(done => {
+    const box = h("div", "", `<div class="box" role="dialog" aria-modal="true" aria-labelledby="ask-t">
+      <b id="ask-t">Remove from the library?</b>
+      <p>${esc(t.title)}${t.artist ? ` · ${esc(t.artist)}` : ""}<span> leaves the library and its crates. The file stays on the phone.</span></p>
+      <label class="chk"><input type="checkbox"><span>Also delete the file from storage<small>For good: it can't be brought back.</small></span></label>
+      <div class="acts"><button class="no">Cancel</button><button class="yes">Remove</button></div></div>`);
+    box.id = "ask";
+    const chk = box.querySelector("input"), yes = box.querySelector(".yes"), p = box.querySelector("p span");
+    chk.addEventListener("change", () => {
+      yes.textContent = chk.checked ? "Delete file" : "Remove";
+      yes.classList.toggle("danger", chk.checked);
+      p.textContent = chk.checked ? " leaves the library and its crates, and the file is deleted." : " leaves the library and its crates. The file stays on the phone.";
+    });
+    const end = v => { box.remove(); done(v); };
+    box.addEventListener("click", e => { if (e.target === box) end(null); });
+    box.querySelector(".no").addEventListener("click", () => end(null));
+    yes.addEventListener("click", () => end(chk.checked));
+    document.body.appendChild(box);
+  });
 }
 // Hot cue editor (track menu › Edit hot cues): each hot cue's name and colour, or remove it. Works whether
 // or not the track is on a deck; setting new cues happens on the decks.
@@ -1448,17 +1476,20 @@ async function load(t, target) {
   } catch (e) { toast(e.message, "bad"); }
 }
 // The preview deck ([PreviewDeck1], the headphones): its state comes over /ws like the decks'.
-const pvState = { track: null, playing: false, loaded: false, dur: 0, pos: 0, at: 0 };
-const previewing = t => pvState.track && t && pvState.track.id === t.id && pvState.loaded;
+const pvState = { track: null, playing: false, loaded: false, dur: 0, pos: 0, at: 0, since: 0 };
+// The preview deck has this track: Mixxx said it loaded, or (the same track again, which it doesn't announce) it's
+// had time to
+const previewing = t => pvState.track && t && pvState.track.id === t.id && (pvState.loaded || performance.now() - pvState.since > 2500);
 async function preview(t, keepOpen) {
+  // marked as loading before asking, so Mixxx's "loaded" can't arrive first and be overwritten
+  pvState.track = t; pvState.loaded = false; pvState.since = performance.now();
   try {
     await api(`/api/preview?${qs({ track_id: t.id })}`);
-    pvState.track = t; pvState.loaded = false;
     $("#pv span").textContent = `Previewing on the headphones: ${t.title}`;
     $("#pv").classList.add("on");
     if (!keepOpen) closeSheet();
     return true;
-  } catch (e) { toast(e.message, "bad"); return false; }
+  } catch (e) { pvState.track = null; toast(e.message, "bad"); return false; }
 }
 async function stopPreview() {
   await api("/api/preview/stop").catch(() => {});

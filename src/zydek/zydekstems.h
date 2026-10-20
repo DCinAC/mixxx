@@ -45,6 +45,9 @@ class LiveStems : public QObject {
     /// Stems made for the track elsewhere (the PC's, from the library's "Make stems"): from now on its stems on
     /// the decks, with the track's beat grid, key, cues and loudness. The quick ones made here before are deleted.
     void adopt(int trackId, const QString& path, bool copyFromOriginal = false);
+    /// The original's hot cues, loops and main cue onto its stems version in place of its own (toStems), or the
+    /// stems version's back onto the original: whichever the deck is about to play has the latest.
+    void syncCues(int originalId, const QString& stemsPath, bool toStems);
     /// Gives stems files made before the loudness copy their original's ReplayGain (they played louder).
     void repairLoudness();
     /// Deletes the stems file made from this track (its original was deleted).
