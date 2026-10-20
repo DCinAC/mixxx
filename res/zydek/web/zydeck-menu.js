@@ -162,7 +162,7 @@
       st: () => { const a = sys.audio; if (!a || a.totalMs == null) return ""; return a.measuredMs >= 0 ? `${Math.round(a.latencyMs)} ms buffer + ${a.measuredMs} ms output${a.route ? ` (${a.route})` : ""} · drawn ${a.totalMs} ms later` : `Output not measured yet · drawn ${a.totalMs} ms later`; },
       extra: { key: "measure", label: "Measure", act: async () => { await api("/api/audio/latency?measure=1"); await sleep(2500); await loads.audio(); } },
       desc: "Draws the waveforms this much later, to match what you hear." },
-    { id: "calibrate", sec: "audio", name: "Line up by ear", kind: "proc", label: () => "Calibrate", lampless: true,
+    { id: "calibrate", sec: "pinctl", name: "Line up by ear", kind: "proc", label: () => "Calibrate", lampless: true,
       show: () => !sys.remote.on,
       act: async () => { openPage(`/calibrate${host.linked ? `?hub=${encodeURIComponent(host.hubHost)}` : ""}`, () => loads.audio().then(refresh)); },
       desc: "A page of its own: a rising C E G C plays in your headphones; tap along, and it measures how far the waveform runs from what you hear (Bluetooth, the screen, the link) and sets the compensation." },
@@ -303,7 +303,8 @@
       fmt: v => `${(+v).toFixed(2)} px/mm`, desc: "Adjust until the bar below measures 50 mm with a ruler." },
   ];
   const ROW = Object.fromEntries(ROWS.map(r => [r.id, r]));
-  ROWS.forEach(r => { r.tab = (SECTIONS.find(s => s[1] === r.sec) || ["both"])[0]; });   // "pin": above both tabs
+  ROWS.forEach(r => { r.tab = r.sec === "pinctl" ? "controller" : (SECTIONS.find(s => s[1] === r.sec) || ["both"])[0]; });
+  // "pin": Link devices, first in both tabs; "pinctl": right under it, in the Controller tab only
 
   // ---- drawing ----
   const PL = '<i class="zpl" aria-hidden="true"><i></i><i></i><i></i><i></i></i>';
@@ -415,6 +416,10 @@
     ui.rows.replaceChildren(ui.pinBox);
     ui.rail.replaceChildren();
     ui.list = [];
+    // under Link devices, in the Controller tab (or when it's searched for)
+    ROWS.filter(r => r.sec === "pinctl" && (!r.show || r.show()) && (words.length ? hit(r) : curTab === "controller")).forEach(r => {
+      const x = rowEl(r); x.el.classList.add("pinned"); ui.list.push(x); ui.rows.appendChild(x.el);
+    });
     const secs = SECTIONS.filter(s => words.length || s[0] === curTab);
     secs.forEach(([tab, id, name]) => {
       const rows = ROWS.filter(r => r.sec === id && (!r.show || r.show()) && (!words.length || hit(r)));

@@ -22,11 +22,11 @@
   .strip canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   .strip .cur { position: absolute; left: 50%; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: #fff; }
   /* four pads, low to high: C E G C, each in its note's colour */
-  .pads { flex: 1; min-height: 160px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: end; }
-  /* a staircase, low to high */
-  .pad { min-height: 0; height: var(--h); font-size: 24px; font-weight: 800; border-radius: 18px; touch-action: none; padding: 0;
+  /* four bars stacked, high C on top, low C at the bottom */
+  .pads { flex: 1; min-height: 200px; display: flex; flex-direction: column-reverse; gap: 8px; }
+  .pad { flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 24px; font-weight: 800; border-radius: 18px; touch-action: none; padding: 0;
     color: var(--k); border: 2px solid color-mix(in srgb, var(--k) 70%, #000); background: color-mix(in srgb, var(--k) 14%, #161616); }
-  .pad small { display: block; font-size: 12px; font-weight: 600; color: #a8a8a8; }
+  .pad small { font-size: 13px; font-weight: 600; color: #a8a8a8; }
   .pad.hit { background: color-mix(in srgb, var(--k) 45%, #161616); }
   .pad:disabled { opacity: .35; }
   .dots { display: flex; gap: 8px; justify-content: center; }
@@ -99,14 +99,14 @@ async function start() {
   if (!r.ok) { $("msg").textContent = r.error || "Couldn't start the test pattern"; return; }
   pat = r; anchor = null; dur = r.seconds || 40;
   subscribe();
-  $("msg").textContent = `In your headphones: C E G C, rising, over and over. Tap the tones as you hear them, from low to high: C, E, G, C, the pads left to right. ${TAPS} taps.`;
+  $("msg").textContent = `In your headphones: C E G C, rising, over and over. Tap the tones as you hear them, from low to high: C, E, G, C, the bars from the bottom up. ${TAPS} taps.`;
   pads.forEach(p => p.disabled = false);
 }
 
 // the pads: C E G C, low to high
 const pads = NOTES.map((n, i) => {
   const b = document.createElement("button");
-  b.className = "pad"; b.disabled = true; b.style.setProperty("--k", INK[i]); b.style.setProperty("--h", `${55 + i * 15}%`);
+  b.className = "pad"; b.disabled = true; b.style.setProperty("--k", INK[i]);
   b.innerHTML = `${n}<small>${["low", "", "", "high"][i]}</small>`;
   b.addEventListener("pointerdown", e => tap(i, e));
   $("pads").appendChild(b);
