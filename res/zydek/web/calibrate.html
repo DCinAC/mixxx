@@ -55,13 +55,13 @@
 // A test pattern (the hub's, /api/calibrate) plays through Mixxx on the preview deck, in the headphones (the buffer,
 // the output, Bluetooth, the link to this device): only you hear it. A rising C major arpeggio, C E G C, a note a beat at 120 BPM.
 // This page follows the preview deck's position as the decks do (the hub's time stamps, its latency) and draws the
-// pattern's waveform (Mixxx's analysis of it, as the decks get it) rolling past the cursor where it's drawn; you tap on the notes you hear, from a low C. Each tap's moment (the
+// pattern's waveform (Mixxx's analysis of it, as the decks get it) rolling past the cursor where it's drawn; you tap on the notes you hear. Each tap's moment (the
 // touch's own time stamp) gives where the drawing was; its distance from the note is how far the drawing runs ahead
-// of the sound. Tapping is playing along, not answering: whichever bar you hit, a tap is the next note of C E G C
-// (from a low C), so nothing has to be chosen (choosing which note it was adds a reaction's 300-600 ms, read as
-// delay). Each is read against its note in the bar (up to 1.8 s late, unmistakable). The median moves the hub's
-// offset. And the check that needs no taps at all: watch each note's start cross the line as you hear it, and nudge
-// the drawing (the offset, live) until it does.
+// of the sound. Tapping is playing along, not answering: whichever bar you hit, a tap is read against the nearest
+// note (half a beat either way), so nothing has to be chosen (choosing which note it was adds a reaction's 300-600 ms,
+// read as delay) and starting on the wrong one can't count as a whole beat late. The hub has measured the output
+// itself; what's left to find is small. The median moves the hub's offset. And the check that needs no taps at all:
+// watch each note's start cross the line as you hear it, and nudge the drawing (the offset, live) until it does.
 const Q = new URLSearchParams(location.search), HUB_HOST = Q.get("hub") || location.host;
 // scope: "host", the host's output (the hub's offset, System › Calibrate); "device", this screen on top of it (its
 // own offset, Controller › Calibrate: the link, the display), kept by the page that opened this one
@@ -110,7 +110,7 @@ async function start() {
   pat = r; anchor = null; dur = r.seconds || 40; delete d.pt;
   subscribe();
   loadWaveform();
-  $("msg").textContent = `In your headphones: C E G C, rising, over and over. Watch each note's start cross the white line as you hear it: if it's early or late, nudge it. Or tap along, in time like playing it (any bar; start on a low C): ${TAPS} taps.`;
+  $("msg").textContent = `In your headphones: C E G C, rising, over and over. Watch each note's start cross the white line as you hear it: if it's early or late, nudge it. Or tap along, in time like playing it (any bar, any note): ${TAPS} taps.`;
   nextPad(0);
   pads.forEach(p => p.disabled = false);
 }
@@ -124,16 +124,16 @@ const pads = NOTES.map((n, i) => {
   $("pads").appendChild(b);
   return b;
 });
-// the note a tap is for: the next in order from the first (a low C), whichever bar was hit
+// the lit bar: the next note in order, a guide to play along (a tap counts for the nearest note, whichever)
 const nextPad = n => pads.forEach((p, i) => p.classList.toggle("next", i === n % 4));
 function tap(e) {
   if (!pat || errs.length >= TAPS || !playing || !anchor) return;
   const note = errs.length % 4, b = e.currentTarget || pads[note];
   b.classList.add("hit"); setTimeout(() => b.classList.remove("hit"), 90);
   nextPad(errs.length + 1);
-  // that note in the bar: the one that makes the gap fall from 0.4 beat early to the rest of the bar late
-  const pos = drawn(e.timeStamp), BEAT = pat.beat, BAR = BEAT * pat.bar, at = pat.first + note * BEAT;
-  const err = pos - (at + Math.floor((pos - at + .4 * BEAT) / BAR) * BAR);
+  // the nearest note: the gap from half a beat early to half a beat late
+  const pos = drawn(e.timeStamp), BEAT = pat.beat;
+  const err = pos - (pat.first + Math.round((pos - pat.first) / BEAT) * BEAT);
   errs.push(err);
   const sorted = errs.slice().sort((a, b) => a - b);
   est = sorted[sorted.length >> 1];
@@ -142,7 +142,7 @@ function tap(e) {
   if (errs.length < TAPS) { $("msg").textContent = `${TAPS - errs.length} to go…`; return; }
   const use = errs.slice(2).map(x => x * 1000).sort((a, b) => a - b), med = use[use.length >> 1];
   const spread = use.map(x => Math.abs(x - med)).sort((a, b) => a - b)[use.length >> 1];
-  if (spread > 45) { $("msg").textContent = "The taps were too uneven to read: Start again, tapping along in time, from a low C."; return; }
+  if (spread > 45) { $("msg").textContent = "The taps were too uneven to read: Start again, tapping along in time."; return; }
   delta = Math.round(med / 5) * 5;
   $("msg").textContent = Math.abs(delta) < 10 ? "Already lined up (within 10 ms)."
     : `The waveform runs ${Math.abs(delta)} ms ${delta > 0 ? "ahead of" : "behind"} the sound. Save to line them up.`;
