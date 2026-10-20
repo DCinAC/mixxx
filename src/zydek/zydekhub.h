@@ -276,12 +276,13 @@ class Hub : public QObject {
     int m_stemServerTick = 0;
     // KEY LOCK, QUANTIZE, SLIP when a deck gets a new track (not a live-stems swap): 1 on, 0 off, -1 as they were
     int m_deckDefaults[3] = {-1, -1, -1};
-    /// Lining the waveform up by ear (/api/calibrate): the deck playing the test pattern, and its fader and
-    /// crossfader side to put back after
+    /// Lining the waveform up by ear (/api/calibrate, the /calibrate page): the sampler playing the test pattern,
+    /// its level and crossfader side to put back after, and the sample it had (when it had to borrow one)
     struct Calibration {
-        int deck = -1;
+        QString group;
         double volume = 1;
         double orientation = 1;
+        QString previous;
     } m_calib;
     // The decks as they play (zydek-decks.json: track, position, tempo, key shift, KEY LOCK, QUANTIZE), loaded back at
     // start, paused where they were, when the last run stopped while something played or crashed
@@ -295,7 +296,7 @@ class Hub : public QObject {
     void notice(const QString& text);
     void applyDeckDefaults(int deck);
     QJsonArray deckDefaultsJson() const;
-    QJsonObject calibrate(bool on, int deck);
+    QJsonObject calibrate(bool on);
     static QString calibrationFile();
     bool m_stemServer = false;   // a stem server is set (the Web tab's settings): stems are made there first
     bool stemServerSet() const;

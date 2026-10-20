@@ -377,6 +377,9 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     if (path == QLatin1String("/")) {
         return {200, "text/html; charset=utf-8", kIndexPage, {}};
     }
+    if (path == QLatin1String("/calibrate")) {   // lining the waveform up by ear
+        return staticFile(QStringLiteral("calibrate.html"));
+    }
     if (path == QLatin1String("/controller") || path == QLatin1String("/settings") ||
             path == QLatin1String("/sizes") || path == QLatin1String("/phone") || path == QLatin1String("/grid") ||
             path == QLatin1String("/sample")) {
@@ -740,8 +743,8 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/livestems/swap")) {   // ?deck=1..4: load its stems, where it is
         return result(swapToStems(arg("deck").toInt() - 1, true));
     }
-    if (path == QLatin1String("/api/calibrate")) {   // ?on=1[&deck=1..4]: the test pattern on an empty deck · ?on=0: done
-        return result(calibrate(arg("on") == QLatin1String("1"), arg("deck").toInt() - 1));
+    if (path == QLatin1String("/api/calibrate")) {   // ?on=1: the test pattern on a sampler · ?on=0: done
+        return result(calibrate(arg("on") == QLatin1String("1")));
     }
     if (path == QLatin1String("/api/library/remove")) {   // ?id=&delete=1: the file too
         const bool deleteFile = arg("delete") == QLatin1String("1");
@@ -2866,61 +2869,69 @@ QString Hub::calibrationFile() {
     return path;
 }
 
-QJsonObject Hub::calibrate(bool on, int deck) {
-    const auto key = [](int d, const char* k) { return ConfigKey(QStringLiteral("[Channel%1]").arg(d + 1), QLatin1String(k)); };
+QJsonObject Hub::calibrate(bool on) {
+    const auto key = [](const QString& g, const char* k) { return ConfigKey(g, QLatin1String(k)); };
     if (!on) {
-        if (m_calib.deck >= 0) {
-            const int d = m_calib.deck;
-            m_calib.deck = -1;
-            ControlObject::set(key(d, "play"), 0);
-            const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(QStringLiteral("[Channel%1]").arg(d + 1));
-            const bool ours = pTrack && pTrack->getLocation() == calibrationFile();
-            if (ours) {
-                ControlObject::set(key(d, "eject"), 1);
-                ControlObject::set(key(d, "eject"), 0);
+        if (!m_calib.group.isEmpty()) {
+            const QString g = m_calib.group;
+            m_calib.group.clear();
+            ControlObject::set(key(g, "play"), 0);
+            const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(g);
+            if (pTrack && pTrack->getLocation() == calibrationFile()) {
+                ControlObject::set(key(g, "eject"), 1);
+                ControlObject::set(key(g, "eject"), 0);
                 m_library.removeTrack(pTrack->getId().toVariant().toInt(), false);   // not in the library
             }
-            ControlObject::set(key(d, "volume"), m_calib.volume);
-            ControlObject::set(key(d, "orientation"), m_calib.orientation);
+            ControlObject::set(key(g, "volume"), m_calib.volume);
+            ControlObject::set(key(g, "orientation"), m_calib.orientation);
+            if (!m_calib.previous.isEmpty()) {   // the sample it borrowed the slot from, back
+                const QString target = QStringLiteral("sampler") + g.mid(8, g.size() - 9);
+                const QString previous = m_calib.previous;
+                QTimer::singleShot(400, this, [this, previous, target] { m_library.loadLocation(previous, target, true); });
+            }
+            m_calib.previous.clear();
         }
         return {{"ok", true}};
     }
     if (m_controllerMode) {
-        return {{"ok", false}, {"error", "Not in controller mode"}};
-    }
-    if (deck < 0 || deck >= kNumDecks) {   // the first empty deck
-        deck = -1;
-        for (int d = 0; d < kNumDecks && deck < 0; ++d) {
-            if (ControlObject::get(key(d, "track_loaded")) <= 0) {
-                deck = d;
-            }
-        }
-    }
-    if (deck < 0) {
-        return {{"ok", false}, {"error", "Calibrating plays a test pattern on an empty deck: empty one first"}};
+        return {{"ok", false}, {"error", "Not in controller mode: calibrate on the computer's Mixxx"}};
     }
     const QString file = calibrationFile();
     if (file.isEmpty()) {
         return {{"ok", false}, {"error", "Couldn't make the test pattern"}};
     }
-    if (m_calib.deck < 0) {   // what to put back
-        m_calib.volume = ControlObject::get(key(deck, "volume"));
-        m_calib.orientation = ControlObject::get(key(deck, "orientation"));
+    if (!m_calib.group.isEmpty()) {
+        calibrate(false);
     }
-    m_calib.deck = deck;
-    if (!m_library.loadLocation(file, QStringLiteral("deck%1").arg(deck + 1), false).value(QStringLiteral("ok")).toBool()) {
-        m_calib.deck = -1;
-        return {{"ok", false}, {"error", "Couldn't load the test pattern"}};
+    // an empty sampler; all full: the last one, its sample put back after
+    QJsonObject r = m_library.loadLocation(file, QStringLiteral("sampler"), true);
+    if (!r.value(QStringLiteral("ok")).toBool()) {
+        const int count = static_cast<int>(ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("num_samplers"))));
+        if (count < 1) {
+            return {{"ok", false}, {"error", "No sampler to play the test pattern on"}};
+        }
+        const QString g = QStringLiteral("[Sampler%1]").arg(count);
+        const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(g);
+        m_calib.previous = pTrack ? pTrack->getLocation() : QString();
+        r = m_library.loadLocation(file, QStringLiteral("sampler%1").arg(count), true);
+        if (!r.value(QStringLiteral("ok")).toBool()) {
+            return {{"ok", false}, {"error", "Couldn't load the test pattern"}};
+        }
     }
-    ControlObject::set(key(deck, "volume"), 1);
-    ControlObject::set(key(deck, "orientation"), 1);   // both sides of the crossfader
-    QTimer::singleShot(900, this, [this, deck, key] {
-        if (m_calib.deck == deck) {
-            ControlObject::set(key(deck, "rate"), 0);
-            ControlObject::set(key(deck, "play"), 1);
+    const QString g = r.value(QStringLiteral("group")).toString();
+    m_calib.group = g;
+    m_calib.volume = ControlObject::get(key(g, "volume"));
+    m_calib.orientation = ControlObject::get(key(g, "orientation"));
+    ControlObject::set(key(g, "volume"), 1);
+    ControlObject::set(key(g, "orientation"), 1);   // both sides of the crossfader
+    QTimer::singleShot(900, this, [this, g, key] {
+        if (m_calib.group == g) {
+            ControlObject::set(key(g, "rate"), 0);
+            ControlObject::set(key(g, "playposition"), 0);
+            ControlObject::set(key(g, "play"), 1);
         }
     });
-    return {{"ok", true}, {"deck", deck + 1}, {"first", 0.5}, {"beat", 0.5}, {"bar", 4}};
+    return {{"ok", true}, {"group", g}, {"first", 0.5}, {"beat", 0.5}, {"bar", 4}, {"seconds", 40}};
 }
 
 QJsonArray Hub::deckDefaultsJson() const {

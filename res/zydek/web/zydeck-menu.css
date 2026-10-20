@@ -275,3 +275,6 @@
 .zm.el .zc svg { stroke: #444; }
 .zm.el .zk.on .zc svg { stroke: var(--lamp); }
 .zm.page .zseg.multi .zk { flex: 0 1 auto; }
+
+/* a page of its own over everything (the calibration) */
+.zm-pageframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 95; background: #0b0b0b; }

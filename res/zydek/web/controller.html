@@ -433,20 +433,6 @@
   #fxmenu .list button { height: calc(var(--mm) * 6.5); font-size: calc(var(--mm) * 1.9); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   #fxmenu button.on { border-color: var(--fx); color: var(--fx); background: color-mix(in srgb, var(--fx) 14%, #1c1c1c); }
   #fxmenu small { color: var(--dim); }
-  /* calibrating the waveform to the sound (calibrate()) */
-  #calib { position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.72); display: flex; align-items: center; justify-content: center; }
-  #calib .cb { width: min(92vw, calc(var(--mm) * 100)); background: #151515; border: 1px solid #333; border-radius: calc(var(--mm) * 2.4);
-    padding: calc(var(--mm) * 3.4); display: grid; gap: calc(var(--mm) * 2); color: var(--text); font-size: calc(var(--mm) * 2.4); }
-  #calib b { font-size: calc(var(--mm) * 3); }
-  #calib p { margin: 0; color: #c8c8c8; line-height: 1.4; }
-  #calib .pad2 { height: calc(var(--mm) * 26); font-size: calc(var(--mm) * 3); font-weight: 700; border-radius: calc(var(--mm) * 1.6); touch-action: none; }
-  #calib .pad2:active { background: #2a2a2a; }
-  #calib .dots { display: flex; gap: calc(var(--mm) * .8); justify-content: center; }
-  #calib .dots i { width: calc(var(--mm) * 1.6); height: calc(var(--mm) * 1.6); border-radius: 50%; background: #333; }
-  #calib .dots i.on { background: var(--play); }
-  #calib .acts { display: flex; gap: calc(var(--mm) * 1.4); }
-  #calib .acts button { flex: 1; height: calc(var(--mm) * 8); }
-  #calib .yes:not(:disabled) { border-color: var(--play); color: var(--play); }
   .pad .lbl { display: block; font-size: calc(var(--mm) * 1.5); font-weight: 600; opacity: .85; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; max-width: 95%; margin: 0 auto; }
   #linkask { position: fixed; z-index: 45; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(92vw, calc(var(--mm) * 80));
@@ -2275,70 +2261,6 @@ function posAt(d, now) {   // what to draw now
   d.shown = shown;
   return shown;
 }
-// Calibrating the waveform to what you hear. The hub plays a test pattern through Mixxx on an empty deck (its
-// music's own way out: the buffer, the output, Bluetooth, the link): a rising C major arpeggio, C E G C, a note a
-// beat at 120 BPM. You tap on the notes, starting on a low C. Each tap's moment (the touch's own time stamp) gives
-// where the strip was drawing then; its distance from the note says how far the drawing runs ahead of the sound.
-// The first tap, on a C, is read against the bar (four notes: up to 1.6 s late, unmistakable); the rest against
-// the nearest note to where the first says the sound is. The median, added to the hub's offset, lines them up.
-async function calibrate() {
-  document.getElementById("calib")?.remove();
-  const box = h("div", "", `<div class="cb"><b>Line the waveform up with the sound</b>
-    <p class="msg">Starting the test pattern…</p>
-    <button class="pad2" disabled>Tap on each note</button><div class="dots">${"<i></i>".repeat(16)}</div>
-    <div class="acts"><button class="no">Cancel</button><button class="yes" disabled>Save</button></div></div>`);
-  box.id = "calib";
-  document.body.appendChild(box);
-  const msg = box.querySelector(".msg"), pad = box.querySelector(".pad2"), yes = box.querySelector(".yes");
-  const dots = [...box.querySelectorAll(".dots i")];
-  let started = false;
-  const close = () => { box.remove(); if (started) fetch("/api/calibrate?on=0").catch(() => {}); };
-  box.querySelector(".no").addEventListener("click", close);
-  let r;
-  try { r = await (await fetch("/api/calibrate?on=1")).json(); } catch { r = { ok: false, error: "Couldn't reach Mixxx" }; }
-  if (!r.ok) { msg.textContent = r.error || "Couldn't start the test pattern"; return; }
-  started = true;
-  const d = decks[r.deck - 1], FIRST = r.first, BEAT = r.beat, BAR = BEAT * r.bar;
-  msg.textContent = `Deck ${r.deck} plays C E G C, rising. Tap on every note, starting on a low C (the lowest). 16 taps.`;
-  pad.disabled = false;
-  const errs = [];
-  let est = null, delta = null;
-  pad.addEventListener("pointerdown", e => {
-    if (errs.length >= 16 || !d.playing) return;
-    const t = e.timeStamp, pos = posModel(d, t, LAT), rate = Math.max(.2, Math.abs(d.pv || d.ratio || 1));
-    let err;
-    if (est === null) {   // the first: a low C, read against the bar
-      const c = FIRST + Math.floor((pos - FIRST + .4 * BAR / 4) / BAR) * BAR;
-      err = pos - c;
-      if (err < -.4 * BEAT) err += BAR;
-    } else {              // the rest: the note nearest to where the sound is
-      const heard = pos - est;
-      err = pos - (FIRST + Math.round((heard - FIRST) / BEAT) * BEAT);
-    }
-    errs.push(err / rate);
-    const sorted = errs.slice().sort((a, b) => a - b);
-    est = sorted[sorted.length >> 1] * rate;
-    dots[errs.length - 1].classList.add("on");
-    if (errs.length < 16) { msg.textContent = `${16 - errs.length} to go…`; return; }
-    const use = errs.slice(2).map(x => x * 1000).sort((a, b) => a - b), med = use[use.length >> 1];
-    const spread = use.map(x => Math.abs(x - med)).sort((a, b) => a - b)[use.length >> 1];
-    if (spread > 45) { msg.textContent = "The taps were too uneven to read. Cancel and try again: one tap a note, from a low C."; return; }
-    delta = Math.round(med / 5) * 5;
-    msg.textContent = Math.abs(delta) < 10 ? "Already lined up (within 10 ms)."
-      : `The waveform ran ${Math.abs(delta)} ms ${delta > 0 ? "ahead of" : "behind"} the sound. Save to line them up.`;
-    yes.disabled = Math.abs(delta) < 10;
-  });
-  yes.addEventListener("click", async () => {
-    try {
-      const a = await (await fetch("/api/audio")).json();
-      const offset = Math.max(-200, Math.min(800, Math.round((a.offsetMs || 0) + delta)));
-      await fetch(`/api/audio/latency?offset=${offset}`);
-      toast(`Waveform moved ${Math.abs(delta)} ms ${delta > 0 ? "later" : "earlier"}`);
-      ZydeckMenu.reload("audio");
-    } catch { toast("Couldn't save the offset"); }
-    close();
-  });
-}
 // Mixxx moves the position once per audio buffer (~21 ms) and it's read every 33 ms, so single steps say
 // 0.6x or 1.3x in turn. The speed is the deck's tempo unless the last 300 ms clearly say otherwise
 // (scratching, nudging), and each reading moves the drawing only 15 % of the way to it.
@@ -2845,7 +2767,6 @@ ZydeckMenu.provide("controller", {
   S: () => S, phone: PHONE, rawInput: RAW_INPUT,
   set(k, v, final = true) { S[k] = v; saveSettings(); applySettings(); tellApp(); if (final) build(); },
   reset() { S = { ...DEFAULTS }; saveSettings(); applySettings(); tellApp(); build(); },
-  calibrate,
   deckDefaults: () => deckDefaults,
   setDeckDefault(i, v) { deckDefaults[i] = v; fetch(`/api/deckdefaults?${["keylock", "quantize", "slip"][i]}=${v}`).catch(() => {}); },
   ejectPlaces,

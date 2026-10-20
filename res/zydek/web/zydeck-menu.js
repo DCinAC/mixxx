@@ -163,9 +163,9 @@
       extra: { key: "measure", label: "Measure", act: async () => { await api("/api/audio/latency?measure=1"); await sleep(2500); await loads.audio(); } },
       desc: "Draws the waveforms this much later, to match what you hear." },
     { id: "calibrate", sec: "audio", name: "Line up by ear", kind: "proc", label: () => "Calibrate", lampless: true,
-      show: () => !sys.remote.on && !!ctl()?.calibrate && ui?.layout !== "page",
-      act: async () => { close(); ctl().calibrate(); },
-      desc: "Plays a rising C E G C on an empty deck; tap along: measures how far the waveform runs from what you hear (Bluetooth, the screen, the link) and sets the compensation." },
+      show: () => !sys.remote.on,
+      act: async () => { openPage(`/calibrate${host.linked ? `?hub=${encodeURIComponent(host.hubHost)}` : ""}`, () => loads.audio().then(refresh)); },
+      desc: "A page of its own: a rising C E G C plays on a free sampler; tap along, and it measures how far the waveform runs from what you hear (Bluetooth, the screen, the link) and sets the compensation." },
     // System › Library
     { id: "keyfmt", sec: "library", name: "Key notation", kind: "seg", opts: () => [["camelot", "Camelot 8A"], ["open", "Open Key 1m"], ["musical", "Musical Am"]],
       ...shared("keyNotation", "keyNotation", "camelot"), desc: "How keys are written, on the decks and in the library." },
@@ -523,6 +523,15 @@
     }
   }
   const isOpen = () => !!ui && (ui.layout === "page" ? ui.root.isConnected && ui.root.offsetParent !== null : winBox?.classList.contains("open"));
+
+  // A page over everything (its own: the calibration), closed by its "close-page" message
+  function openPage(src, onClose) {
+    const f = el("iframe", "zm-pageframe");
+    f.src = src; f.title = "ZyDeck";
+    const gone = e => { if (e.data?.zydek === "close-page" && e.source === f.contentWindow) { removeEventListener("message", gone); f.remove(); onClose?.(); } };
+    addEventListener("message", gone);
+    document.body.appendChild(f);
+  }
 
   // ---- the custom rows ----
   let linkSt = () => "";
