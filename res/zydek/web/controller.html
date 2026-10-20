@@ -1973,11 +1973,14 @@ function fxMenuHw(s) {
     box.innerHTML = `<div class="zfx-hd"><span class="zfx-t">FX · unit ${u}</span><div class="zseg">${[["beat", "Beat FX"], ["multi", "Multi-FX"]].map(([v, l]) =>
         key(l, `data-layout="${v}"`, (S.fxLayout || "beat") === v)).join("")}</div>
       <button class="zk close" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button></div>
-      ${multi ? `<div class="zseg">${[0, 1, 2].map(j => key(`FX ${j + 1} · ${esc(fxName(u, j))}`, `data-slot="${j}"`, slot === j)).join("")}</div>` : ""}
+      ${multi ? `<div class="zseg">${[0, 1, 2].map(j => key(`FX ${j + 1} · ${esc(fxName(u, j))}`, `data-slot="${j}" style="--lc: var(--fx${j + 1})"`, slot === j)).join("")}</div>` : ""}
       ${!fxNames.length ? none : display
         ? `<div class="zfx-disp"><div class="zfx-lcd">${fxNames.map((n, i) => `<button class="zfx-row" data-fx="${i + 1}">${esc(n)}<span></span></button>`).join("")}</div>
             <div class="zfx-enc"><div class="zfx-knob" role="slider" aria-label="Select an effect"></div><span>SELECT</span><button class="zk zfx-load">Load</button></div></div>`
-        : `<div class="zfx-keys">${fxNames.map((n, i) => key(`${esc(n)}${multi && slotsOf(i).length ? `<small class="zfx-n">${slotsOf(i).join(" ")}</small>` : ""}`, `data-fx="${i + 1}"`, loaded() === i)).join("")}</div>`}
+        : `<div class="zfx-keys">${fxNames.map((n, i) => multi
+          // Multi-FX: a lamp at the key's left end in the colour of the slot it's in (FX 1, 2, 3; split if several)
+          ? `<button class="zk side" data-fx="${i + 1}"><i class="zfx-sl" aria-hidden="true">${slotsOf(i).map(k => `<i style="--c: var(--fx${k})"></i>`).join("")}</i>${esc(n)}</button>`
+          : key(esc(n), `data-fx="${i + 1}"`, loaded() === i)).join("")}</div>`}
       ${multi ? `<small class="zfx-hint">Pick FX ${slot + 1}${slot < 2 ? `, then ${slot < 1 ? "2 and 3" : "3"}: one pass down the list` : ""}</small>` : ""}`;
     if (display) requestAnimationFrame(() => paintDisplay(true));
     // the selector knob: turning it clicks from one effect to the next (DETENT degrees each), drawn on the click
