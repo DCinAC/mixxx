@@ -33,6 +33,11 @@
   .dots i { width: 12px; height: 12px; border-radius: 50%; background: #333; }
   .dots i.on { background: var(--k, var(--play)); }
   .acts { display: flex; gap: 10px; }
+  /* watching: each note's start should cross the line as you hear it; nudge the drawing until it does */
+  .tune { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .tune span { flex: 1 1 200px; color: #cfcfcf; font-variant-numeric: tabular-nums; }
+  .tune button { min-width: 64px; }
+  .pad.next { box-shadow: 0 0 0 2px var(--k), 0 0 14px color-mix(in srgb, var(--k) 45%, transparent); }
   .acts button { flex: 1; }
   .yes:not(:disabled) { border-color: var(--play); color: var(--play); }
 </style>
@@ -41,6 +46,7 @@
 <header><h1>Line the waveform up with the sound</h1><button id="close">Close</button></header>
 <p class="msg" id="msg">Starting the test pattern…</p>
 <div class="strip"><canvas id="cv"></canvas><div class="cur"></div></div>
+<div class="tune"><span id="off">…</span><button data-d="-50">−50</button><button data-d="-10">−10</button><button data-d="10">+10</button><button data-d="50">+50</button><button id="zero">Reset</button></div>
 <div class="pads" id="pads"></div>
 <div class="dots" id="dots"></div>
 <div class="acts"><button id="again">Start again</button><button class="yes" id="save" disabled>Save</button></div>
@@ -50,9 +56,11 @@
 // This page follows the preview deck's position as the decks do (the hub's time stamps, its latency) and draws the
 // pattern's waveform (Mixxx's analysis of it, as the decks get it) rolling past the cursor where it's drawn; you tap on the notes you hear, from a low C. Each tap's moment (the
 // touch's own time stamp) gives where the drawing was; its distance from the note is how far the drawing runs ahead
-// of the sound. There's a pad for each note, low to high: a tap says which note it was for, so each is read against
-// that note in the bar (up to 1.8 s late, unmistakable), from any note. The median, added to the hub's offset, lines
-// them up.
+// of the sound. Tapping is playing along, not answering: whichever bar you hit, a tap is the next note of C E G C
+// (from a low C), so nothing has to be chosen (choosing which note it was adds a reaction's 300-600 ms, read as
+// delay). Each is read against its note in the bar (up to 1.8 s late, unmistakable). The median moves the hub's
+// offset. And the check that needs no taps at all: watch each note's start cross the line as you hear it, and nudge
+// the drawing (the offset, live) until it does.
 const HUB_HOST = new URLSearchParams(location.search).get("hub") || location.host;
 const HUB = `${location.protocol}//${HUB_HOST}`;
 const api = async path => (await fetch(HUB + path)).json();
@@ -101,7 +109,8 @@ async function start() {
   pat = r; anchor = null; dur = r.seconds || 40;
   subscribe();
   loadWaveform();
-  $("msg").textContent = `In your headphones: C E G C, rising, over and over. Tap the tones as you hear them, from low to high: C, E, G, C, the bars from the bottom up. ${TAPS} taps.`;
+  $("msg").textContent = `In your headphones: C E G C, rising, over and over. Watch each note's start cross the white line as you hear it: if it's early or late, nudge it. Or tap along, in time like playing it (any bar; start on a low C): ${TAPS} taps.`;
+  nextPad(0);
   pads.forEach(p => p.disabled = false);
 }
 
@@ -110,13 +119,17 @@ const pads = NOTES.map((n, i) => {
   const b = document.createElement("button");
   b.className = "pad"; b.disabled = true; b.style.setProperty("--k", INK[i]);
   b.innerHTML = `${n}<small>${["low", "", "", "high"][i]}</small>`;
-  b.addEventListener("pointerdown", e => tap(i, e));
+  b.addEventListener("pointerdown", e => tap(e));
   $("pads").appendChild(b);
   return b;
 });
-function tap(note, e) {
+// the note a tap is for: the next in order from the first (a low C), whichever bar was hit
+const nextPad = n => pads.forEach((p, i) => p.classList.toggle("next", i === n % 4));
+function tap(e) {
   if (!pat || errs.length >= TAPS || !playing || !anchor) return;
-  const b = pads[note]; b.classList.add("hit"); setTimeout(() => b.classList.remove("hit"), 90);
+  const note = errs.length % 4, b = e.currentTarget || pads[note];
+  b.classList.add("hit"); setTimeout(() => b.classList.remove("hit"), 90);
+  nextPad(errs.length + 1);
   // that note in the bar: the one that makes the gap fall from 0.4 beat early to the rest of the bar late
   const pos = drawn(e.timeStamp), BEAT = pat.beat, BAR = BEAT * pat.bar, at = pat.first + note * BEAT;
   const err = pos - (at + Math.floor((pos - at + .4 * BEAT) / BAR) * BAR);
@@ -128,7 +141,7 @@ function tap(note, e) {
   if (errs.length < TAPS) { $("msg").textContent = `${TAPS - errs.length} to go…`; return; }
   const use = errs.slice(2).map(x => x * 1000).sort((a, b) => a - b), med = use[use.length >> 1];
   const spread = use.map(x => Math.abs(x - med)).sort((a, b) => a - b)[use.length >> 1];
-  if (spread > 45) { $("msg").textContent = "The taps were too uneven to read: Start again, the pad for each note as you hear it."; return; }
+  if (spread > 45) { $("msg").textContent = "The taps were too uneven to read: Start again, tapping along in time, from a low C."; return; }
   delta = Math.round(med / 5) * 5;
   $("msg").textContent = Math.abs(delta) < 10 ? "Already lined up (within 10 ms)."
     : `The waveform runs ${Math.abs(delta)} ms ${delta > 0 ? "ahead of" : "behind"} the sound. Save to line them up.`;
@@ -140,11 +153,25 @@ $("save").addEventListener("click", async () => {
     const a = await api("/api/audio");
     const offset = Math.max(-200, Math.min(800, Math.round((a.offsetMs || 0) + delta)));
     await fetch(`${HUB}/api/audio/latency?offset=${offset}`);
-    $("msg").textContent = `Saved: the waveform is drawn ${Math.abs(delta)} ms ${delta > 0 ? "later" : "earlier"} now. Start again to check.`;
+    $("msg").textContent = `Saved: the waveform is drawn ${Math.abs(delta)} ms ${delta > 0 ? "later" : "earlier"} now. Watch the notes cross the line to check, and nudge if needed.`;
+    showOffset();
     $("save").disabled = true;
   } catch { $("msg").textContent = "Couldn't save it"; }
 });
-$("again").addEventListener("click", start);
+$("again").addEventListener("click", () => { nextPad(0); start(); });
+async function showOffset(a) {
+  try { a = a || await api("/api/audio"); } catch { return; }
+  $("off").textContent = `Drawn ${a.totalMs} ms behind Mixxx (adjusted ${a.offsetMs > 0 ? "+" : ""}${a.offsetMs} ms)`;
+  return a;
+}
+async function setOffset(ms) {
+  try { showOffset(await api(`/api/audio/latency?offset=${Math.max(-200, Math.min(800, Math.round(ms)))}`)); } catch {}
+}
+document.querySelectorAll(".tune [data-d]").forEach(b => b.addEventListener("click", async () => {
+  const a = await showOffset(); if (a) setOffset(a.offsetMs + +b.dataset.d);
+}));
+$("zero").addEventListener("click", () => setOffset(0));
+showOffset();
 const stop = () => { if (pat) { fetch(`${HUB}/api/calibrate?on=0`, { keepalive: true }).catch(() => {}); pat = null; } };
 $("close").addEventListener("click", () => { stop(); if (parent !== window) parent.postMessage({ zydek: "close-page" }, "*"); else history.back(); });
 addEventListener("pagehide", stop);

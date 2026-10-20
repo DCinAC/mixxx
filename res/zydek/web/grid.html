@@ -112,7 +112,14 @@ function connect() {
     if (k === "playposition") { const now = performance.now(), at = hubTime(m.ts, now); if (!dragging) { st.pos = v * st.dur; st.posAt = at; } }
     else if (k === "duration") st.dur = v;
     else if (k === "rate_ratio") st.ratio = v;
-    else if (k === "play") { st.playing = v > 0; $("#play").textContent = st.playing ? "❚❚" : "▶"; }
+    else if (k === "play") {
+      // paused: the sound already on its way out still plays (the latency's worth), so the drawing runs on to where
+      // Mixxx stopped at playing speed instead of jumping there
+      const now = performance.now();
+      if (st.playing && !(v > 0)) st.runOut = { from: st.pos + Math.max(-1.2, Math.min((now - st.posAt) / 1000 - LAT, .25)) * st.ratio, at: now };
+      if (v > 0) st.runOut = null;
+      st.playing = v > 0; $("#play").textContent = st.playing ? "❚❚" : "▶";
+    }
     else if (k === "file_bpm") { st.bpm = v; paintBpm(); }
   };
   ws.onclose = () => setTimeout(connect, 1000);
@@ -149,7 +156,11 @@ function draw(now) {
   const dpr = devicePixelRatio || 1, r = cv.getBoundingClientRect(), W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   // drawn LAT behind Mixxx's position while playing: where the sound you hear is (the output's latency)
-  const pos = st.playing && !dragging ? st.pos + Math.max(-1.2, Math.min((now - st.posAt) / 1000 - LAT, .25)) * st.ratio : st.pos;
+  let pos = st.playing && !dragging ? st.pos + Math.max(-1.2, Math.min((now - st.posAt) / 1000 - LAT, .25)) * st.ratio : st.pos;
+  if (!st.playing && !dragging && st.runOut) {   // running out to where it stopped
+    const ran = st.runOut.from + (now - st.runOut.at) / 1000 * st.ratio;
+    if (ran < st.pos && st.pos - ran < 1.5) pos = ran; else st.runOut = null;
+  }
   const sec = ZOOMS[zi], pxs = W / sec, start = pos - sec / 2, mid = H / 2;
   g.clearRect(0, 0, W, H);
   g.fillStyle = "rgba(255,255,255,.25)"; g.fillRect(0, Math.floor(mid), W, Math.max(1, dpr * .6));
@@ -187,7 +198,7 @@ const paintZoom = () => { $("#znote").textContent = `${ZOOMS[zi]} s across · dr
 let dragging = false;
 (function scrub() {
   let x0 = 0, last = 0;
-  cv.addEventListener("pointerdown", e => { dragging = true; x0 = e.clientX; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener("pointerdown", e => { dragging = true; st.runOut = null; x0 = e.clientX; cv.setPointerCapture(e.pointerId); });
   cv.addEventListener("pointermove", e => {
     if (!dragging || !st.dur) return;
     const r = cv.getBoundingClientRect(), dx = e.clientX - x0; x0 = e.clientX;
