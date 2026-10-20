@@ -266,9 +266,12 @@
 .zm .zk.m { justify-content: flex-start; padding-left: calc(var(--zmm) * 1.8); gap: calc(var(--zmm) * 1.4); }
 .zm .zc { flex: none; display: grid; place-items: center; width: calc(var(--zmm) * 3.4); height: calc(var(--zmm) * 3.4); }
 .zm .zc svg { width: 100%; height: 100%; fill: none; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
-.zm.hw .zc { background: #202226; box-shadow: inset 0 0 0 2px #383a3e; border-radius: 2px; }
-.zm.hw .zc svg { stroke: #30333a; }
-.zm.hw .zk.on .zc svg { stroke: color-mix(in srgb, var(--lamp) 80%, #fff); filter: drop-shadow(0 0 2px var(--lamp)) drop-shadow(0 0 5px color-mix(in srgb, var(--lamp) 60%, transparent)); }
+/* the tick: shine-through, clear plastic set into the cap (no window): milky grey off (it catches the room's light),
+   the lamp's colour on, brightest in the stroke, a soft bloom just past its edge */
+.zm.hw .zc svg { stroke: #8f9297; opacity: .6; }
+.zm.hw .zk.on .zc svg { stroke: color-mix(in srgb, var(--lamp) 55%, #fff); opacity: 1;
+  filter: drop-shadow(0 0 1.2px var(--lamp)) drop-shadow(0 0 6px color-mix(in srgb, var(--lamp) 60%, transparent)); }
+.zm.hw .zk.on:active .zc svg { filter: brightness(1.15) drop-shadow(0 0 1.2px var(--lamp)) drop-shadow(0 0 8px color-mix(in srgb, var(--lamp) 60%, transparent)); }
 .zm.el .zc svg { stroke: #444; }
 .zm.el .zk.on .zc svg { stroke: var(--lamp); }
 .zm.page .zseg.multi .zk { flex: 0 1 auto; }

@@ -101,8 +101,8 @@
   .strip .wftrack .tiles canvas { position: absolute; top: 0; height: 100%; }
   /* Live render: the wave in its own layers (one per stem), scaled for the gain and each stem's mute without drawing */
   .strip .wftrack .wl, .strip .wftrack .sl { position: absolute; left: 0; top: 0; width: 0; height: 100%; transform-origin: 0 50%; }
-  .strip .wftrack .wl { transition: transform .1s; }
   .strip .wftrack .sl { transition: transform .12s ease-out; }
+  .strip .wftrack .bl { position: absolute; left: 0; top: 0; width: 0; height: 100%; transform-origin: 0 50%; mix-blend-mode: screen; mix-blend-mode: plus-lighter; }
   .strip .cm { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--c); }
   .strip .cm b { position: absolute; left: 1px; bottom: 0; height: var(--tag); line-height: var(--tag); padding: 0 calc(var(--tag) * .3);
     font-size: calc(var(--tag) * .74); font-weight: 700; background: var(--c); color: var(--ink); white-space: nowrap;
@@ -2369,11 +2369,16 @@ const TILE = 1024;                       // device pixels per tile (each drawn 2
 const eqGain = p => p <= .5 ? p * 2 : 1 + (p - .5) * 6;      // knob position -> gain: 0 = kill, centre = 1, full = 4
 const eqKey = d => [d.low, d.mid, d.high].map(v => Math.round((v ?? .5) * 40)).join(",");
 // Waveform rendering mode (S.waveMode): "live", the wave drawn once (each stem in its own layer when the track
-// has stems) and the gain and a stem's mute only scale those layers; "extreme", every column drawn again from the
-// EQ, the stems and the gain as they change (at most every 60 ms).
+// has stems) and the gain and a stem's mute only scale those layers; "extreme", the EQ too: each band (low, mid,
+// high) drawn once in its own layer, the layers added together by the compositor (where they overlap the colours
+// mix, as in Mixxx's RGB waveform) and each scaled by its EQ knob, so turning one costs no drawing at all; only a
+// stem's mute draws the bands again (once).
 const gainScale = d => Math.min(1.8, eqGain(d.gain ?? .5));                 // GAIN knob -> wave height
 const stemOn = (d, s) => d.stems?.[3 - s] ? 1 : 0;                          // Mixxx's stem s (drums first) = STEM pad 3 - s
 const STEM_INK = [3, 2, 1, 0].map(k => STEMS[k].c);                          // drums, bass, other, vocals
+const BAND_INK = ["#ff2a1f", "#2ee05a", "#2f6dff"];                          // low, mid, high (added: white where all three)
+const BAND_KEYS = ["low", "mid", "high"];
+const bandScale = (d, b) => Math.min(2, eqGain(d[BAND_KEYS[b]] ?? .5));     // an EQ knob -> its band's height
 // One stretch of the record at pxPerSec (normal speed). part: "all" the waveform (EQ, stems and gain applied),
 // the beat grid and the pre/post-roll; "grid" only the grid and rolls; "wave" the waveform as analysed;
 // 0-3 that stem alone, in its colour.
@@ -2384,7 +2389,9 @@ function renderTile(wf, k, pxPerSec, H, d, part = "all") {
     const a = wf.data, perPx = wf.rate / pxPerSec, st = wf.stride || 4, all3 = part === "all";
     const gl = all3 ? eqGain(d.low ?? .5) : 1, gm = all3 ? eqGain(d.mid ?? .5) : 1, gh = all3 ? eqGain(d.high ?? .5) : 1;
     const vol = [0, 1, 2, 3].map(s => stemOn(d, s)), gainAll = all3 ? gainScale(d) : 1, stem = typeof part === "number" ? part : -1;
+    const band = typeof part === "string" && part[0] === "b" ? +part[1] : -1;   // "b0".."b2": one EQ band
     if (stem >= 0) g.fillStyle = STEM_INK[stem];
+    if (band >= 0) g.fillStyle = BAND_INK[band];
     for (let x = 0; x < TW; x++) {
       const i0 = Math.floor((x0 + x) * perPx), i1 = Math.max(i0 + 1, Math.floor((x0 + x + 1) * perPx));
       if (i1 <= 0 || i0 >= wf.n) continue;
@@ -2399,6 +2406,14 @@ function renderTile(wf, k, pxPerSec, H, d, part = "all") {
       }
       if (stem >= 0) {   // one stem: its own level
         const h = Math.min(mid, sv[stem] / 255 * mid * .95);
+        if (h > .5) g.fillRect(x, mid - h, 1, h * 2);
+        continue;
+      }
+      if (band >= 0) {   // one band: the column's height (all) in its share of the loudest band, times the stems still on
+        const top = Math.max(lo, mi, hi), v = [lo, mi, hi][band];
+        let f = 1;
+        if (st === 8) { const sum = sv[0] + sv[1] + sv[2] + sv[3]; if (sum > 0) f = (sv[0] * vol[0] + sv[1] * vol[1] + sv[2] * vol[2] + sv[3] * vol[3]) / sum; }
+        const h = top > 0 ? Math.min(mid, all * (v / top) * f / 255 * mid * .95) : 0;
         if (h > .5) g.fillRect(x, mid - h, 1, h * 2);
         continue;
       }
@@ -2428,9 +2443,9 @@ function drawStripWave(u, d, start, sec) {
   const base = W / stripSeconds(), f = W / sec / base;     // base: device pixels a second at normal speed
   const extreme = S.waveMode === "extreme";
   const shape = `${d.n}|${d.wfVer || 0}|${d.beatsVer || 0}|${d.bar}|${stripSeconds()}|${W}|${H}|${d.dur}|${extreme ? "x" : "l"}`;
-  // extreme: what's drawn follows the EQ, the stems and the gain; live: none of them (the layers scale instead)
-  const eq = extreme ? `${eqKey(d)}|${(d.stems || []).join("")}|${Math.round(gainScale(d) * 40)}` : "", now = performance.now();
-  if (!extreme) liveLayers(u, d);
+  // extreme: the band layers are drawn again only for a stem's mute (the EQ and gain scale layers); live: never
+  const eq = extreme && d.wf?.stems ? (d.stems || []).join("") : "", now = performance.now();
+  liveLayers(u, d);
   // a turning EQ knob redraws at most every 60 ms (the old tiles stay up meanwhile)
   if (u.tileShape !== shape || (u.tileEq !== eq && now - (u.tileAt || 0) > 60)) {
     u.tileShape = shape; u.tileEq = eq; u.tileAt = now; u.prefetch = null;
@@ -2489,26 +2504,24 @@ function drawSlipGhost(u, d, base, f, dpr, H, sec, now) {
 function tileAt(u, d, k, base, H, dpr) {
   if (u.tiles.has(k)) return;
   const place = c => { c.style.left = `${(k * TILE / dpr).toFixed(3)}px`; c.style.width = `${((TILE + 2) / dpr).toFixed(3)}px`; return c; };
-  if (S.waveMode === "extreme") {
-    const c = place(renderTile(d.wf, k, base, H, d));
-    u.tilesBox.appendChild(c);
-    u.tiles.set(k, c);
-    return;
-  }
-  // live: the wave (or each stem) into its layer, the grid over them, unscaled
+  // the wave into its layers (extreme: each band; live: each stem, or the whole), the grid over them, unscaled
   liveLayers(u, d);
-  const parts = d.wf?.stems ? [0, 1, 2, 3].map(s => { const c = place(renderTile(d.wf, k, base, H, d, s)); u.sl[s].appendChild(c); return c; })
+  const parts = S.waveMode === "extreme" ? [0, 1, 2].map(b => { const c = place(renderTile(d.wf, k, base, H, d, "b" + b)); u.bl[b].appendChild(c); return c; })
+    : d.wf?.stems ? [0, 1, 2, 3].map(s => { const c = place(renderTile(d.wf, k, base, H, d, s)); u.sl[s].appendChild(c); return c; })
     : [(() => { const c = place(renderTile(d.wf, k, base, H, d, "wave")); u.sl[0].appendChild(c); return c; })()];
   const grid = place(renderTile(d.wf, k, base, H, d, "grid"));
   u.tilesBox.appendChild(grid);
   u.tiles.set(k, { grid, parts, remove() { grid.remove(); parts.forEach(c => c.remove()); } });
 }
-// Live render's layers: .wl (scaled for the gain) holding one .sl per stem (scaled to nothing when it's muted)
+// The wave's layers: .wl (scaled for the gain) holding one .sl per stem (live: scaled to nothing when it's muted)
+// and one .bl per EQ band (extreme: added together, each scaled by its knob)
 function liveLayers(u, d) {
   if (!u.wl) {
-    u.wl = h("div", "wl"); u.sl = [0, 1, 2, 3].map(() => h("div", "sl"));
-    u.wl.append(...u.sl); u.tilesBox.prepend(u.wl);
+    u.wl = h("div", "wl"); u.sl = [0, 1, 2, 3].map(() => h("div", "sl")); u.bl = [0, 1, 2].map(() => h("div", "bl"));
+    u.wl.append(...u.sl, ...u.bl); u.tilesBox.prepend(u.wl);
   }
+  const bt = [0, 1, 2].map(b => bandScale(d, b).toFixed(3)).join(",");
+  if (u.blSt !== bt) { u.blSt = bt; bt.split(",").forEach((v, b) => { u.bl[b].style.transform = `scaleY(${v})`; }); }
   const tr = `scaleY(${gainScale(d).toFixed(3)})`;
   if (u.wlTr !== tr) { u.wlTr = tr; u.wl.style.transform = tr; }
   const st = d.wf?.stems ? [0, 1, 2, 3].map(s => stemOn(d, s)).join("") : "1111";
