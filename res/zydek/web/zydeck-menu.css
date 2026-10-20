@@ -202,11 +202,13 @@
   box-shadow: 0 24px 70px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.06); }
 .zm.zfx { --fx1: #ff8a3d; --fx2: #3ddcff; --fx3: #c77dff; }   /* Multi-FX: FX 1, 2, 3 */
 .zfx-hd { display: flex; gap: calc(var(--zmm) * 1.6); align-items: center; }
-/* Multi-FX keys: the lamp at the left end, a 3:2 upright bar, lit in the colour of the slot (split for several) */
+/* Multi-FX keys: the lamp at the left end, a 3:2 upright bar of three: FX 1 at the top, 2, 3 at the bottom, each lit
+   in its colour when the effect is in that slot */
 .zfx-keys .zk.side { justify-content: flex-start; padding-left: calc(var(--zmm) * 5.4); }
 .zfx-sl { position: absolute; left: calc(var(--zmm) * 1.5); top: 50%; width: calc(var(--zmm) * 2.6); height: calc(var(--zmm) * 3.9); margin-top: calc(var(--zmm) * -1.95);
   display: flex; flex-direction: column; gap: 1px; padding: 2px; background: #202226; box-shadow: inset 0 0 0 1.5px #383a3e; }
-.zfx-sl i { flex: 1; background: radial-gradient(75% 70% at 50% 50%, color-mix(in srgb, var(--c) 65%, #fff), var(--c) 60%, color-mix(in srgb, var(--c) 75%, #000));
+.zfx-sl i { flex: 1; background: #2a2c30; }
+.zfx-sl i.on { background: radial-gradient(75% 70% at 50% 50%, color-mix(in srgb, var(--c) 65%, #fff), var(--c) 60%, color-mix(in srgb, var(--c) 75%, #000));
   box-shadow: 0 0 6px color-mix(in srgb, var(--c) 55%, transparent); }
 .zfx-hd .zseg { flex: 1; }
 .zfx .zseg { flex-wrap: nowrap; }
@@ -246,3 +248,7 @@
 .zfx-knob::after { content: ""; position: absolute; left: 50%; top: calc(var(--zmm) * 1.5); width: calc(var(--zmm) * .8); height: calc(var(--zmm) * 4);
   margin-left: calc(var(--zmm) * -.4); border-radius: 2px; background: #f1f1f1; transform-origin: 50% calc(var(--zmm) * 6); transform: rotate(var(--a)); }
 .zfx-load { width: 100%; }
+/* the FX 1 2 3 slot keys: each glows in its colour; the one being picked at full, the others dimmer */
+.zfx .zk.slot .zs { width: 60%; margin-left: -30%; }
+.zfx .zk.slot:not(.cur) .zs { filter: brightness(.6); box-shadow: inset 0 0 0 1px rgba(0,0,0,.35), 0 0 4px color-mix(in srgb, var(--lc) 35%, transparent); }
+.zfx .zk.slot.cur .zs { box-shadow: inset 0 0 0 1px rgba(0,0,0,.35), 0 0 12px color-mix(in srgb, var(--lc) 70%, transparent); }
