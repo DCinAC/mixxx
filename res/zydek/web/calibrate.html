@@ -43,7 +43,7 @@
 </style>
 </head>
 <body>
-<header><h1>Line the waveform up with the sound</h1><button id="close">Close</button></header>
+<header><h1 id="title">Line the waveform up with the sound</h1><button id="close">Close</button></header>
 <p class="msg" id="msg">Starting the test pattern…</p>
 <div class="strip"><canvas id="cv"></canvas><div class="cur"></div></div>
 <div class="tune"><span id="off">…</span><button data-d="-50">−50</button><button data-d="-10">−10</button><button data-d="10">+10</button><button data-d="50">+50</button><button id="zero">Reset</button></div>
@@ -62,7 +62,11 @@
 // delay). Each is read against its note in the bar (up to 1.8 s late, unmistakable). The median moves the hub's
 // offset. And the check that needs no taps at all: watch each note's start cross the line as you hear it, and nudge
 // the drawing (the offset, live) until it does.
-const HUB_HOST = new URLSearchParams(location.search).get("hub") || location.host;
+const Q = new URLSearchParams(location.search), HUB_HOST = Q.get("hub") || location.host;
+// scope: "host", the host's output (the hub's offset, System › Calibrate); "device", this screen on top of it (its
+// own offset, Controller › Calibrate: the link, the display), kept by the page that opened this one
+const SCOPE = Q.get("scope") === "device" ? "device" : "host";
+let VIEW = (+Q.get("view") || 0) / 1000;
 const HUB = `${location.protocol}//${HUB_HOST}`;
 const api = async path => (await fetch(HUB + path)).json();
 const $ = id => document.getElementById(id);
@@ -75,7 +79,8 @@ let wf = null, wfImg = null;   // the pattern's waveform: {rate, n, data} (all, 
 let errs = [], est = null, delta = null;
 
 // where the drawing is at time t (this page's clock): the decks' own model, LAT earlier
-const drawn = t => ZydeckPos.posModel(d, t, LAT);
+const lat = () => LAT + (SCOPE === "device" ? VIEW : 0);
+const drawn = t => ZydeckPos.posModel(d, t, lat());
 
 function connect() {
   ws = new WebSocket(`ws://${HUB_HOST}/ws`);
@@ -145,29 +150,33 @@ function tap(e) {
 }
 
 $("save").addEventListener("click", async () => {
-  try {
-    const a = await api("/api/audio");
-    const offset = Math.max(-200, Math.min(800, Math.round((a.offsetMs || 0) + delta)));
-    await fetch(`${HUB}/api/audio/latency?offset=${offset}`);
-    $("msg").textContent = `Saved: the waveform is drawn ${Math.abs(delta)} ms ${delta > 0 ? "later" : "earlier"} now. Watch the notes cross the line to check, and nudge if needed.`;
-    showOffset();
-    $("save").disabled = true;
-  } catch { $("msg").textContent = "Couldn't save it"; }
+  await setOffset(await current() + delta);
+  $("msg").textContent = `Saved: the waveform is drawn ${Math.abs(delta)} ms ${delta > 0 ? "later" : "earlier"} now. Watch the notes cross the line to check, and nudge if needed.`;
+  $("save").disabled = true;
 });
 $("again").addEventListener("click", () => { nextPad(0); start(); });
+const sign = ms => `${ms > 0 ? "+" : ""}${ms}`;
 async function showOffset(a) {
   try { a = a || await api("/api/audio"); } catch { return; }
-  $("off").textContent = `Drawn ${a.totalMs} ms behind Mixxx (adjusted ${a.offsetMs > 0 ? "+" : ""}${a.offsetMs} ms)`;
+  $("off").textContent = SCOPE === "device"
+    ? `This screen: ${sign(Math.round(VIEW * 1000))} ms on top of the host's ${a.totalMs} ms`
+    : `Drawn ${a.totalMs} ms behind Mixxx (adjusted ${sign(a.offsetMs)} ms)`;
   return a;
 }
+const current = async () => SCOPE === "device" ? Math.round(VIEW * 1000) : (await showOffset())?.offsetMs ?? 0;
 async function setOffset(ms) {
+  if (SCOPE === "device") {   // this screen's: the page that opened this keeps it (its deck settings)
+    VIEW = Math.max(-400, Math.min(800, Math.round(ms))) / 1000;
+    if (parent !== window) parent.postMessage({ zydek: "view-offset", ms: Math.round(VIEW * 1000) }, "*");
+    showOffset();
+    return;
+  }
   try { showOffset(await api(`/api/audio/latency?offset=${Math.max(-200, Math.min(800, Math.round(ms)))}`)); } catch {}
 }
-document.querySelectorAll(".tune [data-d]").forEach(b => b.addEventListener("click", async () => {
-  const a = await showOffset(); if (a) setOffset(a.offsetMs + +b.dataset.d);
-}));
+document.querySelectorAll(".tune [data-d]").forEach(b => b.addEventListener("click", async () => setOffset(await current() + +b.dataset.d)));
 $("zero").addEventListener("click", () => setOffset(0));
 showOffset();
+$("title").textContent = SCOPE === "device" ? "Line this screen up with the sound" : "Line the host up with its sound";
 const stop = () => { if (pat) { fetch(`${HUB}/api/calibrate?on=0`, { keepalive: true }).catch(() => {}); pat = null; } };
 $("close").addEventListener("click", () => { stop(); if (parent !== window) parent.postMessage({ zydek: "close-page" }, "*"); else history.back(); });
 addEventListener("pagehide", stop);
@@ -207,7 +216,7 @@ function frame() {
   g.fillStyle = "#2a2a2a"; g.fillRect(0, H / 2 - dpr / 2, W, dpr);   // the axis
   if (pat && anchor && wf) {
     if (!wfImg || wfImg.W !== W || wfImg.H !== H) wfImg = waveImage(W, H);
-    const pos = ZydeckPos.posAt(d, performance.now(), LAT);   // drawn as the decks draw it
+    const pos = ZydeckPos.posAt(d, performance.now(), lat());   // drawn as the decks draw it
     g.drawImage(wfImg.c, Math.round(W / 2 - pos * wfImg.pxPerSec), 0);
   }
   requestAnimationFrame(frame);

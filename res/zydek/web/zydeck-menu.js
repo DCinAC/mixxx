@@ -169,10 +169,18 @@
       st: () => { const a = sys.audio; if (!a || a.totalMs == null) return ""; return a.measuredMs >= 0 ? `${Math.round(a.latencyMs)} ms buffer + ${a.measuredMs} ms output${a.route ? ` (${a.route})` : ""} · drawn ${a.totalMs} ms later` : `Output not measured yet · drawn ${a.totalMs} ms later`; },
       extra: { key: "measure", label: "Measure", act: async () => { await api("/api/audio/latency?measure=1"); await sleep(2500); await loads.audio(); } },
       desc: "" },
-    { id: "calibrate", sec: "pinctl", name: "Line up by ear", kind: "proc", label: () => "Calibrate", lampless: true,
-      show: () => !sys.remote.on,
-      act: async () => { openPage(`/calibrate${host.linked ? `?hub=${encodeURIComponent(host.hubHost)}` : ""}`, () => loads.audio().then(refresh)); },
-      desc: "A page of its own: a rising C E G C plays in your headphones; tap along, and it measures how far the waveform runs from what you hear (Bluetooth, the screen, the link) and sets the compensation." },
+    { id: "calibrate", sec: "pinctl", name: "Line this screen up", kind: "proc", label: () => "Calibrate", lampless: true,
+      show: () => !sys.remote.on && !!ctl(),
+      act: async () => {
+        const q = qs({ scope: "device", view: S().viewOffset || 0, ...(host.linked ? { hub: host.hubHost } : {}) });
+        openPage(`/calibrate?${q}`, () => loads.audio().then(refresh));
+      },
+      desc: "This screen on top of the host: a linked device's link and display. A rising C E G C plays in the host's headphones; watch, nudge, or tap along.",
+      more: "The host's own output is lined up in System › Audio › Calibrate (do that one first, on the host)." },
+    { id: "calibratehost", sec: "audio", name: "Line the host up", kind: "proc", label: () => "Calibrate", lampless: true,
+      show: () => !sys.remote.on && !host.linked,
+      act: async () => { openPage("/calibrate?scope=host", () => loads.audio().then(refresh)); },
+      desc: "This device's own output (headphones, Bluetooth, the buffer): a rising C E G C plays in the headphones; watch, nudge, or tap along." },
     // System › Library
     { id: "keyfmt", sec: "library", name: "Key notation", kind: "seg", opts: () => [["camelot", "Camelot 8A"], ["open", "Open Key 1m"], ["musical", "Musical Am"]],
       ...shared("keyNotation", "keyNotation", "camelot"), desc: "How keys are written, on the decks and in the library." },
@@ -544,7 +552,11 @@
   function openPage(src, onClose) {
     const f = el("iframe", "zm-pageframe");
     f.src = src; f.title = "ZyDeck";
-    const gone = e => { if (e.data?.zydek === "close-page" && e.source === f.contentWindow) { removeEventListener("message", gone); f.remove(); onClose?.(); } };
+    const gone = e => {
+      if (e.source !== f.contentWindow) return;
+      if (e.data?.zydek === "view-offset") { ctl()?.set("viewOffset", +e.data.ms || 0, false); return; }   // this screen's own
+      if (e.data?.zydek === "close-page") { removeEventListener("message", gone); f.remove(); onClose?.(); }
+    };
     addEventListener("message", gone);
     document.body.appendChild(f);
   }

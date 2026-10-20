@@ -499,7 +499,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", fxMenu: "keys", waveMode: "live", knobCentre: "lit" };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", fxMenu: "keys", waveMode: "live", knobCentre: "lit", viewOffset: 0 };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
 // Android, which knows the screen's real pixel density.
@@ -1252,7 +1252,7 @@ function openGrid(s) {
   document.getElementById("gridview")?.remove();
   const f = document.createElement("iframe");
   f.id = "gridview";
-  f.src = `${HUB_ELSEWHERE ? HUB : ""}/grid?group=${encodeURIComponent(ch(d.n))}&track=${d.beatsFor}`;
+  f.src = `${HUB_ELSEWHERE ? HUB : ""}/grid?group=${encodeURIComponent(ch(d.n))}&track=${d.beatsFor}&view=${S.viewOffset || 0}`;
   document.body.appendChild(f);
 }
 addEventListener("message", e => {
@@ -2237,7 +2237,10 @@ const { hubTime, posSeed, posModel, posUpdate } = ZydeckPos;
 // LAT: how far the sound runs behind Mixxx's play position (the output's measured latency, from the hub).
 // Positions are drawn that much earlier while playing, so the waveform matches what you hear.
 let LAT = 0;
-const posAt = (d, now) => ZydeckPos.posAt(d, now, LAT);   // what to draw now
+// and this screen's own delay on top (S.viewOffset, ms: Controller › Calibrate): the link, its display; the host's
+// output is the hub's (System › Calibrate)
+const latNow = () => LAT + (S.viewOffset || 0) / 1000;
+const posAt = (d, now) => ZydeckPos.posAt(d, now, latNow());   // what to draw now
 
 // Turntable physics after the hand lets go. The platter is a heavy, servo-driven flywheel: holding the
 // record barely slows it (the motor's torque beats the slipmat's drag), so it keeps the motor's speed and
@@ -2437,7 +2440,7 @@ function drawSlipGhost(u, d, base, f, dpr, H, sec, now) {
   const on = live && d.slip && d.slipAt !== undefined && now - d.slipAt < 1000;
   if (u.slipOn !== on) { u.slipOn = on; u.strip.classList.toggle("slipping", on); }
   if (!on) return;
-  const start = slipModel(d, now) - LAT * (d.playing ? d.ratio || 1 : 0) - sec / 2;
+  const start = slipModel(d, now) - latNow() * (d.playing ? d.ratio || 1 : 0) - sec / 2;
   const first = Math.floor(start * base / TILE), last = Math.floor((start + sec) * base / TILE), gh = Math.ceil(H / 2);
   for (let k = first; k <= last; k++) {
     if (u.gTiles.has(k)) continue;

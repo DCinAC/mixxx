@@ -80,6 +80,7 @@ let LAT = 0;   // seconds the sound runs behind Mixxx (the hub measures it)
 const $ = s => document.querySelector(s);
 const params = new URLSearchParams(location.search);
 const GROUP = params.get("group") || "[PreviewDeck1]", TRACK = +params.get("track") || 0;
+const VIEW = (+params.get("view") || 0) / 1000;   // the screen's own delay on top of the hub's (Controller › Calibrate)
 const PREVIEW = GROUP.startsWith("[PreviewDeck");
 const st = { pos: 0, dur: 0, ratio: 1, playing: false, bpm: 0, posAt: 0, wf: null, beats: null, bar: 0, locked: false, zoom: 4 };
 const ZOOMS = [1, 2, 4, 8, 16, 32];   // seconds across the view
@@ -116,7 +117,7 @@ function connect() {
       // paused: the sound already on its way out still plays (the latency's worth), so the drawing runs on to where
       // Mixxx stopped at playing speed instead of jumping there
       const now = performance.now();
-      if (st.playing && !(v > 0)) st.runOut = { from: st.pos + Math.max(-1.2, Math.min((now - st.posAt) / 1000 - LAT, .25)) * st.ratio, at: now };
+      if (st.playing && !(v > 0)) st.runOut = { from: st.pos + Math.max(-1.2, Math.min((now - st.posAt) / 1000 - LAT - VIEW, .25)) * st.ratio, at: now };
       if (v > 0) st.runOut = null;
       st.playing = v > 0; $("#play").textContent = st.playing ? "❚❚" : "▶";
     }
@@ -156,7 +157,7 @@ function draw(now) {
   const dpr = devicePixelRatio || 1, r = cv.getBoundingClientRect(), W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   // drawn LAT behind Mixxx's position while playing: where the sound you hear is (the output's latency)
-  let pos = st.playing && !dragging ? st.pos + Math.max(-1.2, Math.min((now - st.posAt) / 1000 - LAT, .25)) * st.ratio : st.pos;
+  let pos = st.playing && !dragging ? st.pos + Math.max(-1.2, Math.min((now - st.posAt) / 1000 - LAT - VIEW, .25)) * st.ratio : st.pos;
   if (!st.playing && !dragging && st.runOut) {   // running out to where it stopped
     const ran = st.runOut.from + (now - st.runOut.at) / 1000 * st.ratio;
     if (ran < st.pos && st.pos - ran < 1.5) pos = ran; else st.runOut = null;
