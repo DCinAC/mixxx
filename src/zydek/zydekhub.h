@@ -76,8 +76,9 @@ class Hub : public QObject {
     HttpServer::Response handleHttp(const QString& path, const HttpServer::Query& query);
     HttpServer::Response handleApi(const QString& path, const HttpServer::Query& query);
     HttpServer::Response staticFile(const QString& name) const;
-    QByteArray waveform(int trackId, bool stems = false) const;
-    QByteArray beats(int trackId) const;
+    // (pLoaded: whether the track is on a deck at all: empty and loaded means it's still being analysed)
+    QByteArray waveform(int trackId, bool stems = false, bool* pLoaded = nullptr) const;
+    QByteArray beats(int trackId, bool* pLoaded = nullptr) const;
     // Sampler pad modes (ZyDeck's own, shared by every page): "oneshot" plays to the end (a tap restarts it),
     // "hold" plays while held, "loop" starts and stops on alternate taps. Kept in zydek-samplers.json.
     QJsonObject samplerModes();
@@ -144,6 +145,7 @@ class Hub : public QObject {
     void onBotStatus(const QJsonObject& status);
     QTimer m_slipTimer;
     QSharedPointer<VisualPlayPosition> m_visualPos[kNumDecks];
+    QMetaObject::Connection m_waveformDone[kNumDecks];   // each deck's track: tells the pages when it's analysed
     bool m_slipShown[kNumDecks] = {};
     void slipTick();
     QJsonObject startOptimize();

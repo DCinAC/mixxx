@@ -189,7 +189,7 @@ async function loadWaveform() {
       const st = await api("/api/calibrate?state=1");
       if (st.id) {
         const r = await fetch(`${HUB}/waveform/${st.id}`);
-        if (r.ok) {
+        if (r.status === 200) {   // (202: still being analysed)
           const buf = new Uint8Array(await r.arrayBuffer()), dv = new DataView(buf.buffer);
           if (String.fromCharCode(...buf.slice(0, 4)) === "MXWF") { wf = { rate: dv.getFloat32(4, true), n: dv.getUint32(8, true), data: buf.subarray(12) }; return; }
         }

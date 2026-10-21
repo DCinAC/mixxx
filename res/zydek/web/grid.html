@@ -145,7 +145,8 @@ async function loadTrack() {
   for (let i = 0; i < 30 && !st.wf; i++) {
     try {
       const r = await fetch(`/waveform/${TRACK}`);
-      if (r.ok) { const b = new Uint8Array(await r.arrayBuffer()), dv = new DataView(b.buffer);
+      if (r.status === 202) i = 0;   // still being analysed: as long as that takes
+      if (r.status === 200) { const b = new Uint8Array(await r.arrayBuffer()), dv = new DataView(b.buffer);
         st.wf = { rate: dv.getFloat32(4, true), n: dv.getUint32(8, true), data: b.subarray(12) }; break; }
     } catch {}
     await new Promise(r => setTimeout(r, 700));
@@ -156,7 +157,7 @@ let beatsTimer = null;
 async function loadBeats() {
   try {
     const r = await fetch(`/beats/${TRACK}`);
-    if (r.ok) { const j = await r.json(); st.beats = j.beats; st.bar = j.bar; st.locked = !!j.locked; paintLock(); }
+    if (r.status === 200) { const j = await r.json(); st.beats = j.beats; st.bar = j.bar; st.locked = !!j.locked; paintLock(); }
   } catch {}
 }
 const refreshBeats = () => { clearTimeout(beatsTimer); beatsTimer = setTimeout(loadBeats, 120); };

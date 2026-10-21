@@ -31,6 +31,8 @@ QByteArray reasonPhrase(int status) {
     switch (status) {
     case 200:
         return "OK";
+    case 202:
+        return "Accepted";
     case 101:
         return "Switching Protocols";
     case 400:

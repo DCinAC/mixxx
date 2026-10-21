@@ -489,29 +489,49 @@ function onDeckName(d, n) {
   const id = n ? n.id : null;
   if (id !== d.wfFor) { loadWaveform(d, id); loadBeats(d, id); }
 }
+// The hub answers a deck's waveform and beats with 200, 202 while Mixxx is still analysing the track (as long as that
+// takes: after a restart there can be a queue; a "wf" push says when it's done) or 404 when it's not on a deck; ZyDeck
+// Connect (controller mode) says 404 for both: there, a minute and a half of tries.
+const wfWaiting = new Map();   // track id -> what's waiting for its "wf"
+const wfReady = id => { (wfWaiting.get(id) || []).forEach(f => f()); wfWaiting.delete(id); };
+const untilWf = (id, ms) => new Promise(res => {
+  const t = setTimeout(res, ms);
+  wfWaiting.set(id, [...(wfWaiting.get(id) || []), () => { clearTimeout(t); res(); }]);
+});
+// one try: the response if it's the data; else how long to wait before the next ("stop": not on a deck)
+async function deckAsset(path, tries) {
+  const url = assetUrl(path);
+  if (!url) return "stop";
+  const r = await fetch(url);
+  if (r.status === 200) return r;
+  if (!remote.on && r.status === 404 && tries >= 3) return "stop";   // (its name can come a moment early)
+  return r.status === 202 ? 15000 : 2000;
+}
 // The track's beats (Mixxx's beat grid): {beats: [seconds], bar}; beat i starts a bar when (i + bar) % 4 == 0.
 async function loadBeats(d, id) {
   d.beatsFor = id; d.beats = null; d.beatsVer = (d.beatsVer || 0) + 1;
   if (!id) return;
-  for (let tries = 0; tries < 40 && d.beatsFor === id; tries++) {
+  for (let tries = 0; d.beatsFor === id && (!remote.on || tries < 40); tries++) {
+    let wait = 2000;
     try {
-      const url = assetUrl(`/beats/${id}`);
-      if (!url) return;
-      const r = await fetch(url);
-      if (r.ok) { const j = await r.json(); if (d.beatsFor !== id) return; d.beats = Float64Array.from(j.beats); d.bar = j.bar; d.beatsVer++; return; }
+      const r = await deckAsset(`/beats/${id}`, tries);
+      if (r === "stop") return;
+      if (typeof r === "number") wait = r;
+      else { const j = await r.json(); if (d.beatsFor !== id) return; d.beats = Float64Array.from(j.beats); d.bar = j.bar; d.beatsVer++; return; }
     } catch {}
-    await new Promise(res => setTimeout(res, 2000));
+    await untilWf(id, wait);
   }
 }
 async function loadWaveform(d, id) {
   d.wfFor = id; d.wf = null; d.wfVer++;
   if (!id) return;
-  for (let tries = 0; tries < 40 && d.wfFor === id; tries++) {   // a new track is still being analysed
+  for (let tries = 0; d.wfFor === id && (!remote.on || tries < 40); tries++) {
+    let wait = 2000;
     try {
-      const url = assetUrl(`/waveform/${id}`);
-      if (!url) return;
-      const r = await fetch(url);
-      if (r.ok) {
+      const r = await deckAsset(`/waveform/${id}`, tries);
+      if (r === "stop") return;
+      if (typeof r === "number") wait = r;
+      else {
         const buf = new Uint8Array(await r.arrayBuffer()), dv = new DataView(buf.buffer);
         if (d.wfFor !== id) return;
         d.wf = { rate: dv.getFloat32(4, true), n: dv.getUint32(8, true), data: buf.subarray(12) };
@@ -519,7 +539,7 @@ async function loadWaveform(d, id) {
         return;
       }
     } catch {}
-    await new Promise(res => setTimeout(res, 2000));
+    await untilWf(id, wait);
   }
 }
 function applyCv(k, v, ts) {
@@ -621,6 +641,7 @@ function connect() {
     if (m.t === "cv") applyCv(m.k, m.v, m.ts);
     else if (m.t === "cue" && decks[m.d] && m.k < 8) decks[m.d].cueColors[m.k] = m.v ? m.v - 1 : null;   // hot cue colour + 1
     else if (m.t === "dn" && decks[m.d]) onDeckName(decks[m.d], m.n);
+    else if (m.t === "wf") wfReady(m.id);   // a deck's waveform is analysed
   };
   ws.onclose = () => { $("#link").textContent = "reconnecting…"; setTimeout(connect, 1500); };
 }
@@ -1471,7 +1492,7 @@ function previewNeedle(box, t) {
   let wf = null, wfBusy = false, wfTried = 0;
   const getWaveform = () => {
     wfBusy = true; wfTried = performance.now();
-    fetch(`/waveform/${t.id}`, { cache: "no-store" }).then(r => r.ok ? r.arrayBuffer() : null).then(b => {
+    fetch(`/waveform/${t.id}`, { cache: "no-store" }).then(r => r.status === 200 ? r.arrayBuffer() : null).then(b => {
       if (!b) return;
       const buf = new Uint8Array(b), dv = new DataView(b);
       wf = { n: dv.getUint32(8, true), data: buf.subarray(12) }; draw();

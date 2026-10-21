@@ -2583,19 +2583,22 @@ async function loadBeats(d, id, keep = false) {   // keep: show the old beats un
   d.beatsFor = id; d.beatsVer = (d.beatsVer || 0) + 1;
   if (!keep) d.beats = null;
   if (!id) return;
-  for (let tries = 0; tries < 30 && d.beatsFor === id; tries++) {
+  for (let tries = 0; d.beatsFor === id && (!REMOTE.on || tries < 30); tries++) {   // (as the waveform: loadWaveform)
+    let wait = 2000;
     try {
       const url = assetUrl(`/beats/${id}`);
       if (!url) return;
       const r = await fetch(url);
-      if (r.ok) {
+      if (!REMOTE.on && r.status === 404 && tries >= 3) return;
+      if (r.status === 202) wait = 15000;
+      if (r.status === 200) {
         const j = await r.json();
         if (d.beatsFor !== id) return;
         d.beats = Float64Array.from(j.beats); d.bar = j.bar; d.beatsVer++;
         return;
       }
     } catch {}
-    await new Promise(res => setTimeout(res, 2000));
+    await untilWf(id, wait);
   }
 }
 
@@ -2660,16 +2663,27 @@ function drawRolls(g, d, pxPerSec, left, W, H) {
   for (; x < W; x += len) tri(x, -1);
 }
 
-// Live: fetch the analysed waveform of the track on a deck (Mixxx may still be analysing a new track).
+// Live: fetch the analysed waveform of the track on a deck. The hub answers 200 with it, 202 while Mixxx is still
+// analysing it (as long as that takes: after a restart there can be a queue; a "wf" push says when it's done), 404
+// when it's not on a deck. ZyDeck Connect (controller mode) says 404 for both: there, a minute of tries.
+const wfWaiting = new Map();   // track id -> what's waiting for its "wf"
+const wfReady = id => { (wfWaiting.get(id) || []).forEach(f => f()); wfWaiting.delete(id); };
+const untilWf = (id, ms) => new Promise(res => {
+  const t = setTimeout(res, ms);
+  wfWaiting.set(id, [...(wfWaiting.get(id) || []), () => { clearTimeout(t); res(); }]);
+});
 async function loadWaveform(d, id) {
   d.wfFor = id; d.wf = null; d.wfVer = (d.wfVer || 0) + 1;
   if (!id) return;
-  for (let tries = 0; tries < 30 && d.wfFor === id; tries++) {
+  for (let tries = 0; d.wfFor === id && (!REMOTE.on || tries < 30); tries++) {
+    let wait = 2000;
     try {
       const url = assetUrl(`/waveform/${id}`);
       if (!url) return;
       const r = await fetch(REMOTE.on ? url : `${url}?stems=1`);   // the hub's: each stem's level too, when it has stems
-      if (r.ok) {
+      if (!REMOTE.on && r.status === 404 && tries >= 3) return;   // not on a deck (its name can come a moment early)
+      if (r.status === 202) wait = 15000;   // (or sooner: the "wf" push)
+      if (r.ok && r.status === 200) {
         const buf = new Uint8Array(await r.arrayBuffer());
         const dv = new DataView(buf.buffer), magic = String.fromCharCode(...buf.slice(0, 4));
         if (d.wfFor !== id || (magic !== "MXWF" && magic !== "MXWS")) return;
@@ -2678,7 +2692,7 @@ async function loadWaveform(d, id) {
         return;
       }
     } catch {}
-    await new Promise(res => setTimeout(res, 2000));
+    await untilWf(id, wait);
   }
 }
 
@@ -3107,6 +3121,7 @@ function onMixxx(m) {
     case "cv": return applyCv(m.k, m.v, m.ts);
     case "s": if (m.i < samplers.length) samplers[m.i].state = m.v; break;
     case "sn": if (m.i < samplers.length) samplers[m.i].name = m.n ? m.n.t : `Sample ${m.i + 1}`; break;
+    case "wf": wfReady(m.id); return;   // a deck's waveform is analysed
     case "dn": d.title = m.n ? m.n.t : `Deck ${d.n}`; d.artist = m.n ? m.n.a : ""; loadCueLabels(d);
       if ((m.n ? m.n.id : null) !== d.wfFor) { loadWaveform(d, m.n ? m.n.id : null); loadBeats(d, m.n ? m.n.id : null); }
       return markDirty("deck", d);

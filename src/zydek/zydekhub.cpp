@@ -397,10 +397,13 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     if (path == QLatin1String("/zydeck-skin-d.js") || path == QLatin1String("/zydeck-skin-d.css")) {   // the deck page's Hardware look
         return staticFile(path.mid(1));
     }
+    // 200: the data; 202: on a deck but still being analysed (a "wf" push says when it's done); 404: not on a deck
     if (path.startsWith(QLatin1String("/waveform/"))) {
-        const QByteArray data = waveform(path.mid(10).toInt(), query.value(QStringLiteral("stems")) == QLatin1String("1"));
+        bool loaded = false;
+        const QByteArray data = waveform(path.mid(10).toInt(), query.value(QStringLiteral("stems")) == QLatin1String("1"), &loaded);
         if (data.isEmpty()) {
-            return {404, "text/plain", "not analysed yet\n", {}};
+            return loaded ? HttpServer::Response{202, "text/plain", "being analysed\n", {}}
+                          : HttpServer::Response{404, "text/plain", "not on a deck\n", {}};
         }
         return {200, "application/octet-stream", data, {{"Cache-Control", "max-age=3600"}}};
     }
@@ -408,9 +411,11 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         return latencyLog(query);
     }
     if (path.startsWith(QLatin1String("/beats/"))) {
-        const QByteArray data = beats(path.mid(7).toInt());
+        bool loaded = false;
+        const QByteArray data = beats(path.mid(7).toInt(), &loaded);
         if (data.isEmpty()) {
-            return {404, "text/plain", "no beats yet\n", {}};
+            return loaded ? HttpServer::Response{202, "text/plain", "being analysed\n", {}}
+                          : HttpServer::Response{404, "text/plain", "not on a deck\n", {}};
         }
         return {200, "application/json", data, {}};
     }
@@ -916,11 +921,14 @@ HttpServer::Response Hub::staticFile(const QString& name) const {
 /// (the louder of left and right) — the format the controller page draws on the platter strip.
 /// stems (?stems=1), and the track has them: "MXWS", the same, then each stem's level per point too
 /// (Mixxx's order: drums, bass, other, vocals), 8 bytes a point, so the page can draw each stem on its own.
-QByteArray Hub::waveform(int trackId, bool stems) const {
+QByteArray Hub::waveform(int trackId, bool stems, bool* pLoaded) const {
     const auto tracks = PlayerInfo::instance().getLoadedTracks();
     for (const TrackPointer& pTrack : tracks) {
         if (!pTrack || pTrack->getId().toVariant().toInt() != trackId) {
             continue;
+        }
+        if (pLoaded) {
+            *pLoaded = true;
         }
         const ConstWaveformPointer pWaveform = pTrack->getWaveform();
         if (!pWaveform || pWaveform->getDataSize() < 2 ||
@@ -1095,11 +1103,14 @@ void Hub::saveSettings() const {
 
 /// The track's beats, {"beats": [seconds...], "bar": k}: beat i starts a bar when (i + k) % 4 == 0 (Mixxx
 /// counts 4/4 bars from the first beat marker). Empty while the track hasn't been analysed.
-QByteArray Hub::beats(int trackId) const {
+QByteArray Hub::beats(int trackId, bool* pLoaded) const {
     const auto tracks = PlayerInfo::instance().getLoadedTracks();
     for (const TrackPointer& pTrack : tracks) {
         if (!pTrack || pTrack->getId().toVariant().toInt() != trackId) {
             continue;
+        }
+        if (pLoaded) {
+            *pLoaded = true;
         }
         const mixxx::BeatsPointer pBeats = pTrack->getBeats();
         const double rate = pTrack->getSampleRate().toDouble();
@@ -2715,6 +2726,20 @@ void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
     const QString group = QStringLiteral("[Channel%1]").arg(deck + 1);
     if (m_stemFx[deck].fx >= 0) {   // a new track: its stems start un-muted (Mixxx's stem_auto_reset)
         stemFxEnd(deck, deck % 2 == 0 ? 3 : 4);
+    }
+    // Its waveform and beats may take a while (Mixxx analyses one track at a time, and after a restart there can be a
+    // queue): the pages wait for this rather than giving up
+    disconnect(m_waveformDone[deck]);
+    if (pTrack) {
+        const int id = pTrack->getId().toVariant().toInt();
+        const QPointer<Track> pWeak(pTrack.get());
+        m_waveformDone[deck] = connect(pTrack.get(), &Track::waveformUpdated, this, [this, deck, id, pWeak] {
+            const ConstWaveformPointer pWaveform = pWeak ? pWeak->getWaveform() : ConstWaveformPointer();
+            if (pWaveform && pWaveform->getDataSize() >= 2 && pWaveform->getCompletion() >= pWaveform->getDataSize()) {
+                disconnect(m_waveformDone[deck]);
+                emitJson({{"t", "wf"}, {"id", id}});
+            }
+        });
     }
     DeckStems& ds = m_deckStems[deck];
     if (!pTrack) {
