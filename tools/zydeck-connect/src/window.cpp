@@ -29,9 +29,9 @@ namespace {
 // The unit, in logical pixels: the ears, the face, the tag under it. Its width follows the device names (layoutWidth).
 constexpr int kMinW = 700, kMaxW = 1000, kH = 236, kEar = 30;
 constexpr int kTagW = 196, kTagH = 254, kTagX = 66;   // under the left column
-// how it comes out (ms): pulled until its inner corner catches and it slants (to 300), pushed back a little (to 500),
-// pulled again, straight at 800; back in, a plain slide
-constexpr double kTravel = kTagH - 6, kCatchMs = 300, kBackMs = 500, kOutMs = 800, kInMs = 400;
+// how it comes out (ms): pulled until its inner corner catches and it slants (to 300), held there (to 500), pushed back
+// a little (to 700), pulled again, straight at 1000; back in, a plain slide
+constexpr double kTravel = kTagH - 6, kCatchMs = 300, kHoldMs = 500, kBackMs = 700, kOutMs = 1000, kInMs = 400;
 constexpr double kSnag = 14, kPushBack = 12, kSlant = -7.5;   // px short of out when it catches; px back; degrees
 double easeOut(double u) { return 1 - std::pow(1 - u, 3); }
 double easeInOut(double u) { return u < .5 ? 4 * u * u * u : 1 - std::pow(-2 * u + 2, 3) / 2; }
@@ -245,8 +245,11 @@ void Window::tagPose(double ms) {
         const double u = ms / kCatchMs;
         m_drop = m_fromDrop + (kTravel - kSnag - m_fromDrop) * easeOut(u);
         m_angle = m_fromAngle + (kSlant - m_fromAngle) * smooth(.55, 1, u);
+    } else if (ms <= kHoldMs) {   // caught: held there, slanted
+        m_drop = kTravel - kSnag;
+        m_angle = kSlant;
     } else if (ms <= kBackMs) {   // pushed back a little (the catch eases)
-        const double u = (ms - kCatchMs) / (kBackMs - kCatchMs);
+        const double u = (ms - kHoldMs) / (kBackMs - kHoldMs);
         m_drop = kTravel - kSnag - kPushBack * easeInOut(u);
         m_angle = kSlant * (1 - .35 * easeInOut(u));
     } else {   // pulled again: all the way, and straight

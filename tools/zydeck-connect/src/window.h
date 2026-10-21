@@ -4,8 +4,8 @@
 // four device slots stacked as bays: the device and how it's linked, then its PAIR key (3:2, the word under it) and
 // its MIDI IN / OUT lamps. The unit is as wide as the longest device name needs (30 px clear of that cluster).
 // Under it, a black tag comes out of the bottom edge with the pairing code on a white sticker: by itself while no
-// device is linked, back in once one is. Coming out it snags: its inner corner catches and it slants, it's pushed back
-// a little, then pulled again and hangs straight. PAIR on an empty slot pulls it out for that slot (the next device
+// device is linked, back in once one is. Coming out it snags: its inner corner catches and it slants, a moment's
+// pause, it's pushed back a little, then pulled again and hangs straight. PAIR on an empty slot pulls it out for that slot (the next device
 // lands there), and again (or a click on the tag) pushes it back. Drawn by hand (QPainter) in a frameless window; it
 // moves by dragging the panel. The menu bar / tray icon keeps it running with the window closed.
 

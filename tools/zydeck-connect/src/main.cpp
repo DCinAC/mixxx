@@ -41,7 +41,7 @@ int main(int argc, char** argv) {
     QCommandLineOption shot(QStringLiteral("screenshot"), QStringLiteral("Draw the window into FILE (a PNG) and quit (for checking its look)."), QStringLiteral("FILE"));
     shot.setFlags(QCommandLineOption::HiddenFromHelp);
     args.addOption(shot);
-    QCommandLineOption frames(QStringLiteral("frames"), QStringLiteral("Draw the window every 25 ms for 1.2 s into DIR (the tag coming out) and quit."), QStringLiteral("DIR"));
+    QCommandLineOption frames(QStringLiteral("frames"), QStringLiteral("Draw the window every 25 ms for 1.4 s into DIR (the tag coming out) and quit."), QStringLiteral("DIR"));
     frames.setFlags(QCommandLineOption::HiddenFromHelp);
     args.addOption(frames);
     args.process(*app);
@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
             auto* n = new int(0);
             QObject::connect(timer, &QTimer::timeout, window.get(), [&window, n, dir = args.value(frames)] {
                 window->grab().save(QStringLiteral("%1/%2.png").arg(dir).arg(*n, 3, 10, QLatin1Char('0')));
-                if (++*n >= 48) {
+                if (++*n >= 56) {
                     QCoreApplication::quit();
                 }
             });
