@@ -14,6 +14,8 @@
 #include <QSystemTrayIcon>
 #include <QTimer>
 #include <QWindow>
+#include <QSet>
+#include <algorithm>
 #include <cmath>
 
 #include "core.h"
@@ -24,13 +26,15 @@
 namespace zc {
 
 namespace {
-// The unit, in logical pixels: the ears, the face, the tag under it
-constexpr int kW = 700, kH = 236, kEar = 30;
+// The unit, in logical pixels: the ears, the face, the tag under it. Its width follows the device names (layoutWidth).
+constexpr int kMinW = 700, kMaxW = 1000, kH = 236, kEar = 30;
 constexpr int kTagW = 196, kTagH = 254, kTagX = 66;   // under the left column
 const QRectF kVfd(54, 58, 220, 74);
-const QRectF kMap(54, 150, 80, 42), kPair(142, 150, 80, 42), kLogin(232, 148, 42, 46);
-const QRectF kClose(kW - kEar + 7, 7, 16, 16);
-constexpr double kBayX = 298, kBayW = kW - kEar - 22 - kBayX, kBayH = 46, kBayGap = 8, kBayY = 16;
+const QRectF kMap(54, 150, 120, 42), kLogin(212, 148, 42, 46);
+// the slots: bays from kBayX to the right edge; in each, the name, then 30 px clear, then the cluster: PAIR (3:2)
+// and the IN and OUT lamps
+constexpr double kBayX = 298, kBayRight = 22, kBayH = 46, kBayGap = 8, kBayY = 16;
+constexpr double kNameX = 64, kNameGap = 30, kCluster = 96;   // the cluster: from PAIR's left edge to the bay's right
 
 const QColor kLamp(0xff, 0xc2, 0x3d), kGreen(0x3d, 0xdc, 0x84), kRed(0xff, 0x4a, 0x3d), kVfdInk(0x4f, 0xf0, 0xd0);
 
@@ -161,19 +165,21 @@ QIcon Window::lampIcon(const QColor& c) const {
     return QIcon(pm);
 }
 
+
 Window::Window(Core* core)
-        : m_core(core) {
+        : m_core(core),
+          m_w(kMinW) {
     setWindowTitle(QString::fromLatin1(kAppName));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
     setAttribute(Qt::WA_TranslucentBackground);
-    setFixedSize(kW, kH);
+    setFixedSize(m_w, kH);
     setMouseTracking(true);
     m_clock.start();
 
     m_tagAnim.setDuration(520);
     connect(&m_tagAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
         m_tag = v.toDouble();
-        setFixedSize(kW, kH + static_cast<int>(std::ceil(m_tag * (kTagH - 6))));
+        setFixedSize(m_w, kH + static_cast<int>(std::ceil(m_tag * (kTagH - 6))));
         update();
     });
 
@@ -198,7 +204,7 @@ Window::Window(Core* core)
     auto* second = new QTimer(this);
     connect(second, &QTimer::timeout, this, &Window::refresh);
     second->start(1000);
-    auto* frame = new QTimer(this);   // the lamps that move: MIDI activity, a busy MAP
+    auto* frame = new QTimer(this);   // the lamps that move: MIDI activity, a busy MAP, a slot waiting to pair
     connect(frame, &QTimer::timeout, this, [this] {
         if (isVisible()) {
             update();
@@ -207,6 +213,19 @@ Window::Window(Core* core)
     frame->start(80);
     connect(m_core, &Core::changed, this, &Window::refresh);
     refresh();
+}
+
+QRectF Window::bay(int slot) const {
+    return {kBayX, kBayY + slot * (kBayH + kBayGap), m_w - kEar - kBayRight - kBayX, kBayH};
+}
+
+QRectF Window::slotKey(int slot) const {   // 3:2, at the top of the bay; its word goes under it
+    const QRectF b = bay(slot);
+    return {b.right() - kCluster, b.y() + 6, 30, 20};
+}
+
+QRectF Window::tagRect() const {
+    return {double(kTagX), kH - kTagH + m_tag * (kTagH - 6), double(kTagW), double(kTagH)};
 }
 
 void Window::showPairingCode() {
@@ -226,12 +245,57 @@ void Window::setTag(bool out) {
     m_tagAnim.start();
 }
 
+/// As wide as the longest device name needs: 30 px clear of its slot's PAIR and lamps (names past kMaxW are cut short)
+void Window::layoutWidth() {
+    const QFontMetricsF name(pxFont(13, QFont::DemiBold));
+    double widest = 0;
+    for (auto it = m_slotOf.cbegin(); it != m_slotOf.cend(); ++it) {
+        widest = std::max(widest, name.horizontalAdvance(it.key()));
+    }
+    const int w = std::clamp(static_cast<int>(std::ceil(kBayX + kNameX + widest + kNameGap + kCluster + kBayRight + kEar)), kMinW, kMaxW);
+    if (w != m_w) {
+        m_w = w;
+        setFixedSize(m_w, height());
+        m_menuFor.clear();
+    }
+}
+
 void Window::refresh() {
     const QList<Core::Device> devices = m_core->devices();
-    // the tag: out while nothing's linked, in once something is (PAIR overrides until that changes)
+    // slots: a device keeps its slot while it's there; a new one goes to the slot whose PAIR asked for it, or the
+    // first free one
+    QSet<QString> here;
+    for (const Core::Device& d : devices) {
+        here.insert(d.name);
+    }
+    for (auto it = m_slotOf.begin(); it != m_slotOf.end();) {
+        it = here.contains(it.key()) ? std::next(it) : m_slotOf.erase(it);
+    }
+    for (const Core::Device& d : devices) {
+        if (m_slotOf.contains(d.name)) {
+            continue;
+        }
+        const QList<int> taken = m_slotOf.values();
+        int slot = m_pairSlot >= 0 && !taken.contains(m_pairSlot) ? m_pairSlot : -1;
+        for (int i = 0; slot < 0 && i < 4; ++i) {
+            if (!taken.contains(i)) {
+                slot = i;
+            }
+        }
+        if (slot < 0) {
+            break;   // (more than four: the menu lists them all)
+        }
+        m_slotOf.insert(d.name, slot);
+        if (slot == m_pairSlot) {
+            m_pairSlot = -1;
+        }
+    }
+    layoutWidth();
+    // the tag: out while nothing's linked, in once something is (PAIR or the tag overrides until that changes)
     if (devices.size() != m_lastDeviceCount) {
         if (m_lastDeviceCount >= 0) {
             m_tagManual = -1;
+            m_pairSlot = -1;
         }
         m_lastDeviceCount = static_cast<int>(devices.size());
     }
@@ -291,7 +355,7 @@ void Window::updateTray() {
         showIt();
     });
     m_menu->addAction(tr("Open ZyDeck Connect"), this, showIt);
-    m_menu->addAction(tr("Install Mapping in Mixxx"), this, [this] { press(Key::Map); });
+    m_menu->addAction(tr("Install Mapping in Mixxx"), this, [this] { press({Key::Map, -1}); });
     QAction* login = m_menu->addAction(tr("Open at Login"));
     login->setCheckable(true);
     login->setChecked(openAtLogin());
@@ -303,9 +367,9 @@ void Window::updateTray() {
     m_menu->addAction(tr("Quit ZyDeck Connect"), qApp, &QApplication::quit);
 }
 
-void Window::press(Key k) {
-    switch (k) {
-    case Key::Map:
+void Window::press(const Hit& h) {
+    switch (h.key) {
+    case Key::Map:   // install the ZyDeck mapping in Mixxx
         m_mapLamp = QStringLiteral("busy");
         update();
         QTimer::singleShot(600, this, [this] {   // (long enough to see it work)
@@ -324,9 +388,18 @@ void Window::press(Key k) {
             });
         });
         break;
-    case Key::Pair:
-        m_tagManual = m_tagWanted ? 0 : 1;
-        setTag(!m_tagWanted);
+    case Key::Slot:   // an empty slot's PAIR: the tag out for it; again, back in
+        if (m_slotOf.key(h.slot).isEmpty()) {
+            const bool cancel = m_pairSlot == h.slot && m_tagWanted;
+            m_pairSlot = cancel ? -1 : h.slot;
+            m_tagManual = cancel ? 0 : 1;
+            setTag(!cancel);
+        }
+        break;
+    case Key::Tag:   // pushed back in
+        m_pairSlot = -1;
+        m_tagManual = 0;
+        setTag(false);
         break;
     case Key::Login:
         setOpenAtLogin(!openAtLogin());
@@ -341,41 +414,48 @@ void Window::press(Key k) {
     }
 }
 
-Window::Key Window::keyAt(const QPointF& p) const {
+Window::Hit Window::hitAt(const QPointF& p) const {
     if (kMap.contains(p)) {
-        return Key::Map;
-    }
-    if (kPair.contains(p)) {
-        return Key::Pair;
+        return {Key::Map, -1};
     }
     if (kLogin.contains(p)) {
-        return Key::Login;
+        return {Key::Login, -1};
     }
-    if (kClose.adjusted(-4, -4, 4, 4).contains(p)) {
-        return Key::Close;
+    if (QRectF(m_w - kEar + 3, 3, 24, 24).contains(p)) {
+        return {Key::Close, -1};
     }
-    return Key::None;
+    for (int i = 0; i < 4; ++i) {
+        if (slotKey(i).adjusted(-3, -3, 3, 12).contains(p)) {   // (its word under it too)
+            return {Key::Slot, i};
+        }
+    }
+    if (m_tag > 0.5 && p.y() > kH && tagRect().contains(p)) {
+        return {Key::Tag, -1};
+    }
+    return {};
 }
 
 void Window::mousePressEvent(QMouseEvent* e) {
-    m_down = keyAt(e->position());
-    if (m_down == Key::None && e->button() == Qt::LeftButton && windowHandle()) {
+    m_down = hitAt(e->position());
+    if (m_down.key == Key::None && e->button() == Qt::LeftButton && windowHandle()) {
         windowHandle()->startSystemMove();   // the panel: drag the unit
     }
     update();
 }
 
 void Window::mouseReleaseEvent(QMouseEvent* e) {
-    const Key k = m_down;
-    m_down = Key::None;
-    if (k != Key::None && keyAt(e->position()) == k) {
-        press(k);
+    const Hit h = m_down;
+    m_down = {};
+    if (h.key != Key::None && hitAt(e->position()) == h) {
+        press(h);
     }
     update();
 }
 
 void Window::mouseMoveEvent(QMouseEvent* e) {
-    setCursor(keyAt(e->position()) == Key::None ? Qt::ArrowCursor : Qt::PointingHandCursor);
+    const Hit h = hitAt(e->position());
+    const bool live = h.key != Key::None && !(h.key == Key::Slot && !m_slotOf.key(h.slot).isEmpty());
+    setCursor(live ? Qt::PointingHandCursor : Qt::ArrowCursor);
 }
 
 void Window::keyPressEvent(QKeyEvent* e) {
@@ -401,13 +481,13 @@ void Window::paintEvent(QPaintEvent*) {
     p.setRenderHint(QPainter::Antialiasing);
     p.setRenderHint(QPainter::TextAntialiasing);
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const int W = m_w;
 
     // ---- the tag, behind the unit: out of the slit in its bottom edge ----
     if (m_tag > 0.001) {
         p.save();
-        p.setClipRect(QRectF(0, kH - 4, kW, height()));
-        const double y = kH - kTagH + m_tag * (kTagH - 6);
-        const QRectF tag(kTagX, y, kTagW, kTagH);
+        p.setClipRect(QRectF(0, kH - 4, W, height()));
+        const QRectF tag = tagRect();
         QPainterPath body;
         body.addRoundedRect(tag, 7, 7);
         QLinearGradient metal(tag.topLeft(), tag.topRight());
@@ -423,9 +503,8 @@ void Window::paintEvent(QPaintEvent*) {
         p.setBrush(Qt::white);
         p.drawRoundedRect(label, 3, 3);
         if (!m_qr.isNull()) {
-            const QRectF code = label.adjusted(8, 8, -8, -8);
             p.setRenderHint(QPainter::SmoothPixmapTransform, false);
-            p.drawPixmap(code, m_qr, m_qr.rect());
+            p.drawPixmap(label.adjusted(8, 8, -8, -8), m_qr, m_qr.rect());
         }
         p.setPen(QColor(0x22, 0x23, 0x26));
         p.setFont(pxFont(10, QFont::Bold, 1.2));
@@ -443,8 +522,7 @@ void Window::paintEvent(QPaintEvent*) {
     }
 
     // ---- the unit ----
-    // ears with their slots
-    for (const double x : {0.0, double(kW - kEar)}) {
+    for (const double x : {0.0, double(W - kEar)}) {   // ears with their slots
         QLinearGradient ear(QPointF(x, 0), QPointF(x + kEar, 0));
         ear.setColorAt(0, x == 0 ? QColor(0x2c, 0x2e, 0x31) : QColor(0x1d, 0x1f, 0x22));
         ear.setColorAt(1, x == 0 ? QColor(0x1d, 0x1f, 0x22) : QColor(0x2c, 0x2e, 0x31));
@@ -459,8 +537,7 @@ void Window::paintEvent(QPaintEvent*) {
             p.setPen(Qt::NoPen);
         }
     }
-    // the face: brushed, lit from the top
-    const QRectF face(kEar, 0, kW - 2 * kEar, kH);
+    const QRectF face(kEar, 0, W - 2 * kEar, kH);   // brushed, lit from the top
     p.setBrush(QColor(0x1b, 0x1c, 0x1f));
     p.drawRect(face);
     p.setPen(QPen(QColor(255, 255, 255, 6), 1));
@@ -468,17 +545,16 @@ void Window::paintEvent(QPaintEvent*) {
         p.drawLine(QPointF(x, 1), QPointF(x, kH - 1));
     }
     p.setPen(QPen(QColor(255, 255, 255, 22), 1));
-    p.drawLine(QPointF(0, 0.5), QPointF(kW, 0.5));
+    p.drawLine(QPointF(0, 0.5), QPointF(W, 0.5));
     p.setPen(QPen(QColor(0, 0, 0), 1));
-    p.drawLine(QPointF(0, kH - 0.5), QPointF(kW, kH - 0.5));
-    // the slit the tag comes out of
-    p.setPen(Qt::NoPen);
+    p.drawLine(QPointF(0, kH - 0.5), QPointF(W, kH - 0.5));
+    p.setPen(Qt::NoPen);   // the slit the tag comes out of
     p.setBrush(QColor(4, 4, 4));
     p.drawRoundedRect(QRectF(kTagX - 4, kH - 7, kTagW + 8, 5), 2, 2);
-    // close: an engraved x on the right ear
-    p.setPen(QPen(m_down == Key::Close ? QColor(0xdd, 0xdd, 0xdd) : QColor(0x77, 0x79, 0x7d), 1.6));
-    p.drawLine(kClose.topLeft() + QPointF(4, 4), kClose.bottomRight() - QPointF(4, 4));
-    p.drawLine(kClose.topRight() + QPointF(-4, 4), kClose.bottomLeft() + QPointF(4, -4));
+    const QRectF closeX(W - kEar + 7, 7, 16, 16);   // close: an engraved x on the right ear
+    p.setPen(QPen(m_down.key == Key::Close ? QColor(0xdd, 0xdd, 0xdd) : QColor(0x77, 0x79, 0x7d), 1.6));
+    p.drawLine(closeX.topLeft() + QPointF(4, 4), closeX.bottomRight() - QPointF(4, 4));
+    p.drawLine(closeX.topRight() + QPointF(-4, 4), closeX.bottomLeft() + QPointF(4, -4));
 
     // brand and power
     p.setPen(QColor(0xf2, 0xf2, 0xf2));
@@ -511,13 +587,10 @@ void Window::paintEvent(QPaintEvent*) {
         p.drawText(at, m_vfd[i]);
     }
 
-    // MAP, PAIR, LOGIN
-    key(p, kMap, QStringLiteral("MAP"), m_down == Key::Map);
-    processLamp(p, kMap.topLeft() + QPointF(kMap.width() - 25 + (m_down == Key::Map), 13 + (m_down == Key::Map)), m_mapLamp,
-            m_clock.elapsed());
-    key(p, kPair, QStringLiteral("PAIR"), m_down == Key::Pair);
-    lamp(p, QRectF(kPair.right() - 22 + (m_down == Key::Pair), kPair.y() + 14 + (m_down == Key::Pair), 9, 14), kLamp,
-            m_tagWanted, false);
+    // MAP and LOGIN
+    const bool mapDown = m_down.key == Key::Map;
+    key(p, kMap, QStringLiteral("MAP"), mapDown);
+    processLamp(p, kMap.topLeft() + QPointF(kMap.width() - 25 + mapDown, 13 + mapDown), m_mapLamp, m_clock.elapsed());
     {   // LOGIN: a bat switch, up is on
         const bool on = openAtLogin();
         const QPointF c(kLogin.center().x(), kLogin.y() + 18);
@@ -532,52 +605,68 @@ void Window::paintEvent(QPaintEvent*) {
         bat.setColorAt(1, QColor(0x9a, 0x9c, 0xa0));
         p.setBrush(bat);
         p.setPen(QPen(QColor(20, 20, 22), 1));
-        const QRectF lever = on ? QRectF(c.x() - 3.5, c.y() - 17, 7, 18) : QRectF(c.x() - 3.5, c.y() - 1, 7, 18);
-        p.drawRoundedRect(lever, 3.5, 3.5);
+        p.drawRoundedRect(on ? QRectF(c.x() - 3.5, c.y() - 17, 7, 18) : QRectF(c.x() - 3.5, c.y() - 1, 7, 18), 3.5, 3.5);
         p.setPen(on ? kLamp : QColor(0x88, 0x88, 0x88));
         p.setFont(pxFont(8, QFont::Bold, 1.2));
         p.drawText(QRectF(kLogin.x() - 10, kLogin.bottom() + 1, kLogin.width() + 20, 12), Qt::AlignHCenter, QStringLiteral("LOGIN"));
     }
 
-    // the four slots, stacked: each a bay with the device in it
-    const QList<Core::Device> devices = m_core->devices();
+    // the four slots, stacked: each a bay with the device, then 30 px clear, then PAIR and the IN / OUT lamps
+    QHash<int, Core::Device> inSlot;
+    for (const Core::Device& d : m_core->devices()) {
+        if (m_slotOf.contains(d.name)) {
+            inSlot.insert(m_slotOf.value(d.name), d);
+        }
+    }
+    static const QRegularExpression tablet(QStringLiteral("tab|pad|SM-[TPX]|tablet"), QRegularExpression::CaseInsensitiveOption);
     for (int i = 0; i < 4; ++i) {
-        const QRectF bay(kBayX, kBayY + i * (kBayH + kBayGap), kBayW, kBayH);
+        const QRectF b = bay(i);
         p.setPen(Qt::NoPen);
         p.setBrush(QColor(0x0d, 0x0e, 0x10));
-        p.drawRoundedRect(bay, 5, 5);
+        p.drawRoundedRect(b, 5, 5);
         p.setPen(QPen(QColor(0, 0, 0, 230), 2));   // recessed: dark along the top, a glint along the bottom
-        p.drawLine(bay.topLeft() + QPointF(4, 1), bay.topRight() + QPointF(-4, 1));
+        p.drawLine(b.topLeft() + QPointF(4, 1), b.topRight() + QPointF(-4, 1));
         p.setPen(QPen(QColor(255, 255, 255, 16), 1));
-        p.drawLine(bay.bottomLeft() + QPointF(4, .5), bay.bottomRight() + QPointF(-4, .5));
+        p.drawLine(b.bottomLeft() + QPointF(4, .5), b.bottomRight() + QPointF(-4, .5));
         p.setPen(QColor(0x7a, 0x7a, 0x7a));
         p.setFont(pxFont(11, QFont::DemiBold, 0, true));
-        p.drawText(QRectF(bay.x() + 12, bay.y(), 14, bay.height()), Qt::AlignVCenter, QString::number(i + 1));
-        if (i >= devices.size()) {
+        p.drawText(QRectF(b.x() + 12, b.y(), 14, b.height()), Qt::AlignVCenter, QString::number(i + 1));
+
+        const bool linked = inSlot.contains(i);
+        const QRectF k = slotKey(i);
+        const double row = k.center().y();   // the cluster's lamps sit level with the key, their words with its word
+        const QRectF text(b.x() + kNameX, b.y() + 6, k.left() - kNameGap - (b.x() + kNameX), 18);
+        if (linked) {
+            const Core::Device& d = inSlot[i];
+            deviceIcon(p, QRectF(b.x() + 32, b.center().y() - 10, 20, 20), tablet.match(d.name).hasMatch());
+            p.setPen(QColor(0xec, 0xec, 0xec));
+            p.setFont(pxFont(13, QFont::DemiBold));
+            p.drawText(text, Qt::AlignLeft | Qt::AlignVCenter, p.fontMetrics().elidedText(d.name, Qt::ElideRight, int(text.width())));
+            p.setPen(QColor(0x8f, 0x8f, 0x8f));
+            p.setFont(pxFont(11));
+            p.drawText(text.translated(0, 17), Qt::AlignLeft | Qt::AlignVCenter, d.how);
+        } else {
             p.setPen(QColor(0x45, 0x46, 0x4a));
             p.setFont(pxFont(11, QFont::Normal, 1));
-            p.drawText(QRectF(bay.x() + 64, bay.y(), 200, bay.height()), Qt::AlignVCenter, tr("empty"));
-            lamp(p, QRectF(bay.right() - 48, bay.center().y() - 4, 8, 8), kLamp, false);
-            lamp(p, QRectF(bay.right() - 24, bay.center().y() - 4, 8, 8), kGreen, false);
-            continue;
+            p.drawText(QRectF(b.x() + kNameX, b.y(), text.width(), b.height()), Qt::AlignVCenter,
+                    m_pairSlot == i && m_tagWanted ? tr("scan the tag…") : tr("empty"));
         }
-        const Core::Device& d = devices[i];
-        static const QRegularExpression tablet(QStringLiteral("tab|pad|SM-[TPX]|tablet"), QRegularExpression::CaseInsensitiveOption);
-        deviceIcon(p, QRectF(bay.x() + 32, bay.center().y() - 10, 20, 20), tablet.match(d.name).hasMatch());
-        p.setPen(QColor(0xec, 0xec, 0xec));
-        p.setFont(pxFont(13, QFont::DemiBold));
-        const QRectF text(bay.x() + 64, bay.y() + 6, bay.width() - 64 - 70, 18);
-        p.drawText(text, Qt::AlignLeft | Qt::AlignVCenter, p.fontMetrics().elidedText(d.name, Qt::ElideRight, int(text.width())));
-        p.setPen(QColor(0x8f, 0x8f, 0x8f));
-        p.setFont(pxFont(11));
-        p.drawText(text.translated(0, 17), Qt::AlignLeft | Qt::AlignVCenter, d.how);
+        // PAIR: a small key (3:2) with a strip lamp: green while a device is in, blinking amber waiting for one
+        const bool down = m_down.key == Key::Slot && m_down.slot == i && !linked;
+        key(p, k, QString(), down);
+        const bool waiting = m_pairSlot == i && m_tagWanted;
+        const QRectF strip(k.center().x() - 6 + down, k.bottom() - 6.5 + down, 12, 3);
+        lamp(p, strip, linked ? kGreen : kLamp, linked || (waiting && m_clock.elapsed() / 400 % 2 == 0), false);
+        p.setPen(QColor(0x8a, 0x8a, 0x8a));
+        p.setFont(pxFont(7, QFont::Bold, 1));
+        p.drawText(QRectF(k.x() - 8, k.bottom() + 3, k.width() + 16, 10), Qt::AlignHCenter, QStringLiteral("PAIR"));
         // MIDI IN (from it) and OUT (to it): lit for a moment with each message
-        lamp(p, QRectF(bay.right() - 48, bay.center().y() - 6, 8, 8), kLamp, now - d.lastIn < 160);
-        lamp(p, QRectF(bay.right() - 24, bay.center().y() - 6, 8, 8), kGreen, now - d.lastOut < 160);
+        const QRectF in(b.right() - 52, row - 4, 8, 8), out(b.right() - 28, row - 4, 8, 8);
+        lamp(p, in, kLamp, linked && now - inSlot[i].lastIn < 160);
+        lamp(p, out, kGreen, linked && now - inSlot[i].lastOut < 160);
         p.setPen(QColor(0x66, 0x66, 0x66));
-        p.setFont(pxFont(7, QFont::Bold, .8));
-        p.drawText(QRectF(bay.right() - 58, bay.center().y() + 5, 28, 10), Qt::AlignHCenter, QStringLiteral("IN"));
-        p.drawText(QRectF(bay.right() - 34, bay.center().y() + 5, 28, 10), Qt::AlignHCenter, QStringLiteral("OUT"));
+        p.drawText(QRectF(in.center().x() - 14, k.bottom() + 3, 28, 10), Qt::AlignHCenter, QStringLiteral("IN"));
+        p.drawText(QRectF(out.center().x() - 14, k.bottom() + 3, 28, 10), Qt::AlignHCenter, QStringLiteral("OUT"));
     }
 }
 
