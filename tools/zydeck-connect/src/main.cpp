@@ -84,13 +84,10 @@ int main(int argc, char** argv) {
         static_cast<QApplication*>(app.get())->setQuitOnLastWindowClosed(false);   // (the menu bar icon stays)
         window = std::make_unique<zc::Window>(&core);
         window->show();
-        if (args.isSet(shot)) {
-            QTimer::singleShot(1200, window.get(), [&window, file = args.value(shot)] {
-                window->showPairingCode();
-                QTimer::singleShot(300, window.get(), [&window, file] {
-                    window->grab().save(file);
-                    QCoreApplication::quit();
-                });
+        if (args.isSet(shot)) {   // (after the tag has had time to come out, or a device to link)
+            QTimer::singleShot(2500, window.get(), [&window, file = args.value(shot)] {
+                window->grab().save(file);
+                QCoreApplication::quit();
             });
         }
     }

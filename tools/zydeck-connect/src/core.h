@@ -40,9 +40,11 @@ class Core : public QObject {
     Library* library() { return &m_library; }
 
     struct Device {
-        QString name, how;   // how: "Wi-Fi" or "USB cable"
+        QString name, how;            // how: "Wi-Fi" or "USB cable"
+        qint64 lastIn = 0, lastOut = 0;   // when MIDI last came from it / went to it (ms since the epoch)
     };
-    QList<Device> devices() const;   // linked over Wi-Fi, or said hello over a cable in the last 10 s
+    /// Linked over Wi-Fi, or said hello over a cable in the last 10 s; in the order they came (their rack slots).
+    QList<Device> devices() const;
     QString status;                  // the last thing done from the window ("" for none)
 
   signals:
@@ -65,9 +67,11 @@ class Core : public QObject {
     QHash<QTcpSocket*, Client*> m_clients;
     struct Seen {
         QString how;
-        qint64 at;
+        qint64 at, first, lastIn = 0, lastOut = 0;
     };
+    void activity(const QString& device, bool in);
     QHash<QString, Seen> m_seen;
+    qint64 m_arrivals = 0;   // Seen::first: the order they came in (their slots)
 };
 
 } // namespace zc

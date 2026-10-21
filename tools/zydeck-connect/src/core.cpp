@@ -121,6 +121,7 @@ Core::Core(QObject* parent)
     connect(m_midi, &Midi::hello, this, [this](const QString& device, const QString& port) {
         seen(device, tr("USB cable"));
         m_midi->reply(port, sysexText(kLinkOffer, offer()));
+        activity(device, false);
     });
     connect(m_midi, &Midi::nameAsk, this, [this](const QString& port, const QJsonObject& ask) {
         QThreadPool::globalInstance()->start([this, port, ask] {   // (it can wait a few seconds for a new track)
@@ -150,19 +151,34 @@ QString Core::pairUrl() const {
 QList<Core::Device> Core::devices() const {
     QList<Device> out;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    QList<qint64> order;
     for (auto it = m_seen.cbegin(); it != m_seen.cend(); ++it) {
         if (it->how == tr("Wi-Fi") || now - it->at < 10000) {
-            out.append({it.key(), it->how});
+            int i = 0;
+            while (i < order.size() && order[i] <= it->first) {
+                ++i;
+            }
+            order.insert(i, it->first);
+            out.insert(i, {it.key(), it->how, it->lastIn, it->lastOut});
         }
     }
     return out;
 }
 
 void Core::seen(const QString& device, const QString& how) {
-    const bool fresh = !m_seen.contains(device) || m_seen.value(device).how != how;
-    m_seen.insert(device, {how, QDateTime::currentMSecsSinceEpoch()});
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const auto it = m_seen.constFind(device);
+    const bool fresh = it == m_seen.cend() || it->how != how;
+    m_seen.insert(device, {how, now, it == m_seen.cend() ? ++m_arrivals : it->first, now, it == m_seen.cend() ? 0 : it->lastOut});
     if (fresh) {
         emit changed();
+    }
+}
+
+void Core::activity(const QString& device, bool in) {
+    const auto it = m_seen.find(device);
+    if (it != m_seen.end()) {
+        (in ? it->lastIn : it->lastOut) = QDateTime::currentMSecsSinceEpoch();
     }
 }
 
@@ -180,6 +196,7 @@ void Core::fromMixxx(const QByteArray& msg) {
     for (auto it = m_clients.cbegin(); it != m_clients.cend(); ++it) {
         if (it.value()->linked) {
             it.key()->write(line);
+            activity(it.value()->device, false);
         }
     }
 }
@@ -259,6 +276,7 @@ void Core::line(QTcpSocket* s, Client& c, const QByteArray& l) {
         const QByteArray data = QByteArray::fromHex(l.mid(2));
         if (!data.isEmpty()) {
             m_midi->toMixxx(data);
+            activity(c.device, true);
         }
     } else if (l.startsWith("J ")) {
         const QJsonObject ask = QJsonDocument::fromJson(l.mid(2)).object();
