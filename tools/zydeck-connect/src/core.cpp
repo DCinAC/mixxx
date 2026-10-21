@@ -190,7 +190,23 @@ QJsonObject Core::nameReply(const QJsonObject& ask) {
 }
 
 // ---- Mixxx -> linked devices -------------------------------------------------------------------------------
+namespace {
+const QByteArray kOurPing = QByteArray::fromHex("f07d5e7e7e7ef7");   // (the devices' own pings carry their sequence)
+const QByteArray kMappingStarted = QByteArray::fromHex("f07d5ff7");
+} // namespace
+
+void Core::pingMixxx() {
+    m_midi->toMixxx(kOurPing);
+}
+
 void Core::fromMixxx(const QByteArray& msg) {
+    if (msg == kOurPing) {   // ours, back: not for the devices
+        emit mixxxAnswered();
+        return;
+    }
+    if (msg == kMappingStarted) {
+        emit mixxxMappingStarted();
+    }
     m_midi->toCables(msg);
     const QByteArray line = "M " + msg.toHex() + '\n';
     for (auto it = m_clients.cbegin(); it != m_clients.cend(); ++it) {

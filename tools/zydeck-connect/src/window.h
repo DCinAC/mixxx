@@ -2,7 +2,8 @@
 // ZyDeck Connect's window: a rack unit. The face: ZYDECK CONNECT and its power lamp, a VFD readout (the MIDI port,
 // Mixxx's library and the mapping, this computer's address), MAP (install the mapping) and the LOGIN switch, and the
 // four device slots stacked as bays: the device and how it's linked, then its PAIR key (3:2, the word under it) and
-// its MIDI IN / OUT lamps. The unit is as wide as the longest device name needs (30 px clear of that cluster).
+// its MIDI IN / OUT lamps. MAP's lamp is Mixxx's side (setup.h): green linked, going round while it waits for Mixxx
+// or the user, red if it failed; MAP sets it up again. The unit is as wide as the longest device name needs (30 px clear of that cluster).
 // Under it, a black tag comes out of the bottom edge with the pairing code on a white sticker: by itself while no
 // device is linked, back in once one is. Coming out it snags: its inner corner catches and it slants, a moment's
 // pause, it's pushed back a little, then pulled again and hangs straight. PAIR on an empty slot pulls it out for that slot (the next device
@@ -12,6 +13,7 @@
 #include <QElapsedTimer>
 #include <QHash>
 #include <QPixmap>
+#include <QSet>
 #include <QVariantAnimation>
 #include <QWidget>
 
@@ -21,11 +23,12 @@ class QSystemTrayIcon;
 namespace zc {
 
 class Core;
+class Setup;
 
 class Window : public QWidget {
     Q_OBJECT
   public:
-    explicit Window(Core* core);
+    Window(Core* core, Setup* setup);
     void showPairingCode();   // the tag out (and kept out)
 
   protected:
@@ -54,7 +57,13 @@ class Window : public QWidget {
     QRectF slotKey(int slot) const;
     QRectF tagRect() const;
 
+    void setupChanged();       // Mixxx's side moved on: the readout, MAP's lamp, and asking when it needs the user
+    void say(const QString& title, const QString& text, bool warning = false);
+
     Core* m_core;
+    Setup* m_setup;
+    QSet<int> m_asked;         // what's been asked this run (each once)
+    int m_lastSetup = -1;
     int m_w;                   // the unit's width
     QVariantAnimation m_tagAnim;   // its time (ms): tagPose() turns that into where it is
     void tagPose(double ms);

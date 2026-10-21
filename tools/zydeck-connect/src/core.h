@@ -46,9 +46,13 @@ class Core : public QObject {
     /// Linked over Wi-Fi, or said hello over a cable in the last 10 s; in the order they came (their rack slots).
     QList<Device> devices() const;
     QString status;                  // the last thing done from the window ("" for none)
+    /// Is the ZyDeck mapping there, on in Mixxx? It echoes this (F0 7D 5E 7E 7E 7E F7): mixxxAnswered.
+    void pingMixxx();
 
   signals:
     void changed();   // a device came or went
+    void mixxxAnswered();        // our ping came back
+    void mixxxMappingStarted();  // the mapping says it (re)started (F0 7D 5F F7)
 
   private:
     struct Client;

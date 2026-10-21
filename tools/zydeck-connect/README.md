@@ -10,7 +10,11 @@ device that linked before still links.
   the device then offers to go wireless
 - the pairing code: ZyDeck › Settings › Connections › Pair by QR links over Wi-Fi, no cable at all
 - track names from Mixxx's library, and its analysed waveforms and beat grids for the device's decks
-- installs the ZyDeck mapping into Mixxx; opens at login if you like; lives in the menu bar / tray
+- sets Mixxx up by itself, once per computer: it asks first, then keeps the ZyDeck mapping in Mixxx's
+  controllers folder and turns it on for the ZyDeck Connect port in Mixxx's settings (`mixxx.cfg`, only while
+  Mixxx is closed; backed up as `mixxx.cfg.before-zydeck`). It checks all the time that Mixxx answers through
+  the port, and says when you need to quit or restart Mixxx. MAP does it all again.
+- opens at login if you like (so it's always there before Mixxx); lives in the menu bar / tray
 
 Builds come from the **ZyDeck Connect** workflow (Actions tab): macOS (universal), Windows (needs the free
 [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) driver for its MIDI port), Linux.

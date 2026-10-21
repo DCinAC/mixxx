@@ -38,6 +38,111 @@ bool mappingInstalled() {
     return !d.isEmpty() && QFileInfo(d + "/controllers/ZyDeck.midi.xml").isFile();
 }
 
+bool mappingCurrent() {
+    const QString d = mixxxDir();
+    if (d.isEmpty()) {
+        return false;
+    }
+    const QMap<QString, QByteArray> files = mappingFiles();
+    for (auto it = files.cbegin(); it != files.cend(); ++it) {
+        QFile f(d + "/controllers/" + it.key());
+        if (!f.open(QIODevice::ReadOnly) || f.readAll() != it.value()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// ---- Mixxx's settings: "[Group]" lines, then "key value" lines (ConfigObject's format) ----------------------------
+namespace {
+// Mixxx's name for the port in its settings: the device's name with spaces (and slashes) made underscores
+const QString kDeviceKey = QStringLiteral("ZyDeck_Connect");
+
+QString cfgPath() {
+    const QString d = mixxxDir();
+    return d.isEmpty() ? QString() : d + "/mixxx.cfg";
+}
+
+/// key's value in group, or a null string
+QString cfgValue(const QStringList& lines, const QString& group, const QString& key) {
+    bool in = false;
+    for (const QString& l : lines) {
+        if (l.startsWith('[')) {
+            in = l.trimmed() == group;
+        } else if (in && (l == key || l.startsWith(key + ' '))) {
+            return l.mid(key.size()).trimmed();
+        }
+    }
+    return {};
+}
+
+/// sets key in group (adding the line, or the group, if it isn't there)
+void cfgSet(QStringList& lines, const QString& group, const QString& key, const QString& value) {
+    const QString line = key + ' ' + value;
+    int header = -1;
+    for (int i = 0; i < lines.size(); ++i) {
+        if (lines[i].startsWith('[')) {
+            if (header >= 0) {   // the end of the group: add it there (before the blank line that closes it)
+                int at = i;
+                while (at > header + 1 && lines[at - 1].trimmed().isEmpty()) {
+                    --at;
+                }
+                lines.insert(at, line);
+                return;
+            }
+            header = lines[i].trimmed() == group ? i : -1;
+        } else if (header >= 0 && (lines[i] == key || lines[i].startsWith(key + ' '))) {
+            lines[i] = line;
+            return;
+        }
+    }
+    if (header >= 0) {
+        lines.append(line);
+        return;
+    }
+    if (!lines.isEmpty() && !lines.last().isEmpty()) {
+        lines.append(QString());
+    }
+    lines << group << line << QString();
+}
+
+QStringList cfgLines() {
+    QFile f(cfgPath());
+    if (!f.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+    QStringList lines = QString::fromUtf8(f.readAll()).split('\n');
+    if (!lines.isEmpty() && lines.last().isEmpty()) {
+        lines.removeLast();
+    }
+    return lines;
+}
+} // namespace
+
+bool controllerOn() {
+    const QStringList lines = cfgLines();
+    return cfgValue(lines, QStringLiteral("[Controller]"), kDeviceKey) == QLatin1String("1") &&
+            cfgValue(lines, QStringLiteral("[ControllerPreset]"), kDeviceKey).endsWith(QLatin1String("ZyDeck.midi.xml"));
+}
+
+void turnControllerOn() {
+    const QString path = cfgPath();
+    if (path.isEmpty() || !QFileInfo(path).isFile()) {
+        throw QObject::tr("Mixxx's settings aren't there yet: start Mixxx once");
+    }
+    const QString backup = path + ".before-zydeck";
+    if (!QFileInfo::exists(backup) && !QFile::copy(path, backup)) {
+        throw QObject::tr("couldn't back up %1").arg(path);
+    }
+    QStringList lines = cfgLines();
+    cfgSet(lines, QStringLiteral("[ControllerPreset]"), kDeviceKey, mixxxDir() + "/controllers/ZyDeck.midi.xml");
+    cfgSet(lines, QStringLiteral("[Controller]"), kDeviceKey, QStringLiteral("1"));
+    QSaveFile f(path);
+    if (!f.open(QIODevice::WriteOnly) || f.write((lines.join('\n') + '\n').toUtf8()) < 0 || !f.commit()) {
+        throw QObject::tr("couldn't write %1").arg(path);
+    }
+}
+
 QString installMapping() {
     QString d = mixxxDir();
     if (d.isEmpty()) {

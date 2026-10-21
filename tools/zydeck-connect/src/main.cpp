@@ -16,6 +16,7 @@
 #include <memory>
 
 #include "core.h"
+#include "setup.h"
 #include "system.h"
 #include "window.h"
 
@@ -79,13 +80,22 @@ int main(int argc, char** argv) {
         }
         return 1;
     }
+    zc::Setup setup(&core);   // Mixxx's side: the mapping, the controller on, Mixxx answering
+    QObject::connect(&core, &zc::Core::mixxxAnswered, &setup, &zc::Setup::pong);
+    QObject::connect(&core, &zc::Core::mixxxMappingStarted, &setup, &zc::Setup::mappingStarted);
     std::unique_ptr<zc::Window> window;
     if (headless) {
         std::printf("%s: MIDI port '%s', %s port %d\n", zc::kAppName, zc::kPortName, qPrintable(zc::lanAddresses().join(", ")), zc::kTcpPort);
         std::fflush(stdout);
+        QObject::connect(&setup, &zc::Setup::changed, [&setup](zc::Setup::State s) {   // (set up only once allowed, in the window)
+            static const char* names[] = {"checking", "Mixxx not found", "no MIDI port", "not set up (allow it in the window)",
+                    "quit Mixxx to finish setting it up", "set up: start Mixxx", "restart Mixxx (it doesn't answer)", "Mixxx linked", "setup failed"};
+            std::printf("Mixxx: %s%s\n", names[static_cast<int>(s)], setup.why().isEmpty() ? "" : qPrintable(": " + setup.why()));
+            std::fflush(stdout);
+        });
     } else {
         static_cast<QApplication*>(app.get())->setQuitOnLastWindowClosed(false);   // (the menu bar icon stays)
-        window = std::make_unique<zc::Window>(&core);
+        window = std::make_unique<zc::Window>(&core, &setup);
         window->show();
         if (args.isSet(frames)) {
             QDir().mkpath(args.value(frames));

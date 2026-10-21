@@ -7,6 +7,8 @@
 #include <QFontDatabase>
 #include <QKeyEvent>
 #include <QMenu>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -19,6 +21,7 @@
 #include <cmath>
 
 #include "core.h"
+#include "setup.h"
 #include "library.h"
 #include "qrcodegen.hpp"
 #include "system.h"
@@ -173,8 +176,9 @@ QIcon Window::lampIcon(const QColor& c) const {
 }
 
 
-Window::Window(Core* core)
+Window::Window(Core* core, Setup* setup)
         : m_core(core),
+          m_setup(setup),
           m_w(kMinW) {
     setWindowTitle(QString::fromLatin1(kAppName));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
@@ -220,7 +224,105 @@ Window::Window(Core* core)
     });
     frame->start(80);
     connect(m_core, &Core::changed, this, &Window::refresh);
+    connect(m_setup, &Setup::changed, this, &Window::setupChanged);
     refresh();
+}
+
+// ---- Mixxx's side: the readout's second line, MAP's lamp, and asking (each thing once a run) only when it needs the
+// user: whether to set Mixxx up at all, to quit it so its settings can change, to restart it when it doesn't answer
+namespace {
+QString setupLine(Setup::State s, int tracks) {
+    switch (s) {
+    case Setup::State::Linked:
+        return tracks >= 0 ? QStringLiteral("MIXXX LINKED  %1 TRK").arg(tracks) : QStringLiteral("MIXXX LINKED");
+    case Setup::State::StartMixxx: return QStringLiteral("MIXXX SET UP: START IT");
+    case Setup::State::QuitMixxx: return QStringLiteral("MIXXX QUIT IT TO SET UP");
+    case Setup::State::RestartMixxx: return QStringLiteral("MIXXX RESTART IT");
+    case Setup::State::NeedConsent: return QStringLiteral("MIXXX NOT SET UP: MAP");
+    case Setup::State::NoMixxx: return QStringLiteral("MIXXX NOT FOUND");
+    case Setup::State::NoPort: return QStringLiteral("MIXXX NO PORT");
+    case Setup::State::Failed: return QStringLiteral("MIXXX SETUP FAILED");
+    case Setup::State::Checking: break;
+    }
+    return QStringLiteral("MIXXX CHECKING");
+}
+
+QString setupLamp(Setup::State s) {   // MAP's 2x2: green linked, going round while waiting, red failed
+    switch (s) {
+    case Setup::State::Linked: return QStringLiteral("ok");
+    case Setup::State::Failed:
+    case Setup::State::NoPort: return QStringLiteral("err");
+    case Setup::State::NoMixxx: return QString();
+    default: return QStringLiteral("busy");
+    }
+}
+} // namespace
+
+void Window::say(const QString& title, const QString& text, bool warning) {
+    if (!isVisible() && m_tray) {   // closed to the menu bar: a notification there
+        m_tray->showMessage(title, text, warning ? QSystemTrayIcon::Warning : QSystemTrayIcon::Information, 15000);
+        return;
+    }
+    auto* box = new QMessageBox(warning ? QMessageBox::Warning : QMessageBox::Information, title, text, QMessageBox::Ok, this);
+    box->setAttribute(Qt::WA_DeleteOnClose);
+    box->setWindowModality(Qt::NonModal);
+    box->show();
+}
+
+void Window::setupChanged() {
+    const Setup::State s = m_setup->state();
+    const int was = m_lastSetup;
+    m_lastSetup = static_cast<int>(s);
+    refresh();
+    const auto once = [this](Setup::State k) {
+        if (m_asked.contains(static_cast<int>(k))) {
+            return false;
+        }
+        m_asked.insert(static_cast<int>(k));
+        return true;
+    };
+    switch (s) {
+    case Setup::State::NeedConsent:
+        if (once(s) && isVisible()) {
+            auto* box = new QMessageBox(QMessageBox::Question, tr("Set up Mixxx?"),
+                    tr("ZyDeck Connect can set Mixxx up for ZyDeck: it puts the ZyDeck mapping in Mixxx's controllers "
+                       "folder and turns it on for the ZyDeck Connect port, so a phone or tablet works as a controller "
+                       "straight away.\n\nMixxx's settings are backed up first (mixxx.cfg.before-zydeck)."),
+                    QMessageBox::NoButton, this);
+            QPushButton* yes = box->addButton(tr("Set Up"), QMessageBox::AcceptRole);
+            box->addButton(tr("Not Now"), QMessageBox::RejectRole);
+            box->setDefaultButton(yes);
+            box->setAttribute(Qt::WA_DeleteOnClose);
+            connect(box, &QMessageBox::buttonClicked, this, [this, yes](QAbstractButton* b) { m_setup->consent(b == yes); });
+            box->show();
+        }
+        break;
+    case Setup::State::QuitMixxx:
+        if (once(s)) {
+            say(tr("Quit Mixxx once"), tr("Mixxx is open, and ZyDeck Connect needs to turn the controller on in its "
+                                          "settings, which Mixxx keeps to itself while it runs. Quit Mixxx: ZyDeck "
+                                          "Connect does the rest. Then start Mixxx again."));
+        }
+        break;
+    case Setup::State::StartMixxx:
+        if (was == static_cast<int>(Setup::State::QuitMixxx)) {
+            say(tr("Mixxx is set up"), tr("The ZyDeck controller is on in Mixxx. Start Mixxx."));
+        }
+        break;
+    case Setup::State::RestartMixxx:
+        if (once(s)) {
+            say(tr("Restart Mixxx"), tr("Mixxx doesn't answer through the ZyDeck Connect port: it was probably started "
+                                        "before ZyDeck Connect, and Mixxx only looks for MIDI ports when it starts. "
+                                        "Restart Mixxx.\n\nWith LOGIN on, ZyDeck Connect starts with the computer, "
+                                        "so it's always there first."));
+        }
+        break;
+    case Setup::State::Failed:
+        say(tr("Couldn't set up Mixxx"), m_setup->why(), true);
+        break;
+    default:
+        break;
+    }
 }
 
 QRectF Window::bay(int slot) const {
@@ -344,8 +446,7 @@ void Window::refresh() {
     }
     const QStringList hosts = lanAddresses();
     m_vfd = {problem ? QStringLiteral("MIDI  NO PORT: LOOPMIDI?") : QStringLiteral("MIDI  ZYDECK CONNECT  OK"),
-             m_tracks < 0 ? QStringLiteral("MIXXX NOT FOUND")
-                          : QStringLiteral("MIXXX %1 TRK  MAP %2").arg(m_tracks).arg(mappingInstalled() ? "OK" : "--"),
+             setupLine(m_setup->state(), m_tracks),
              hosts.isEmpty() ? QStringLiteral("NO NETWORK") : QStringLiteral("%1:%2").arg(hosts.first()).arg(kTcpPort)};
     const QString url = m_core->pairUrl();
     if (url != m_qrFor) {
@@ -391,7 +492,7 @@ void Window::updateTray() {
         showIt();
     });
     m_menu->addAction(tr("Open ZyDeck Connect"), this, showIt);
-    m_menu->addAction(tr("Install Mapping in Mixxx"), this, [this] { press({Key::Map, -1}); });
+    m_menu->addAction(tr("Set Up Mixxx Again"), this, [this] { press({Key::Map, -1}); });
     QAction* login = m_menu->addAction(tr("Open at Login"));
     login->setCheckable(true);
     login->setChecked(openAtLogin());
@@ -405,23 +506,19 @@ void Window::updateTray() {
 
 void Window::press(const Hit& h) {
     switch (h.key) {
-    case Key::Map:   // install the ZyDeck mapping in Mixxx
-        m_mapLamp = QStringLiteral("busy");
+    case Key::Map:   // set Mixxx up (again): the mapping, the controller on, and look whether it answers
+        if (m_setup->state() == Setup::State::NeedConsent && !m_setup->consented()) {
+            m_asked.remove(static_cast<int>(Setup::State::NeedConsent));
+            setupChanged();   // (asks again)
+            break;
+        }
+        m_asked.clear();
+        m_mapLamp = QStringLiteral("busy");   // (going round a moment, to see it work)
         update();
-        QTimer::singleShot(600, this, [this] {   // (long enough to see it work)
-            try {
-                m_core->status = tr("Installed in %1. Restart Mixxx if it's open.").arg(installMapping());
-                m_mapLamp = QStringLiteral("ok");
-            } catch (const QString& why) {
-                m_core->status = tr("Couldn't install the mapping: %1").arg(why);
-                m_mapLamp = QStringLiteral("err");
-            }
-            setToolTip(m_core->status);
+        QTimer::singleShot(600, this, [this] {
+            m_mapLamp.clear();
+            m_setup->redo();
             refresh();
-            QTimer::singleShot(4000, this, [this] {
-                m_mapLamp.clear();
-                update();
-            });
         });
         break;
     case Key::Slot:   // an empty slot's PAIR: the tag out for it; again, back in
@@ -632,7 +729,8 @@ void Window::paintEvent(QPaintEvent*) {
     // MAP and LOGIN
     const bool mapDown = m_down.key == Key::Map;
     key(p, kMap, QStringLiteral("MAP"), mapDown);
-    processLamp(p, kMap.topLeft() + QPointF(kMap.width() - 25 + mapDown, 13 + mapDown), m_mapLamp, m_clock.elapsed());
+    processLamp(p, kMap.topLeft() + QPointF(kMap.width() - 25 + mapDown, 13 + mapDown),
+            m_mapLamp.isEmpty() ? setupLamp(m_setup->state()) : m_mapLamp, m_clock.elapsed());
     {   // LOGIN: a bat switch, up is on
         const bool on = openAtLogin();
         const QPointF c(kLogin.center().x(), kLogin.y() + 18);

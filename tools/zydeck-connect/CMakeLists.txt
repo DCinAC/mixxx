@@ -29,6 +29,7 @@ qt_add_executable(zydeck-connect WIN32 MACOSX_BUNDLE
   src/library.cpp src/library.h
   src/midi.cpp src/midi.h
   src/system.cpp src/system.h
+  src/setup.cpp src/setup.h
   src/window.cpp src/window.h
   third_party/rtmidi/RtMidi.cpp third_party/rtmidi/RtMidi.h
   third_party/qrcodegen/qrcodegen.cpp third_party/qrcodegen/qrcodegen.hpp
