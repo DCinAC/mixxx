@@ -540,7 +540,7 @@ void Window::paintEvent(QPaintEvent*) {
         const QRectF sticker(tag.x() + 14, tag.y() + 14, kTagW - 28, kTagH - 14 - 34);
         p.setPen(Qt::NoPen);
         p.setBrush(QColor(0xf6, 0xf6, 0xf3));
-        p.drawRoundedRect(sticker, 4, 4);
+        p.drawRect(sticker);   // (a printed sticker: square corners)
         const QRectF code(sticker.x() + 9, sticker.y() + 9, sticker.width() - 18, sticker.width() - 18);
         if (!m_qr.isNull()) {
             p.setRenderHint(QPainter::SmoothPixmapTransform, false);
