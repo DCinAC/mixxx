@@ -1,0 +1,46 @@
+#pragma once
+// Mixxx's library, read only: tracks by their length (Mixxx's mapping only sees numbers), and each track's analysed
+// waveform and beat grid, as the phone's hub serves them. Safe from any thread (a database connection per thread).
+
+#include <QByteArray>
+#include <QJsonObject>
+#include <QMutex>
+#include <QString>
+#include <QVector>
+
+namespace zc {
+
+/// Where Mixxx keeps its settings and library on this computer (the folder with mixxxdb.sqlite), or "".
+QString mixxxDir();
+/// Where to look for it, in order (the first is where the mapping goes when Mixxx hasn't run yet).
+QStringList mixxxDirCandidates();
+
+class Library {
+  public:
+    /// {"t": title, "a": artist, "id": id} of the track ms long (Mixxx keeps lengths to the millisecond), or
+    /// empty. Tries again for a few seconds: a track added a moment ago.
+    QJsonObject name(qint64 ms);
+    /// "MXWF" + rate (float) + count (uint32) + all/low/mid/high per visual sample (the louder of left and
+    /// right), from Mixxx's analysis file; empty if there's none.
+    QByteArray waveform(int trackId);
+    /// {"beats": [seconds], "bar": k, "locked": bool}: beat i starts a bar when (i + k) % 4 == 0; empty if none.
+    QJsonObject beats(int trackId);
+    int trackCount();
+
+  private:
+    struct Row {
+        double seconds;
+        QString title, artist;
+        int id;
+    };
+    void load();   // with m_mutex held
+    QMutex m_mutex;
+    QVector<Row> m_rows;
+    qint64 m_loadedMs = 0;
+};
+
+/// Decoding Mixxx's own files (exposed for tests)
+QByteArray packWaveform(const QByteArray& analysisFile);
+QJsonObject decodeBeats(const QByteArray& blob, const QString& version, int sampleRate, double duration, bool locked);
+
+} // namespace zc

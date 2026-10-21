@@ -1,0 +1,76 @@
+# ZyDeck Connect (tools/zydeck-connect, C++ and Qt): built for macOS, Windows and Linux whenever it changes (or by
+# hand from the Actions tab). Each build is attached to the run as an artifact.
+name: ZyDeck Connect
+
+on:
+  push:
+    branches:
+      - android-companion
+      - stability
+    paths:
+      - tools/zydeck-connect/**
+      - res/controllers/Zydek-Tablet.*
+      - .github/workflows/zydeck-connect.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: ZyDeck-Connect-macOS
+          - os: windows-latest
+            name: ZyDeck-Connect-Windows
+          - os: ubuntu-24.04
+            name: ZyDeck-Connect-Linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            tools/zydeck-connect
+            res/controllers/Zydek-Tablet.midi.xml
+            res/controllers/Zydek-Tablet.script.js
+          sparse-checkout-cone-mode: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          cache: true
+      - name: Linux needs ALSA's headers (and GL's, for Qt's widgets)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libgl1-mesa-dev libxkbcommon-dev
+      - name: Build
+        shell: bash
+        working-directory: tools/zydeck-connect
+        run: |
+          args=(-DCMAKE_BUILD_TYPE=Release)
+          [ "$RUNNER_OS" = macOS ] && args+=("-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0)
+          cmake -S . -B build "${args[@]}"
+          cmake --build build --config Release --parallel
+      - name: Package (Qt's libraries go with it)
+        shell: bash
+        working-directory: tools/zydeck-connect
+        run: |
+          mkdir -p dist
+          case "$RUNNER_OS" in
+            macOS)
+              macdeployqt "build/ZyDeck Connect.app"
+              codesign --force --deep --sign - "build/ZyDeck Connect.app"   # ad hoc: Apple Silicon won't run it unsigned
+              (cd build && ditto -c -k --keepParent "ZyDeck Connect.app" ../dist/ZyDeck-Connect-macOS.zip) ;;
+            Windows)
+              mkdir -p "dist/ZyDeck Connect"
+              cp "build/Release/ZyDeck Connect.exe" "dist/ZyDeck Connect/"
+              windeployqt --release --no-translations "dist/ZyDeck Connect/ZyDeck Connect.exe" ;;
+            Linux)
+              cp build/zydeck-connect dist/ ;;
+          esac
+          cp MIDI.md dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: tools/zydeck-connect/dist/

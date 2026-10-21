@@ -2,7 +2,7 @@
 
 For Serato DJ Pro, rekordbox, Traktor and other DJ apps (MIDI Learn). Choose **Standard MIDI** under
 Settings › Controller mode. Over the USB cable the phone or tablet is a MIDI device named after it; over
-Wi-Fi (ZyDeck Link) it's the **ZyDeck Link** port.
+Wi-Fi (ZyDeck Connect) it's the **ZyDeck Connect** port.
 
 Buttons are notes: velocity 127 when pressed, 0 when let go. Play, sync, keylock, quantize, headphone cue,
 mute and eject are toggles in the DJ app: ZyDeck sends one press and release each time.

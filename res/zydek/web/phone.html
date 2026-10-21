@@ -544,7 +544,7 @@ function applyCv(k, v, ts) {
   }
 }
 // Controller mode: the decks are Mixxx's on a computer (the hub's "remote" status). Waveforms come from
-// ZyDeck Link there when it runs.
+// ZyDeck Connect there when it runs.
 let remote = { on: false };
 const assetUrl = path => !remote.on ? path : remote.http ? `${remote.http}${path}?k=${encodeURIComponent(remote.key || "")}` : null;
 function linkText() {
@@ -574,10 +574,10 @@ function paintCtlMode() {
   if (!r.live) steps = `<ol class="steps">` +
     (r.usb !== 2 && r.via !== "wifi" ? `<li>Pull down Android's notifications, tap the USB one, and choose <b>MIDI</b>.</li>` : "") +
     (r.layout === "standard"
-      ? `<li>In your DJ app, open its MIDI settings and use MIDI Learn on ${r.via === "wifi" ? "<b>ZyDeck Link</b>" : "this phone"}.</li>`
-      : `<li>In Mixxx: Preferences › Controllers › ${r.via === "wifi" ? "<b>ZyDeck Link</b>" : "this phone"} › load <b>ZyDeck</b> and tick Enabled. ` +
+      ? `<li>In your DJ app, open its MIDI settings and use MIDI Learn on ${r.via === "wifi" ? "<b>ZyDeck Connect</b>" : "this phone"}.</li>`
+      : `<li>In Mixxx: Preferences › Controllers › ${r.via === "wifi" ? "<b>ZyDeck Connect</b>" : "this phone"} › load <b>ZyDeck</b> and tick Enabled. ` +
         `Mixxx only finds MIDI devices when it starts: restart it if the phone isn't listed.</li>`) +
-    `<li>Optional: run <b>ZyDeck Link</b> on the computer for track names, waveforms and the wireless link.</li></ol>`;
+    `<li>Optional: run <b>ZyDeck Connect</b> on the computer for track names, waveforms and the wireless link.</li></ol>`;
   box.innerHTML = `<h3>Controller mode</h3><div class="st${ok ? " ok" : ""}">${st}</div>${steps}` +
     (r.live ? `<div class="hint" style="margin-top:8px;color:var(--dim);font-size:13px">Turn the phone sideways for the decks.</div>` : "") +
     `<div class="row">${r.offer ? `<button class="go link">Link to ${comp} over Wi-Fi</button>` : ""}` +

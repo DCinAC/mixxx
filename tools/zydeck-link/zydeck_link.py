@@ -1,5 +1,8 @@
 """ZyDeck Link: a phone or tablet running ZyDeck in controller mode, as a MIDI controller for Mixxx here.
 
+Superseded by ZyDeck Connect (tools/zydeck-connect, C++): the same protocol and key, built by the ZyDeck Connect
+workflow. Kept as the reference it was ported from.
+
 What it does, with no special permissions (no Accessibility, no Automation, no USB debugging):
   * makes a MIDI port, "ZyDeck Link", for Mixxx (load the ZyDeck mapping on it in Preferences > Controllers)
   * listens on every MIDI input for ZyDeck's hello over the USB cable (F0 7D 60 ... F7) and answers with this

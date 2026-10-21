@@ -636,7 +636,7 @@ const send = (...args) => {
 let benchQuiet = false;                   // a debug benchmark is driving the controls: don't send them to Mixxx
 let live = false;                         // true once the real pad server (connected to Mixxx) answers
 // Controller mode (the hub's "remote" status): the decks are Mixxx's on a computer. Waveforms and beat grids
-// then come from ZyDeck Link there (when it runs), not from the phone.
+// then come from ZyDeck Connect there (when it runs), not from the phone.
 let REMOTE = { on: false };
 let liveStemsAuto = true;
 fetch("/api/livestems").then(r => r.json()).then(j => { liveStemsAuto = j.auto !== false; }).catch(() => {});
@@ -3039,18 +3039,18 @@ function liveText() {
   const app = REMOTE.layout === "standard" ? "MIDI" : "Mixxx";
   return REMOTE.via === "wifi" ? `${app} on ${REMOTE.computer || "the computer"} · Wi-Fi` : `${app} on the computer · USB`;
 }
-// Controller mode: what the hub says about the cable and ZyDeck Link
+// Controller mode: what the hub says about the cable and ZyDeck Connect
 function onRemote(r) {
   const was = REMOTE;
   REMOTE = r;
   if (live) topNote.textContent = liveText();
   if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`);
   if (r.on && !r.live && was.live) toast(r.usb === 2 || r.via ? "Mixxx on the computer isn't answering: is the ZyDeck mapping on?" : "The computer is gone: plug the cable back in");
-  // ZyDeck Link answered over the cable: offer the wireless link
+  // ZyDeck Connect answered over the cable: offer the wireless link
   document.getElementById("linkask")?.remove();
   if (r.on && r.offer) {
     const box = h("div", "", `Wireless link to <b>${(r.computer || "the computer").replace(/</g, "&lt;")}</b>?` +
-      `<small>ZyDeck Link is running there. Once it's linked, you can unplug the USB cable.</small>` +
+      `<small>ZyDeck Connect is running there. Once it's linked, you can unplug the USB cable.</small>` +
       `<div class="b"><button class="no">Not now</button><button class="go">Link over Wi-Fi</button></div>`);
     box.id = "linkask";
     box.querySelector(".go").addEventListener("click", () => { box.remove(); fetch("/api/controller?link=1").catch(() => {}); toast("Linking…"); });
