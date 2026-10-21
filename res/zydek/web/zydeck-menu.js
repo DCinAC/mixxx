@@ -142,10 +142,10 @@
       get: () => sys.remote.layout || "zydeck", set: v => api(`/api/controller?layout=${v}`).then(() => { sys.remote.layout = v; refresh(); }),
       desc: "ZyDeck for Mixxx; Standard for MIDI Learn in Serato, rekordbox or Traktor.",
       more: "Standard sends plain notes and CCs: the decks on MIDI channels 1–4, the mixer and samplers on 16. Those apps don't send back positions or waveforms, so the decks show only what their lamps say." },
-    { id: "pcservers", sec: "conn", name: "PC servers", kind: "proc", label: () => "Scan QR", lampless: true, show: () => !!bridge()?.scanQr,
+    { id: "pcservers", sec: "conn", name: "Pair by QR", kind: "proc", label: () => "Scan QR", lampless: true, show: () => !!bridge()?.scanQr,
       act: async () => { bridge().scanQr(); },
-      desc: "The stem server and the Discord bot on a PC: scan the code its ./launch.sh shows, and both are set.",
-      more: "The code holds their addresses, the stem server's token and the bot's stream key, so nothing has to be typed. ZyDeck asks before it changes anything. ./launch.sh qr shows it again; ./launch.sh qr anywhere, the addresses from outside the home network." },
+      desc: "ZyDeck Connect on a computer, or a PC's stem server and Discord bot: scan the code it shows.",
+      more: "ZyDeck Connect's code links this device to Mixxx on that computer over Wi-Fi, no cable needed. The code ./launch.sh shows on a PC holds the stem server's and the bot's addresses, the stem token and the stream key (./launch.sh qr shows it again; ./launch.sh qr anywhere, the addresses from outside the home network). ZyDeck asks before it changes anything." },
     { id: "tablet", sec: "conn", name: "Tablet controller", kind: "custom", build: buildTablet, show: () => host.page === "phone" && !isTablet() && !host.linked,
       desc: "Open these decks on a tablet: scan the code with its camera, on the same Wi-Fi or this phone's hotspot." },
     // System › Audio
@@ -780,8 +780,11 @@
   async function pair(url) {
     let q;
     try { q = new URL(url); } catch { return false; }
-    if (q.protocol !== "zydeck:" || !/^\/*pair/.test(q.host + q.pathname)) return false;
+    if (q.protocol !== "zydeck:") return false;
+    const kind = (q.host + q.pathname).replace(/^\/+/, "").split(/[/?]/)[0];
     q = q.searchParams;
+    if (kind === "connect") return connectTo(q);
+    if (kind !== "pair") return false;
     const stems = q.get("stems"), st = q.get("st"), bot = q.get("bot"), bk = q.get("bk"), name = q.get("name") || "the PC";
     if (!stems && !bot) { host.toast("That code has no servers in it", "bad"); return true; }
     const lines = [stems && `Stem server: ${stems}${st ? " and its token" : ""}`, bot && `Discord bot: ${bot}${bk ? " and its stream key" : ""}`].filter(Boolean);
@@ -796,6 +799,21 @@
       await loads.prefs();
       if (stems) checkStems();
       host.toast(`Set: ${stems && bot ? "the stem server and the Discord bot" : stems ? "the stem server" : "the Discord bot"}`, "ok");
+    });
+    refresh();
+    return true;
+  }
+
+  // ZyDeck Connect on a computer: controller mode, linked over Wi-Fi (its code holds what the cable's hello gets)
+  async function connectTo(q) {
+    const name = q.get("name") || "the computer", hosts = (q.get("hosts") || "").split(",").filter(Boolean), key = q.get("key");
+    if (!hosts.length || !key) { host.toast("That code has no computer in it", "bad"); return true; }
+    if (!(await ask(`Control Mixxx on ${name}?`, [`ZyDeck goes to controller mode and links to ZyDeck Connect at ${hosts[0]} over Wi-Fi.`,
+      "The music then plays on the computer."], "Link"))) return true;
+    await run("ctlmode", async () => {
+      const offer = JSON.stringify({ name, hosts, port: +q.get("port") || 8771, key });
+      sys.remote = await api(`/api/controller?${qs({ on: 1, offer, link: 1 })}`);
+      host.toast(`Linking to ${name}…`, "ok");
     });
     refresh();
     return true;

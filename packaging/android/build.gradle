@@ -22,7 +22,7 @@ dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
     //noinspection GradleDependency
     implementation 'androidx.core:core:1.16.0'
-    // Settings › PC servers › Scan QR: Google's code scanner (Play services draws the camera; no camera permission)
+    // Settings › Connections › Pair by QR: Google's code scanner (Play services draws the camera; no camera permission)
     implementation 'com.google.android.gms:play-services-code-scanner:16.1.0'
     implementation 'com.google.android.gms:play-services-base:18.5.0'   // ModuleInstall: the scanner's UI, fetched once
     // (it brings Kotlin's old jdk7/jdk8 stdlib parts, which 1.8's stdlib already holds: the BOM lines them up)

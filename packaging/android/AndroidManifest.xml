@@ -62,6 +62,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="zydeck" android:host="pair" />
+                <data android:scheme="zydeck" android:host="connect" />
             </intent-filter>
 
           <meta-data

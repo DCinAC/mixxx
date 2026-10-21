@@ -4,7 +4,7 @@
 #   ./launch.sh                 start both (or restart them), check they answer, and show the pairing QR
 #   ./launch.sh start | stop | restart | status [stems|bot]      both, or the one named
 #   ./launch.sh logs [stems|bot]                                 follow one's log (Ctrl+C stops following, not it)
-#   ./launch.sh qr [anywhere]   the pairing QR again: ZyDeck › Settings › Connections › PC servers › Scan QR
+#   ./launch.sh qr [anywhere]   the pairing QR again: ZyDeck › Settings › Connections › Pair by QR
 #                               sets the stem server and the bot (their addresses, token and stream key) in one
 #                               go. "anywhere": their addresses from outside the home network (set below)
 # The stem server:
@@ -145,7 +145,7 @@ start() {
 
 # ---- pairing --------------------------------------------------------------------------------------------
 # zydeck://pair?name=<this PC>&stems=<address>&st=<stem token>&bot=<address>&bk=<stream key>: what ZyDeck's
-# Settings › Connections › PC servers › Scan QR sets (it asks first). Built and drawn in Python with the
+# Settings › Connections › Pair by QR sets (it asks first). Built and drawn in Python with the
 # secrets passed in its environment, never on a command line.
 pair_qr() {
   local where="${1:-home}" stems="" bot=""
@@ -171,7 +171,7 @@ for k, e in (("stems", "PAIR_STEMS"), ("st", "PAIR_ST"), ("bot", "PAIR_BOT"), ("
 print("zydeck://pair?" + u.urlencode(q))' | python3 "$ZYDEK/qr.py" || return 1
   [ -n "$stems" ] && echo "  stem server  $stems (and its token)"
   [ -n "$bot" ] && echo "  Discord bot  $bot (and its stream key)"
-  say "Scan it in ZyDeck: Settings › Connections › PC servers › Scan QR (or with the phone's camera)."
+  say "Scan it in ZyDeck: Settings › Connections › Pair by QR (or with the phone's camera)."
   say "It holds the stem token and the stream key: show it only to your own phone."
 }
 

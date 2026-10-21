@@ -624,7 +624,8 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         return result(m_library.setExcluded(arg("path"), arg("on") != QLatin1String("0")));
     }
     if (path == QLatin1String("/api/controller")) {   // controller mode: ?on=1|0, ?link=1 (go wireless),
-        // ?link=0 (not now / back to the cable), ?forget=1 (forget the computer)
+        // ?link=0 (not now / back to the cable), ?forget=1 (forget the computer), ?offer=<JSON> (a computer's
+        // name, hosts, port and key, from ZyDeck Connect's QR code)
         if (query.contains(QStringLiteral("layout"))) {   // zydeck | standard
             m_standardMidi = arg("layout") == QLatin1String("standard");
             saveRemote();
@@ -635,6 +636,14 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         }
         if (query.contains(QStringLiteral("on"))) {
             setControllerMode(arg("on") == QLatin1String("1"));
+        }
+        if (query.contains(QStringLiteral("offer"))) {   // ZyDeck Connect's offer from its QR code (as over the cable)
+            const QJsonObject j = QJsonDocument::fromJson(arg("offer").toUtf8()).object();
+            if (!j.value(QStringLiteral("hosts")).toArray().isEmpty() && !j.value(QStringLiteral("key")).toString().isEmpty()) {
+                m_linkOffer = j;
+                m_offerDeclined = false;
+                emitRemote();
+            }
         }
         if (arg("link") == QLatin1String("1") && m_controllerMode && !m_linkOffer.isEmpty()) {
             m_linkHost = 0;

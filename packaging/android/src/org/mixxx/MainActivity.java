@@ -211,7 +211,7 @@ public class MainActivity extends QtActivityBase {
             m_realtimeInput = on;
         }
 
-        /// Settings › PC servers › Scan QR: Google's code scanner (Play services shows the camera, so this app
+        /// Settings › Connections › Pair by QR: Google's code scanner (Play services shows the camera, so this app
         /// needs no camera permission); a ZyDeck code goes to the page, which asks before using it.
         @JavascriptInterface
         public void scanQr() {
@@ -731,13 +731,14 @@ public class MainActivity extends QtActivityBase {
         handlePairIntent(intent);
     }
 
-    // ---- pairing with a PC's servers: zydeck://pair?name=&stems=&st=&bot=&bk= (the QR its ./launch.sh shows) ----
+    // ---- pairing by QR: zydeck://pair?name=&stems=&st=&bot=&bk= (a PC's servers, the code its ./launch.sh shows)
+    // and zydeck://connect?name=&hosts=&port=&key= (Mixxx on a computer, the code ZyDeck Connect shows) ----
     private volatile String m_pendingPair;   // came before the page was ready: it takes it when it loads
 
     /// From the camera app (the intent filter on zydeck://pair).
     private void handlePairIntent(Intent intent) {
         final Uri data = intent == null ? null : intent.getData();
-        if (data != null && "zydeck".equals(data.getScheme()) && "pair".equals(data.getHost())) {
+        if (data != null && "zydeck".equals(data.getScheme()) && ("pair".equals(data.getHost()) || "connect".equals(data.getHost()))) {
             intent.setData(null);   // (not again on a rotation)
             deliverPair(data.toString());
         }
@@ -792,7 +793,7 @@ public class MainActivity extends QtActivityBase {
         scanner.startScan()
                 .addOnSuccessListener(code -> {
                     final String raw = code.getRawValue();
-                    if (raw != null && raw.startsWith("zydeck://pair?")) {
+                    if (raw != null && (raw.startsWith("zydeck://pair?") || raw.startsWith("zydeck://connect?"))) {
                         deliverPair(raw);
                     } else {
                         scanError("not-zydeck");

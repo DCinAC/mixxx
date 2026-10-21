@@ -18,7 +18,7 @@ those packets to Discord unchanged. Listeners hear it about a second behind you.
    Then `~/Documents/Zydek/launch.sh` asks for the token (typed hidden) and starts the bot.
 3. **Invite it to your server**: `launch.sh invite` prints the link (permissions 3146752: View Channels,
    Connect, Speak).
-4. **On the phone**: `launch.sh` shows a QR code: ZyDeck › Settings › Connections › PC servers › Scan QR sets
+4. **On the phone**: `launch.sh` shows a QR code: ZyDeck › Settings › Connections › Pair by QR sets
    the bot's address and stream key (and the stem server's, when it's on this PC too). Or `launch.sh phone <phone IP>`
    fills them in over the network, or type them in Settings › Discord (`launch.sh key` shows the key).
    `launch.sh` now runs both servers: see `tools/zydeck-server/launch.sh`.
