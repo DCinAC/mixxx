@@ -808,6 +808,7 @@
   async function connectTo(q) {
     const name = q.get("name") || "the computer", hosts = (q.get("hosts") || "").split(",").filter(Boolean), key = q.get("key");
     if (!hosts.length || !key) { host.toast("That code has no computer in it", "bad"); return true; }
+    if (host.linked) { host.toast("This device is controlling another ZyDeck: go ◀ Back to this device, then scan again", "bad"); return true; }
     if (!(await ask(`Control Mixxx on ${name}?`, [`ZyDeck goes to controller mode and links to ZyDeck Connect at ${hosts[0]} over Wi-Fi.`,
       "The music then plays on the computer."], "Link"))) return true;
     await run("ctlmode", async () => {
@@ -832,7 +833,18 @@
   }
   const providers = {};
   window.ZydeckMenu = {
-    setup(h) { host = { ...host, ...h }; },
+    setup(h) {
+      host = { ...host, ...h };
+      // Pairing by QR (ZyDeck Connect's, or the one a PC's ./launch.sh shows): Android hands the code to the page
+      // on top (the library, or the decks when linked to another ZyDeck), from Settings › Pair by QR or the camera
+      // app; one that came before the page was ready waits for it there
+      if (window !== top) return;
+      window.zydekPair = url => { pair(url); return true; };
+      window.zydekScanError = m => m === "getting" ? host.toast("Getting the scanner ready (only the first time)…")
+        : host.toast(m === "not-zydeck" ? "That's not a ZyDeck code" : `Couldn't scan: ${m}`, "bad");
+      const waiting = bridge()?.takePair?.();
+      if (waiting) setTimeout(() => pair(waiting), 0);
+    },
     provide(name, p) { providers[name] = p; refresh(); },
     providers, open, close, isOpen, refresh, push, pair, rows: ROWS,
     reload: what => (loads[what] ? loads[what]() : loadAll()).then(refresh),

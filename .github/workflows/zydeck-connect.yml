@@ -39,7 +39,7 @@ jobs:
           sparse-checkout-cone-mode: false
       - uses: jurplel/install-qt-action@v4
         with:
-          version: "6.8.3"
+          version: "6.9.*"   # (6.8 links Apple's AGL, gone from the newest macOS SDK)
           cache: true
       - name: Linux needs ALSA's headers (and GL's, for Qt's widgets)
         if: runner.os == 'Linux'
