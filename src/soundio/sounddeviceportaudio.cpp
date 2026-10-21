@@ -162,6 +162,7 @@ SoundDevicePortAudio::~SoundDevicePortAudio() {
 SoundDeviceStatus SoundDevicePortAudio::open(bool isClkRefDevice, int syncBuffers) {
     qDebug() << "SoundDevicePortAudio::open()" << m_deviceId;
     PaError err;
+    m_bClkRef = isClkRefDevice;
 
     if (m_audioOutputs.empty() && m_audioInputs.empty()) {
         m_lastError = QStringLiteral(

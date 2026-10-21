@@ -1360,6 +1360,11 @@ ZydeckMenu.setup({
     if (key === "stemPreset") stemPreset = v;
   },
 });
+// Pairing with a PC's servers (the QR its ./launch.sh shows): Android hands the code over, from Settings › PC
+// servers › Scan QR or from the camera app; one that came before this page was ready waits there for it
+window.zydekPair = url => { ZydeckMenu.pair(url); return true; };
+window.zydekScanError = m => toast(m === "not-zydeck" ? "That's not a ZyDeck code" : `Couldn't scan: ${m}`, "bad");
+{ const p = window.ZydekAndroid?.takePair?.(); if (p) ZydeckMenu.pair(p); }
 addEventListener("message", e => {
   if (e.origin !== location.origin || e.data?.zydek !== "open-menu") return;
   if (innerWidth > innerHeight) ZydeckMenu.open({ tab: e.data.tab, layout: "window" });

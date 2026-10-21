@@ -284,3 +284,13 @@
 
 /* a field's lamp (fields save themselves as they're left): the 2x2 square, alone */
 .zm-autolamp { display: inline-flex; align-items: center; padding: 0 calc(var(--zmm) * .6); }
+
+/* A question over everything (pairing with a PC's servers): Element's plain dialog, readable in either look */
+.zm-ask { position: fixed; inset: 0; z-index: 120; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 20px;
+  font: 500 15px/1.4 system-ui, "Roboto", sans-serif; color: #ececec; }
+.zm-ask .box { width: min(100%, 420px); background: #161616; border: 1px solid #333; border-radius: 16px; padding: 20px; display: grid; gap: 12px; }
+.zm-ask b { font-size: 18px; }
+.zm-ask p { margin: 0; color: #cfcfcf; overflow-wrap: anywhere; }
+.zm-ask .acts { display: flex; gap: 10px; margin-top: 4px; }
+.zm-ask button { flex: 1; min-height: 48px; font: 600 15px system-ui, "Roboto", sans-serif; color: #ddd; background: #1c1c1c; border: 1px solid #343434; border-radius: 12px; }
+.zm-ask .yes { border-color: #3ddc84; color: #3ddc84; }

@@ -56,6 +56,13 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- zydeck://pair?...: the QR a PC's ./launch.sh shows (its stem server and Discord bot), from the camera app -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="zydeck" android:host="pair" />
+            </intent-filter>
 
           <meta-data
                 android:name="android.app.lib_name"

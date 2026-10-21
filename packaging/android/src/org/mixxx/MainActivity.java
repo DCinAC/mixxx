@@ -33,6 +33,9 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONObject;
+import com.google.mlkit.vision.barcode.common.Barcode;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -202,6 +205,21 @@ public class MainActivity extends QtActivityBase {
         @JavascriptInterface
         public void setRealtimeInput(boolean on) {
             m_realtimeInput = on;
+        }
+
+        /// Settings › PC servers › Scan QR: Google's code scanner (Play services shows the camera, so this app
+        /// needs no camera permission); a ZyDeck code goes to the page, which asks before using it.
+        @JavascriptInterface
+        public void scanQr() {
+            runOnUiThread(MainActivity.this::scanQr);
+        }
+
+        /// A pairing code that came before the page could take it ("" for none).
+        @JavascriptInterface
+        public String takePair() {
+            final String url = m_pendingPair;
+            m_pendingPair = null;
+            return url == null ? "" : url;
         }
 
         /// A knob's click (a detent): the system's short tick, as Android's own pickers do (no permission needed;
@@ -693,6 +711,7 @@ public class MainActivity extends QtActivityBase {
         createPhoneView();
         updateMode(getResources().getConfiguration().orientation);
         applyOrientationExtra(getIntent());
+        handlePairIntent(getIntent());
     }
 
     @Override
@@ -705,6 +724,53 @@ public class MainActivity extends QtActivityBase {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         applyOrientationExtra(intent);
+        handlePairIntent(intent);
+    }
+
+    // ---- pairing with a PC's servers: zydeck://pair?name=&stems=&st=&bot=&bk= (the QR its ./launch.sh shows) ----
+    private volatile String m_pendingPair;   // came before the page was ready: it takes it when it loads
+
+    /// From the camera app (the intent filter on zydeck://pair).
+    private void handlePairIntent(Intent intent) {
+        final Uri data = intent == null ? null : intent.getData();
+        if (data != null && "zydeck".equals(data.getScheme()) && "pair".equals(data.getHost())) {
+            intent.setData(null);   // (not again on a rotation)
+            deliverPair(data.toString());
+        }
+    }
+
+    private void deliverPair(String url) {
+        m_pendingPair = url;
+        if (m_phoneView == null) {
+            return;
+        }
+        m_phoneView.evaluateJavascript("!!(window.zydekPair && zydekPair(" + JSONObject.quote(url) + "))", taken -> {
+            if ("true".equals(taken)) {
+                m_pendingPair = null;
+            }
+        });
+    }
+
+    private void scanQr() {
+        final GmsBarcodeScannerOptions options =
+                new GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build();
+        GmsBarcodeScanning.getClient(this, options)
+                .startScan()
+                .addOnSuccessListener(code -> {
+                    final String raw = code.getRawValue();
+                    if (raw != null && raw.startsWith("zydeck://pair?")) {
+                        deliverPair(raw);
+                    } else {
+                        scanError("not-zydeck");
+                    }
+                })
+                .addOnFailureListener(e -> scanError(String.valueOf(e.getMessage())));
+    }
+
+    private void scanError(String message) {
+        if (m_phoneView != null) {
+            m_phoneView.evaluateJavascript("window.zydekScanError && zydekScanError(" + JSONObject.quote(message) + ")", null);
+        }
     }
 
     /// For testing over adb without touching the device's rotation settings:

@@ -170,6 +170,21 @@ void SoundManager::closeDevices(
 #ifdef __LINUX__
     bool closed = false;
 #endif
+    // ZyDeck: the clock reference first. Its callback runs the engine and writes into every other device's
+    // output FIFO (writeProcess), so closing one of those while it still ran freed that FIFO under it: a crash
+    // in the audio thread (PaUtil_AdvanceRingBufferWriteIndex) when the outputs changed. Once it has stopped,
+    // nothing writes into the others but their own callbacks, which their close() stops first.
+    if (m_pNetworkDevice->isOpen() && m_pNetworkDevice->isClkRef()) {
+        m_pNetworkDevice->close();
+    }
+    for (const auto& pDevice : m_pEnumerator->queryDevices()) {
+        if (pDevice->isOpen() && pDevice->isClkRef()) {
+            pDevice->close();
+#ifdef __LINUX__
+            closed = true;
+#endif
+        }
+    }
     if (m_pNetworkDevice->isOpen()) {
         m_pNetworkDevice->close();
     }

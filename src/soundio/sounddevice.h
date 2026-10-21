@@ -34,6 +34,10 @@ class SoundDevice {
     virtual SoundDeviceStatus open(bool isClkRefDevice, int syncBuffers) = 0;
     virtual bool isOpen() const = 0;
     virtual SoundDeviceStatus close() = 0;
+    // ZyDeck: opened as the clock reference (its callback runs the engine and feeds the other devices)
+    bool isClkRef() const {
+        return m_bClkRef;
+    }
     virtual void readProcess(SINT framesPerBuffer) = 0;
     virtual void writeProcess(SINT framesPerBuffer) = 0;
     virtual QString getError() const = 0;
@@ -71,6 +75,7 @@ class SoundDevice {
 
     SoundDeviceId m_deviceId;
     UserSettingsPointer m_pConfig;
+    bool m_bClkRef = false;   // ZyDeck: see isClkRef()
     // Pointer to the SoundManager object which we'll request audio from.
     SoundManager* m_pSoundManager;
     // The name of the soundcard, as displayed to the user

@@ -142,6 +142,10 @@
       get: () => sys.remote.layout || "zydeck", set: v => api(`/api/controller?layout=${v}`).then(() => { sys.remote.layout = v; refresh(); }),
       desc: "ZyDeck for Mixxx; Standard for MIDI Learn in Serato, rekordbox or Traktor.",
       more: "Standard sends plain notes and CCs: the decks on MIDI channels 1–4, the mixer and samplers on 16. Those apps don't send back positions or waveforms, so the decks show only what their lamps say." },
+    { id: "pcservers", sec: "conn", name: "PC servers", kind: "proc", label: () => "Scan QR", lampless: true, show: () => !!bridge()?.scanQr,
+      act: async () => { bridge().scanQr(); },
+      desc: "The stem server and the Discord bot on a PC: scan the code its ./launch.sh shows, and both are set.",
+      more: "The code holds their addresses, the stem server's token and the bot's stream key, so nothing has to be typed. ZyDeck asks before it changes anything. ./launch.sh qr shows it again; ./launch.sh qr anywhere, the addresses from outside the home network." },
     { id: "tablet", sec: "conn", name: "Tablet controller", kind: "custom", build: buildTablet, show: () => host.page === "phone" && !isTablet() && !host.linked,
       desc: "Open these decks on a tablet: scan the code with its camera, on the same Wi-Fi or this phone's hotspot." },
     // System › Audio
@@ -760,6 +764,43 @@
     };
   }
 
+  // ---- pairing with a PC's servers: zydeck://pair?name=&stems=&st=&bot=&bk= (the QR ./launch.sh shows) ----
+  // A question over everything, readable whatever the look (as the library's Remove): resolves true or false
+  function ask(title, lines, yes) {
+    return new Promise(done => {
+      const box = el("div", "zm-ask", `<div class="box" role="dialog" aria-modal="true"><b>${esc(title)}</b>
+        ${lines.map(l => `<p>${esc(l)}</p>`).join("")}<div class="acts"><button class="no">Cancel</button><button class="yes">${esc(yes)}</button></div></div>`);
+      const end = v => { box.remove(); done(v); };
+      box.addEventListener("click", e => { if (e.target === box) end(false); });
+      box.querySelector(".no").addEventListener("click", () => end(false));
+      box.querySelector(".yes").addEventListener("click", () => end(true));
+      document.body.appendChild(box);
+    });
+  }
+  async function pair(url) {
+    let q;
+    try { q = new URL(url); } catch { return false; }
+    if (q.protocol !== "zydeck:" || !/^\/*pair/.test(q.host + q.pathname)) return false;
+    q = q.searchParams;
+    const stems = q.get("stems"), st = q.get("st"), bot = q.get("bot"), bk = q.get("bk"), name = q.get("name") || "the PC";
+    if (!stems && !bot) { host.toast("That code has no servers in it", "bad"); return true; }
+    const lines = [stems && `Stem server: ${stems}${st ? " and its token" : ""}`, bot && `Discord bot: ${bot}${bk ? " and its stream key" : ""}`].filter(Boolean);
+    if (!(await ask(`Use ${name}'s servers?`, lines, "Use them"))) return true;
+    await run("pcservers", async () => {
+      if (stems) {
+        await api(`/api/web/prefs?${qs({ stemServer: stems })}`);
+        if (st) await api(`/api/web/prefs?${qs({ stemToken: st })}`);
+        sys.prefs = { ...(sys.prefs || {}), stemServer: stems }; host.changed?.("stemServer", stems);
+      }
+      if (bot) sys.dc = await api(`/api/discord?${qs(bk ? { host: bot, key: bk } : { host: bot })}`);
+      await loads.prefs();
+      if (stems) checkStems();
+      host.toast(`Set: ${stems && bot ? "the stem server and the Discord bot" : stems ? "the stem server" : "the Discord bot"}`, "ok");
+    });
+    refresh();
+    return true;
+  }
+
   // ---- what the pages call ----
   /// The hub's pushes (/ws): remote, opt, rec, dc; and init (its remote and rec)
   function push(m) {
@@ -775,7 +816,7 @@
   window.ZydeckMenu = {
     setup(h) { host = { ...host, ...h }; },
     provide(name, p) { providers[name] = p; refresh(); },
-    providers, open, close, isOpen, refresh, push, rows: ROWS,
+    providers, open, close, isOpen, refresh, push, pair, rows: ROWS,
     reload: what => (loads[what] ? loads[what]() : loadAll()).then(refresh),
     get tab() { return curTab; },
     /// how many rows match q (for a page's own search)

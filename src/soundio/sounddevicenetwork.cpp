@@ -77,6 +77,7 @@ SoundDeviceNetwork::~SoundDeviceNetwork() {
 
 SoundDeviceStatus SoundDeviceNetwork::open(bool isClkRefDevice, int syncBuffers) {
     Q_UNUSED(syncBuffers);
+    m_bClkRef = isClkRefDevice;
     kLogger.debug() << "open:" << m_deviceId.name;
 
     // Sample rate
