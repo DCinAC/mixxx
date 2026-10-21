@@ -31,6 +31,7 @@ namespace zc {
 namespace {
 // The unit, in logical pixels: the ears, the face, the tag under it. Its width follows the device names (layoutWidth).
 constexpr int kMinW = 700, kMaxW = 1000, kH = 236, kEar = 30;
+constexpr int kShade = 14;   // the unit's shadow on what's behind it, under its bottom edge (the window is see-through)
 constexpr int kTagW = 196, kTagH = 254, kTagX = 66;   // under the left column
 // how it comes out (ms): pulled until its inner corner catches and it slants (to 300), held there (to 500), pushed back
 // a little (to 700), pulled again, straight at 1000; back in, a plain slide
@@ -181,9 +182,11 @@ Window::Window(Core* core, Setup* setup)
           m_setup(setup),
           m_w(kMinW) {
     setWindowTitle(QString::fromLatin1(kAppName));
-    setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
+    // nothing around the unit: no frame, see-through, and no system shadow (macOS draws one from the window's outline,
+    // which wouldn't follow the tag); the unit and the tag draw their own
+    setWindowFlags(Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint | Qt::Window);
     setAttribute(Qt::WA_TranslucentBackground);
-    setFixedSize(m_w, kH);
+    setFixedSize(m_w, kH + kShade);
     setMouseTracking(true);
     m_clock.start();
 
@@ -191,7 +194,7 @@ Window::Window(Core* core, Setup* setup)
     connect(&m_tagAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) { tagPose(v.toDouble()); });
     connect(&m_tagAnim, &QVariantAnimation::finished, this, [this] {
         if (!m_tagWanted) {
-            setFixedSize(m_w, kH);   // (all in: the window ends at the unit again)
+            setFixedSize(m_w, kH + kShade);   // (all in: the window ends at the unit's shadow again)
         }
     });
 
@@ -625,6 +628,12 @@ void Window::paintEvent(QPaintEvent*) {
         p.translate(tag.topLeft());
         p.rotate(m_angle);
         p.translate(-tag.topLeft());
+        // its shadow on whatever's behind the window: soft, a little below and to the right (lit from the top left)
+        p.setPen(Qt::NoPen);
+        for (int i = 9; i >= 0; --i) {
+            p.setBrush(QColor(0, 0, 0, 7 + (9 - i) * 2));
+            p.drawRoundedRect(tag.translated(4, 8).adjusted(-i, -i, i, i), 7 + i, 7 + i);
+        }
         QPainterPath body;
         body.addRoundedRect(tag, 7, 7);
         QLinearGradient black(tag.topLeft(), tag.topRight());
@@ -661,6 +670,14 @@ void Window::paintEvent(QPaintEvent*) {
     }
 
     // ---- the unit ----
+    {   // its shadow under its bottom edge, on what's behind
+        QLinearGradient shade(QPointF(0, kH), QPointF(0, kH + kShade));
+        shade.setColorAt(0, QColor(0, 0, 0, 110));
+        shade.setColorAt(1, Qt::transparent);
+        p.setPen(Qt::NoPen);
+        p.setBrush(shade);
+        p.drawRect(QRectF(4, kH, W - 8, kShade));
+    }
     for (const double x : {0.0, double(W - kEar)}) {   // ears with their slots
         QLinearGradient ear(QPointF(x, 0), QPointF(x + kEar, 0));
         ear.setColorAt(0, x == 0 ? QColor(0x2c, 0x2e, 0x31) : QColor(0x1d, 0x1f, 0x22));
