@@ -29,6 +29,13 @@ namespace {
 // The unit, in logical pixels: the ears, the face, the tag under it. Its width follows the device names (layoutWidth).
 constexpr int kMinW = 700, kMaxW = 1000, kH = 236, kEar = 30;
 constexpr int kTagW = 196, kTagH = 254, kTagX = 66;   // under the left column
+// how it comes out (ms): pulled until its inner corner catches and it slants (to 300), pushed back a little (to 500),
+// pulled again, straight at 800; back in, a plain slide
+constexpr double kTravel = kTagH - 6, kCatchMs = 300, kBackMs = 500, kOutMs = 800, kInMs = 400;
+constexpr double kSnag = 14, kPushBack = 12, kSlant = -7.5;   // px short of out when it catches; px back; degrees
+double easeOut(double u) { return 1 - std::pow(1 - u, 3); }
+double easeInOut(double u) { return u < .5 ? 4 * u * u * u : 1 - std::pow(-2 * u + 2, 3) / 2; }
+double smooth(double a, double b, double u) { const double t = std::clamp((u - a) / (b - a), 0.0, 1.0); return t * t * (3 - 2 * t); }
 const QRectF kVfd(54, 58, 220, 74);
 const QRectF kMap(54, 150, 120, 42), kLogin(212, 148, 42, 46);
 // the slots: bays from kBayX to the right edge; in each, the name, then 30 px clear, then the cluster: PAIR (3:2)
@@ -176,11 +183,12 @@ Window::Window(Core* core)
     setMouseTracking(true);
     m_clock.start();
 
-    m_tagAnim.setDuration(520);
-    connect(&m_tagAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
-        m_tag = v.toDouble();
-        setFixedSize(m_w, kH + static_cast<int>(std::ceil(m_tag * (kTagH - 6))));
-        update();
+    m_tagAnim.setStartValue(0.0);
+    connect(&m_tagAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) { tagPose(v.toDouble()); });
+    connect(&m_tagAnim, &QVariantAnimation::finished, this, [this] {
+        if (!m_tagWanted) {
+            setFixedSize(m_w, kH);   // (all in: the window ends at the unit again)
+        }
     });
 
     if (QSystemTrayIcon::isSystemTrayAvailable()) {   // the menu bar (the tray on Windows and Linux)
@@ -224,8 +232,29 @@ QRectF Window::slotKey(int slot) const {   // 3:2, at the top of the bay; its wo
     return {b.right() - kCluster, b.y() + 6, 30, 20};
 }
 
-QRectF Window::tagRect() const {
-    return {double(kTagX), kH - kTagH + m_tag * (kTagH - 6), double(kTagW), double(kTagH)};
+QRectF Window::tagRect() const {   // (straight: the slant turns it about its top inner corner)
+    return {double(kTagX), kH - kTagH + m_drop, double(kTagW), double(kTagH)};
+}
+
+void Window::tagPose(double ms) {
+    if (!m_tagWanted) {   // back in: a plain slide, straightening as it goes
+        const double u = std::min(ms / kInMs, 1.0);
+        m_drop = m_fromDrop * (1 - easeInOut(u));
+        m_angle = m_fromAngle * (1 - easeOut(u));
+    } else if (ms <= kCatchMs) {   // pulled out; near the end its inner corner catches and it slants
+        const double u = ms / kCatchMs;
+        m_drop = m_fromDrop + (kTravel - kSnag - m_fromDrop) * easeOut(u);
+        m_angle = m_fromAngle + (kSlant - m_fromAngle) * smooth(.55, 1, u);
+    } else if (ms <= kBackMs) {   // pushed back a little (the catch eases)
+        const double u = (ms - kCatchMs) / (kBackMs - kCatchMs);
+        m_drop = kTravel - kSnag - kPushBack * easeInOut(u);
+        m_angle = kSlant * (1 - .35 * easeInOut(u));
+    } else {   // pulled again: all the way, and straight
+        const double u = std::min((ms - kBackMs) / (kOutMs - kBackMs), 1.0);
+        m_drop = kTravel - kSnag - kPushBack + (kSnag + kPushBack) * easeOut(u);
+        m_angle = kSlant * .65 * (1 - easeOut(u));
+    }
+    update();
 }
 
 void Window::showPairingCode() {
@@ -234,14 +263,18 @@ void Window::showPairingCode() {
 }
 
 void Window::setTag(bool out) {
-    if (out == m_tagWanted && (m_tagAnim.state() == QAbstractAnimation::Running || m_tag == (out ? 1 : 0))) {
+    if (out == m_tagWanted && (m_tagAnim.state() == QAbstractAnimation::Running || m_drop == (out ? kTravel : 0))) {
         return;
     }
     m_tagWanted = out;
     m_tagAnim.stop();
-    m_tagAnim.setStartValue(m_tag);
-    m_tagAnim.setEndValue(out ? 1.0 : 0.0);
-    m_tagAnim.setEasingCurve(out ? QEasingCurve::OutCubic : QEasingCurve::InOutCubic);
+    m_fromDrop = m_drop;
+    m_fromAngle = m_angle;
+    if (out) {
+        setFixedSize(m_w, kH + kTagH + 30);   // (room for it, slanted too; the rest of the window is see-through)
+    }
+    m_tagAnim.setEndValue(out ? kOutMs : kInMs);
+    m_tagAnim.setDuration(static_cast<int>(out ? kOutMs : kInMs));
     m_tagAnim.start();
 }
 
@@ -429,7 +462,7 @@ Window::Hit Window::hitAt(const QPointF& p) const {
             return {Key::Slot, i};
         }
     }
-    if (m_tag > 0.5 && p.y() > kH && tagRect().contains(p)) {
+    if (m_drop > kTravel / 2 && p.y() > kH && tagRect().adjusted(-30, 0, 30, 0).contains(p)) {
         return {Key::Tag, -1};
     }
     return {};
@@ -483,41 +516,47 @@ void Window::paintEvent(QPaintEvent*) {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const int W = m_w;
 
-    // ---- the tag, behind the unit: out of the slit in its bottom edge ----
-    if (m_tag > 0.001) {
+    // ---- the tag, behind the unit: out of the slit in its bottom edge. Black, with a white sticker (the code, what
+    // to do with it, the address) as a real one would have; slanted about its top inner corner while it snags ----
+    if (m_drop > 0.5) {
         p.save();
         p.setClipRect(QRectF(0, kH - 4, W, height()));
         const QRectF tag = tagRect();
+        p.translate(tag.topLeft());
+        p.rotate(m_angle);
+        p.translate(-tag.topLeft());
         QPainterPath body;
         body.addRoundedRect(tag, 7, 7);
-        QLinearGradient metal(tag.topLeft(), tag.topRight());
-        metal.setColorAt(0, QColor(0xc9, 0xcb, 0xce));
-        metal.setColorAt(.5, QColor(0xe2, 0xe3, 0xe5));
-        metal.setColorAt(1, QColor(0xb8, 0xba, 0xbe));
-        p.setPen(QPen(QColor(0x6e, 0x70, 0x74), 1));
-        p.setBrush(metal);
+        QLinearGradient black(tag.topLeft(), tag.topRight());
+        black.setColorAt(0, QColor(0x16, 0x17, 0x1a));
+        black.setColorAt(.5, QColor(0x0e, 0x0f, 0x11));
+        black.setColorAt(1, QColor(0x14, 0x15, 0x18));
+        p.setPen(QPen(QColor(0x2e, 0x30, 0x34), 1));
+        p.setBrush(black);
         p.drawPath(body);
-        // the printed label: the code, what to do with it, this computer's address
-        const QRectF label(tag.x() + 14, tag.y() + 16, kTagW - 28, kTagW - 28);
+        const QRectF sticker(tag.x() + 14, tag.y() + 14, kTagW - 28, kTagH - 14 - 34);
         p.setPen(Qt::NoPen);
-        p.setBrush(Qt::white);
-        p.drawRoundedRect(label, 3, 3);
+        p.setBrush(QColor(0xf6, 0xf6, 0xf3));
+        p.drawRoundedRect(sticker, 4, 4);
+        const QRectF code(sticker.x() + 9, sticker.y() + 9, sticker.width() - 18, sticker.width() - 18);
         if (!m_qr.isNull()) {
             p.setRenderHint(QPainter::SmoothPixmapTransform, false);
-            p.drawPixmap(label.adjusted(8, 8, -8, -8), m_qr, m_qr.rect());
+            p.drawPixmap(code, m_qr, m_qr.rect());
         }
-        p.setPen(QColor(0x22, 0x23, 0x26));
+        p.setPen(QColor(0x1a, 0x1b, 0x1e));
         p.setFont(pxFont(10, QFont::Bold, 1.2));
-        p.drawText(QRectF(tag.x(), label.bottom() + 6, kTagW, 14), Qt::AlignHCenter, tr("SCAN IN ZYDECK"));
+        p.drawText(QRectF(sticker.x(), code.bottom() + 5, sticker.width(), 14), Qt::AlignHCenter, tr("SCAN IN ZYDECK"));
         p.setFont(pxFont(10));
-        p.drawText(QRectF(tag.x(), label.bottom() + 20, kTagW, 14), Qt::AlignHCenter, tr("Settings › Pair by QR"));
-        p.setPen(QColor(0x55, 0x57, 0x5b));
+        p.drawText(QRectF(sticker.x(), code.bottom() + 19, sticker.width(), 14), Qt::AlignHCenter, tr("Settings › Pair by QR"));
+        p.setPen(QColor(0x5a, 0x5c, 0x60));
         p.setFont(pxFont(9, QFont::Normal, 0, true));
-        p.drawText(QRectF(tag.x(), label.bottom() + 34, kTagW, 13), Qt::AlignHCenter, m_vfd.value(2));
-        // the finger pull
-        p.setPen(QPen(QColor(0x8a, 0x8c, 0x90), 1));
-        p.setBrush(QColor(0x9c, 0x9e, 0xa2));
-        p.drawRoundedRect(QRectF(tag.center().x() - 22, tag.bottom() - 15, 44, 7), 3.5, 3.5);
+        p.drawText(QRectF(sticker.x(), code.bottom() + 33, sticker.width(), 13), Qt::AlignHCenter, m_vfd.value(2));
+        // the finger pull: a recess in the black under the sticker
+        const QRectF pull(tag.center().x() - 22, tag.bottom() - 17, 44, 8);
+        p.setBrush(QColor(5, 5, 6));
+        p.drawRoundedRect(pull, 4, 4);
+        p.setPen(QPen(QColor(255, 255, 255, 30), 1));
+        p.drawLine(pull.bottomLeft() + QPointF(4, .5), pull.bottomRight() + QPointF(-4, .5));
         p.restore();
     }
 

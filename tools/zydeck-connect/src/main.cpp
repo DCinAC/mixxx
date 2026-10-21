@@ -41,6 +41,9 @@ int main(int argc, char** argv) {
     QCommandLineOption shot(QStringLiteral("screenshot"), QStringLiteral("Draw the window into FILE (a PNG) and quit (for checking its look)."), QStringLiteral("FILE"));
     shot.setFlags(QCommandLineOption::HiddenFromHelp);
     args.addOption(shot);
+    QCommandLineOption frames(QStringLiteral("frames"), QStringLiteral("Draw the window every 25 ms for 1.2 s into DIR (the tag coming out) and quit."), QStringLiteral("DIR"));
+    frames.setFlags(QCommandLineOption::HiddenFromHelp);
+    args.addOption(frames);
     args.process(*app);
 
     if (args.isSet(QStringLiteral("write-mapping"))) {
@@ -84,6 +87,18 @@ int main(int argc, char** argv) {
         static_cast<QApplication*>(app.get())->setQuitOnLastWindowClosed(false);   // (the menu bar icon stays)
         window = std::make_unique<zc::Window>(&core);
         window->show();
+        if (args.isSet(frames)) {
+            QDir().mkpath(args.value(frames));
+            auto* timer = new QTimer(window.get());
+            auto* n = new int(0);
+            QObject::connect(timer, &QTimer::timeout, window.get(), [&window, n, dir = args.value(frames)] {
+                window->grab().save(QStringLiteral("%1/%2.png").arg(dir).arg(*n, 3, 10, QLatin1Char('0')));
+                if (++*n >= 48) {
+                    QCoreApplication::quit();
+                }
+            });
+            timer->start(25);
+        }
         if (args.isSet(shot)) {   // (after the tag has had time to come out, or a device to link)
             QTimer::singleShot(2500, window.get(), [&window, file = args.value(shot)] {
                 window->grab().save(file);

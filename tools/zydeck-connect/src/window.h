@@ -3,10 +3,11 @@
 // Mixxx's library and the mapping, this computer's address), MAP (install the mapping) and the LOGIN switch, and the
 // four device slots stacked as bays: the device and how it's linked, then its PAIR key (3:2, the word under it) and
 // its MIDI IN / OUT lamps. The unit is as wide as the longest device name needs (30 px clear of that cluster).
-// Under it, a tag slides out of the bottom edge with the pairing code printed on it: by itself while no device is
-// linked, back in once one is. PAIR on an empty slot pulls it out for that slot (the next device lands there), and
-// again (or a click on the tag) pushes it back. Drawn by hand (QPainter) in a frameless window; it moves by dragging
-// the panel. The menu bar / tray icon keeps it running with the window closed.
+// Under it, a black tag comes out of the bottom edge with the pairing code on a white sticker: by itself while no
+// device is linked, back in once one is. Coming out it snags: its inner corner catches and it slants, it's pushed back
+// a little, then pulled again and hangs straight. PAIR on an empty slot pulls it out for that slot (the next device
+// lands there), and again (or a click on the tag) pushes it back. Drawn by hand (QPainter) in a frameless window; it
+// moves by dragging the panel. The menu bar / tray icon keeps it running with the window closed.
 
 #include <QElapsedTimer>
 #include <QHash>
@@ -55,8 +56,10 @@ class Window : public QWidget {
 
     Core* m_core;
     int m_w;                   // the unit's width
-    QVariantAnimation m_tagAnim;
-    double m_tag = 0;          // 0 in, 1 out
+    QVariantAnimation m_tagAnim;   // its time (ms): tagPose() turns that into where it is
+    void tagPose(double ms);
+    double m_drop = 0, m_angle = 0;          // the tag now: how far out (px), its slant (degrees)
+    double m_fromDrop = 0, m_fromAngle = 0;  // where the current move started
     bool m_tagWanted = false;  // where it's going
     int m_tagManual = -1;      // PAIR's (or the tag's) say: -1 none (it follows the devices), 0 in, 1 out
     int m_pairSlot = -1;       // the slot whose PAIR pulled the tag out: the next device lands there
