@@ -136,6 +136,9 @@
   .transport .play.on { background: var(--play); border-color: var(--play); color: #04200e; }
   .play.on.preview { animation: cueblink .5s steps(1) infinite; }
   @keyframes cueblink { 50% { background: transparent; color: var(--play); } }
+  .transport .play.on.beatoff { background: transparent; color: var(--play); }
+  .pad .ct { position: absolute; bottom: calc(var(--mm) * .7); font: 600 calc(var(--mm) * 1.4)/1 ui-monospace, monospace; opacity: .75; font-style: normal; }
+  .pad .ct.l { left: calc(var(--mm) * .9); } .pad .ct.r { right: calc(var(--mm) * .9); }
   .transport .cuebtn.on { background: var(--cue); border-color: var(--cue); color: #1b1206; }
   /* sync: off (glows white as tempos converge) → TEMPO (outlined) → BEAT (filled) */
   .transport .sync { --glow: 0; border-color: rgba(255,255,255, calc(.2 + .8 * var(--glow)));
@@ -499,7 +502,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", fxMenu: "keys", waveMode: "live", knobCentre: "lit", viewOffset: 0 };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0 };
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
 // Android, which knows the screen's real pixel density.
@@ -1793,7 +1796,10 @@ function paintPad(s, k) {
   const el = ui.sides[s].pads[k], d = deckOf(s);
   switch (d.mode) {
     case "cue": { const c = d.cues[k], lbl = c && d.cueLabels?.[k];
-      setPad(el, (c ? "lit" : "") + (d.shift && c ? " armed" : ""), lbl ? `${k + 1}<span class="lbl">${lbl.replace(/</g, "&lt;")}</span>` : `${k + 1}`,
+      // its time in the track, in a lower corner (S.cueTime: left / right / off)
+      const t = c && S.cueTime && S.cueTime !== "off" ? (live ? cueSec(d, d.cuePos?.[k]) : c.pos) : null;
+      const tm = t != null ? `<i class="ct ${S.cueTime === "right" ? "r" : "l"}">${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}</i>` : "";
+      setPad(el, (c ? "lit" : "") + (d.shift && c ? " armed" : ""), (lbl ? `${k + 1}<span class="lbl">${lbl.replace(/</g, "&lt;")}</span>` : `${k + 1}`) + tm,
         c && rgb(c.c), c && fgFor(c.c)); break; }
     case "roll": setPad(el, d.rolls[k] ? "lit" : "tint", ["⅛", "¼", "½", "1", "2", "4", "8", "16"][k], "var(--roll)"); break;
     case "key": {   // the phone's KEY pads: −1, +1 (SHIFT: reset), MATCH (key sync), KEY LOCK
@@ -1889,9 +1895,9 @@ function holdOrTap(onHold, onTap, el) {
   };
 }
 // The FX menu (hold the effect's name, or the phone's HOT CUE/FX button): Beat FX or Multi-FX, and any effect
-// straight from the list for this side's unit. Drawn as Menu UI says (Look): Element's, or the Hardware look's
-// in one of two layouts (S.fxMenu): "keys", every effect a key; "display", the effects on a display, a tap on one
-// or the selector knob (one click per effect) and Load.
+// straight from the list for this side's unit. Drawn as Menu UI says (Look): Element's, or the Hardware look's,
+// laid out for the FX layout: Multi-FX, every effect a key (its three slots lit beside it); Beat FX, the effects on
+// a display, a tap on one or the selector knob (one click per effect) and Load.
 function fxMenu(s) {
   document.getElementById("fxmenu")?.remove(); document.getElementById("fxmenu-hw")?.close?.();
   if ((S.menuLook || "d") === "d") return fxMenuHw(s);
@@ -1928,7 +1934,7 @@ function fxMenu(s) {
   document.body.appendChild(box);
 }
 function fxMenuHw(s) {
-  const u = fxUnitOf(deckOf(s)), esc = t => String(t).replace(/</g, "&lt;"), display = S.fxMenu === "display";
+  const u = fxUnitOf(deckOf(s)), esc = t => String(t).replace(/</g, "&lt;"), display = S.fxLayout !== "multi";
   const DETENT = 24;                       // degrees of the selector knob per effect
   let slot = 0, cur = -1, turned = 0;      // cur: the display's highlighted effect (0-based)
   const box = h("div", `zm hw zfx${display ? " display" : ""}`);
@@ -2015,7 +2021,7 @@ function fxMenuHw(s) {
   box.addEventListener("click", e => {
     const b = e.target.closest("button");
     if (!b) return;
-    if (b.dataset.layout) { S.fxLayout = b.dataset.layout; saveSettings(); build(); render(); }
+    if (b.dataset.layout) { S.fxLayout = b.dataset.layout; saveSettings(); build(); close(); fxMenu(s); }   // (the other layout's look)
     else if (b.dataset.slot) { slot = +b.dataset.slot; cur = -1; render(); }
     else if (b.dataset.fx) loadFx(+b.dataset.fx);
     else if (b.classList.contains("zfx-load")) { if (cur >= 0 && fxNames.length) loadFx(cur + 1); }
@@ -2122,6 +2128,16 @@ function nearestBeat(d, t) {
   let lo = 0, hi = b.length - 1;
   while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (b[mid] <= t) lo = mid; else hi = mid; }
   return Math.abs(b[lo] - t) <= Math.abs(b[hi] - t) ? b[lo] : b[hi];
+}
+// Which beat t (seconds) is in, counted from a bar's first (0, 4, 8… are downbeats): from the beat grid, or the BPM
+// without one. Before the first beat, counted back at the first beat's spacing.
+function beatOf(d, t) {
+  const b = d.beats;
+  if (!b || b.length < 2) return d.bpm ? Math.floor(t * d.bpm / 60) : 0;
+  let i;
+  if (t < b[0]) i = Math.floor((t - b[0]) / (b[1] - b[0]));
+  else { let lo = 0, hi = b.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (b[m] <= t) lo = m; else hi = m; } i = t >= b[hi] ? hi : lo; }
+  return ((i + (d.bar || 0)) % 4 + 4) % 4;
 }
 function padPress(s, k, down, e, el) {
   const d = deckOf(s), beat = 60 / d.bpm;
@@ -2308,6 +2324,10 @@ function frame(now) {
     }
     const sec = deckSpan(d);
     drawStripWave(u, d, d.pos - sec / 2, sec);             // the cursor stays in the middle; the waveform rolls
+    if (u.play) {   // PLAY keeps the beat while playing: lit a beat, dark the next (lit on the bar's first)
+      const off = d.playing && !u.play.classList.contains("preview") && beatOf(d, d.pos) % 2 !== 0;
+      if (u.play._off !== off) { u.play._off = off; u.play.classList.toggle("beatoff", off); }
+    }
     setText(u.time, fmtTime((d.dur - d.pos) / (1 + d.tempo / 100)));
   });
   requestAnimationFrame(frame);
@@ -2593,8 +2613,9 @@ const inkOn = hex => { const v = parseInt(hex.slice(1), 16); return ((v >> 16 & 
 const hexColor = v => "#" + (v & 0xffffff).toString(16).padStart(6, "0");
 // This deck's cue marks: [{t (seconds), color, label, top}]. Live, Mixxx gives the positions in samples
 // (-1 = none) and the hub the hot cue colours; the simulation keeps seconds.
+const cueSec = (d, v) => v >= 0 && d.trackSamples > 0 && d.dur > 0 ? v / d.trackSamples * d.dur : null;   // samples -> seconds
 function cueMarks(d) {
-  const sec = v => v >= 0 && d.trackSamples > 0 && d.dur > 0 ? v / d.trackSamples * d.dur : null;
+  const sec = v => cueSec(d, v);
   const marks = [], main = live ? sec(d.mainCue) : d.cuePoint;
   if (main != null && (live || main > 0)) marks.push({ t: main, color: "#ff0000", label: "CUE", top: true });
   for (let k = 0; k < 8; k++) {
@@ -2904,7 +2925,7 @@ function applyCv(name, v, ts) {
     // Our own changes echoed back (isLocal) and repeats of the same value repaint nothing.
     const upd = (k, val, part = "deck") => { if (d[k] !== val) { d[k] = val; markDirty(part, d); } };
     const hc = /^hotcue_(\d+)_position$/.exec(key);
-    if (hc) { (d.cuePos ??= [])[hc[1] - 1] = v; return; }
+    if (hc) { const at = d.cuePos ??= []; if (at[hc[1] - 1] !== v) { at[hc[1] - 1] = v; if ((S.cueTime || "off") !== "off") markDirty("deck", d); } return; }
     switch (key) {
       case "playposition": posUpdate(d, v * d.dur, performance.now(), ts); return;   // drawn by the animation loop
       case "play":

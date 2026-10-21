@@ -8,7 +8,8 @@
   ZyDeck's beat grid editor: /grid?group=[Channel1]|[PreviewDeck1]&track=<id>. Opened over the phone's library
   (long press a track > Edit beat grid: the track goes to the headphones' preview deck) and over the tablet's
   decks (tap a deck's BPM). It edits whatever is loaded in `group`, with Mixxx's own beat grid controls, and
-  posts {zydek: "grid-close"} to the page that opened it when done.
+  posts {zydek: "grid-close"} to the page that opened it when done. Done saves; Back (the system's) asks first if
+  anything changed, and throwing the changes away puts the grid back as it was when the editor opened.
 -->
 <style>
   :root { --bg: #0b0b0b; --panel: #141414; --edge: #2c2c2c; --text: #ececec; --dim: #8a8a8a; --acc: #e2b84a; --play: #3ddc84; --err: #ff5a5f; }
@@ -44,6 +45,13 @@
   #bpmin { height: 44px; border-radius: 10px; border: 1px solid #343434; background: #181818; color: var(--text); padding: 0 10px; font: 600 16px system-ui; min-width: 0; }
   #msg { grid-column: 1 / -1; min-height: 16px; color: var(--dim); font-size: 12px; }
   #msg.bad { color: var(--err); }
+  #ask { position: fixed; inset: 0; z-index: 10; display: none; place-items: center; background: rgba(0,0,0,.6); padding: 16px; }
+  #ask.on { display: grid; }
+  #ask > div { width: min(100%, 360px); background: var(--panel); border: 1px solid var(--edge); border-radius: 14px; padding: 18px; display: grid; gap: 14px; }
+  #ask p { margin: 0; font-size: 16px; font-weight: 600; }
+  #ask .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #ask #askstay { grid-column: 1 / -1; color: var(--dim); }
+  #ask #asksave { border-color: var(--acc); color: var(--acc); }
   .wide { grid-column: span 2; }
   @media (orientation: landscape) and (min-width: 700px) {
     #app { grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: auto minmax(0, 1fr) 44px; }
@@ -75,6 +83,8 @@
     <div id="msg"></div>
   </div>
 </div>
+<div id="ask" role="dialog" aria-modal="true"><div><p>Unsaved changes were made. Save?</p>
+  <div class="row"><button id="asksave">Save</button><button id="askdrop">Discard</button><button id="askstay">Keep editing</button></div></div></div>
 <script>
 let LAT = 0;   // seconds the sound runs behind Mixxx (the hub measures it)
 const $ = s => document.querySelector(s);
@@ -257,12 +267,51 @@ $("#lock").addEventListener("click", async () => {
     if (r.ok) { st.locked = r.locked; paintLock(); msg(st.locked ? "Locked: the grid can't change (analysis leaves it alone too)" : "Unlocked"); }
   } catch {}
 });
-$("#done").addEventListener("click", async () => {
+// ---- leaving: Done saves; Back asks first if anything changed ------------------------------------------------
+// The grid as the editor opened on it: the hub keeps it (to put back if the changes are thrown away), and so does
+// this page (to tell whether anything changed). Mixxx may still be loading the track: until the hub has this one.
+const G = encodeURIComponent(GROUP);
+let start = null;   // {beats, locked}
+(async function begin() {
+  for (let i = 0; i < 40; i++) {
+    try { const r = await (await fetch(`/api/grid/begin?group=${G}`)).json(); if (r.ok && (!TRACK || r.id === TRACK)) break; } catch {}
+    await new Promise(r => setTimeout(r, 300));
+  }
+  await loadBeats();
+  start = { beats: st.beats ? st.beats.slice() : null, locked: st.locked };
+})();
+async function changed() {
+  if (!start) return false;
+  await loadBeats();
+  const a = start.beats, b = st.beats;
+  if (start.locked !== st.locked) return true;
+  if (!a || !b) return !a !== !b;
+  return a.length !== b.length || a.some((t, i) => Math.abs(t - b[i]) > 1e-4);
+}
+let closing = false;
+async function finish(save) {
+  if (closing) return;
+  closing = true;
   if (PREVIEW) set("play", 0);
-  // Mixxx writes a track's edits to the library only when it's ejected: save the grid now
-  await fetch(`/api/grid/save?group=${encodeURIComponent(GROUP)}`).catch(() => {});
-  parent.postMessage({ zydek: "grid-close" }, "*");   // (its parent may be another device's copy of the deck page)
+  // Mixxx writes a track's edits to the library only when it's ejected: save the grid now; or put it back
+  await fetch(save ? `/api/grid/save?group=${G}` : `/api/grid/revert?group=${G}`).catch(() => {});
+  // the history entry this page added for Back: gone with it (so the next Back isn't spent on it)
+  const close = () => parent.postMessage({ zydek: "grid-close" }, "*");   // (its parent may be another device's copy of the deck page)
+  if (history.state?.zgrid) { addEventListener("popstate", close, { once: true }); history.back(); setTimeout(close, 500); }
+  else close();
+}
+$("#done").addEventListener("click", () => finish(true));
+// Back: the app goes back in the page's history, so this page adds an entry of its own to be gone back from
+history.pushState({ zgrid: 1 }, "");
+addEventListener("popstate", async () => {
+  if (closing) return;
+  if (!(await changed())) return finish(false);
+  history.pushState({ zgrid: 1 }, "");   // still here, until it's answered
+  $("#ask").classList.add("on");
 });
+$("#asksave").addEventListener("click", () => { $("#ask").classList.remove("on"); finish(true); });
+$("#askdrop").addEventListener("click", () => { $("#ask").classList.remove("on"); finish(false); });
+$("#askstay").addEventListener("click", () => $("#ask").classList.remove("on"));
 function paintBpm() { $("#bpm").innerHTML = `${st.bpm ? st.bpm.toFixed(2) : "—"}<small>BPM</small>`; }
 function paintLock() { $("#lock").textContent = st.locked ? "🔒" : "🔓"; $("#lock").classList.toggle("on", st.locked); }
 

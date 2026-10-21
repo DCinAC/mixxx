@@ -655,8 +655,30 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/analyze/track")) {   // ?id=&fresh=1 (start over: new beat grid and key)
         return result(m_library.analyzeTrack(arg("id").toInt(), arg("fresh") == QLatin1String("1")));
     }
+    if (path == QLatin1String("/api/debug/pos")) {   // ?group=
+        return json(debugPos(arg("group")));
+    }
     if (path == QLatin1String("/api/grid/save")) {   // ?group=: the beat grid editor is done
+        m_gridStart.remove(arg("group"));
         return result(m_library.saveLoaded(arg("group")));
+    }
+    if (path == QLatin1String("/api/grid/begin") || path == QLatin1String("/api/grid/revert")) {   // ?group=
+        const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(arg("group"));
+        if (!pTrack) {
+            return result({{"ok", false}, {"error", "Nothing loaded there"}});
+        }
+        if (path.endsWith(QLatin1String("begin"))) {   // the grid as the editor opens on it
+            m_gridStart.insert(arg("group"), {pTrack->getLocation(), pTrack->getBeats(), pTrack->isBpmLocked()});
+            return result({{"ok", true}, {"id", pTrack->getId().toVariant().toInt()}});   // (which track that was)
+        }
+        const GridStart start = m_gridStart.take(arg("group"));   // thrown away: back as it was
+        if (start.location != pTrack->getLocation()) {
+            return result({{"ok", false}, {"error", "The track has changed"}});
+        }
+        pTrack->setBpmLocked(false);
+        const bool ok = !start.beats || pTrack->trySetBeats(start.beats);
+        pTrack->setBpmLocked(start.locked);
+        return result({{"ok", ok}, {"bpm", pTrack->getBpm()}});
     }
     if (path == QLatin1String("/api/analyze")) {   // ?dry=1: only count the tracks without BPM or key
         return result(m_library.analyzeAll(arg("dry") == QLatin1String("1")));
@@ -1767,6 +1789,25 @@ class NowSync : public VSyncTimeProvider {
     }
 };
 } // namespace
+
+/// Where Mixxx's own waveform would draw the deck now (its engine position and when that was, run on to now, plus
+/// the time to the output), and the playposition the pages get, with the hub's clock: to see how far the pages'
+/// drawing is from it (/api/debug/pos?group=)
+QJsonObject Hub::debugPos(const QString& group) {
+    static NowSync now;
+    static QHash<QString, QSharedPointer<VisualPlayPosition>> s_pos;
+    QSharedPointer<VisualPlayPosition> pPos = s_pos.value(group);
+    if (!pPos) {
+        runOnMain(qApp, [&pPos, &group] { pPos = VisualPlayPosition::getVisualPlayPosition(group); }, 1000);
+        s_pos.insert(group, pPos);
+    }
+    double play = -1, slip = -1;
+    const bool ok = pPos && pPos->getPlaySlipAtNextVSync(&now, &play, &slip);
+    return {{"ok", ok}, {"ts", static_cast<double>(m_clock.elapsed())}, {"visual", play},
+            {"playposition", ControlObject::get(ConfigKey(group, QStringLiteral("playposition")))},
+            {"duration", ControlObject::get(ConfigKey(group, QStringLiteral("duration")))},
+            {"latMs", latencySeconds() * 1000}};
+}
 
 void Hub::slipTick() {
     static NowSync now;

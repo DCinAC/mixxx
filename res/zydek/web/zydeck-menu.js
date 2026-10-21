@@ -192,7 +192,7 @@
       desc: "When a deck loads a track without stems, this device separates it (about half a minute) and swaps in the stems version.",
       more: "If the deck is already playing, the STEM pads offer the switch (it makes a short gap). Stems go to Music/ZyDeck Stems and are reused next time. The stem server on a PC still gives the best quality." },
     { id: "stemserver", sec: "stems", name: "Stem server (PC)", kind: "field", fields: [{ ph: "192.168.0.100:8770", get: () => sys.prefs?.stemServer || "", mode: "url" }],
-      btn: { key: "stems", label: "Connect", act: async ([server]) => {
+      btn: { key: "stems", label: "Connect", keep: true, act: async ([server]) => {
         server = server.trim() || "192.168.0.100:8770";
         await api(`/api/web/prefs?${qs({ stemServer: server })}`); sys.prefs = { ...(sys.prefs || {}), stemServer: server };
         host.changed?.("stemServer", server); await checkStems(); if (sys.stemCheck?.error) throw new Error(sys.stemCheck.error);
@@ -244,9 +244,8 @@
       desc: "The decks. Hardware: keys in a frame with a lamp, rubber pads lit from behind, a jog wheel's edge for nudging. Element: ZyDeck's flat look." },
     { id: "menulook", sec: "look", name: "Menu UI", kind: "seg", opts: () => [["d", "Hardware"], ["element", "Element"]], ...C("menuLook", "d", () => paintLook()),
       desc: "The menus: these settings, the FX menu and the track menu. The library keeps its own look." },
-    { id: "fxmenu", sec: "look", name: "FX menu", kind: "seg", opts: () => [["keys", "Hardware"], ["display", "Hardware 2"]], ...C("fxMenu", "keys"),
-      show: () => (S().menuLook || "d") === "d",
-      desc: "Hardware: every effect a key. Hardware 2: the effects on a display, with a selector knob that clicks from one to the next." },
+    { id: "cuetime", sec: "look", name: "Hot cue time", kind: "seg", opts: () => [["off", "Off"], ["left", "Left"], ["right", "Right"]], ...C("cueTime", "off"),
+      desc: "Each hot cue pad: where in the track the cue is, in its lower left or right corner." },
     { id: "knobcentre", sec: "look", name: "Knob at centre", kind: "seg", opts: () => [["lit", "Ring lit"], ["dark", "Dark"]], ...C("knobCentre", "lit"),
       desc: "A knob with a centre (gain, EQ, filter), on it: its ring lit, or left dark." },
     { id: "lampside", sec: "look", name: "Lamp on wide keys", kind: "seg", opts: () => [["left", "Left"], ["right", "Right"], ["bottom", "Bottom"]], ...C("lampSide", "left"),
@@ -392,13 +391,15 @@
           i.setAttribute("aria-label", typeof f.ph === "function" ? f.ph() : f.ph);
           c.appendChild(i); return i;
         });
-        // saved as it's left (Enter, or tapping away): no key to press; a lamp beside it says how it went
-        const b = el("span", "zm-autolamp", PL);
+        // saved as it's left (Enter, or tapping away): no key to press; a lamp beside it says how it went. With
+        // btn.keep, a key instead (Connect: also to try again as it is), and Enter presses it
+        const b = r.btn.keep ? procKey(r.btn.label, r.btn.key) : el("span", "zm-autolamp", PL);
         const save = () => run(r.btn.key, async () => { const ok = await r.btn.act(ins.map(i => i.value)); r.fields.forEach((f, k) => { if (f.secret) ins[k].value = ""; ins[k]._typed = false; }); return ok; }).then(refresh);
         ins.forEach(i => {
-          i.addEventListener("change", () => { if (i.value.trim() || !r.fields[ins.indexOf(i)].secret) save(); });
-          i.addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); i.blur(); } });
+          if (!r.btn.keep) i.addEventListener("change", () => { if (i.value.trim() || !r.fields[ins.indexOf(i)].secret) save(); });
+          i.addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); i.blur(); if (r.btn.keep) save(); } });
         });
+        if (r.btn.keep) b.addEventListener("click", save);
         c.appendChild(b);
         upds.push(() => {
           r.fields.forEach((f, k) => { const i = ins[k]; i.placeholder = typeof f.ph === "function" ? f.ph() : f.ph; if (document.activeElement !== i && !f.secret && !i._typed) i.value = f.get(); });

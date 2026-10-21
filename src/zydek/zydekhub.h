@@ -15,6 +15,7 @@
 #include <QTimer>
 
 #include "preferences/usersettings.h"
+#include "track/beats.h"
 #include "zydek/zydekhttpserver.h"
 #include "zydek/zydeklibrary.h"
 
@@ -281,6 +282,15 @@ class Hub : public QObject {
     struct Calibration {
         QString group;
     } m_calib;
+    /// The beat grid editor: each deck's grid as it was when the editor opened (/api/grid/begin), put back if its
+    /// edits are thrown away (/api/grid/revert)
+    struct GridStart {
+        QString location;          // the track's file (it must still be that one)
+        mixxx::BeatsPointer beats;
+        bool locked = false;
+    };
+    QHash<QString, GridStart> m_gridStart;
+    QJsonObject debugPos(const QString& group);
     // The decks as they play (zydek-decks.json: track, position, tempo, key shift, KEY LOCK, QUANTIZE), loaded back at
     // start, paused where they were, when the last run stopped while something played or crashed
     QString m_deckSessionKey;      // the tracks and what played, at the last write
