@@ -134,7 +134,24 @@ public class ZydekAudio {
         int ms = (int) Math.round(Math.max(0, late.get(late.size() / 2) - ownBufferMs));
         Log.i(TAG, "output path latency " + ms + " ms on " + route + " (measured " + Math.round(late.get(late.size() / 2))
                 + " ms, own buffer " + Math.round(ownBufferMs) + " ms)");
-        nativeLatency(ms, route);
+        deliver(++s_seq, ms, route, 60);
+    }
+
+    private static volatile int s_seq;   // the latest measurement: an older one still waiting gives way to it
+
+    /// To the hub. The first measurement starts with the app, often before Mixxx's library is loaded and the hub
+    /// has registered nativeLatency: then again every 2 s (up to 2 minutes) until it's there.
+    private static void deliver(int seq, int ms, String route, int tries) {
+        if (seq != s_seq) {
+            return;
+        }
+        try {
+            nativeLatency(ms, route);
+        } catch (UnsatisfiedLinkError e) {
+            if (tries > 0) {
+                s_handler.postDelayed(() -> deliver(seq, ms, route, tries - 1), 2000);
+            }
+        }
     }
 
     private static String typeName(int type) {

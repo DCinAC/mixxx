@@ -34,7 +34,11 @@ import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONObject;
 import com.google.mlkit.vision.barcode.common.Barcode;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
+import com.google.android.gms.common.moduleinstall.ModuleInstall;
+import com.google.android.gms.common.moduleinstall.ModuleInstallClient;
+import com.google.android.gms.common.moduleinstall.ModuleInstallRequest;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
@@ -751,11 +755,41 @@ public class MainActivity extends QtActivityBase {
         });
     }
 
+    /// The scanner's screen comes from Play services, which fetches it the first time it's wanted: then this
+    /// waits for it (up to a minute) and opens it, rather than failing once.
     private void scanQr() {
         final GmsBarcodeScannerOptions options =
                 new GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build();
-        GmsBarcodeScanning.getClient(this, options)
-                .startScan()
+        final GmsBarcodeScanner scanner = GmsBarcodeScanning.getClient(this, options);
+        final ModuleInstallClient modules = ModuleInstall.getClient(this);
+        modules.areModulesAvailable(scanner)
+                .addOnSuccessListener(r -> {
+                    if (r.areModulesAvailable()) {
+                        startScan(scanner);
+                        return;
+                    }
+                    scanError("getting");
+                    modules.installModules(ModuleInstallRequest.newBuilder().addApi(scanner).build())
+                            .addOnSuccessListener(i -> whenScannerReady(modules, scanner, 60))
+                            .addOnFailureListener(e -> scanError(String.valueOf(e.getMessage())));
+                })
+                .addOnFailureListener(e -> startScan(scanner));   // (can't tell: try)
+    }
+
+    private void whenScannerReady(ModuleInstallClient modules, GmsBarcodeScanner scanner, int tries) {
+        modules.areModulesAvailable(scanner).addOnSuccessListener(r -> {
+            if (r.areModulesAvailable()) {
+                startScan(scanner);
+            } else if (tries > 0) {
+                new Handler(Looper.getMainLooper()).postDelayed(() -> whenScannerReady(modules, scanner, tries - 1), 1000);
+            } else {
+                scanError("The scanner couldn't be fetched: check the internet connection");
+            }
+        });
+    }
+
+    private void startScan(GmsBarcodeScanner scanner) {
+        scanner.startScan()
                 .addOnSuccessListener(code -> {
                     final String raw = code.getRawValue();
                     if (raw != null && raw.startsWith("zydeck://pair?")) {
