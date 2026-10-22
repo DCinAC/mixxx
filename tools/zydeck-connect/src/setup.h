@@ -34,6 +34,7 @@ class Setup : public QObject {
     State state() const { return m_state; }
     QString why() const { return m_why; }
     bool consented() const;
+    bool mixxxRunning() const { return m_running; }   // (as of the last look, every 3 s)
     void consent(bool yes);   // the user's answer to "set Mixxx up?"
     void redo();              // MAP: the mapping again, and look again now
 
@@ -55,6 +56,7 @@ class Setup : public QObject {
     QProcess m_ps;              // is Mixxx running?
     QElapsedTimer m_lastAnswer; // the mapping's last echo (or start)
     int m_unanswered = 0;       // pings since the last echo
+    bool m_running = false;
 };
 
 } // namespace zc

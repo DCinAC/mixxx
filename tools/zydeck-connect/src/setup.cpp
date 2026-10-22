@@ -77,11 +77,8 @@ void Setup::check() {
         set(State::NoMixxx);
         return;
     }
-    if (!consented()) {
-        set(State::NeedConsent);
-        return;
-    }
-    if (!mappingCurrent()) {   // ZyDeck's own files in Mixxx's folder: kept up to date without asking
+    // (not yet allowed: it still looks whether Mixxx runs, and answers, before it asks; checked() decides)
+    if (consented() && !mappingCurrent()) {   // ZyDeck's own files in Mixxx's folder: kept up to date without asking
         try {
             installMapping();
         } catch (const QString& why) {
@@ -100,7 +97,23 @@ void Setup::check() {
 }
 
 void Setup::checked(bool running) {
-    if (!consented() || mixxxDir().isEmpty() || !m_core->midi()->problem().isEmpty()) {
+    m_running = running;
+    if (mixxxDir().isEmpty() || !m_core->midi()->problem().isEmpty()) {
+        return;
+    }
+    if (!consented()) {   // ask only once it's known whether Mixxx is open, and not at all if it already works
+        if (running && controllerOn() && m_lastAnswer.isValid() && m_lastAnswer.elapsed() < 8000) {
+            QSettings().setValue(QStringLiteral("setup/mixxx"), "yes");
+            set(State::Linked);
+            return;
+        }
+        if (running && controllerOn()) {
+            m_core->pingMixxx();   // (set up by hand before, maybe: its answer comes before the next look)
+            if (++m_unanswered < 2) {
+                return;
+            }
+        }
+        set(State::NeedConsent);
         return;
     }
     if (!controllerOn()) {

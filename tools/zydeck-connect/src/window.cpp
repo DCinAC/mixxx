@@ -41,7 +41,7 @@ double easeOut(double u) { return 1 - std::pow(1 - u, 3); }
 double easeInOut(double u) { return u < .5 ? 4 * u * u * u : 1 - std::pow(-2 * u + 2, 3) / 2; }
 double smooth(double a, double b, double u) { const double t = std::clamp((u - a) / (b - a), 0.0, 1.0); return t * t * (3 - 2 * t); }
 const QRectF kVfd(54, 58, 220, 74);
-const QRectF kMap(54, 150, 120, 42), kLogin(212, 148, 42, 46);
+const QRectF kMap(54, 150, 120, 42), kScan(213, 149, 40, 40);   // SCAN: round, its word under it
 // the slots: bays from kBayX to the right edge; in each, the name, then 30 px clear, then the cluster: PAIR (3:2)
 // and the IN and OUT lamps
 constexpr double kBayX = 298, kBayRight = 22, kBayH = 46, kBayGap = 8, kBayY = 16;
@@ -290,7 +290,10 @@ void Window::setupChanged() {
             auto* box = new QMessageBox(QMessageBox::Question, tr("Set up Mixxx?"),
                     tr("ZyDeck Connect can set Mixxx up for ZyDeck: it puts the ZyDeck mapping in Mixxx's controllers "
                        "folder and turns it on for the ZyDeck Connect port, so a phone or tablet works as a controller "
-                       "straight away.\n\nMixxx's settings are backed up first (mixxx.cfg.before-zydeck)."),
+                       "straight away.\n\nMixxx's settings are backed up first (mixxx.cfg.before-zydeck).") +
+                            (m_setup->mixxxRunning() ? tr("\n\nMixxx is open: it'll ask you to quit it once, as Mixxx "
+                                                          "keeps its settings to itself while it runs.")
+                                                     : QString()),
                     QMessageBox::NoButton, this);
             QPushButton* yes = box->addButton(tr("Set Up"), QMessageBox::AcceptRole);
             box->addButton(tr("Not Now"), QMessageBox::RejectRole);
@@ -316,12 +319,18 @@ void Window::setupChanged() {
         if (once(s)) {
             say(tr("Restart Mixxx"), tr("Mixxx doesn't answer through the ZyDeck Connect port: it was probably started "
                                         "before ZyDeck Connect, and Mixxx only looks for MIDI ports when it starts. "
-                                        "Restart Mixxx.\n\nWith LOGIN on, ZyDeck Connect starts with the computer, "
-                                        "so it's always there first."));
+                                        "Restart Mixxx.\n\nWith Open at Login on (the menu bar menu), ZyDeck "
+                                        "Connect starts with the computer, so it's always there first."));
         }
         break;
     case Setup::State::Failed:
         say(tr("Couldn't set up Mixxx"), m_setup->why(), true);
+        break;
+    case Setup::State::NoMixxx:
+        if (once(s)) {
+            say(tr("Start Mixxx once"), tr("Mixxx hasn't run on this computer yet (its library and settings aren't "
+                                           "there). Start Mixxx once and quit it: ZyDeck Connect sets it up after."));
+        }
         break;
     default:
         break;
@@ -537,9 +546,11 @@ void Window::press(const Hit& h) {
         m_tagManual = 0;
         setTag(false);
         break;
-    case Key::Login:
-        setOpenAtLogin(!openAtLogin());
-        m_menuFor.clear();
+    case Key::Scan:   // look for devices now, and the tag out for one to scan (a click on the tag puts it back)
+        m_core->midi()->rescan();
+        m_pairSlot = -1;
+        m_tagManual = 1;
+        setTag(true);
         refresh();
         break;
     case Key::Close:
@@ -554,8 +565,8 @@ Window::Hit Window::hitAt(const QPointF& p) const {
     if (kMap.contains(p)) {
         return {Key::Map, -1};
     }
-    if (kLogin.contains(p)) {
-        return {Key::Login, -1};
+    if (QRectF(kScan).adjusted(-2, -2, 2, 14).contains(p)) {
+        return {Key::Scan, -1};
     }
     if (QRectF(m_w - kEar + 3, 3, 24, 24).contains(p)) {
         return {Key::Close, -1};
@@ -743,29 +754,35 @@ void Window::paintEvent(QPaintEvent*) {
         p.drawText(at, m_vfd[i]);
     }
 
-    // MAP and LOGIN
+    // MAP and SCAN
     const bool mapDown = m_down.key == Key::Map;
     key(p, kMap, QStringLiteral("MAP"), mapDown);
     processLamp(p, kMap.topLeft() + QPointF(kMap.width() - 25 + mapDown, 13 + mapDown),
             m_mapLamp.isEmpty() ? setupLamp(m_setup->state()) : m_mapLamp, m_clock.elapsed());
-    {   // LOGIN: a bat switch, up is on
-        const bool on = openAtLogin();
-        const QPointF c(kLogin.center().x(), kLogin.y() + 18);
-        QRadialGradient plate(c, 13);
-        plate.setColorAt(0, QColor(0x8a, 0x8c, 0x90));
-        plate.setColorAt(1, QColor(0x3a, 0x3c, 0x40));
-        p.setPen(QPen(QColor(8, 8, 8), 1.5));
-        p.setBrush(plate);
-        p.drawEllipse(c, 11, 11);
-        QLinearGradient bat(c - QPointF(4, 0), c + QPointF(4, 0));
-        bat.setColorAt(0, QColor(0xf0, 0xf0, 0xf2));
-        bat.setColorAt(1, QColor(0x9a, 0x9c, 0xa0));
-        p.setBrush(bat);
-        p.setPen(QPen(QColor(20, 20, 22), 1));
-        p.drawRoundedRect(on ? QRectF(c.x() - 3.5, c.y() - 17, 7, 18) : QRectF(c.x() - 3.5, c.y() - 1, 7, 18), 3.5, 3.5);
-        p.setPen(on ? kLamp : QColor(0x88, 0x88, 0x88));
+    {   // SCAN: a round push button (it doesn't latch), its word under it
+        const bool down = m_down.key == Key::Scan;
+        const QPointF c = kScan.center() + (down ? QPointF(1, 1) : QPointF());
+        const double r = kScan.width() / 2;
+        p.setPen(Qt::NoPen);
+        if (!down) {   // its shadow on the panel
+            p.setBrush(QColor(0, 0, 0, 110));
+            p.drawEllipse(kScan.center() + QPointF(3, 4), r, r);
+        }
+        p.setBrush(QColor(5, 5, 5));   // the black ring
+        p.drawEllipse(c, r, r);
+        QRadialGradient face(c - QPointF(r * .35, r * .4), r * 1.3);
+        face.setColorAt(0, down ? QColor(0x4a, 0x4d, 0x51) : QColor(0x60, 0x63, 0x68));
+        face.setColorAt(1, down ? QColor(0x3c, 0x3e, 0x43) : QColor(0x36, 0x38, 0x3d));
+        p.setBrush(face);
+        p.drawEllipse(c, r - 3, r - 3);
+        if (!down) {
+            p.setPen(QPen(QColor(255, 255, 255, 45), 1));
+            p.setBrush(Qt::NoBrush);
+            p.drawArc(QRectF(c.x() - r + 5, c.y() - r + 5, 2 * r - 10, 2 * r - 10), 70 * 16, 80 * 16);
+        }
+        p.setPen(m_tagWanted ? kLamp : QColor(0x88, 0x88, 0x88));
         p.setFont(pxFont(8, QFont::Bold, 1.2));
-        p.drawText(QRectF(kLogin.x() - 10, kLogin.bottom() + 1, kLogin.width() + 20, 12), Qt::AlignHCenter, QStringLiteral("LOGIN"));
+        p.drawText(QRectF(kScan.x() - 12, kScan.bottom() + 3, kScan.width() + 24, 12), Qt::AlignHCenter, QStringLiteral("SCAN"));
     }
 
     // the four slots, stacked: each a bay with the device, then 30 px clear, then PAIR and the IN / OUT lamps

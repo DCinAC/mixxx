@@ -33,6 +33,7 @@ class Midi : public QObject {
     void reply(const QString& port, const QByteArray& msg);   // to the device on that cable
     QString problem() const;                // why there's no port ("" when there is)
     QStringList cables() const;             // the MIDI inputs being watched
+    void rescan() { watch(); }              // look for cables now (it does every 2 s anyway)
 
     void fromMixxxRaw(const QByteArray& msg);                // (the port's callback)
     void fromCable(const QString& port, const QByteArray& msg);   // (a cable's callback)

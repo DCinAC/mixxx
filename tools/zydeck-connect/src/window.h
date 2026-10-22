@@ -1,14 +1,15 @@
 #pragma once
 // ZyDeck Connect's window: a rack unit. The face: ZYDECK CONNECT and its power lamp, a VFD readout (the MIDI port,
-// Mixxx's library and the mapping, this computer's address), MAP (install the mapping) and the LOGIN switch, and the
-// four device slots stacked as bays: the device and how it's linked, then its PAIR key (3:2, the word under it) and
-// its MIDI IN / OUT lamps. MAP's lamp is Mixxx's side (setup.h): green linked, going round while it waits for Mixxx
-// or the user, red if it failed; MAP sets it up again. The unit is as wide as the longest device name needs (30 px clear of that cluster).
+// Mixxx's side, this computer's address), MAP (set Mixxx up) and SCAN (look for devices now and release the tag),
+// and the four device slots stacked as bays: the device and how it's linked, then its PAIR key (3:2, the word under
+// it) and its MIDI IN / OUT lamps. MAP's lamp is Mixxx's side (setup.h): green linked, going round while it waits for
+// Mixxx or the user, red if it failed. The unit is as wide as the longest device name needs (30 px clear of that
+// cluster). Open at login is in the menu bar menu.
 // Under it, a black tag comes out of the bottom edge with the pairing code on a white sticker: by itself while no
 // device is linked, back in once one is. Coming out it snags: its inner corner catches and it slants, a moment's
-// pause, it's pushed back a little, then pulled again and hangs straight. PAIR on an empty slot pulls it out for that slot (the next device
-// lands there), and again (or a click on the tag) pushes it back. Drawn by hand (QPainter) in a frameless window; it
-// moves by dragging the panel. The menu bar / tray icon keeps it running with the window closed.
+// pause, it's pushed back a little, then pulled again and hangs straight. SCAN, or PAIR on an empty slot (the next
+// device lands there), pulls it out; PAIR again, or a click on the tag, pushes it back. Drawn by hand (QPainter) in a
+// frameless window; it moves by dragging the panel. The menu bar / tray icon keeps it running with the window closed.
 
 #include <QElapsedTimer>
 #include <QHash>
@@ -40,7 +41,7 @@ class Window : public QWidget {
     void closeEvent(QCloseEvent* e) override;
 
   private:
-    enum class Key { None, Map, Login, Close, Tag, Slot };
+    enum class Key { None, Map, Scan, Close, Tag, Slot };
     struct Hit {
         Key key = Key::None;
         int slot = -1;
