@@ -32,11 +32,13 @@ namespace zc {
 namespace {
 // The unit, in logical pixels: the ears, the face, the tag under it. Its width follows the device names (layoutWidth).
 constexpr int kMinW = 700, kMaxW = 1000, kH = 236, kEar = 30;
-// The window: a normal one (its title bar to move and close it), the unit on a dark backdrop with room round it for
-// its drop shadow, and below it for the tag
-constexpr int kPad = 18;
+// The window: see-through, nothing round the unit but a title bar on top of it (drawn here, in the system's manner: it
+// moves the window, closes and minimizes it), room round both for their drop shadow on what's behind, and below for
+// the tag
+constexpr int kPad = 18, kBar = 30;
 constexpr int kTagW = 196, kTagH = 254, kTagX = 66;   // under the left column
-int windowHeight(bool tagOut) { return tagOut ? kH + kPad + kTagH + 24 : kH + 2 * kPad; }
+int windowHeight(bool tagOut) { return kPad + kBar + kH + (tagOut ? kTagH + 24 : kPad); }
+const QPointF kUnit(kPad, kPad + kBar);   // where the unit is in the window
 // how it comes out (ms): pulled until its inner corner catches and it slants (to 300), held there (to 500), pushed back
 // a little (to 700), pulled again, straight at 1000; back in, a plain slide
 constexpr double kTravel = kTagH - 6, kCatchMs = 300, kHoldMs = 500, kBackMs = 700, kOutMs = 1000, kInMs = 400;
@@ -187,6 +189,8 @@ Window::Window(Core* core, Setup* setup, Discovery* discovery)
           m_discovery(discovery),
           m_w(kMinW) {
     setWindowTitle(QString::fromLatin1(kAppName));
+    setWindowFlags(Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint | Qt::Window);   // (its own bar and shadow)
+    setAttribute(Qt::WA_TranslucentBackground);
     setFixedSize(m_w + 2 * kPad, windowHeight(false));
     setMouseTracking(true);
     m_clock.start();
@@ -578,6 +582,19 @@ void Window::press(const Hit& h) {
         m_tagManual = 0;
         setTag(false);
         break;
+    case Key::Slit:   // the tag's slot: pulls it out, or pushes it back
+        m_pairSlot = -1;
+        m_tagManual = m_tagWanted ? 0 : 1;
+        setTag(!m_tagWanted);
+        break;
+    case Key::BarClose:
+        close();
+        break;
+    case Key::BarMin:
+        showMinimized();
+        break;
+    case Key::Bar:   // (dragged: the system moves the window)
+        break;
     case Key::Scan:   // look for devices now, and the tag out for one to scan (a click on the tag puts it back)
         m_core->midi()->rescan();
         m_discovery->scanNow();
@@ -591,8 +608,32 @@ void Window::press(const Hit& h) {
     }
 }
 
+// The bar's buttons: on the Mac the three lamps on the left (close, minimize; the third, zoom, does nothing for a unit
+// of fixed size), elsewhere minimize and close on the right
+QRectF Window::barButton(Key k) const {
+#ifdef Q_OS_MACOS
+    const double x = kPad + 13 + (k == Key::BarMin ? 20 : 0);
+    return {x - 3, kPad + kBar / 2.0 - 9, 18, 18};
+#else
+    const double w = 46;
+    return {kPad + m_w - w * (k == Key::BarClose ? 1 : 2), double(kPad), w, double(kBar)};
+#endif
+}
+
 Window::Hit Window::hitAt(const QPointF& at) const {
-    const QPointF p = at - QPointF(kPad, kPad);   // (the unit's own coordinates)
+    if (QRectF(kPad, kPad, m_w, kBar).contains(at)) {   // the bar
+        if (barButton(Key::BarClose).contains(at)) {
+            return {Key::BarClose, -1};
+        }
+        if (barButton(Key::BarMin).contains(at)) {
+            return {Key::BarMin, -1};
+        }
+        return {Key::Bar, -1};
+    }
+    const QPointF p = at - kUnit;   // (the unit's own coordinates)
+    if (QRectF(kTagX - 6, kH - 14, kTagW + 12, 16).contains(p)) {   // the tag's slot (generous: it's thin)
+        return {Key::Slit, -1};
+    }
     if (kMap.contains(p)) {
         return {Key::Map, -1};
     }
@@ -612,8 +653,9 @@ Window::Hit Window::hitAt(const QPointF& at) const {
 
 void Window::mousePressEvent(QMouseEvent* e) {
     m_down = hitAt(e->position());
-    if (m_down.key == Key::None && e->button() == Qt::LeftButton && windowHandle()) {
-        windowHandle()->startSystemMove();   // the panel: drag the unit
+    if ((m_down.key == Key::None || m_down.key == Key::Bar) && e->button() == Qt::LeftButton && windowHandle()) {
+        m_down = {};
+        windowHandle()->startSystemMove();   // the bar (or the panel): drag the window
     }
     update();
 }
@@ -627,9 +669,20 @@ void Window::mouseReleaseEvent(QMouseEvent* e) {
     update();
 }
 
+void Window::leaveEvent(QEvent*) {
+    if (m_hover.key != Key::None) {
+        m_hover = {};
+        update();
+    }
+}
+
 void Window::mouseMoveEvent(QMouseEvent* e) {
     const Hit h = hitAt(e->position());
-    const bool live = h.key != Key::None && !(h.key == Key::Slot && !m_slotOf.key(h.slot).isEmpty() && !m_foundIn.contains(h.slot));
+    if (!(h == m_hover)) {   // (the bar's buttons light up under the pointer)
+        m_hover = h;
+        update();
+    }
+    const bool live = h.key != Key::None && h.key != Key::Bar && !(h.key == Key::Slot && !m_slotOf.key(h.slot).isEmpty() && !m_foundIn.contains(h.slot));
     setCursor(live ? Qt::PointingHandCursor : Qt::ArrowCursor);
 }
 
@@ -658,17 +711,71 @@ void Window::paintEvent(QPaintEvent*) {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const int W = m_w;
 
-    // ---- the backdrop the unit sits on, and its drop shadow on it (lit from above: soft, a little lower) ----
-    QLinearGradient backdrop(QPointF(0, 0), QPointF(0, height()));
-    backdrop.setColorAt(0, QColor(0x1a, 0x1b, 0x1e));
-    backdrop.setColorAt(1, QColor(0x0e, 0x0f, 0x11));
-    p.fillRect(rect(), backdrop);
+    // ---- the drop shadow of the bar and the unit on what's behind (lit from above: soft, a little lower) ----
     p.translate(kPad, kPad);
     p.setPen(Qt::NoPen);
     for (int i = 12; i >= 1; --i) {
-        p.setBrush(QColor(0, 0, 0, 10 + (12 - i) * 3));
-        p.drawRoundedRect(QRectF(0, 0, W, kH).translated(0, 6).adjusted(-i, -i, i, i), 4 + i, 4 + i);
+        p.setBrush(QColor(0, 0, 0, 8 + (12 - i) * 3));
+        p.drawRoundedRect(QRectF(0, 0, W, kBar + kH).translated(0, 6).adjusted(-i, -i, i, i), 8 + i, 8 + i);
     }
+
+    // ---- the bar, in the system's manner ----
+    {
+        QPainterPath bar;
+        bar.addRoundedRect(QRectF(0, 0, W, kBar + 10), 9, 9);   // (rounded on top; its foot is under the unit)
+        QLinearGradient fill(QPointF(0, 0), QPointF(0, kBar));
+        fill.setColorAt(0, QColor(0x33, 0x34, 0x38));
+        fill.setColorAt(1, QColor(0x26, 0x27, 0x2a));
+        p.setBrush(fill);
+        p.drawPath(bar);
+        p.setPen(QPen(QColor(255, 255, 255, 30), 1));
+        p.drawLine(QPointF(9, .5), QPointF(W - 9, .5));
+        p.setPen(QColor(0xc8, 0xc8, 0xcb));
+        p.setFont(pxFont(13, QFont::DemiBold));
+        const QPointF o(kPad, kPad);   // (barButton is in the window's coordinates)
+#ifdef Q_OS_MACOS
+        p.drawText(QRectF(0, 0, W, kBar), Qt::AlignCenter, QString::fromLatin1(kAppName));
+        const bool over = m_hover.key == Key::BarClose || m_hover.key == Key::BarMin;
+        const QColor lamps[3] = {QColor(0xff, 0x5f, 0x57), QColor(0xfe, 0xbc, 0x2e), QColor(0x4a, 0x4b, 0x4e)};
+        for (int i = 0; i < 3; ++i) {
+            const QPointF c(13 + 6 + i * 20, kBar / 2.0);
+            p.setPen(QPen(QColor(0, 0, 0, 60), .8));
+            p.setBrush(lamps[i]);
+            p.drawEllipse(c, 6, 6);
+            if (over && i < 2) {   // (their marks show with the pointer over them, as the system's do)
+                p.setPen(QPen(QColor(0x4d, 0x1a, 0x10, 200), 1.3));
+                if (i == 0) {
+                    p.drawLine(c + QPointF(-2.5, -2.5), c + QPointF(2.5, 2.5));
+                    p.drawLine(c + QPointF(2.5, -2.5), c + QPointF(-2.5, 2.5));
+                } else {
+                    p.drawLine(c + QPointF(-3, 0), c + QPointF(3, 0));
+                }
+            }
+        }
+#else
+        p.drawText(QRectF(14, 0, W, kBar), Qt::AlignVCenter | Qt::AlignLeft, QString::fromLatin1(kAppName));
+        for (const Key k : {Key::BarMin, Key::BarClose}) {
+            const QRectF r = barButton(k).translated(-o);
+            const bool over = m_hover.key == k;
+            if (over) {
+                QPainterPath b;
+                b.addRect(r);
+                p.setPen(Qt::NoPen);
+                p.fillPath(k == Key::BarClose ? b.intersected(bar) : b, k == Key::BarClose ? QColor(0xc4, 0x2b, 0x1c) : QColor(255, 255, 255, 25));
+            }
+            p.setPen(QPen(over && k == Key::BarClose ? Qt::white : QColor(0xc8, 0xc8, 0xcb), 1.1));
+            const QPointF c = r.center();
+            if (k == Key::BarClose) {
+                p.drawLine(c + QPointF(-5, -5), c + QPointF(5, 5));
+                p.drawLine(c + QPointF(5, -5), c + QPointF(-5, 5));
+            } else {
+                p.drawLine(c + QPointF(-5, 0), c + QPointF(5, 0));
+            }
+        }
+#endif
+        Q_UNUSED(o);
+    }
+    p.translate(0, kBar);   // the unit's own coordinates from here
 
     // ---- the tag, behind the unit: out of the slit in its bottom edge. Black, with a white sticker (the code, what
     // to do with it, the address) as a real one would have; slanted about its top inner corner while it snags ----

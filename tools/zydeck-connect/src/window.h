@@ -8,11 +8,11 @@
 // cluster). Open at login is in the menu bar menu.
 // Under it, a black tag comes out of the bottom edge with the pairing code on a white sticker: by itself while no
 // device is linked, back in once one is. Coming out it snags: its inner corner catches and it slants, a moment's
-// pause, it's pushed back a little, then pulled again and hangs straight. SCAN, or PAIR on an empty slot (the next
-// device lands there), pulls it out; PAIR again, or a click on the tag, pushes it back. Drawn by hand (QPainter) on a
-// dark backdrop in a normal window (its title bar moves and closes it; dragging the panel moves it too). The edge is
-// machined (a bevel catching the light); the unit casts a drop shadow. The menu bar / tray icon keeps it running with
-// the window closed.
+// pause, it's pushed back a little, then pulled again and hangs straight. A click on its slot, SCAN, or PAIR on an
+// empty slot (the next device lands there) pulls it out; the slot again, PAIR again, or a click on the tag pushes it
+// back. Drawn by hand (QPainter) in a see-through window: nothing round the unit but a title bar on top, in the
+// system's manner (it moves the window; close, minimize), and their drop shadow on what's behind. The edge is machined
+// (a bevel catching the light). The menu bar / tray icon keeps it running with the window closed.
 
 #include <QElapsedTimer>
 #include <QHash>
@@ -41,17 +41,20 @@ class Window : public QWidget {
     void mousePressEvent(QMouseEvent* e) override;
     void mouseReleaseEvent(QMouseEvent* e) override;
     void mouseMoveEvent(QMouseEvent* e) override;
+    void leaveEvent(QEvent* e) override;
     void keyPressEvent(QKeyEvent* e) override;
     void closeEvent(QCloseEvent* e) override;
 
   private:
-    enum class Key { None, Map, Scan, Tag, Slot };
+    enum class Key { None, Map, Scan, Tag, Slot, Slit, Bar, BarClose, BarMin };
     struct Hit {
         Key key = Key::None;
         int slot = -1;
         bool operator==(const Hit& o) const { return key == o.key && slot == o.slot; }
     };
     Hit hitAt(const QPointF& p) const;
+    QRectF barButton(Key k) const;   // the bar's close and minimize (window coordinates)
+    Hit m_hover;
     void press(const Hit& h);
     void refresh();            // once a second, and when a device comes or goes
     void setTag(bool out);     // slide it
