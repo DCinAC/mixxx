@@ -230,6 +230,7 @@ let dragging = false;
     const dx = e.clientX - x0; x0 = e.clientX; acc += dx; off += dx; el.style.setProperty("--off", off + "px");
     const step = 7, q = Math.trunc(acc / step);
     for (let n = 0; n < Math.abs(q); n++) push(q > 0 ? "beats_translate_later" : "beats_translate_earlier");
+    if (q) touched = true;
     if (q) { acc -= q * step; refreshBeats(); }
   });
   const up = () => { on = false; el.classList.remove("held"); };
@@ -243,7 +244,7 @@ document.querySelectorAll("#pads button[data-c]").forEach(b => {
   b.addEventListener("pointerdown", e => {
     e.preventDefault(); b.classList.add("down");
     if (st.locked && b.dataset.c !== "bpm_tap") { msg("The grid is locked: unlock it first", true); return; }
-    push(b.dataset.c); refreshBeats(); msg("");
+    push(b.dataset.c); refreshBeats(); msg(""); touched = true;
     if (b.hasAttribute("data-rep")) rep = setInterval(() => { push(b.dataset.c); refreshBeats(); }, 90);
   });
   const up = () => { b.classList.remove("down"); clearInterval(rep); rep = null; };
@@ -257,6 +258,7 @@ $("#bpmset").addEventListener("click", async () => {
   const bpm = parseFloat($("#bpmin").value);
   if (!(bpm > 0)) return msg("Type a BPM first", true);
   try {
+    touched = true;
     const r = await (await fetch(`/api/grid/bpm?group=${encodeURIComponent(GROUP)}&bpm=${bpm}`)).json();
     if (!r.ok) return msg(r.error, true);
     $("#bpmin").value = ""; msg(`Set to ${r.bpm.toFixed(2)} BPM`); refreshBeats();
@@ -264,6 +266,7 @@ $("#bpmset").addEventListener("click", async () => {
 });
 $("#lock").addEventListener("click", async () => {
   try {
+    touched = true;
     const r = await (await fetch(`/api/grid/lock?group=${encodeURIComponent(GROUP)}&on=${st.locked ? 0 : 1}`)).json();
     if (r.ok) { st.locked = r.locked; paintLock(); msg(st.locked ? "Locked: the grid can't change (analysis leaves it alone too)" : "Unlocked"); }
   } catch {}
@@ -278,11 +281,17 @@ let start = null;   // {beats, locked}
     try { const r = await (await fetch(`/api/grid/begin?group=${G}`)).json(); if (r.ok && (!TRACK || r.id === TRACK)) break; } catch {}
     await new Promise(r => setTimeout(r, 300));
   }
-  await loadBeats();
+  // (the grid as it is once it's there: Mixxx may still be analysing a track it's just been given)
+  for (let i = 0; i < 30; i++) {
+    await loadBeats();
+    if (st.beats) break;
+    await new Promise(r => setTimeout(r, 700));
+  }
   start = { beats: st.beats ? st.beats.slice() : null, locked: st.locked };
 })();
+let touched = false;   // an editing control was used (only then can anything have changed)
 async function changed() {
-  if (!start) return false;
+  if (!start || !touched) return false;
   await loadBeats();
   const a = start.beats, b = st.beats;
   if (start.locked !== st.locked) return true;

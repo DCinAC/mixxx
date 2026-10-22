@@ -866,6 +866,7 @@ public class MainActivity extends QtActivityBase {
         if (event.getKeyCode() == KeyEvent.KEYCODE_BACK
                 && (m_loginView != null || (m_phoneView != null && m_phoneView.getVisibility() == View.VISIBLE))) {
             if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
+                android.util.Log.d("Zydek", "Back: the pages' (they can go back: " + (m_phoneView != null && m_phoneView.canGoBack()) + ")");
                 backInPages();
             }
             return true;
