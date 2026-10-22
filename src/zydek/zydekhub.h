@@ -293,6 +293,14 @@ class Hub : public QObject {
     };
     QHash<QString, GridStart> m_gridStart;
     QJsonObject debugPos(const QString& group);
+    /// Where each playing deck (and the preview deck) is heard, ~60 times a second: Mixxx's own waveform position
+    /// (its audio timing) and speed, stamped with the hub's clock. Pages draw from it (no polling, no smoothing).
+    void visualTick();
+    QSharedPointer<VisualPlayPosition> visualPos(const QString& group);
+    QTimer m_visualTimer;
+    QHash<QString, QSharedPointer<VisualPlayPosition>> m_visualPosOf;
+    QHash<QString, int> m_visualQuiet;   // ticks a group has been still (it's sent a few times after it stops)
+    double visualExtraSeconds() const;   // the delay Mixxx's own timing doesn't know about (see latencySeconds)
     // The decks as they play (zydek-decks.json: track, position, tempo, key shift, KEY LOCK, QUANTIZE), loaded back at
     // start, paused where they were, when the last run stopped while something played or crashed
     QString m_deckSessionKey;      // the tracks and what played, at the last write

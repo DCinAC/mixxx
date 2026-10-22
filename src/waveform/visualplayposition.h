@@ -75,6 +75,9 @@ class VisualPlayPosition : public QObject {
     double determinePlayPosInLoopBoundries(
             const VisualPlayPositionData& data, const double& offset);
     double getEnginePlayPos();
+    // ZyDeck: how fast the play position moves now, as a fraction of the track per second (0 stopped, negative
+    // backwards), as getPlaySlipAtNextVSync() moves it
+    bool getRateFractionPerSecond(double* pRate);
     void getTrackTime(double* pPlayPosition, double* pTempoTrackSeconds);
 
     // WARNING: Not thread safe. This function must only be called from the main

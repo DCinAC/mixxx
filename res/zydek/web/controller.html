@@ -2299,7 +2299,7 @@ function frame(now) {
         scratchBy(d, d.vel * dt);
         d.pos = clamp(d.pos + d.vel * dt, -PREROLL, d.dur);
         if (d.vel === target) { d.coast = false; mxSend({ scratch: [d.n - 1, 0, 0] }); posSeed(d, d.pos, target, now); }
-      } else if (d.pt !== undefined) {
+      } else if (d.pt !== undefined || d.vp) {
         d.pos = clamp(posAt(d, now), -PREROLL, d.dur);
       }
       return;
@@ -3109,12 +3109,12 @@ function loadCueLabels(d) {
 }
 
 function onMixxx(m) {
-  if (m.init) { ZydeckMenu.push(m); if (m.init.notice) toast(m.init.notice); LAT = m.init.lat || 0; if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
+  if (m.init) { ZydeckMenu.push(m); if (m.init.notice) toast(m.init.notice); LAT = m.init.lat || 0; ZydeckPos.setLatency(m.init.lat, m.init.vlat); if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
   if (m.t === "rec") { ZydeckMenu.push(m); return paintRec(m.r); }
   if (m.t === "remote") { ZydeckMenu.push(m); return onRemote(m); }
   if (m.t === "opt" || m.t === "dc") return ZydeckMenu.push(m);
   if (m.t === "cuelbl") { decks.forEach(d => { if (d.loaded !== false) loadCueLabels(d); }); return; }   // hot cues edited (the phone's library, a pad)
-  if (m.t === "lat") { LAT = m.s || 0; return; }
+  if (m.t === "lat") { LAT = m.s || 0; ZydeckPos.setLatency(m.s, m.v); return; }
   if (!live) return;
   const d = m.d !== undefined ? decks[m.d] : null;
   switch (m.t) {
@@ -3143,10 +3143,28 @@ function onMixxx(m) {
 }
 
 let mxRx = 0;   // when /ws last brought anything
+// Where each playing deck is heard, ~60 times a second (the hub, from Mixxx's audio timing): drawn straight from it
+// (zydeck-position.js); the playposition updates are the fallback (stopped, or the computer's decks)
+function onVisual(m) {
+  if (!live || REMOTE.on) return;
+  const now = performance.now();
+  for (const [g, v] of Object.entries(m.p)) {
+    const n = /^\[Channel(\d)\]$/.exec(g), d = n && decks[n[1] - 1];
+    if (d && d.dur > 0) ZydeckPos.posVisual(d, v[0] * d.dur, v[1] * d.dur, m.ts, now);
+  }
+}
 function mxConnect() {
   const ws = mxWs = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${HUB_HOST}/ws`);
   mxRx = performance.now();
-  ws.onmessage = ev => { mxRx = performance.now(); const m = JSON.parse(ev.data); if (m.t === "pong") onPong(m); else onMixxx(m); };
+  ws.onmessage = ev => {
+    mxRx = performance.now();
+    const m = JSON.parse(ev.data);
+    if (m.t === "vp") onVisual(m);
+    else if (m.t === "clk") ZydeckPos.clockPong(m.c, m.h, performance.now());
+    else if (m.t === "pong") onPong(m);
+    else onMixxx(m);
+  };
+  ws.onopen = () => ZydeckPos.clockStart(msg => { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); });   // the hub's clock
   ws.onclose = () => { if (ws === mxWs) setTimeout(mxConnect, 1500); };
 }
 mxConnect();

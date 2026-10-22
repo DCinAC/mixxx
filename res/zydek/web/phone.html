@@ -612,16 +612,29 @@ function paintCtlMode() {
 
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
+  const sock = ws;
+  ws.onopen = () => ZydeckPos.clockStart(msg => { if (sock.readyState === 1) sock.send(JSON.stringify(msg)); });   // the hub's clock
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
+    if (m.t === "vp") {   // where each playing deck is heard (the hub, from Mixxx's audio timing): drawn straight from it
+      if (remote.on) return;
+      const now = performance.now();
+      for (const [g, v] of Object.entries(m.p)) {
+        const n = /^\[Channel(\d)\]$/.exec(g), d = n && decks[n[1] - 1];
+        if (d && d.dur > 0) ZydeckPos.posVisual(d, v[0] * d.dur, v[1] * d.dur, m.ts, now);
+      }
+      return;
+    }
+    if (m.t === "clk") { ZydeckPos.clockPong(m.c, m.h, performance.now()); return; }
     ZydeckMenu.push(m);   // what the settings show: remote, opt, rec, dc, init
     if (m.t === "remote") return onRemote(m);
-    if (m.t === "lat") { LAT = m.s || 0; return; }
+    if (m.t === "lat") { LAT = m.s || 0; ZydeckPos.setLatency(m.s, m.v); return; }
     if (m.t === "opt" || m.t === "rec" || m.t === "dc") return;
     if (m.t === "notice") { toast(m.m, "bad"); return; }
     if (m.init) {
       if (m.init.notice) toast(m.init.notice, "ok");
       LAT = m.init.lat || 0;
+      ZydeckPos.setLatency(m.init.lat, m.init.vlat);
       if (m.init.remote) onRemote(m.init.remote);
       live = !!m.init.live;
       m.init.decks.forEach((x, i) => { if (!decks[i]) return; onDeckName(decks[i], x.n); decks[i].cueColors = x.cues.map(v => v ? v - 1 : null); });
@@ -814,7 +827,7 @@ function frame(now) {
   for (const p of panels) {
     if (!shown(p)) continue;
     const d = deckFor(p);
-    // Between Mixxx's ~30 position updates a second, advance at the deck's speed.
+    // The hub's heard positions (~60 a second); between them, or without them, at the deck's speed
     d.pos = d.loaded ? clamp(posAt(d, now), 0, d.dur) : 0;
     p.root.className = `dk${d.n > 2 ? " d34" : ""}${d.loaded ? "" : " empty"}${d.playing ? " playing" : ""}`;
     p.num.textContent = d.n;

@@ -86,15 +86,24 @@ function connect() {
   ws = new WebSocket(`ws://${HUB_HOST}/ws`);
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data), now = performance.now();
-    if (m.init) { LAT = m.init.lat || 0; return; }
-    if (m.t === "lat") { LAT = m.s || 0; return; }
+    if (m.init) { LAT = m.init.lat || 0; ZydeckPos.setLatency(m.init.lat, m.init.vlat); return; }
+    if (m.t === "lat") { LAT = m.s || 0; ZydeckPos.setLatency(m.s, m.v); return; }
+    if (m.t === "clk") { ZydeckPos.clockPong(m.c, m.h, now); return; }
+    if (m.t === "vp") {   // where the pattern is heard (the hub, from Mixxx's audio timing), as the decks get it
+      const v = pat && m.p[pat.group];
+      if (v && dur > 0) { ZydeckPos.posVisual(d, v[0] * dur, v[1] * dur, m.ts, now); anchor = true; }
+      return;
+    }
     if (m.t !== "cv" || !pat || !m.k.startsWith(pat.group + ",")) return;
     const key = m.k.slice(pat.group.length + 1);
     if (key === "duration" && m.v > 0) dur = m.v;
     else if (key === "play") { playing = d.playing = m.v > 0; if (!playing) ZydeckPos.posStop(d, now); }
     else if (key === "playposition") { ZydeckPos.posUpdate(d, m.v * dur, now, m.ts); anchor = true; }
   };
-  ws.onopen = () => { if (pat) subscribe(); };
+  ws.onopen = () => {
+    if (pat) subscribe();
+    ZydeckPos.clockStart(msg => { if (ws?.readyState === 1) ws.send(JSON.stringify(msg)); });   // the hub's clock
+  };
   ws.onclose = () => setTimeout(connect, 1200);
 }
 const subscribe = () => ws?.readyState === 1 && ws.send(JSON.stringify({ sub: [[pat.group, "playposition", 1], [pat.group, "duration", 0], [pat.group, "play", 0]] }));

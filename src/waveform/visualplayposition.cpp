@@ -150,6 +150,15 @@ double VisualPlayPosition::determinePlayPosInLoopBoundries(
     return interpolatedPlayPos;
 }
 
+bool VisualPlayPosition::getRateFractionPerSecond(double* pRate) {
+    VisualPlayPositionData data;
+    if (!m_data.getAt(0, &data) || data.m_audioBufferMicroS <= 0) {
+        return false;
+    }
+    *pRate = data.m_positionStep * data.m_playRate * 1000000.0 / data.m_audioBufferMicroS;
+    return true;
+}
+
 bool VisualPlayPosition::getPlaySlipAtNextVSync(
         VSyncTimeProvider* pSyncTimeProvider,
         double* pPlayPosition,

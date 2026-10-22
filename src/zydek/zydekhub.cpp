@@ -248,6 +248,10 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
     m_slipTimer.setInterval(40);
     connect(&m_slipTimer, &QTimer::timeout, this, &Hub::slipTick);
     m_slipTimer.start();
+    m_visualTimer.setTimerType(Qt::PreciseTimer);
+    m_visualTimer.setInterval(16);
+    connect(&m_visualTimer, &QTimer::timeout, this, &Hub::visualTick);
+    m_visualTimer.start();
 }
 
 #ifdef Q_OS_ANDROID
@@ -1048,6 +1052,12 @@ void Hub::onWsText(QTcpSocket* pClient, const QString& path, const QByteArray& t
             ping(pClient, QJsonDocument::fromJson(text).object().value(QStringLiteral("ping")).toArray());
             return;
         }
+        if (text.startsWith("{\"clk\"")) {   // a page matching its clock to the hub's: answered at once, to the ms fraction
+            const double c = QJsonDocument::fromJson(text).object().value(QStringLiteral("clk")).toDouble();
+            m_server.sendText(pClient, QJsonDocument(QJsonObject{{"t", "clk"}, {"c", c},
+                    {"h", static_cast<double>(m_clock.nsecsElapsed()) / 1e6}}).toJson(QJsonDocument::Compact));
+            return;
+        }
         handlePageMessage(text);
         return;
     }
@@ -1813,14 +1823,63 @@ class NowSync : public VSyncTimeProvider {
 /// Where Mixxx's own waveform would draw the deck now (its engine position and when that was, run on to now, plus
 /// the time to the output), and the playposition the pages get, with the hub's clock: to see how far the pages'
 /// drawing is from it (/api/debug/pos?group=)
+QSharedPointer<VisualPlayPosition> Hub::visualPos(const QString& group) {
+    QSharedPointer<VisualPlayPosition> pPos = m_visualPosOf.value(group);
+    if (!pPos) {   // (made on Mixxx's main thread)
+        runOnMain(qApp, [&pPos, &group] { pPos = VisualPlayPosition::getVisualPlayPosition(group); }, 1000);
+        if (pPos) {
+            m_visualPosOf.insert(group, pPos);
+        }
+    }
+    return pPos;
+}
+
+/// {"t":"vp","ts":<hub ms>,"p":{"[Channel1]":[position 0-1, speed in track per second],...}}: each deck that plays
+/// (and, a few times, one that just stopped), where it's heard now as far as Mixxx's audio timing knows. What Mixxx's
+/// timing doesn't know (visualExtraSeconds: the phone's own output path, the user's offset) is in init's and lat's
+/// "vlat", for the page to take off.
+void Hub::visualTick() {
+    if (m_controllerMode || m_server.clients(QStringLiteral("/ws")).isEmpty()) {
+        return;   // (in controller mode the decks are the computer's)
+    }
+    static NowSync now;
+    static const QStringList groups{QStringLiteral("[Channel1]"), QStringLiteral("[Channel2]"), QStringLiteral("[Channel3]"),
+            QStringLiteral("[Channel4]"), QStringLiteral("[PreviewDeck1]")};
+    QJsonObject positions;
+    for (const QString& group : groups) {
+        if (ControlObject::get(ConfigKey(group, QStringLiteral("track_loaded"))) <= 0) {
+            m_visualQuiet.remove(group);
+            continue;
+        }
+        const QSharedPointer<VisualPlayPosition> pPos = visualPos(group);
+        double play = 0, slip = 0, rate = 0;
+        if (!pPos || !pPos->getPlaySlipAtNextVSync(&now, &play, &slip) || !pPos->getRateFractionPerSecond(&rate)) {
+            continue;
+        }
+        int& quiet = m_visualQuiet[group];
+        quiet = rate == 0 ? quiet + 1 : 0;
+        if (quiet > 6) {
+            continue;   // still: once it's said so a few times, the page's own (stopped) model holds it
+        }
+        positions.insert(group, QJsonArray{play, rate});
+    }
+    if (!positions.isEmpty()) {
+        emitJson({{"t", "vp"}, {"ts", static_cast<double>(m_clock.nsecsElapsed()) / 1e6}, {"p", positions}});
+    }
+}
+
+double Hub::visualExtraSeconds() const {
+    if (m_controllerMode) {
+        return 0;
+    }
+    // Mixxx's timing counts its own buffer (the Oboe host says a buffer reaches the speaker one buffer later); the
+    // rest of Android's path (measured) and the user's offset it doesn't
+    return std::max(0.0, std::max(0, m_measuredLatencyMs) + m_latencyOffsetMs) / 1000.0;
+}
+
 QJsonObject Hub::debugPos(const QString& group) {
     static NowSync now;
-    static QHash<QString, QSharedPointer<VisualPlayPosition>> s_pos;
-    QSharedPointer<VisualPlayPosition> pPos = s_pos.value(group);
-    if (!pPos) {
-        runOnMain(qApp, [&pPos, &group] { pPos = VisualPlayPosition::getVisualPlayPosition(group); }, 1000);
-        s_pos.insert(group, pPos);
-    }
+    const QSharedPointer<VisualPlayPosition> pPos = visualPos(group);
     double play = -1, slip = -1;
     const bool ok = pPos && pPos->getPlaySlipAtNextVSync(&now, &play, &slip);
     return {{"ok", ok}, {"ts", static_cast<double>(m_clock.elapsed())}, {"visual", play},
@@ -2012,7 +2071,7 @@ double Hub::latencySeconds() const {
 }
 
 void Hub::emitLatency() {
-    emitJson({{"t", "lat"}, {"s", latencySeconds()}});
+    emitJson({{"t", "lat"}, {"s", latencySeconds()}, {"v", visualExtraSeconds()}});
 }
 
 void Hub::saveAudioPrefs() const {
@@ -3833,6 +3892,7 @@ QJsonObject Hub::snapshot() const {
                     {"live", live()},
                     {"remote", remoteStatus()},
                     {"lat", latencySeconds()},
+                    {"vlat", visualExtraSeconds()},
                     {"lstems", deckStemsJson()},
                     {"ssrv", m_stemServer},
                     {"ddef", deckDefaultsJson()},
