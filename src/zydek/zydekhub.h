@@ -169,6 +169,12 @@ class Hub : public QObject {
     QJsonObject setFxBeats(int unit, int slot, double beats);
     // Output latency compensation: measured (or Mixxx's buffer until then) + the user's fine-tune offset
     int m_measuredLatencyMs = -1;
+    /// When Mixxx's own output stream is heard, from Android's timestamps of it (PortAudio's Oboe host, our patch:
+    /// PaOboe_GetOutputPresentationDelay), ms; -1 unknown. Once known it stands for buffer + m_measuredLatencyMs
+    /// (that one's a separate test sound).
+    int m_streamDelayMs = -1;
+    QTimer m_streamDelayTimer;
+    void streamDelayTick();
     QString m_latencyRoute;
     int m_latencyOffsetMs = 0;
     double latencySeconds() const;

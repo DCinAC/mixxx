@@ -59,6 +59,9 @@
 #include "track/track.h"
 #include "waveform/isynctimeprovider.h"
 #include "waveform/visualplayposition.h"
+#ifdef PA_USE_OBOE
+#include <pa_oboe.h>   // PaOboe_GetOutputPresentationDelay (tools/zydeck-deps/portaudio)
+#endif
 #include "waveform/waveform.h"
 
 #ifdef Q_OS_ANDROID
@@ -248,6 +251,9 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
     m_slipTimer.setInterval(40);
     connect(&m_slipTimer, &QTimer::timeout, this, &Hub::slipTick);
     m_slipTimer.start();
+    m_streamDelayTimer.setInterval(1000);
+    connect(&m_streamDelayTimer, &QTimer::timeout, this, &Hub::streamDelayTick);
+    m_streamDelayTimer.start();
     m_visualTimer.setTimerType(Qt::PreciseTimer);
     m_visualTimer.setInterval(16);
     connect(&m_visualTimer, &QTimer::timeout, this, &Hub::visualTick);
@@ -1448,6 +1454,7 @@ QJsonObject Hub::audioStatus() const {
     out.insert(QStringLiteral("latencyMs"),
             ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms"))));
     out.insert(QStringLiteral("measuredMs"), m_measuredLatencyMs);
+    out.insert(QStringLiteral("streamMs"), m_streamDelayMs);   // Mixxx's own stream, as Android times it (-1: not yet)
     out.insert(QStringLiteral("route"), m_latencyRoute);
     out.insert(QStringLiteral("offsetMs"), m_latencyOffsetMs);
     out.insert(QStringLiteral("totalMs"), std::round(latencySeconds() * 1000));
@@ -1873,8 +1880,38 @@ double Hub::visualExtraSeconds() const {
         return 0;
     }
     // Mixxx's timing counts its own buffer (the Oboe host says a buffer reaches the speaker one buffer later); the
-    // rest of Android's path (measured) and the user's offset it doesn't
+    // rest of Android's path and the user's offset it doesn't
+    if (m_streamDelayMs >= 0) {
+        const double buffer = ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms")));
+        return std::max(0.0, m_streamDelayMs - buffer + m_latencyOffsetMs) / 1000.0;
+    }
     return std::max(0.0, static_cast<double>(std::max(0, m_measuredLatencyMs) + m_latencyOffsetMs)) / 1000.0;
+}
+
+/// Once a second: when Mixxx's output stream is heard (the Oboe host measures it at every callback from Android's
+/// timestamps of that stream, following the route), the median of the last 5; the pages hear of a change of 2 ms or more
+void Hub::streamDelayTick() {
+#ifdef PA_USE_OBOE
+    static QList<int> recent;
+    const double d = PaOboe_GetOutputPresentationDelay();
+    if (d <= 0) {
+        return;
+    }
+    recent.append(static_cast<int>(std::lround(d * 1000)));
+    while (recent.size() > 5) {
+        recent.removeFirst();
+    }
+    QList<int> sorted = recent;
+    std::sort(sorted.begin(), sorted.end());
+    const int ms = sorted.at(sorted.size() / 2);
+    if (m_streamDelayMs < 0 || std::abs(ms - m_streamDelayMs) >= 2) {
+        if (m_streamDelayMs < 0) {
+            qInfo() << "Zydek: Mixxx's output is heard" << ms << "ms after its callback (Android's timestamps of the stream)";
+        }
+        m_streamDelayMs = ms;
+        emitLatency();
+    }
+#endif
 }
 
 QJsonObject Hub::debugPos(const QString& group) {
@@ -2067,6 +2104,9 @@ double Hub::latencySeconds() const {
         return 0;
     }
     const double buffer = ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms")));
+    if (m_streamDelayMs >= 0) {   // the stream itself, as Android times it
+        return std::max(0, m_streamDelayMs + m_latencyOffsetMs) / 1000.0;
+    }
     return std::max(0.0, buffer + std::max(0, m_measuredLatencyMs) + m_latencyOffsetMs) / 1000.0;
 }
 

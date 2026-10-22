@@ -1,0 +1,98 @@
+diff --git a/include/pa_oboe.h b/include/pa_oboe.h
+index 8ed5ad3..9f63278 100644
+--- a/include/pa_oboe.h
++++ b/include/pa_oboe.h
+@@ -154,6 +154,14 @@ PaErrorCode PaOboe_SetNumberOfBuffers(unsigned numberOfBuffers);
+  */
+ PaErrorCode PaOboe_RegisterDevice(const char* name, int32_t id, PaOboe_Direction direction, int channelCount, int sampleRate);
+ 
++/**
++ * \brief  ZyDeck: when the output is heard. At each output callback, the seconds from the callback's start to the moment
++ *          its first frame reaches the speaker or headphones, from AAudio's presentation timestamps of this very stream
++ *          (eased: they step with the hardware's bursts). Negative while unknown (no AAudio stream, no timestamp yet).
++ *          PortAudio's outputBufferDacTime stays "one buffer from now", as Mixxx's waveform timing expects.
++ */
++double PaOboe_GetOutputPresentationDelay(void);
++
+ #ifdef __cplusplus
+ }
+ #endif //__cplusplus
+diff --git a/src/hostapi/oboe/pa_oboe.cpp b/src/hostapi/oboe/pa_oboe.cpp
+index 62355a6..2dcce8e 100644
+--- a/src/hostapi/oboe/pa_oboe.cpp
++++ b/src/hostapi/oboe/pa_oboe.cpp
+@@ -61,6 +61,8 @@
+ #include <pthread.h>
+ #include <ctime>
+ #include <cstring>
++#include <atomic>
++#include <cmath>
+ #include <cstdint>
+ #include <string.h>
+ #include <vector>
+@@ -879,6 +881,55 @@ OboeMediator::~OboeMediator(){
+     PaUtil_FreeMemory(mOboeCallbackStream);
+ }
+ 
++/* ZyDeck: when the output is heard (PaOboe_GetOutputPresentationDelay). The stream's presentation clock: frame f is heard
++ * at origin + f / rate (CLOCK_MONOTONIC, seconds), from a fresh AAudio timestamp every 8 callbacks, eased, and taken as
++ * it is when it jumps (the first, or a new route). */
++static std::atomic<double> g_outputPresentationDelay{-1.0};
++
++static void MeasurePresentationDelay(AudioStream *stream) {
++    static AudioStream *s_stream = nullptr;
++    static double s_origin = 0;
++    static bool s_known = false;
++    static unsigned s_tick = 0;
++    if (stream->getAudioApi() != AudioApi::AAudio) {
++        return;
++    }
++    if (stream != s_stream) {
++        s_stream = stream;
++        s_known = false;
++        s_tick = 0;
++    }
++    const double rate = stream->getSampleRate();
++    if (rate <= 0) {
++        return;
++    }
++    if ((s_tick++ & 7) == 0) {
++        auto ts = stream->getTimestamp(CLOCK_MONOTONIC);
++        if (ts) {
++            const double origin = ts.value().timestamp / 1e9 - ts.value().position / rate;
++            if (!s_known || std::fabs(origin - s_origin) > 0.02) {
++                s_origin = origin;
++                s_known = true;
++            } else {
++                s_origin += (origin - s_origin) * 0.05;
++            }
++        }
++    }
++    if (!s_known) {
++        return;
++    }
++    struct timespec now{};
++    clock_gettime(CLOCK_MONOTONIC, &now);
++    const double delay = s_origin + stream->getFramesWritten() / rate - (now.tv_sec + now.tv_nsec / 1e9);
++    if (delay > 0 && delay < 2.0) {
++        g_outputPresentationDelay.store(delay, std::memory_order_relaxed);
++    }
++}
++
++double PaOboe_GetOutputPresentationDelay(void) {
++    return g_outputPresentationDelay.load(std::memory_order_relaxed);
++}
++
+ /**
+  * \brief   Oboe's callback routine.
+  */
+@@ -887,6 +938,9 @@ OboeMediator::onAudioReady(AudioStream *oboeStream, void *audioData, int32_t num
+ 
+     clock_gettime(CLOCK_REALTIME, &mTimeSpec);
+     mTimeInfo.currentTime = (PaTime)(mTimeSpec.tv_sec + (mTimeSpec.tv_nsec / 1000000000.0));
++    if (oboeStream->getDirection() == Direction::Output) {
++        MeasurePresentationDelay(oboeStream);   /* ZyDeck */
++    }
+     mTimeInfo.outputBufferDacTime = (PaTime)(mOboeCallbackStream->framesPerHostCallback
+                                               /
+                                               mOboeCallbackStream->streamRepresentation.streamInfo.sampleRate
