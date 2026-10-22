@@ -9,8 +9,10 @@
 // Under it, a black tag comes out of the bottom edge with the pairing code on a white sticker: by itself while no
 // device is linked, back in once one is. Coming out it snags: its inner corner catches and it slants, a moment's
 // pause, it's pushed back a little, then pulled again and hangs straight. SCAN, or PAIR on an empty slot (the next
-// device lands there), pulls it out; PAIR again, or a click on the tag, pushes it back. Drawn by hand (QPainter) in a
-// frameless window; it moves by dragging the panel. The menu bar / tray icon keeps it running with the window closed.
+// device lands there), pulls it out; PAIR again, or a click on the tag, pushes it back. Drawn by hand (QPainter) on a
+// dark backdrop in a normal window (its title bar moves and closes it; dragging the panel moves it too). The edge is
+// machined (a bevel catching the light); the unit casts a drop shadow. The menu bar / tray icon keeps it running with
+// the window closed.
 
 #include <QElapsedTimer>
 #include <QHash>
@@ -43,7 +45,7 @@ class Window : public QWidget {
     void closeEvent(QCloseEvent* e) override;
 
   private:
-    enum class Key { None, Map, Scan, Close, Tag, Slot };
+    enum class Key { None, Map, Scan, Tag, Slot };
     struct Hit {
         Key key = Key::None;
         int slot = -1;

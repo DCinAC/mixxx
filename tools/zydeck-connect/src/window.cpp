@@ -32,8 +32,11 @@ namespace zc {
 namespace {
 // The unit, in logical pixels: the ears, the face, the tag under it. Its width follows the device names (layoutWidth).
 constexpr int kMinW = 700, kMaxW = 1000, kH = 236, kEar = 30;
-constexpr int kShade = 14;   // the unit's shadow on what's behind it, under its bottom edge (the window is see-through)
+// The window: a normal one (its title bar to move and close it), the unit on a dark backdrop with room round it for
+// its drop shadow, and below it for the tag
+constexpr int kPad = 18;
 constexpr int kTagW = 196, kTagH = 254, kTagX = 66;   // under the left column
+int windowHeight(bool tagOut) { return tagOut ? kH + kPad + kTagH + 24 : kH + 2 * kPad; }
 // how it comes out (ms): pulled until its inner corner catches and it slants (to 300), held there (to 500), pushed back
 // a little (to 700), pulled again, straight at 1000; back in, a plain slide
 constexpr double kTravel = kTagH - 6, kCatchMs = 300, kHoldMs = 500, kBackMs = 700, kOutMs = 1000, kInMs = 400;
@@ -184,11 +187,7 @@ Window::Window(Core* core, Setup* setup, Discovery* discovery)
           m_discovery(discovery),
           m_w(kMinW) {
     setWindowTitle(QString::fromLatin1(kAppName));
-    // nothing around the unit: no frame, see-through, and no system shadow (macOS draws one from the window's outline,
-    // which wouldn't follow the tag); the unit and the tag draw their own
-    setWindowFlags(Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint | Qt::Window);
-    setAttribute(Qt::WA_TranslucentBackground);
-    setFixedSize(m_w, kH + kShade);
+    setFixedSize(m_w + 2 * kPad, windowHeight(false));
     setMouseTracking(true);
     m_clock.start();
 
@@ -196,7 +195,7 @@ Window::Window(Core* core, Setup* setup, Discovery* discovery)
     connect(&m_tagAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) { tagPose(v.toDouble()); });
     connect(&m_tagAnim, &QVariantAnimation::finished, this, [this] {
         if (!m_tagWanted) {
-            setFixedSize(m_w, kH + kShade);   // (all in: the window ends at the unit's shadow again)
+            setFixedSize(m_w + 2 * kPad, windowHeight(false));   // (all in: the window ends under the unit again)
         }
     });
 
@@ -391,7 +390,7 @@ void Window::setTag(bool out) {
     m_fromDrop = m_drop;
     m_fromAngle = m_angle;
     if (out) {
-        setFixedSize(m_w, kH + kTagH + 30);   // (room for it, slanted too; the rest of the window is see-through)
+        setFixedSize(m_w + 2 * kPad, windowHeight(true));   // (room for it, slanted too)
     }
     m_tagAnim.setEndValue(out ? kOutMs : kInMs);
     m_tagAnim.setDuration(static_cast<int>(out ? kOutMs : kInMs));
@@ -408,7 +407,7 @@ void Window::layoutWidth() {
     const int w = std::clamp(static_cast<int>(std::ceil(kBayX + kNameX + widest + kNameGap + kCluster + kBayRight + kEar)), kMinW, kMaxW);
     if (w != m_w) {
         m_w = w;
-        setFixedSize(m_w, height());
+        setFixedSize(m_w + 2 * kPad, height());
         m_menuFor.clear();
     }
 }
@@ -587,23 +586,18 @@ void Window::press(const Hit& h) {
         setTag(true);
         refresh();
         break;
-    case Key::Close:
-        close();
-        break;
     case Key::None:
         break;
     }
 }
 
-Window::Hit Window::hitAt(const QPointF& p) const {
+Window::Hit Window::hitAt(const QPointF& at) const {
+    const QPointF p = at - QPointF(kPad, kPad);   // (the unit's own coordinates)
     if (kMap.contains(p)) {
         return {Key::Map, -1};
     }
     if (QRectF(kScan).adjusted(-2, -2, 2, 14).contains(p)) {
         return {Key::Scan, -1};
-    }
-    if (QRectF(m_w - kEar + 3, 3, 24, 24).contains(p)) {
-        return {Key::Close, -1};
     }
     for (int i = 0; i < 4; ++i) {
         if (slotKey(i).adjusted(-3, -3, 3, 12).contains(p)) {   // (its word under it too)
@@ -664,6 +658,18 @@ void Window::paintEvent(QPaintEvent*) {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const int W = m_w;
 
+    // ---- the backdrop the unit sits on, and its drop shadow on it (lit from above: soft, a little lower) ----
+    QLinearGradient backdrop(QPointF(0, 0), QPointF(0, height()));
+    backdrop.setColorAt(0, QColor(0x1a, 0x1b, 0x1e));
+    backdrop.setColorAt(1, QColor(0x0e, 0x0f, 0x11));
+    p.fillRect(rect(), backdrop);
+    p.translate(kPad, kPad);
+    p.setPen(Qt::NoPen);
+    for (int i = 12; i >= 1; --i) {
+        p.setBrush(QColor(0, 0, 0, 10 + (12 - i) * 3));
+        p.drawRoundedRect(QRectF(0, 0, W, kH).translated(0, 6).adjusted(-i, -i, i, i), 4 + i, 4 + i);
+    }
+
     // ---- the tag, behind the unit: out of the slit in its bottom edge. Black, with a white sticker (the code, what
     // to do with it, the address) as a real one would have; slanted about its top inner corner while it snags ----
     if (m_drop > 0.5) {
@@ -715,14 +721,6 @@ void Window::paintEvent(QPaintEvent*) {
     }
 
     // ---- the unit ----
-    {   // its shadow under its bottom edge, on what's behind
-        QLinearGradient shade(QPointF(0, kH), QPointF(0, kH + kShade));
-        shade.setColorAt(0, QColor(0, 0, 0, 110));
-        shade.setColorAt(1, Qt::transparent);
-        p.setPen(Qt::NoPen);
-        p.setBrush(shade);
-        p.drawRect(QRectF(4, kH, W - 8, kShade));
-    }
     for (const double x : {0.0, double(W - kEar)}) {   // ears with their slots
         QLinearGradient ear(QPointF(x, 0), QPointF(x + kEar, 0));
         ear.setColorAt(0, x == 0 ? QColor(0x2c, 0x2e, 0x31) : QColor(0x1d, 0x1f, 0x22));
@@ -752,96 +750,22 @@ void Window::paintEvent(QPaintEvent*) {
     p.setPen(Qt::NoPen);   // the slit the tag comes out of
     p.setBrush(QColor(4, 4, 4));
     p.drawRoundedRect(QRectF(kTagX - 4, kH - 7, kTagW + 8, 5), 2, 2);
-    const QRectF closeX(W - kEar + 7, 7, 16, 16);   // close: an engraved x on the right ear
-    p.setPen(QPen(m_down.key == Key::Close ? QColor(0xdd, 0xdd, 0xdd) : QColor(0x77, 0x79, 0x7d), 1.6));
-    p.drawLine(closeX.topLeft() + QPointF(4, 4), closeX.bottomRight() - QPointF(4, 4));
-    p.drawLine(closeX.topRight() + QPointF(-4, 4), closeX.bottomLeft() + QPointF(4, -4));
 
-    // ---- the edge (four to choose from, for now: ZC_EDGE=1..4 picks one; 0 or unset, none) ----
-    {
-        static const int edge = qEnvironmentVariableIntValue("ZC_EDGE");
-        const QRectF unit(0, 0, W, kH);
-        if (edge == 1) {   // machined bevel: the panel's edge catches the light (top and left bright, bottom and right dark)
-            p.setBrush(Qt::NoBrush);
-            p.setPen(QPen(QColor(255, 255, 255, 70), 1.5));
-            p.drawLine(QPointF(1, 1), QPointF(W - 1, 1));
-            p.drawLine(QPointF(1, 1), QPointF(1, kH - 1));
-            p.setPen(QPen(QColor(255, 255, 255, 28), 1));
-            p.drawLine(QPointF(3, 3.5), QPointF(W - 3, 3.5));
-            p.setPen(QPen(QColor(0, 0, 0, 200), 1.5));
-            p.drawLine(QPointF(1, kH - 1), QPointF(W - 1, kH - 1));
-            p.drawLine(QPointF(W - 1, 1), QPointF(W - 1, kH - 1));
-            for (const double x : {double(kEar), double(W - kEar)}) {   // the ears' fold
-                p.setPen(QPen(QColor(0, 0, 0, 160), 1));
-                p.drawLine(QPointF(x - .5, 2), QPointF(x - .5, kH - 2));
-                p.setPen(QPen(QColor(255, 255, 255, 40), 1));
-                p.drawLine(QPointF(x + .5, 2), QPointF(x + .5, kH - 2));
-            }
-        } else if (edge == 2) {   // rack rails: the ears are rails of brushed aluminium, the face set between them
-            for (const double x : {0.0, double(W - kEar)}) {
-                QLinearGradient rail(QPointF(x, 0), QPointF(x + kEar, 0));
-                rail.setColorAt(0, QColor(0xb9, 0xbc, 0xc1));
-                rail.setColorAt(.5, QColor(0xd9, 0xdb, 0xde));
-                rail.setColorAt(1, QColor(0x9a, 0x9d, 0xa2));
-                p.setPen(Qt::NoPen);
-                p.setBrush(rail);
-                p.drawRect(QRectF(x, 0, kEar, kH));
-                p.setPen(QPen(QColor(255, 255, 255, 40), 1));
-                for (double y = 2; y < kH; y += 2) {
-                    p.drawLine(QPointF(x + 1, y), QPointF(x + kEar - 1, y));
-                }
-                for (const double sy : {30.0, double(kH - 48)}) {   // the slots again, on the rail
-                    p.setPen(Qt::NoPen);
-                    p.setBrush(QColor(20, 20, 22));
-                    p.drawRoundedRect(QRectF(x + kEar / 2.0 - 6, sy, 12, 18), 6, 6);
-                }
-            }
-            p.setPen(QPen(QColor(0, 0, 0), 2));   // the gap between rail and face
-            p.drawLine(QPointF(kEar, 0), QPointF(kEar, kH));
-            p.drawLine(QPointF(W - kEar, 0), QPointF(W - kEar, kH));
-        } else if (edge == 3) {   // rubber bumper: a rounded dark rim round the whole unit
-            QPainterPath rim;
-            rim.addRoundedRect(unit, 12, 12);
-            QPainterPath inner;
-            inner.addRoundedRect(unit.adjusted(7, 7, -7, -7), 6, 6);
-            QPainterPath outside;
-            outside.addRect(unit.adjusted(-1, -1, 1, 1));
-            p.save();
-            p.setCompositionMode(QPainter::CompositionMode_Clear);   // the corners outside the rim: see-through
-            p.fillPath(outside.subtracted(rim), Qt::transparent);
-            p.restore();
-            QLinearGradient rubber(unit.topLeft(), unit.bottomLeft());
-            rubber.setColorAt(0, QColor(0x2a, 0x2b, 0x2e));
-            rubber.setColorAt(1, QColor(0x12, 0x13, 0x15));
-            p.setPen(Qt::NoPen);
-            p.setBrush(rubber);
-            p.drawPath(rim.subtracted(inner));
-            p.setBrush(Qt::NoBrush);
-            p.setPen(QPen(QColor(255, 255, 255, 30), 1));
-            p.drawRoundedRect(unit.adjusted(1, 1, -1, -1), 11, 11);
-            p.setPen(QPen(QColor(0, 0, 0, 220), 1.5));
-            p.drawRoundedRect(unit.adjusted(7, 7, -7, -7), 6, 6);
-        } else if (edge == 4) {   // a light edge: a thin line along the bottom in the state's colour, glowing onto the desk
-            const bool problem = !m_core->midi()->problem().isEmpty();
-            const bool linked = !m_core->devices().isEmpty();
-            const QColor c = problem ? kRed : linked ? kGreen : kLamp;
-            QLinearGradient line(QPointF(kEar, 0), QPointF(W - kEar, 0));   // brightest in the middle, fading to the ears
-            QColor faint = c;
-            faint.setAlpha(40);
-            line.setColorAt(0, faint);
-            line.setColorAt(.5, c);
-            line.setColorAt(1, faint);
-            p.setPen(Qt::NoPen);
-            p.setBrush(line);
-            p.drawRect(QRectF(kEar, kH - 3, W - 2 * kEar, 2));
-            QLinearGradient glow(QPointF(0, kH), QPointF(0, kH + kShade));   // its light on what's under the unit
-            QColor g = c;
-            g.setAlpha(90);
-            glow.setColorAt(0, g);
-            glow.setColorAt(1, Qt::transparent);
-            p.setBrush(glow);
-            p.drawRect(QRectF(kEar + 20, kH, W - 2 * kEar - 40, kShade));
-        }
+    // ---- the edge: machined, catching the light (top and left bright, bottom and right dark; the ears' fold) ----
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(QColor(255, 255, 255, 70), 1.5));
+    p.drawLine(QPointF(1, 1), QPointF(W - 1, 1));
+    p.drawLine(QPointF(1, 1), QPointF(1, kH - 1));
+    p.setPen(QPen(QColor(255, 255, 255, 28), 1));
+    p.drawLine(QPointF(3, 3.5), QPointF(W - 3, 3.5));
+    p.setPen(QPen(QColor(0, 0, 0, 200), 1.5));
+    p.drawLine(QPointF(1, kH - 1), QPointF(W - 1, kH - 1));
+    p.drawLine(QPointF(W - 1, 1), QPointF(W - 1, kH - 1));
+    for (const double x : {double(kEar), double(W - kEar)}) {
+        p.setPen(QPen(QColor(0, 0, 0, 160), 1));
+        p.drawLine(QPointF(x - .5, 2), QPointF(x - .5, kH - 2));
+        p.setPen(QPen(QColor(255, 255, 255, 40), 1));
+        p.drawLine(QPointF(x + .5, 2), QPointF(x + .5, kH - 2));
     }
 
     // brand and power
