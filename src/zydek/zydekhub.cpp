@@ -1874,7 +1874,7 @@ double Hub::visualExtraSeconds() const {
     }
     // Mixxx's timing counts its own buffer (the Oboe host says a buffer reaches the speaker one buffer later); the
     // rest of Android's path (measured) and the user's offset it doesn't
-    return std::max(0.0, std::max(0, m_measuredLatencyMs) + m_latencyOffsetMs) / 1000.0;
+    return std::max(0.0, static_cast<double>(std::max(0, m_measuredLatencyMs) + m_latencyOffsetMs)) / 1000.0;
 }
 
 QJsonObject Hub::debugPos(const QString& group) {
