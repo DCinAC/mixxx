@@ -1358,6 +1358,7 @@ function buildStrip(s, u) {
         if (q) setTimeout(() => { markLocal(d, "quantize"); setCtl(ch(d.n), "quantize", 1); }, 80);
       }
       d.grabbed = false; u.strip.classList.remove("held"); send("scratchOff", d.n, +d.vel.toFixed(2));
+      if (!d.coast) { d.released = performance.now(); d.shown = d.pos; }   // let go: no jump back by the sound's delay (zydeck-position.js)
     },
   });
   return head;
@@ -2298,7 +2299,7 @@ function frame(now) {
         slip(d, target, dt);
         scratchBy(d, d.vel * dt);
         d.pos = clamp(d.pos + d.vel * dt, -PREROLL, d.dur);
-        if (d.vel === target) { d.coast = false; mxSend({ scratch: [d.n - 1, 0, 0] }); posSeed(d, d.pos, target, now); }
+        if (d.vel === target) { d.coast = false; mxSend({ scratch: [d.n - 1, 0, 0] }); posSeed(d, d.pos, target, now); d.released = now; d.shown = d.pos; }
       } else if (d.pt !== undefined || d.vp) {
         d.pos = clamp(posAt(d, now), -PREROLL, d.dur);
       }

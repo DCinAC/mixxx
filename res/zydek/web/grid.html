@@ -85,6 +85,7 @@
 </div>
 <div id="ask" role="dialog" aria-modal="true"><div><p>Unsaved changes were made. Save?</p>
   <div class="row"><button id="asksave">Save</button><button id="askdrop">Discard</button><button id="askstay">Keep editing</button></div></div></div>
+<script src="/zydeck-position.js"></script>
 <script>
 let LAT = 0;   // seconds the sound runs behind Mixxx (the hub measures it)
 const $ = s => document.querySelector(s);
@@ -94,17 +95,9 @@ const VIEW = (+params.get("view") || 0) / 1000;   // the screen's own delay on t
 const PREVIEW = GROUP.startsWith("[PreviewDeck");
 const st = { pos: 0, dur: 0, ratio: 1, playing: false, bpm: 0, posAt: 0, wf: null, beats: null, bar: 0, locked: false, zoom: 4 };
 const ZOOMS = [1, 2, 4, 8, 16, 32];   // seconds across the view
-// Each position comes with the hub's time of reading it (ts): mapped onto this page's clock through the fastest
-// delivery seen lately (as the decks do), so the drawing runs on from when Mixxx was there, not from when the
-// message happened to arrive (that delay is why it used to trail while playing)
-const clockSync = { samples: [], off: null };
-function hubTime(ts, now) {
-  if (ts == null) return now;
-  clockSync.samples.push([now, now - ts]);
-  while (clockSync.samples.length > 1 && now - clockSync.samples[0][0] > 5000) clockSync.samples.shift();
-  clockSync.off = clockSync.samples.reduce((m, x) => Math.min(m, x[1]), Infinity);
-  return Math.min(now, ts + clockSync.off);
-}
+// Where the track is heard and what to draw: zydeck-position.js, as the decks (the hub's heard positions, its clock
+// asked, two frames ahead for the screen; no jump back when the waveform is let go of, a run-out when it stops)
+const d = { playing: false, ratio: 1 };
 
 // ---- Mixxx: Zydek's /ws (set and subscribe to controls) -----------------------------------------------
 let ws;
@@ -113,23 +106,27 @@ const set = (key, v) => wsSend({ set: [GROUP, key, v, 0] });
 const push = key => { set(key, 1); set(key, 0); };
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onopen = () => wsSend({ sub: ["playposition", "play", "duration", "rate_ratio", "file_bpm"].map(k => [GROUP, k, k === "playposition" ? 1 : 0]) });
+  ws.onopen = () => {
+    wsSend({ sub: ["playposition", "play", "duration", "rate_ratio", "file_bpm"].map(k => [GROUP, k, k === "playposition" ? 1 : 0]) });
+    ZydeckPos.clockStart(wsSend);
+  };
   ws.onmessage = ev => {
-    const m = JSON.parse(ev.data);
-    if (m.init) LAT = m.init.lat || 0;
-    if (m.t === "lat") LAT = m.s || 0;
+    const m = JSON.parse(ev.data), now = performance.now();
+    if (m.init) { LAT = m.init.lat || 0; ZydeckPos.setLatency(m.init.lat, m.init.vlat); }
+    if (m.t === "lat") { LAT = m.s || 0; ZydeckPos.setLatency(m.s, m.v); }
+    if (m.t === "clk") return ZydeckPos.clockPong(m.c, m.h, now);
+    if (m.t === "vp") {   // where the track is heard (the hub, from Mixxx's audio timing)
+      const v = m.p[GROUP];
+      if (v && st.dur > 0 && !dragging) ZydeckPos.posVisual(d, v[0] * st.dur, v[1] * st.dur, m.ts, now);
+      return;
+    }
     if (m.t !== "cv" || !m.k.startsWith(GROUP + ",")) return;
     const k = m.k.slice(GROUP.length + 1), v = m.v;
-    if (k === "playposition") { const now = performance.now(), at = hubTime(m.ts, now); if (!dragging) { st.pos = v * st.dur; st.posAt = at; } }
+    if (k === "playposition") { if (!dragging && st.dur) { st.pos = v * st.dur; ZydeckPos.posUpdate(d, st.pos, now, m.ts); } }
     else if (k === "duration") st.dur = v;
-    else if (k === "rate_ratio") st.ratio = v;
+    else if (k === "rate_ratio") st.ratio = d.ratio = v;
     else if (k === "play") {
-      // paused: the sound already on its way out still plays (the latency's worth), so the drawing runs on to where
-      // Mixxx stopped at playing speed instead of jumping there
-      const now = performance.now();
-      if (st.playing && !(v > 0)) st.runOut = { from: st.pos + Math.max(-1.2, Math.min((now - st.posAt) / 1000 - LAT - VIEW, .25)) * st.ratio, at: now };
-      if (v > 0) st.runOut = null;
-      st.playing = v > 0; $("#play").textContent = st.playing ? "❚❚" : "▶";
+      st.playing = d.playing = v > 0; $("#play").textContent = st.playing ? "❚❚" : "▶";
     }
     else if (k === "file_bpm") { st.bpm = v; paintBpm(); }
   };
@@ -167,12 +164,8 @@ const cv = $("#wave canvas"), g = cv.getContext("2d");
 function draw(now) {
   const dpr = devicePixelRatio || 1, r = cv.getBoundingClientRect(), W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
-  // drawn LAT behind Mixxx's position while playing: where the sound you hear is (the output's latency)
-  let pos = st.playing && !dragging ? st.pos + Math.max(-1.2, Math.min((now - st.posAt) / 1000 - LAT - VIEW, .25)) * st.ratio : st.pos;
-  if (!st.playing && !dragging && st.runOut) {   // running out to where it stopped
-    const ran = st.runOut.from + (now - st.runOut.at) / 1000 * st.ratio;
-    if (ran < st.pos && st.pos - ran < 1.5) pos = ran; else st.runOut = null;
-  }
+  // where the sound is (the hub's latency and this screen's), or under the finger while dragging
+  const pos = dragging || (d.pt === undefined && !d.vp) ? st.pos : ZydeckPos.posAt(d, now, LAT + VIEW);
   const sec = ZOOMS[zi], pxs = W / sec, start = pos - sec / 2, mid = H / 2;
   g.clearRect(0, 0, W, H);
   g.fillStyle = "rgba(255,255,255,.25)"; g.fillRect(0, Math.floor(mid), W, Math.max(1, dpr * .6));
@@ -210,7 +203,7 @@ const paintZoom = () => { $("#znote").textContent = `${ZOOMS[zi]} s across · dr
 let dragging = false;
 (function scrub() {
   let x0 = 0, last = 0;
-  cv.addEventListener("pointerdown", e => { dragging = true; st.runOut = null; x0 = e.clientX; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener("pointerdown", e => { dragging = true; x0 = e.clientX; cv.setPointerCapture(e.pointerId); });
   cv.addEventListener("pointermove", e => {
     if (!dragging || !st.dur) return;
     const r = cv.getBoundingClientRect(), dx = e.clientX - x0; x0 = e.clientX;
@@ -218,7 +211,14 @@ let dragging = false;
     const now = performance.now();
     if (now - last > 30) { last = now; set("playposition", st.pos / st.dur); }
   });
-  const up = () => { if (!dragging) return; dragging = false; if (st.dur) set("playposition", st.pos / st.dur); st.posAt = performance.now(); };
+  const up = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (st.dur) set("playposition", st.pos / st.dur);
+    const now = performance.now();   // let go: the drawing carries on from here (no jump back by the sound's delay)
+    ZydeckPos.posSeed(d, st.pos, d.playing ? d.ratio : 0, now);
+    d.released = now; d.shown = st.pos; d.vp = null;
+  };
   cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
 })();
 (function slide() {

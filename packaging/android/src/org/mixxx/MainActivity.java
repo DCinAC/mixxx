@@ -17,6 +17,7 @@ import android.os.Looper;
 import android.provider.DocumentsContract;
 import android.provider.Settings;
 import android.view.HapticFeedbackConstants;
+import android.view.KeyEvent;
 import android.os.Vibrator;
 import android.view.MotionEvent;
 import android.view.View;
@@ -838,16 +839,38 @@ public class MainActivity extends QtActivityBase {
 
     @Override
     public void onBackPressed() {
+        if (!backInPages()) {
+            super.onBackPressed();
+        }
+    }
+
+    /// Back, as the pages see it: the Bilibili login closes; a page's own step back (the grid editor's, say: it asks
+    /// first if something changed) goes back. True if it did either.
+    private boolean backInPages() {
         if (m_loginView != null) {   // Back closes the Bilibili login
             closeBilibiliLogin();
-            return;
+            return true;
         }
         // In the library page, Back goes back within it rather than leaving Mixxx.
         if (m_phoneView != null && m_phoneView.getVisibility() == View.VISIBLE && m_phoneView.canGoBack()) {
             m_phoneView.goBack();
-            return;
+            return true;
         }
-        super.onBackPressed();
+        return false;
+    }
+
+    /// Qt's activity takes the Back key for Mixxx before onBackPressed ever sees it: while ZyDeck's page shows, it's
+    /// the pages'. With nothing for them to go back to, Back does nothing (it doesn't send ZyDeck away mid-set).
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getKeyCode() == KeyEvent.KEYCODE_BACK
+                && (m_loginView != null || (m_phoneView != null && m_phoneView.getVisibility() == View.VISIBLE))) {
+            if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
+                backInPages();
+            }
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     private void createPhoneView() {

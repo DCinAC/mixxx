@@ -75,16 +75,37 @@
     }
     return d.pt === undefined ? d.pos || 0 : d.pp + d.pv * Math.max(-1.2, Math.min((now - d.pt) / 1000 - lat, .25));
   }
-  function posAt(d, now, lat = 0) {   // what to draw now: for when this frame will be on the screen
+  // What to draw now: for when this frame will be on the screen. It never jumps back by the sound's delay:
+  // - let go of the record (d.released: when; d.shown: where the hand left it), the sound is that delay behind the hand:
+  //   the drawing goes on at half speed until the sound has caught up, instead of jumping back;
+  // - stopped, the sound already on its way out still plays: the drawing runs on, at the speed it had, to where Mixxx
+  //   stopped, instead of jumping there.
+  // Any other jump (a cue, a loop, a seek) is drawn as it happens.
+  function posAt(d, now, lat = 0) {
     frameAt(now);
     const exact = visual(d, now);
     const target = posModel(d, now, lat - ahead());
+    const dt = d.shownAt ? Math.min((now - d.shownAt) / 1000, .1) : 0;
+    d.shownAt = now;
     let shown = d.shown;
     const v = exact ? d.vp.s : d.pv;
     const dir = v > .05 ? 1 : v < -.05 ? -1 : 0;
-    if (shown === undefined || Math.abs(target - shown) > .25 || !dir) shown = target;
-    else if ((target - shown) * dir < 0) { /* ahead of the music: hold until it catches up */ }
-    else shown = exact ? target : shown + (target - shown) * .5;   // (the model's guesses are eased; the hub's aren't)
+    const slack = Math.max(lat, latency.full) + .15, gap = shown === undefined ? 0 : target - shown;
+    if (shown === undefined) shown = target;
+    else if (!dir) {   // stopped
+      const last = d.lastV || 0;
+      if (last && gap * last > 0 && Math.abs(gap) <= slack) shown += Math.sign(gap) * Math.min(Math.abs(gap), Math.abs(last) * dt);
+      else shown = target;
+    } else {
+      d.lastV = v;
+      const back = -gap * dir;   // how far the target is behind what's drawn
+      if (Math.abs(gap) > slack + .25) shown = target;   // a real jump
+      else if (back > 0) {
+        if (d.released && now - d.released < 4000 && back <= slack + .25) shown += v * dt * .5;   // the sound catching up
+        else if (exact ? back > .005 : back > .25) shown = target;   // a jump back (a loop, a cue)
+        /* else a hair ahead of the music: hold until it catches up */
+      } else shown = exact ? target : shown + gap * .5;   // (the model's guesses are eased; the hub's aren't)
+    }
     d.shown = shown;
     return shown;
   }
