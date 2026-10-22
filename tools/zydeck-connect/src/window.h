@@ -1,7 +1,8 @@
 #pragma once
 // ZyDeck Connect's window: a rack unit. The face: ZYDECK CONNECT and its power lamp, a VFD readout (the MIDI port,
 // Mixxx's side, this computer's address), MAP (set Mixxx up) and SCAN (look for devices now and release the tag),
-// and the four device slots stacked as bays: the device and how it's linked, then its PAIR key (3:2, the word under
+// and the four device slots stacked as bays (the ZyDecks found on the network, not linked yet, wait dimmed in the
+// free ones: their PAIR asks them to link): the device and how it's linked, then its PAIR key (3:2, the word under
 // it) and its MIDI IN / OUT lamps. MAP's lamp is Mixxx's side (setup.h): green linked, going round while it waits for
 // Mixxx or the user, red if it failed. The unit is as wide as the longest device name needs (30 px clear of that
 // cluster). Open at login is in the menu bar menu.
@@ -24,12 +25,13 @@ class QSystemTrayIcon;
 namespace zc {
 
 class Core;
+class Discovery;
 class Setup;
 
 class Window : public QWidget {
     Q_OBJECT
   public:
-    Window(Core* core, Setup* setup);
+    Window(Core* core, Setup* setup, Discovery* discovery);
     void showPairingCode();   // the tag out (and kept out)
 
   protected:
@@ -63,6 +65,8 @@ class Window : public QWidget {
 
     Core* m_core;
     Setup* m_setup;
+    Discovery* m_discovery;
+    QHash<int, QStringList> m_foundIn;   // a free slot -> a ZyDeck found on the network: {name, address, asked ms}
     QSet<int> m_asked;         // what's been asked this run (each once)
     int m_lastSetup = -1;
     int m_w;                   // the unit's width

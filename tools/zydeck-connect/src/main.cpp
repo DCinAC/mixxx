@@ -16,6 +16,7 @@
 #include <memory>
 
 #include "core.h"
+#include "discovery.h"
 #include "setup.h"
 #include "system.h"
 #include "window.h"
@@ -83,8 +84,15 @@ int main(int argc, char** argv) {
     zc::Setup setup(&core);   // Mixxx's side: the mapping, the controller on, Mixxx answering
     QObject::connect(&core, &zc::Core::mixxxAnswered, &setup, &zc::Setup::pong);
     QObject::connect(&core, &zc::Core::mixxxMappingStarted, &setup, &zc::Setup::mappingStarted);
+    auto discovery = std::make_unique<zc::Discovery>();   // ZyDecks on the network, found by themselves
     std::unique_ptr<zc::Window> window;
     if (headless) {
+        QObject::connect(discovery.get(), &zc::Discovery::changed, [&discovery] {
+            for (const zc::Discovery::Found& f : discovery->found()) {
+                std::printf("Found on the network: %s (%s)\n", qPrintable(f.name), qPrintable(f.address));
+            }
+            std::fflush(stdout);
+        });
         std::printf("%s: MIDI port '%s', %s port %d\n", zc::kAppName, zc::kPortName, qPrintable(zc::lanAddresses().join(", ")), zc::kTcpPort);
         std::fflush(stdout);
         QObject::connect(&setup, &zc::Setup::changed, [&setup](zc::Setup::State s) {   // (set up only once allowed, in the window)
@@ -95,7 +103,7 @@ int main(int argc, char** argv) {
         });
     } else {
         static_cast<QApplication*>(app.get())->setQuitOnLastWindowClosed(false);   // (the menu bar icon stays)
-        window = std::make_unique<zc::Window>(&core, &setup);
+        window = std::make_unique<zc::Window>(&core, &setup, discovery.get());
         window->show();
         if (args.isSet(frames)) {
             QDir().mkpath(args.value(frames));

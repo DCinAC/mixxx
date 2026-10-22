@@ -3112,7 +3112,7 @@ function onMixxx(m) {
   if (m.init) { ZydeckMenu.push(m); if (m.init.notice) toast(m.init.notice); LAT = m.init.lat || 0; ZydeckPos.setLatency(m.init.lat, m.init.vlat); if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
   if (m.t === "rec") { ZydeckMenu.push(m); return paintRec(m.r); }
   if (m.t === "remote") { ZydeckMenu.push(m); return onRemote(m); }
-  if (m.t === "opt" || m.t === "dc") return ZydeckMenu.push(m);
+  if (m.t === "opt" || m.t === "dc" || m.t === "offer") return ZydeckMenu.push(m);
   if (m.t === "cuelbl") { decks.forEach(d => { if (d.loaded !== false) loadCueLabels(d); }); return; }   // hot cues edited (the phone's library, a pad)
   if (m.t === "lat") { LAT = m.s || 0; ZydeckPos.setLatency(m.s, m.v); return; }
   if (!live) return;

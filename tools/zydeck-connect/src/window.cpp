@@ -21,6 +21,7 @@
 #include <cmath>
 
 #include "core.h"
+#include "discovery.h"
 #include "setup.h"
 #include "library.h"
 #include "qrcodegen.hpp"
@@ -177,9 +178,10 @@ QIcon Window::lampIcon(const QColor& c) const {
 }
 
 
-Window::Window(Core* core, Setup* setup)
+Window::Window(Core* core, Setup* setup, Discovery* discovery)
         : m_core(core),
           m_setup(setup),
+          m_discovery(discovery),
           m_w(kMinW) {
     setWindowTitle(QString::fromLatin1(kAppName));
     // nothing around the unit: no frame, see-through, and no system shadow (macOS draws one from the window's outline,
@@ -228,6 +230,7 @@ Window::Window(Core* core, Setup* setup)
     frame->start(80);
     connect(m_core, &Core::changed, this, &Window::refresh);
     connect(m_setup, &Setup::changed, this, &Window::setupChanged);
+    connect(m_discovery, &Discovery::changed, this, &Window::refresh);
     refresh();
 }
 
@@ -440,6 +443,24 @@ void Window::refresh() {
             m_pairSlot = -1;
         }
     }
+    // ZyDecks found on the network and not linked: the free slots, in the order they turned up
+    m_foundIn.clear();
+    {
+        const QList<int> taken = m_slotOf.values();
+        int slot = 0;
+        for (const Discovery::Found& f : m_discovery->found()) {
+            if (m_slotOf.contains(f.name)) {
+                continue;   // (linked already)
+            }
+            while (slot < 4 && (taken.contains(slot) || slot == m_pairSlot)) {
+                ++slot;
+            }
+            if (slot >= 4) {
+                break;
+            }
+            m_foundIn.insert(slot++, {f.name, f.address, QString::number(f.asked)});
+        }
+    }
     layoutWidth();
     // the tag: out while nothing's linked, in once something is (PAIR or the tag overrides until that changes)
     if (devices.size() != m_lastDeviceCount) {
@@ -483,7 +504,11 @@ void Window::updateTray() {
     for (const Core::Device& d : devices) {
         lines << d.name + " · " + d.how;
     }
-    const QString menuFor = lines.join('\n') + (openAtLogin() ? "+" : "-");
+    QStringList foundNames;
+    for (const QStringList& f : std::as_const(m_foundIn)) {
+        foundNames << f.value(0);
+    }
+    const QString menuFor = lines.join('\n') + "|" + foundNames.join('\n') + (openAtLogin() ? "+" : "-");
     if (menuFor == m_menuFor) {   // (not rebuilt under an open menu)
         return;
     }
@@ -492,6 +517,11 @@ void Window::updateTray() {
     m_menu->addAction(devices.isEmpty() ? tr("ZyDeck Connect · waiting for a device") : tr("ZyDeck Connect · ready"))->setEnabled(false);
     for (const QString& l : std::as_const(lines)) {
         m_menu->addAction("   " + l)->setEnabled(false);
+    }
+    for (auto it = m_foundIn.cbegin(); it != m_foundIn.cend(); ++it) {   // found on the network: a click asks it to link
+        const QString address = it.value().value(1);
+        m_menu->addAction(tr("   Link %1 (found on Wi-Fi)…").arg(it.value().value(0)), this,
+                [this, address] { m_discovery->offer(address, m_core->offer()); refresh(); });
     }
     m_menu->addSeparator();
     const auto showIt = [this] {
@@ -533,8 +563,11 @@ void Window::press(const Hit& h) {
             refresh();
         });
         break;
-    case Key::Slot:   // an empty slot's PAIR: the tag out for it; again, back in
-        if (m_slotOf.key(h.slot).isEmpty()) {
+    case Key::Slot:   // a found ZyDeck's PAIR: ask it to link (it asks its user); an empty slot's: the tag out for it
+        if (m_foundIn.contains(h.slot)) {
+            m_discovery->offer(m_foundIn.value(h.slot).value(1), m_core->offer());
+            refresh();
+        } else if (m_slotOf.key(h.slot).isEmpty()) {
             const bool cancel = m_pairSlot == h.slot && m_tagWanted;
             m_pairSlot = cancel ? -1 : h.slot;
             m_tagManual = cancel ? 0 : 1;
@@ -548,6 +581,7 @@ void Window::press(const Hit& h) {
         break;
     case Key::Scan:   // look for devices now, and the tag out for one to scan (a click on the tag puts it back)
         m_core->midi()->rescan();
+        m_discovery->scanNow();
         m_pairSlot = -1;
         m_tagManual = 1;
         setTag(true);
@@ -601,7 +635,7 @@ void Window::mouseReleaseEvent(QMouseEvent* e) {
 
 void Window::mouseMoveEvent(QMouseEvent* e) {
     const Hit h = hitAt(e->position());
-    const bool live = h.key != Key::None && !(h.key == Key::Slot && !m_slotOf.key(h.slot).isEmpty());
+    const bool live = h.key != Key::None && !(h.key == Key::Slot && !m_slotOf.key(h.slot).isEmpty() && !m_foundIn.contains(h.slot));
     setCursor(live ? Qt::PointingHandCursor : Qt::ArrowCursor);
 }
 
@@ -723,6 +757,93 @@ void Window::paintEvent(QPaintEvent*) {
     p.drawLine(closeX.topLeft() + QPointF(4, 4), closeX.bottomRight() - QPointF(4, 4));
     p.drawLine(closeX.topRight() + QPointF(-4, 4), closeX.bottomLeft() + QPointF(4, -4));
 
+    // ---- the edge (four to choose from, for now: ZC_EDGE=1..4 picks one; 0 or unset, none) ----
+    {
+        static const int edge = qEnvironmentVariableIntValue("ZC_EDGE");
+        const QRectF unit(0, 0, W, kH);
+        if (edge == 1) {   // machined bevel: the panel's edge catches the light (top and left bright, bottom and right dark)
+            p.setBrush(Qt::NoBrush);
+            p.setPen(QPen(QColor(255, 255, 255, 70), 1.5));
+            p.drawLine(QPointF(1, 1), QPointF(W - 1, 1));
+            p.drawLine(QPointF(1, 1), QPointF(1, kH - 1));
+            p.setPen(QPen(QColor(255, 255, 255, 28), 1));
+            p.drawLine(QPointF(3, 3.5), QPointF(W - 3, 3.5));
+            p.setPen(QPen(QColor(0, 0, 0, 200), 1.5));
+            p.drawLine(QPointF(1, kH - 1), QPointF(W - 1, kH - 1));
+            p.drawLine(QPointF(W - 1, 1), QPointF(W - 1, kH - 1));
+            for (const double x : {double(kEar), double(W - kEar)}) {   // the ears' fold
+                p.setPen(QPen(QColor(0, 0, 0, 160), 1));
+                p.drawLine(QPointF(x - .5, 2), QPointF(x - .5, kH - 2));
+                p.setPen(QPen(QColor(255, 255, 255, 40), 1));
+                p.drawLine(QPointF(x + .5, 2), QPointF(x + .5, kH - 2));
+            }
+        } else if (edge == 2) {   // rack rails: the ears are rails of brushed aluminium, the face set between them
+            for (const double x : {0.0, double(W - kEar)}) {
+                QLinearGradient rail(QPointF(x, 0), QPointF(x + kEar, 0));
+                rail.setColorAt(0, QColor(0xb9, 0xbc, 0xc1));
+                rail.setColorAt(.5, QColor(0xd9, 0xdb, 0xde));
+                rail.setColorAt(1, QColor(0x9a, 0x9d, 0xa2));
+                p.setPen(Qt::NoPen);
+                p.setBrush(rail);
+                p.drawRect(QRectF(x, 0, kEar, kH));
+                p.setPen(QPen(QColor(255, 255, 255, 40), 1));
+                for (double y = 2; y < kH; y += 2) {
+                    p.drawLine(QPointF(x + 1, y), QPointF(x + kEar - 1, y));
+                }
+                for (const double sy : {30.0, double(kH - 48)}) {   // the slots again, on the rail
+                    p.setPen(Qt::NoPen);
+                    p.setBrush(QColor(20, 20, 22));
+                    p.drawRoundedRect(QRectF(x + kEar / 2.0 - 6, sy, 12, 18), 6, 6);
+                }
+            }
+            p.setPen(QPen(QColor(0, 0, 0), 2));   // the gap between rail and face
+            p.drawLine(QPointF(kEar, 0), QPointF(kEar, kH));
+            p.drawLine(QPointF(W - kEar, 0), QPointF(W - kEar, kH));
+        } else if (edge == 3) {   // rubber bumper: a rounded dark rim round the whole unit
+            QPainterPath rim;
+            rim.addRoundedRect(unit, 12, 12);
+            QPainterPath inner;
+            inner.addRoundedRect(unit.adjusted(7, 7, -7, -7), 6, 6);
+            QPainterPath outside;
+            outside.addRect(unit.adjusted(-1, -1, 1, 1));
+            p.save();
+            p.setCompositionMode(QPainter::CompositionMode_Clear);   // the corners outside the rim: see-through
+            p.fillPath(outside.subtracted(rim), Qt::transparent);
+            p.restore();
+            QLinearGradient rubber(unit.topLeft(), unit.bottomLeft());
+            rubber.setColorAt(0, QColor(0x2a, 0x2b, 0x2e));
+            rubber.setColorAt(1, QColor(0x12, 0x13, 0x15));
+            p.setPen(Qt::NoPen);
+            p.setBrush(rubber);
+            p.drawPath(rim.subtracted(inner));
+            p.setBrush(Qt::NoBrush);
+            p.setPen(QPen(QColor(255, 255, 255, 30), 1));
+            p.drawRoundedRect(unit.adjusted(1, 1, -1, -1), 11, 11);
+            p.setPen(QPen(QColor(0, 0, 0, 220), 1.5));
+            p.drawRoundedRect(unit.adjusted(7, 7, -7, -7), 6, 6);
+        } else if (edge == 4) {   // a light edge: a thin line along the bottom in the state's colour, glowing onto the desk
+            const bool problem = !m_core->midi()->problem().isEmpty();
+            const bool linked = !m_core->devices().isEmpty();
+            const QColor c = problem ? kRed : linked ? kGreen : kLamp;
+            QLinearGradient line(QPointF(kEar, 0), QPointF(W - kEar, 0));   // brightest in the middle, fading to the ears
+            QColor faint = c;
+            faint.setAlpha(40);
+            line.setColorAt(0, faint);
+            line.setColorAt(.5, c);
+            line.setColorAt(1, faint);
+            p.setPen(Qt::NoPen);
+            p.setBrush(line);
+            p.drawRect(QRectF(kEar, kH - 3, W - 2 * kEar, 2));
+            QLinearGradient glow(QPointF(0, kH), QPointF(0, kH + kShade));   // its light on what's under the unit
+            QColor g = c;
+            g.setAlpha(90);
+            glow.setColorAt(0, g);
+            glow.setColorAt(1, Qt::transparent);
+            p.setBrush(glow);
+            p.drawRect(QRectF(kEar + 20, kH, W - 2 * kEar - 40, kShade));
+        }
+    }
+
     // brand and power
     p.setPen(QColor(0xf2, 0xf2, 0xf2));
     p.setFont(pxFont(17, QFont::Bold, 3.5));
@@ -819,6 +940,19 @@ void Window::paintEvent(QPaintEvent*) {
             p.setPen(QColor(0x8f, 0x8f, 0x8f));
             p.setFont(pxFont(11));
             p.drawText(text.translated(0, 17), Qt::AlignLeft | Qt::AlignVCenter, d.how);
+        } else if (m_foundIn.contains(i)) {   // found on the network, not linked: dimmed, PAIR asks it
+            const QStringList f = m_foundIn.value(i);
+            const bool asked = now - f.value(2).toLongLong() < 60000;
+            p.setOpacity(.55);
+            deviceIcon(p, QRectF(b.x() + 32, b.center().y() - 10, 20, 20), tablet.match(f.value(0)).hasMatch());
+            p.setOpacity(1);
+            p.setPen(QColor(0x9a, 0x9a, 0x9a));
+            p.setFont(pxFont(13, QFont::DemiBold));
+            p.drawText(text, Qt::AlignLeft | Qt::AlignVCenter, p.fontMetrics().elidedText(f.value(0), Qt::ElideRight, int(text.width())));
+            p.setPen(asked ? kLamp : QColor(0x6f, 0x6f, 0x6f));
+            p.setFont(pxFont(11));
+            p.drawText(text.translated(0, 17), Qt::AlignLeft | Qt::AlignVCenter,
+                    asked ? tr("asked: say yes on it") : tr("found on Wi-Fi · PAIR links it"));
         } else {
             p.setPen(QColor(0x45, 0x46, 0x4a));
             p.setFont(pxFont(11, QFont::Normal, 1));
@@ -828,9 +962,11 @@ void Window::paintEvent(QPaintEvent*) {
         // PAIR: a small key (3:2) with a strip lamp: green while a device is in, blinking amber waiting for one
         const bool down = m_down.key == Key::Slot && m_down.slot == i && !linked;
         key(p, k, QString(), down);
-        const bool waiting = m_pairSlot == i && m_tagWanted;
+        // (a found one's: steady amber, blinking once asked; waiting for the tag: blinking)
+        const bool found = m_foundIn.contains(i), asked = found && now - m_foundIn.value(i).value(2).toLongLong() < 60000;
+        const bool waiting = (m_pairSlot == i && m_tagWanted) || asked;
         const QRectF strip(k.center().x() - 6 + down, k.bottom() - 6.5 + down, 12, 3);
-        lamp(p, strip, linked ? kGreen : kLamp, linked || (waiting && m_clock.elapsed() / 400 % 2 == 0), false);
+        lamp(p, strip, linked ? kGreen : kLamp, linked || (found && !asked) || (waiting && m_clock.elapsed() / 400 % 2 == 0), false);
         p.setPen(QColor(0x8a, 0x8a, 0x8a));
         p.setFont(pxFont(7, QFont::Bold, 1));
         p.drawText(QRectF(k.x() - 8, k.bottom() + 3, k.width() + 16, 10), Qt::AlignHCenter, QStringLiteral("PAIR"));

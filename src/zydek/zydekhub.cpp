@@ -545,6 +545,18 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
 
 HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query& query) {
     auto arg = [&query](const char* name) { return query.value(QLatin1String(name)); };
+    if (path == QLatin1String("/api/offer")) {   // ?offer=<JSON>: ZyDeck Connect on a computer, which found this device
+        // on the network, asks it to link ({name, hosts, port, key}): the pages ask the user (nothing changes without)
+        const QJsonObject offer = QJsonDocument::fromJson(arg("offer").toUtf8()).object();
+        if (offer.value(QStringLiteral("hosts")).toArray().isEmpty() || offer.value(QStringLiteral("key")).toString().isEmpty()) {
+            return result({{"ok", false}, {"error", "Not an offer"}});
+        }
+        if (m_linkUp && m_linkTarget.value(QStringLiteral("key")) == offer.value(QStringLiteral("key"))) {
+            return result({{"ok", true}, {"linked", true}});   // (linked to it already)
+        }
+        emitJson({{"t", "offer"}, {"o", offer}});
+        return result({{"ok", true}, {"asked", !m_server.clients(QStringLiteral("/ws")).isEmpty()}});
+    }
     if (path == QLatin1String("/api/whoami")) {   // ZydekLink.java's network scan: "a ZyDeck, called ..."
         QString name = deviceName();
 #ifdef Q_OS_ANDROID

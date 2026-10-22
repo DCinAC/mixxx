@@ -805,11 +805,14 @@
   }
 
   // ZyDeck Connect on a computer: controller mode, linked over Wi-Fi (its code holds what the cable's hello gets)
-  async function connectTo(q) {
+  async function connectTo(q, asked = false) {   // (asked: the computer asked, having found this device on the network)
     const name = q.get("name") || "the computer", hosts = (q.get("hosts") || "").split(",").filter(Boolean), key = q.get("key");
     if (!hosts.length || !key) { host.toast("That code has no computer in it", "bad"); return true; }
     if (host.linked) { host.toast("This device is controlling another ZyDeck: go ◀ Back to this device, then scan again", "bad"); return true; }
-    if (!(await ask(`Control Mixxx on ${name}?`, [`ZyDeck goes to controller mode and links to ZyDeck Connect at ${hosts[0]} over Wi-Fi.`,
+    if (document.querySelector(".zm-ask")) return true;   // (one question at a time)
+    if (!(await ask(asked ? `${name} wants to link` : `Control Mixxx on ${name}?`, [asked
+      ? `ZyDeck Connect on ${name} (${hosts[0]}) found this device on the Wi-Fi. Link it, and ZyDeck goes to controller mode and controls Mixxx there.`
+      : `ZyDeck goes to controller mode and links to ZyDeck Connect at ${hosts[0]} over Wi-Fi.`,
       "The music then plays on the computer."], "Link"))) return true;
     await run("ctlmode", async () => {
       const offer = JSON.stringify({ name, hosts, port: +q.get("port") || 8771, key });
@@ -823,6 +826,11 @@
   // ---- what the pages call ----
   /// The hub's pushes (/ws): remote, opt, rec, dc; and init (its remote and rec)
   function push(m) {
+    if (m.t === "offer" && m.o && window === top) {   // ZyDeck Connect on a computer found this device and asks to link
+      const o = m.o, q = new URLSearchParams({ name: o.name || "", hosts: (o.hosts || []).join(","), port: o.port || 8771, key: o.key || "" });
+      connectTo(q, true);
+      return;
+    }
     if (m.init) { if (m.init.remote) sys.remote = m.init.remote; if (m.init.rec) sys.rec = m.init.rec; sys.live = !!m.init.live; }
     else if (m.t === "remote") sys.remote = m;
     else if (m.t === "opt") { sys.opt = m.o; if (!m.o.running) loads.audio().then(refresh); }
