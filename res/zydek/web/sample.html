@@ -292,6 +292,7 @@ $("#save").addEventListener("click", async () => {
   } catch { msg("Couldn't cut it", "bad"); }
 });
 $("#done").addEventListener("click", () => { audition(false); parent.postMessage({ zydek: "sample-close" }, location.origin); });
+addEventListener("message", e => { if (e.data?.zydek === "back") $("#done").click(); });   // Back (the system's): as Done
 
 // drag the waveform to move through the track
 (function scrub() {

@@ -844,16 +844,21 @@ public class MainActivity extends QtActivityBase {
         }
     }
 
-    /// Back, as the pages see it: the Bilibili login closes; a page's own step back (the grid editor's, say: it asks
-    /// first if something changed) goes back. True if it did either.
+    /// Back, as the pages see it: the Bilibili login closes; else the page gets it (zydekBack: the grid editor open
+    /// over it, say, which asks first if something changed), then its own history. True unless no page shows.
     private boolean backInPages() {
         if (m_loginView != null) {   // Back closes the Bilibili login
             closeBilibiliLogin();
             return true;
         }
-        // In the library page, Back goes back within it rather than leaving Mixxx.
-        if (m_phoneView != null && m_phoneView.getVisibility() == View.VISIBLE && m_phoneView.canGoBack()) {
-            m_phoneView.goBack();
+        // The page first (an editor open over it, a question: zydekBack), then the page's own history
+        if (m_phoneView != null && m_phoneView.getVisibility() == View.VISIBLE) {
+            final WebView view = m_phoneView;
+            view.evaluateJavascript("!!(window.zydekBack && zydekBack())", taken -> {
+                if (!"true".equals(taken) && view.canGoBack()) {
+                    view.goBack();
+                }
+            });
             return true;
         }
         return false;
@@ -866,7 +871,6 @@ public class MainActivity extends QtActivityBase {
         if (event.getKeyCode() == KeyEvent.KEYCODE_BACK
                 && (m_loginView != null || (m_phoneView != null && m_phoneView.getVisibility() == View.VISIBLE))) {
             if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
-                android.util.Log.d("Zydek", "Back: the pages' (they can go back: " + (m_phoneView != null && m_phoneView.canGoBack()) + ")");
                 backInPages();
             }
             return true;

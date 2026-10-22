@@ -1366,6 +1366,16 @@ async function openEditor(kind, t) {
   f.src = kind === "grid" ? `/grid?group=${encodeURIComponent("[PreviewDeck1]")}&track=${t.id}` : `/sample?track=${t.id}`;
   document.body.appendChild(f);
 }
+// Back (the system's, from the app): the grid or sample editor gets it (the grid's asks before throwing changes
+// away), or a question open is answered "no", or the decks' page (its own editor); true if something took it
+window.zydekBack = () => {
+  const ed = document.getElementById("gridview");
+  if (ed) { ed.contentWindow.postMessage({ zydek: "back" }, "*"); return true; }
+  const ask = document.querySelector(".zm-ask, #ask");
+  if (ask) { (ask.querySelector(".no") || ask).click(); return true; }
+  try { if (deckFrame()?.contentWindow?.zydekBack?.()) return true; } catch {}
+  return false;
+};
 addEventListener("message", e => {
   if (e.origin !== location.origin || !["grid-close", "sample-close"].includes(e.data?.zydek)) return;
   document.getElementById("gridview")?.remove();

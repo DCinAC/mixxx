@@ -1261,6 +1261,14 @@ function openGrid(s) {
 addEventListener("message", e => {
   if ((e.origin === location.origin || e.origin === HUB) && e.data?.zydek === "grid-close") document.getElementById("gridview")?.remove();
 });
+// Back (the system's, from the app): the grid editor gets it, or a question open is answered "no"; true if taken
+window.zydekBack = () => {
+  const g = document.getElementById("gridview");
+  if (g) { g.contentWindow.postMessage({ zydek: "back" }, "*"); return true; }
+  const ask = document.querySelector(".zm-ask, #asktext");
+  if (ask) { (ask.querySelector(".no") || ask).click(); ask.remove?.(); return true; }
+  return false;
+};
 
 // Deck header (switch, title, BPM, time) and platter strip for side s.
 function buildStrip(s, u) {
