@@ -1949,11 +1949,19 @@ double Hub::visualExtraSeconds() const {
 /// timestamps of that stream, following the route), the median of the last 5; the pages hear of a change of 2 ms or more
 void Hub::streamDelayTick() {
 #ifdef PA_USE_OBOE
-    // where the queue settled on this kind of output: the next stream there starts at that (not while Optimize probes)
+    // where the queue settled on this kind of output: the next stream there starts at that (not while Optimize probes,
+    // nor in the app's first 20 s: starting up stalls the sound now and then, and grows it for nothing; then it's put
+    // back to what was learned; nor in controller mode, where this device's own sound isn't heard)
     PaOboe_OutputStatus out{};
     PaOboe_GetOutputStatus(&out);
     const QString kind = routeKind();
-    if (out.open && out.framesPerBurst > 0 && !kind.isEmpty() && !m_optimize.running) {
+    static bool settled = false;
+    if (!settled && m_clock.elapsed() > 20000) {
+        settled = true;
+        applyQueue();
+        return;
+    }
+    if (settled && out.open && out.framesPerBurst > 0 && !kind.isEmpty() && !m_optimize.running && !m_controllerMode) {
         const int bursts = (out.bufferSizeFrames + out.framesPerBurst - 1) / out.framesPerBurst;
         if (bursts > m_queueBursts.value(kind, 0)) {
             qInfo() << "Zydek: the output queue on" << kind << "settled at" << bursts << "bursts of" << out.framesPerBurst << "frames";
