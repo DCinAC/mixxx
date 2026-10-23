@@ -13,6 +13,8 @@
 #include <QString>
 #include <QStringList>
 #include <QTimer>
+#include <atomic>
+#include <memory>
 
 #include "preferences/usersettings.h"
 #include "track/beats.h"
@@ -298,6 +300,13 @@ class Hub : public QObject {
         bool locked = false;
     };
     QHash<QString, GridStart> m_gridStart;
+    /// Its "Analyze range" (Library::analyzeRange), on a worker: one at a time, polled (/api/grid/range?status=1)
+    struct GridRange {
+        bool running = false;
+        int serial = 0;
+        QJsonObject result;   // once done: {ok, bpm} or {ok: false, error}
+        std::shared_ptr<std::atomic<bool>> cancel;
+    } m_gridRange;
     QJsonObject debugPos(const QString& group);
     /// Where each playing deck (and the preview deck) is heard, ~60 times a second: Mixxx's own waveform position
     /// (its audio timing) and speed, stamped with the hub's clock. Pages draw from it (no polling, no smoothing).

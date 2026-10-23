@@ -19,10 +19,13 @@
 
 #include "analyzer/analyzerprogress.h"
 #include "analyzer/analyzerscheduledtrack.h"
+#include "analyzer/plugins/analyzerqueenmarybeats.h"
 #include "control/controlobject.h"
 #include "library/analysis/analysisfeature.h"
 #include "sources/audiosource.h"
 #include "sources/soundsourceproxy.h"
+#include "track/beats.h"
+#include "track/beatutils.h"
 #include "track/steminfo.h"
 #include "util/samplebuffer.h"
 #include <QTimer>
@@ -1151,6 +1154,75 @@ QJsonObject Library::saveLoaded(const QString& group) {
                 saved = pCollection->saveTrack(pTrack) != TrackCollectionManager::SaveTrackResult::Failed;
             });
     return saved ? QJsonObject{{"ok", true}, {"bpm", pTrack->getBpm()}} : error(QStringLiteral("Couldn't save the track"));
+}
+
+QJsonObject Library::analyzeRange(const TrackPointer& pTrack, double start, double end, const std::atomic<bool>* pCancel) {
+    if (!pTrack) {
+        return error(QStringLiteral("Nothing loaded there"));
+    }
+    if (pTrack->isBpmLocked()) {
+        return error(QStringLiteral("The grid is locked: unlock it first"));
+    }
+    if (!(end - start >= kRangeMinSeconds)) {
+        return error(QStringLiteral("Pick at least %1 seconds").arg(kRangeMinSeconds));
+    }
+    mixxx::AudioSource::OpenParams params;
+    params.setChannelCount(mixxx::audio::ChannelCount::stereo());   // (a stems file: its mix)
+    const mixxx::AudioSourcePointer pSource = SoundSourceProxy(pTrack).openAudioSource(params);
+    if (!pSource) {
+        return error(QStringLiteral("Couldn't read the track"));
+    }
+    const mixxx::audio::SampleRate rate = pSource->getSignalInfo().getSampleRate();
+    if (pSource->getSignalInfo().getChannelCount() != mixxx::audio::ChannelCount::stereo()) {
+        return error(QStringLiteral("Couldn't read the track in stereo"));
+    }
+    const mixxx::IndexRange frames = pSource->frameIndexRange();
+    const SINT first = std::clamp(static_cast<SINT>(start * rate.toDouble()), frames.start(), frames.end());
+    const SINT last = std::clamp(static_cast<SINT>(end * rate.toDouble()), first, frames.end());
+    mixxx::AnalyzerQueenMaryBeats detector;   // Mixxx's own beat tracker, on that stretch alone
+    if (last - first < kRangeMinSeconds * rate.toDouble() || !detector.initialize(rate)) {
+        return error(QStringLiteral("That stretch is too short"));
+    }
+    constexpr SINT kChunk = 65536;   // frames read and fed at a time (the stretch may be the whole track)
+    mixxx::SampleBuffer buffer(kChunk * 2);
+    for (SINT at = first; at < last;) {
+        if (pCancel && pCancel->load()) {
+            return error(QStringLiteral("Cancelled"));
+        }
+        const mixxx::ReadableSampleFrames read = pSource->readSampleFrames(mixxx::WritableSampleFrames(
+                mixxx::IndexRange::between(at, std::min(at + kChunk, last)), mixxx::SampleBuffer::WritableSlice(buffer)));
+        if (read.readableLength() <= 0) {
+            break;
+        }
+        detector.processSamples(read.readableData(), read.readableLength());
+        at = read.frameIndexRange().end();
+    }
+    if (!detector.finalize()) {
+        return error(QStringLiteral("Couldn't find the beat there"));
+    }
+    // its beats are counted from the stretch's start: a steady grid through them, as Mixxx makes one
+    QVector<mixxx::audio::FramePos> beats = detector.getBeats();
+    for (mixxx::audio::FramePos& b : beats) {
+        b += static_cast<double>(first);
+    }
+    const QVector<BeatUtils::ConstRegion> regions = BeatUtils::retrieveConstRegions(beats, rate);
+    mixxx::audio::FramePos firstBeat = mixxx::audio::kStartFramePos;
+    const mixxx::Bpm bpm = regions.isEmpty() ? mixxx::Bpm() : BeatUtils::makeConstBpm(regions, rate, &firstBeat);
+    if (beats.size() < 8 || !bpm.isValid() || !firstBeat.isValid()) {
+        return error(QStringLiteral("Couldn't find a steady beat there"));
+    }
+    firstBeat = BeatUtils::adjustPhase(firstBeat, bpm, rate, beats);
+    // anchored there, and from the track's start on (whole beats back from the stretch)
+    const double beatLength = 60.0 * rate.toDouble() / bpm.value();
+    firstBeat = mixxx::audio::FramePos(firstBeat.value() - std::floor(firstBeat.value() / beatLength) * beatLength);
+    const mixxx::BeatsPointer pBeats = mixxx::Beats::fromConstTempo(rate, firstBeat.toNearestFrameBoundary(), bpm);
+    if (pCancel && pCancel->load()) {   // (the editor closed meanwhile: its grid stays as it left it)
+        return error(QStringLiteral("Cancelled"));
+    }
+    if (!pBeats || !pTrack->trySetBeats(pBeats)) {
+        return error(QStringLiteral("Couldn't set the grid"));
+    }
+    return {{"ok", true}, {"bpm", pTrack->getBpm()}};
 }
 
 void Library::stopAnalysis() {

@@ -8,9 +8,11 @@
   ZyDeck's beat grid editor: /grid?group=[Channel1]|[PreviewDeck1]&track=<id>. Opened over the phone's library
   (long press a track > Edit beat grid: the track goes to the headphones' preview deck) and over the tablet's
   decks (tap a deck's BPM). It edits whatever is loaded in `group`, with Mixxx's own beat grid controls, and
-  posts {zydek: "grid-close"} to the page that opened it when done. Done saves; Back (the system's, handed over by
-  that page as {zydek: "back"}) asks first if anything changed, and throwing the changes away puts the grid back as it
-  was when the editor opened.
+  posts {zydek: "grid-close"} to the page that opened it when done. Done saves; Cancel throws the changes away (a
+  second tap if there are any), which puts the grid back as it was when the editor opened; Back (the system's,
+  handed over by that page as {zydek: "back"}) asks first if anything changed.
+  ANALYZE RANGE: Mixxx's beat tracker on a stretch alone (START and END at the line), and a steady grid through
+  it, for a long beatless intro or a drifting tempo. &range=1 opens on it (a long press on the track menu's Analyze).
 -->
 <style>
   :root { --bg: #0b0b0b; --panel: #141414; --edge: #2c2c2c; --text: #ececec; --dim: #8a8a8a; --acc: #e2b84a; --play: #3ddc84; --err: #ff5a5f; }
@@ -27,6 +29,7 @@
   button.on { border-color: var(--acc); color: var(--acc); background: #2a2414; }
   button:active, button.down { background: #fff; color: #111; }
   #done { border-color: var(--acc); color: var(--acc); }
+  #cancel.armed { border-color: var(--err); color: var(--err); }
   #wave { position: relative; border: 1px solid var(--edge); border-radius: 12px; overflow: hidden; background: #0f0f0f; }
   #wave canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   #wave .head { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 8px #fff; pointer-events: none; }
@@ -44,8 +47,17 @@
   #bpm { font: 700 30px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; min-width: 4.4ch; }
   #bpm small { font-size: 12px; color: var(--dim); font-weight: 500; margin-left: 4px; }
   #bpmin { height: 44px; border-radius: 10px; border: 1px solid #343434; background: #181818; color: var(--text); padding: 0 10px; font: 600 16px system-ui; min-width: 0; }
-  #msg { grid-column: 1 / -1; min-height: 16px; color: var(--dim); font-size: 12px; }
-  #msg.bad { color: var(--err); }
+  #msg, #rmsg { grid-column: 1 / -1; min-height: 16px; color: var(--dim); font-size: 12px; }
+  #msg.bad, #rmsg.bad { color: var(--err); }
+  .full { grid-column: 1 / -1; }
+  #rangebar { display: none; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; align-content: start; }
+  #app.ranging #pads { display: none; } #app.ranging #rangebar { display: grid; }
+  #rangebar button { min-height: 52px; line-height: 1.1; }
+  #rangebar button small { display: block; font-size: 11px; color: var(--dim); font-weight: 500; }
+  #rangebar .rt { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 10px; min-height: 30px; }
+  #rangebar .rt b { font-size: 15px; } #rangebar .rt span { color: var(--acc); font-variant-numeric: tabular-nums; font-size: 13px; }
+  #rgo { border-color: var(--acc); color: var(--acc); }
+  #rgo:disabled { opacity: .5; }
   #ask { position: fixed; inset: 0; z-index: 10; display: none; place-items: center; background: rgba(0,0,0,.6); padding: 16px; }
   #ask.on { display: grid; }
   #ask > div { width: min(100%, 360px); background: var(--panel); border: 1px solid var(--edge); border-radius: 14px; padding: 18px; display: grid; gap: 14px; }
@@ -58,13 +70,13 @@
     #app { grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: auto minmax(0, 1fr) 44px; }
     header { grid-column: 1 / -1; }
     #wave { grid-row: 2; } #slide { grid-row: 3; grid-column: 1; }
-    #pads { grid-row: 2 / 4; grid-column: 2; align-content: start; }
+    #pads, #rangebar { grid-row: 2 / 4; grid-column: 2; align-content: start; }
   }
 </style>
 </head>
 <body>
 <div id="app">
-  <header><button id="done">Done</button><div class="who"><b id="title">…</b><small id="sub"></small></div><button id="play">▶</button></header>
+  <header><button id="cancel">Cancel</button><div class="who"><b id="title">…</b><small id="sub"></small></div><button id="play">▶</button><button id="done">Done</button></header>
   <div id="wave"><canvas></canvas><div class="head"></div>
     <div class="zoom"><button id="zout">−</button><button id="zin">+</button></div><div class="note" id="znote"></div></div>
   <div id="slide">◀ EARLIER · DRAG TO SLIDE THE GRID · LATER ▶</div>
@@ -81,7 +93,16 @@
     <button data-c="bpm_tap" class="wide">TAP<small>tap the tempo</small></button>
     <button id="first">⇤<small>first beat</small></button>
     <button data-c="beats_undo_adjustment">UNDO<small>grid</small></button>
+    <button id="range" class="full">ANALYZE RANGE<small>a steady grid from one stretch of the track</small></button>
     <div id="msg"></div>
+  </div>
+  <div id="rangebar">
+    <div class="rt"><b>Analyze range</b><span id="rangetext"></span></div>
+    <button id="rstart" class="wide">START<small>at the line</small></button>
+    <button id="rend" class="wide">END<small>at the line</small></button>
+    <button id="rclose" class="wide">CLOSE<small>back to the grid keys</small></button>
+    <button id="rgo" class="wide">ANALYZE<small>only this stretch counts</small></button>
+    <div id="rmsg">Move the track under the line, then set START and END. The grid it finds runs through the whole track.</div>
   </div>
 </div>
 <div id="ask" role="dialog" aria-modal="true"><div><p>Unsaved changes were made. Save?</p>
@@ -167,8 +188,19 @@ function draw(now) {
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   // where the sound is (the hub's latency and this screen's), or under the finger while dragging
   const pos = dragging || (d.pt === undefined && !d.vp) ? st.pos : ZydeckPos.posAt(d, now, LAT + VIEW);
+  linePos = pos;
   const sec = ZOOMS[zi], pxs = W / sec, start = pos - sec / 2, mid = H / 2;
   g.clearRect(0, 0, W, H);
+  if (range.on) {   // the stretch to analyze: shaded, its ends marked
+    const x0 = (range.a - start) * pxs, x1 = (range.b - start) * pxs;
+    g.fillStyle = "rgba(226,184,74,.13)"; g.fillRect(x0, 0, x1 - x0, H);
+    g.fillStyle = "rgba(226,184,74,.95)"; g.font = `700 ${10 * dpr}px system-ui`; g.textBaseline = "bottom";
+    [[x0, "START", 3], [x1, "END", -3]].forEach(([x, t, dx]) => {
+      if (x < -50 * dpr || x > W + 50 * dpr) return;
+      g.fillRect(x - dpr, 0, 2 * dpr, H);
+      const w = g.measureText(t).width; g.fillText(t, dx > 0 ? x + dx * dpr : x + dx * dpr - w, H - 4 * dpr);
+    });
+  }
   g.fillStyle = "rgba(255,255,255,.25)"; g.fillRect(0, Math.floor(mid), W, Math.max(1, dpr * .6));
   const wf = st.wf;
   if (wf) {   // Mixxx's colours: low red, mid green, high blue
@@ -197,7 +229,7 @@ function draw(now) {
   }
   requestAnimationFrame(draw);
 }
-let zi = 2;
+let zi = 2, linePos = 0;
 const paintZoom = () => { $("#znote").textContent = `${ZOOMS[zi]} s across · drag to move through the track`; };
 
 // ---- touch: drag the waveform to move through the track; drag the slide bar to move the grid -------------
@@ -303,23 +335,87 @@ let closing = false;
 async function finish(save) {
   if (closing) return;
   closing = true;
+  await rangeStop();   // (a stretch still being analysed would set its grid after this)
   if (PREVIEW) set("play", 0);
   // Mixxx writes a track's edits to the library only when it's ejected: save the grid now; or put it back
   await fetch(save ? `/api/grid/save?group=${G}` : `/api/grid/revert?group=${G}`).catch(() => {});
   parent.postMessage({ zydek: "grid-close" }, "*");   // (its parent may be another device's copy of the deck page)
 }
 $("#done").addEventListener("click", () => finish(true));
+// Cancel: nothing changed, it closes; else a second tap (within 3 s) throws the changes away
+$("#cancel").addEventListener("click", async () => {
+  const c = $("#cancel");
+  if (c.classList.contains("armed") || !(await changed())) return finish(false);
+  c.classList.add("armed"); c.textContent = "Discard?";
+  setTimeout(() => { c.classList.remove("armed"); c.textContent = "Cancel"; }, 3000);
+});
 // Back (the system's): the page that opened this hands it over ({zydek: "back"}). Nothing changed: it closes; else it
 // asks first; Back again while it asks: back to editing
 addEventListener("message", async e => {
   if (e.data?.zydek !== "back" || closing) return;
   if ($("#ask").classList.contains("on")) { $("#ask").classList.remove("on"); return; }
+  if (range.on) return rangeMode(false);   // (the range first: back to the grid keys)
   if (!(await changed())) return finish(false);
   $("#ask").classList.add("on");
 });
 $("#asksave").addEventListener("click", () => { $("#ask").classList.remove("on"); finish(true); });
 $("#askdrop").addEventListener("click", () => { $("#ask").classList.remove("on"); finish(false); });
 $("#askstay").addEventListener("click", () => $("#ask").classList.remove("on"));
+// ---- ANALYZE RANGE: the hub runs Mixxx's beat tracker on [a, b) seconds alone and sets a steady grid through it ----
+const range = { on: false, a: 0, b: 0, busy: false, serial: 0 };
+const clock = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+const rmsg = (t, bad) => { $("#rmsg").textContent = t || ""; $("#rmsg").className = bad ? "bad" : ""; };
+function paintRange() {
+  $("#rangetext").textContent = `${clock(range.a)} – ${clock(range.b)} · ${(range.b - range.a).toFixed(1)} s`;
+  $("#rgo").disabled = range.busy;
+}
+function rangeMode(on) {
+  if (on && st.locked) return msg("The grid is locked: unlock it first", true);
+  range.on = on; $("#app").classList.toggle("ranging", on);
+  if (on && !(range.b > range.a)) {   // from the line on, 30 s (or what's left of the track)
+    const len = Math.min(30, st.dur || 30);
+    range.a = Math.max(0, Math.min(linePos, (st.dur || len) - len)); range.b = range.a + len;
+  }
+  paintRange();
+}
+function rangeEnd(which) {
+  const p = Math.max(0, Math.min(st.dur || linePos, linePos)), len = Math.min(30, st.dur || 30);
+  if (which === "a") { range.a = p; if (range.b <= p) range.b = Math.min(st.dur || p + len, p + len); }
+  else { range.b = p; if (range.a >= p) range.a = Math.max(0, p - len); }
+  rmsg(range.b - range.a < 8 ? "At least 8 seconds: more is surer" : ""); paintRange();
+}
+async function rangeGo() {
+  if (range.busy) return;
+  if (range.b - range.a < 8) return rmsg("At least 8 seconds: more is surer", true);
+  range.busy = true; paintRange(); rmsg("Listening to that stretch…");
+  try {
+    const r = await (await fetch(`/api/grid/range?group=${G}&start=${range.a.toFixed(3)}&end=${range.b.toFixed(3)}`)).json();
+    if (!r.ok) throw new Error(r.error || "Couldn't start");
+    range.serial = r.serial;
+    let s;
+    do { await new Promise(r => setTimeout(r, 400)); s = await (await fetch("/api/grid/range?status=1")).json(); }
+    while (s.serial === range.serial && s.running);
+    if (s.serial !== range.serial) throw new Error("Interrupted");
+    if (!s.ok) throw new Error(s.error || "Couldn't analyze it");
+    touched = true; refreshBeats(); rangeMode(false);
+    msg(`A steady grid from ${clock(range.a)} – ${clock(range.b)}: ${s.bpm.toFixed(2)} BPM`);
+  } catch (e) { rmsg(e.message, true); }
+  range.busy = false; paintRange();
+}
+async function rangeStop() {
+  if (!range.busy) return;
+  fetch("/api/grid/range?cancel=1").catch(() => {});
+  for (let i = 0; i < 30 && range.busy; i++) await new Promise(r => setTimeout(r, 100));
+}
+$("#range").addEventListener("click", () => rangeMode(true));
+$("#rclose").addEventListener("click", () => rangeMode(false));
+$("#rstart").addEventListener("click", () => rangeEnd("a"));
+$("#rend").addEventListener("click", () => rangeEnd("b"));
+$("#rgo").addEventListener("click", rangeGo);
+if (params.get("range") === "1") (async () => {   // opened on it: once the track's length is known
+  for (let i = 0; i < 50 && !st.dur; i++) await new Promise(r => setTimeout(r, 200));
+  rangeMode(true);
+})();
 function paintBpm() { $("#bpm").innerHTML = `${st.bpm ? st.bpm.toFixed(2) : "—"}<small>BPM</small>`; }
 function paintLock() { $("#lock").textContent = st.locked ? "🔒" : "🔓"; $("#lock").classList.toggle("on", st.locked); }
 

@@ -327,7 +327,9 @@
     margin: 0 2px 0 8px; background: center / 24px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='11' fill='%23555'/%3E%3Cpath d='M8 8l8 8M16 8l-8 8' stroke='%230b0b0b' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E"); }
   /* Landscape: the deck view (the controller's phone layout), loaded with the page and kept running, so
      turning the phone switches instantly. Portrait: the library. */
-  #gridview { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 120; background: var(--bg); }
+  /* (below the status bar: a page in it doesn't get the screen's insets) */
+  #gridview { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 120; background: var(--bg); box-sizing: border-box;
+    border-top: var(--safe-t) solid var(--bg); border-bottom: var(--safe-b) solid var(--bg); }
   #deckview { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 50; background: var(--bg); visibility: hidden; }
   @media (orientation: landscape) {
     #deckview { visibility: visible; }
@@ -1256,7 +1258,20 @@ async function openSheet(t) {
   s.querySelector(".mksample")?.addEventListener("click", () => { closeSheet(); openEditor("sample", t); });
   const an = s.querySelector(".analyze");
   // Analyzing again replaces the beat grid (and any edits to it): the first tap only asks
+  // A long press: Analyze range in the beat grid editor (nothing shows it, and it doesn't buzz)
+  let anLong = false, anTimer = null;
+  an?.addEventListener("pointerdown", e => {
+    const x = e.clientX, y = e.clientY;
+    anLong = false; clearTimeout(anTimer);
+    anTimer = setTimeout(() => { anLong = true; closeSheet(); openEditor("grid", t, true); }, 500);
+    const moved = m => { if (Math.hypot(m.clientX - x, m.clientY - y) > 10) clearTimeout(anTimer); };
+    an.addEventListener("pointermove", moved);
+    const up = () => { clearTimeout(anTimer); an.removeEventListener("pointermove", moved); };
+    ["pointerup", "pointercancel", "pointerleave"].forEach(k => an.addEventListener(k, up, { once: true }));
+  });
+  an?.addEventListener("contextmenu", e => e.preventDefault());
   an?.addEventListener("click", () => {
+    if (anLong) { anLong = false; return; }
     if (analyzed && !an.classList.contains("armed")) {
       an.classList.add("armed"); an.innerHTML = "Tap again to replace<small>the beat grid and key</small>";
       setTimeout(() => { if (an.isConnected && an.classList.contains("armed")) { an.classList.remove("armed"); an.innerHTML = "Analyze again<small>new beat grid and key</small>"; } }, 4000);
@@ -1358,12 +1373,12 @@ function onLongPress(el, fn) {
 
 // The beat grid editor (grid.html) and the sample editor (sample.html): the track goes to the headphones'
 // preview deck and the editor opens over the page
-async function openEditor(kind, t) {
+async function openEditor(kind, t, range) {
   try { await api(`/api/load?${qs({ track_id: t.id, target: "preview" })}`); } catch (e) { return toast(e.message, "bad"); }
   document.getElementById("gridview")?.remove();
   const f = document.createElement("iframe");
   f.id = "gridview";
-  f.src = kind === "grid" ? `/grid?group=${encodeURIComponent("[PreviewDeck1]")}&track=${t.id}` : `/sample?track=${t.id}`;
+  f.src = kind === "grid" ? `/grid?group=${encodeURIComponent("[PreviewDeck1]")}&track=${t.id}${range ? "&range=1" : ""}` : `/sample?track=${t.id}`;
   document.body.appendChild(f);
 }
 // Back (the system's, from the app): the grid or sample editor gets it (the grid's asks before throwing changes

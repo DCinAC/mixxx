@@ -13,6 +13,7 @@
 #include <QStandardPaths>
 #include <QSslSocket>
 #include <QTcpSocket>
+#include <QThreadPool>
 #include <QTimer>
 #include <QtEndian>
 #include <algorithm>
@@ -726,6 +727,44 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
             setSamplerMode(arg("slot").toInt(), QStringLiteral("loop"));   // a captured loop loops
         }
         return result(r);
+    }
+    if (path == QLatin1String("/api/grid/range")) {   // ?group=&start=&end= (s): a steady grid from that stretch · ?status=1 · ?cancel=1
+        GridRange& job = m_gridRange;
+        if (query.contains(QStringLiteral("cancel")) && job.cancel) {
+            job.cancel->store(true);
+        }
+        if (query.contains(QStringLiteral("status")) || query.contains(QStringLiteral("cancel"))) {
+            QJsonObject out = job.result;
+            out.insert(QStringLiteral("running"), job.running);
+            out.insert(QStringLiteral("serial"), job.serial);
+            return json(out);
+        }
+        if (job.running) {
+            return result({{"ok", false}, {"error", "Already analysing a stretch"}});
+        }
+        const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(arg("group"));
+        if (!pTrack) {
+            return result({{"ok", false}, {"error", "Nothing loaded there"}});
+        }
+        // decoding it takes a while: on a worker (this thread handles the tablet's input)
+        job.running = true;
+        job.result = {};
+        job.cancel = std::make_shared<std::atomic<bool>>(false);
+        const int serial = ++job.serial;
+        const double start = arg("start").toDouble(), end = arg("end").toDouble();
+        QThreadPool::globalInstance()->start([this, pTrack, start, end, serial, cancel = job.cancel] {
+            const QJsonObject out = Library::analyzeRange(pTrack, start, end, cancel.get());
+            QMetaObject::invokeMethod(
+                    this,
+                    [this, out, serial] {
+                        if (m_gridRange.serial == serial) {
+                            m_gridRange.running = false;
+                            m_gridRange.result = out;
+                        }
+                    },
+                    Qt::QueuedConnection);
+        });
+        return result({{"ok", true}, {"serial", serial}});
     }
     if (path == QLatin1String("/api/grid/bpm") || path == QLatin1String("/api/grid/lock")) {   // ?group=&bpm= · ?group=&on=1|0
         const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(arg("group"));

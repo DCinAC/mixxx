@@ -6,6 +6,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
+#include <atomic>
 #include <memory>
 
 #include "preferences/usersettings.h"
@@ -69,6 +70,11 @@ class Library {
     /// clears its beat grid and key first (refused while the grid is locked).
     QJsonObject analyzeTrack(int trackId, bool fresh);
     QJsonObject analysisStatus();
+    /// The beat grid editor's "Analyze range": Mixxx's beat tracker on [start, end) seconds of what pTrack's file
+    /// has (a long beatless intro, a live drummer, a drifting tempo: only that stretch counts), and a steady grid
+    /// through what it finds, anchored there. Slow (it decodes the stretch): for a worker thread; pCancel stops it.
+    static constexpr int kRangeMinSeconds = 8;
+    static QJsonObject analyzeRange(const TrackPointer& pTrack, double start, double end, const std::atomic<bool>* pCancel = nullptr);
     /// Writes the track loaded in group (a deck, or the preview deck) to the library now, so beat grid edits
     /// show in the library without waiting for it to be ejected.
     QJsonObject saveLoaded(const QString& group);
