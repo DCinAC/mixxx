@@ -194,11 +194,11 @@ function draw(now) {
   if (range.on) {   // the stretch to analyze: shaded, its ends marked
     const x0 = (range.a - start) * pxs, x1 = (range.b - start) * pxs;
     g.fillStyle = "rgba(226,184,74,.13)"; g.fillRect(x0, 0, x1 - x0, H);
-    g.fillStyle = "rgba(226,184,74,.95)"; g.font = `700 ${10 * dpr}px system-ui`; g.textBaseline = "bottom";
+    g.fillStyle = "rgba(226,184,74,.95)"; g.font = `700 ${10 * dpr}px system-ui`; g.textBaseline = "top";
     [[x0, "START", 3], [x1, "END", -3]].forEach(([x, t, dx]) => {
       if (x < -50 * dpr || x > W + 50 * dpr) return;
       g.fillRect(x - dpr, 0, 2 * dpr, H);
-      const w = g.measureText(t).width; g.fillText(t, dx > 0 ? x + dx * dpr : x + dx * dpr - w, H - 4 * dpr);
+      const w = g.measureText(t).width; g.fillText(t, dx > 0 ? x + dx * dpr : x + dx * dpr - w, 18 * dpr);   // (under the bar numbers)
     });
   }
   g.fillStyle = "rgba(255,255,255,.25)"; g.fillRect(0, Math.floor(mid), W, Math.max(1, dpr * .6));
