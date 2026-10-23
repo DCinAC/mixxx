@@ -129,6 +129,11 @@
   const DC_STATE = ["Not streaming", "Connecting to the bot…", "Live", "Can't reach the bot", "Live (with problems)"];
   const BUFS = [[3, "5 ms"], [4, "11 ms"], [5, "21 ms"], [6, "43 ms"], [7, "85 ms"]];
   const bufName = i => (BUFS.find(b => b[0] === i) || [0, `buffer ${i}`])[1];
+  // Mixxx's output as Android runs it (the hub, from PortAudio's Oboe host): straight to the hardware or through
+  // Android's mixer, the queue after Mixxx's block, the underruns
+  const pathLine = p => !p || p.mmap === undefined ? ""
+    : `${p.mmap === 1 ? "Straight to the hardware" : "Through Android's mixer"} · ${p.queueMs} ms queue · ${p.glitches ? `${p.glitches} glitch${p.glitches > 1 ? "es" : ""}` : "no glitches"}`;
+  const BT_WARN = "Bluetooth: the sound comes about 250 ms late. Fine for listening; for mixing, use USB-C headphones.";
   const mmss = s => { s = Math.floor(s || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
   const ROWS = [
     // System › Connections
@@ -152,7 +157,9 @@
     { id: "audio-remote", sec: "audio", name: "Audio", kind: "note", show: () => !!sys.remote.on, desc: "Set on the computer's Mixxx while controller mode is on." },
     { id: "main", sec: "audio", name: "Main mix", kind: "custom", build: r => buildOut(r, "main"), show: () => !sys.remote.on,
       st: () => { const a = sys.audio; if (applying) return "Applying…"; if (!a) return ""; if (a.error) return a.error;
-        return a.main || a.headphones ? `${a.latencyMs ? a.latencyMs.toFixed(1) + " ms buffer · " : ""}${a.api || ""}${a.dropouts ? ` · ${a.dropouts} dropouts` : ""}` : "No output: Mixxx is silent"; },
+        if (!a.main && !a.headphones) return "No output: Mixxx is silent";
+        if (a.kind === "Bluetooth") return BT_WARN;
+        return [a.latencyMs ? a.latencyMs.toFixed(1) + " ms block" : "", pathLine(a.path) || a.api || ""].filter(Boolean).join(" · "); },
       desc: "" },
     { id: "phones", sec: "audio", name: "Headphones (cue)", kind: "custom", build: r => buildOut(r, "phones"), show: () => !sys.remote.on,
       desc: "", st: () => sharedOut() ? "Shares the main's channels: everyone hears what you cue" : "",
@@ -163,7 +170,7 @@
     { id: "optimize", sec: "audio", name: "Optimize", kind: "proc", show: () => !sys.remote.on && !!sys.audio?.devices,
       label: () => sys.opt?.running ? "Cancel" : "Optimize",
       lamp: () => sys.opt?.running ? "busy" : sys.opt?.error ? "err" : sys.opt?.chosen ? "ok" : "",
-      st: () => { const o = sys.opt; if (!o) return ""; const tried = (o.results || []).map(r => `${bufName(r.buffer)}: ${r.dropouts ? r.dropouts + " dropouts" : "clean"}`).join(" · ");
+      st: () => { const o = sys.opt; if (!o) return ""; const tried = (o.results || []).map(r => `${bufName(r.buffer)}: ${r.queueMs != null ? `${r.queueMs} ms queue${r.late ? ", still glitching" : ""}` : r.dropouts ? r.dropouts + " dropouts" : "clean"}`).join(" · ");
         return o.running ? `${o.state || ""} ${tried}` : o.error ? o.error : o.chosen ? `Kept ${bufName(o.chosen)}${tried ? " · " + tried : ""}` : ""; },
       act: async () => { const o = await api(`/api/audio/optimize${sys.opt?.running ? "?cancel=1" : ""}`); if (o && o.state !== undefined) sys.opt = o; },
       desc: "" },

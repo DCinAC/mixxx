@@ -325,6 +325,10 @@ void Hub::start() {
         if (f.open(QIODevice::ReadOnly)) {
             const QJsonObject prefs = QJsonDocument::fromJson(f.readAll()).object();
             m_latencyOffsetMs = prefs.value(QStringLiteral("offsetMs")).toInt();
+            const QJsonObject queues = prefs.value(QStringLiteral("queueBursts")).toObject();
+            for (auto it = queues.begin(); it != queues.end(); ++it) {
+                m_queueBursts.insert(it.key(), std::clamp(it.value().toInt(), 1, 16));
+            }
             m_liveStemsAuto = prefs.value(QStringLiteral("liveStems")).toBool(true);
             m_recordPreFx = prefs.value(QStringLiteral("recordPreFx")).toBool(false);
             m_discordHost = prefs.value(QStringLiteral("discordHost")).toString();
@@ -1507,6 +1511,8 @@ QJsonObject Hub::audioStatus() const {
     out.insert(QStringLiteral("measuredMs"), m_measuredLatencyMs);
     out.insert(QStringLiteral("streamMs"), m_streamDelayMs);   // Mixxx's own stream, as Android times it (-1: not yet)
     out.insert(QStringLiteral("route"), m_latencyRoute);
+    out.insert(QStringLiteral("kind"), routeKind());
+    out.insert(QStringLiteral("path"), outputPath());
     out.insert(QStringLiteral("offsetMs"), m_latencyOffsetMs);
     out.insert(QStringLiteral("totalMs"), std::round(latencySeconds() * 1000));
     out.insert(QStringLiteral("dropouts"),
@@ -1943,6 +1949,18 @@ double Hub::visualExtraSeconds() const {
 /// timestamps of that stream, following the route), the median of the last 5; the pages hear of a change of 2 ms or more
 void Hub::streamDelayTick() {
 #ifdef PA_USE_OBOE
+    // where the queue settled on this kind of output: the next stream there starts at that (not while Optimize probes)
+    PaOboe_OutputStatus out{};
+    PaOboe_GetOutputStatus(&out);
+    const QString kind = routeKind();
+    if (out.open && out.framesPerBurst > 0 && !kind.isEmpty() && !m_optimize.running) {
+        const int bursts = (out.bufferSizeFrames + out.framesPerBurst - 1) / out.framesPerBurst;
+        if (bursts > m_queueBursts.value(kind, 0)) {
+            qInfo() << "Zydek: the output queue on" << kind << "settled at" << bursts << "bursts of" << out.framesPerBurst << "frames";
+            m_queueBursts.insert(kind, bursts);
+            saveAudioPrefs();
+        }
+    }
     static QList<int> recent;
     const double d = PaOboe_GetOutputPresentationDelay();
     if (d <= 0) {
@@ -2004,8 +2022,19 @@ void Hub::slipTick() {
 // ---- one-tap audio optimisation ------------------------------------------------------------------------
 
 namespace {
-const int kOptimizeBuffers[] = {3, 4, 5};   // 5.3, 10.7, 21.3 ms at 48 kHz
-constexpr int kOptimizeSeconds = 60;        // per buffer: a size on the edge stalls now and then (30 s missed some)
+const int kOptimizeBuffers[] = {3, 4, 5};   // Mixxx's block: 5.3, 10.7, 21.3 ms at 48 kHz
+constexpr int kOptimizeSeconds = 60;        // per block: a size on the edge stalls now and then (30 s missed some)
+constexpr double kOptimizeMaxQueueMs = 25;  // a block whose queue had to grow past this isn't worth it
+/// The output's underruns since its stream opened (PortAudio's Oboe host counts AAudio's), or Mixxx's overloads
+int outputGlitches() {
+#ifdef PA_USE_OBOE
+    PaOboe_OutputStatus s{};
+    PaOboe_GetOutputStatus(&s);
+    return s.xruns;
+#else
+    return static_cast<int>(ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("audio_latency_overload_count"))));
+#endif
+}
 ConfigKey deckKey(int deck, const char* key) {
     return ConfigKey(QStringLiteral("[Channel%1]").arg(deck), QLatin1String(key));
 }
@@ -2073,26 +2102,36 @@ QJsonObject Hub::startOptimize() {
     return {{"ok", true}, {"started", true}};
 }
 
+/// One block size: from the smallest queue (2 bursts) up, as the underruns grow it; after a moment to start, half the
+/// time to settle, and the other half that must have none
 void Hub::optimizeStep(int serial) {
     Optimize& o = m_optimize;
     if (o.serial != serial || !o.running) {
         return;
     }
     const int buffer = kOptimizeBuffers[o.step];
+#ifdef PA_USE_OBOE
+    PaOboe_SetOutputQueueBursts(2);   // (the stream the new block opens starts there)
+#endif
     const QJsonObject set = setAudioBuffer(buffer);
     if (!set.value(QStringLiteral("ok")).toBool(true)) {
         finishOptimize(set.value(QStringLiteral("error")).toString());
         return;
     }
-    o.state = QStringLiteral("Trying a %1 ms buffer…").arg(QString::number((32 << buffer) * 1000.0 / 48000, 'f', 1));
+    o.state = QStringLiteral("Trying a %1 ms block…").arg(QString::number((32 << buffer) * 1000.0 / 48000, 'f', 1));
     emitJson({{"t", "opt"}, {"o", optimizeStatus()}});
-    // after the sound has restarted with the new buffer
-    QTimer::singleShot(4000, this, [this, serial] {
+    QTimer::singleShot(4000, this, [this, serial] {   // after the sound has restarted with the new block
         if (m_optimize.serial != serial || !m_optimize.running) {
             return;
         }
-        m_optimize.overloadsAt = ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("audio_latency_overload_count")));
-        QTimer::singleShot(kOptimizeSeconds * 1000, this, [this, serial] { optimizeMeasure(serial); });
+        m_optimize.xrunsAt = outputGlitches();
+        QTimer::singleShot(kOptimizeSeconds * 500, this, [this, serial] {
+            if (m_optimize.serial != serial || !m_optimize.running) {
+                return;
+            }
+            m_optimize.xrunsMid = outputGlitches();
+            QTimer::singleShot(kOptimizeSeconds * 500, this, [this, serial] { optimizeMeasure(serial); });
+        });
     });
 }
 
@@ -2102,12 +2141,18 @@ void Hub::optimizeMeasure(int serial) {
         return;
     }
     const int buffer = kOptimizeBuffers[o.step];
-    const int dropouts = static_cast<int>(
-            ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("audio_latency_overload_count"))) - o.overloadsAt);
-    o.results.append(QJsonObject{{"buffer", buffer}, {"dropouts", dropouts}});
+    const int glitches = outputGlitches();
+    const QJsonObject path = outputPath();
+    const double queueMs = path.value(QStringLiteral("queueMs")).toDouble();
+    const int burst = path.value(QStringLiteral("burst")).toInt();
+    const int bursts = burst > 0 ? (path.value(QStringLiteral("queue")).toInt() + burst - 1) / burst : kDefaultQueueBursts;
+    const int late = glitches - o.xrunsMid;   // after it had settled
+    o.results.append(QJsonObject{{"buffer", buffer}, {"glitches", glitches - o.xrunsAt}, {"late", late},
+            {"queueMs", queueMs}, {"bursts", bursts}});
     const int last = static_cast<int>(std::size(kOptimizeBuffers)) - 1;
-    if (dropouts == 0 || o.step == last) {
+    if ((late == 0 && queueMs <= kOptimizeMaxQueueMs) || o.step == last) {
         o.chosen = buffer;
+        o.chosenBursts = bursts;
         finishOptimize(QString());
         return;
     }
@@ -2129,6 +2174,11 @@ void Hub::finishOptimize(const QString& error) {
             ControlObject::set(deckKey(deck, "eject"), 0);
         }
     }
+    if (o.chosen && !routeKind().isEmpty()) {   // where the queue settled with that block: the start from now on
+        m_queueBursts.insert(routeKind(), o.chosenBursts);
+        saveAudioPrefs();
+    }
+    applyQueue();
     if (o.chosen) {
         setAudioBuffer(o.chosen);   // (it measures the output again)
     }
@@ -2144,7 +2194,37 @@ void Hub::finishOptimize(const QString& error) {
 void Hub::outputLatencyMeasured(int ms, const QString& route) {
     m_measuredLatencyMs = ms;
     m_latencyRoute = route;
+    if (!m_optimize.running) {
+        applyQueue();
+    }
     emitLatency();
+}
+
+QString Hub::routeKind() const {
+    return m_latencyRoute.isEmpty() ? QString() : m_latencyRoute.section(QStringLiteral(" · "), -1);
+}
+
+void Hub::applyQueue() {
+#ifdef PA_USE_OBOE
+    PaOboe_SetOutputQueueBursts(m_queueBursts.value(routeKind(), kDefaultQueueBursts));
+#endif
+}
+
+QJsonObject Hub::outputPath() const {
+#ifdef PA_USE_OBOE
+    PaOboe_OutputStatus s{};
+    PaOboe_GetOutputStatus(&s);
+    if (!s.open || s.sampleRate <= 0) {
+        return {};
+    }
+    const auto ms = [&s](int frames) { return std::round(frames * 10000.0 / s.sampleRate) / 10; };
+    return {{"mmap", s.mmap}, {"exclusive", s.exclusive == 1}, {"aaudio", s.aaudio == 1}, {"rate", s.sampleRate},
+            {"burst", s.framesPerBurst}, {"burstMs", ms(s.framesPerBurst)}, {"callback", s.framesPerCallback},
+            {"queue", s.bufferSizeFrames}, {"queueMs", ms(s.bufferSizeFrames)}, {"capacity", s.bufferCapacityFrames},
+            {"glitches", s.xruns}};
+#else
+    return {};
+#endif
 }
 
 /// How far behind Mixxx's reported play positions the sound is: Mixxx's buffer, plus the output path after
@@ -2162,13 +2242,17 @@ double Hub::latencySeconds() const {
 }
 
 void Hub::emitLatency() {
-    emitJson({{"t", "lat"}, {"s", latencySeconds()}, {"v", visualExtraSeconds()}});
+    emitJson({{"t", "lat"}, {"s", latencySeconds()}, {"v", visualExtraSeconds()}, {"bt", routeKind() == QLatin1String("Bluetooth")}});
 }
 
 void Hub::saveAudioPrefs() const {
     QSaveFile f(QDir(m_pConfig->getSettingsPath()).filePath(kAudioPrefsFile));
     if (f.open(QIODevice::WriteOnly)) {
-        f.write(QJsonDocument(QJsonObject{{"offsetMs", m_latencyOffsetMs}, {"liveStems", m_liveStemsAuto},
+        QJsonObject queues;
+        for (auto it = m_queueBursts.cbegin(); it != m_queueBursts.cend(); ++it) {
+            queues.insert(it.key(), it.value());
+        }
+        f.write(QJsonDocument(QJsonObject{{"offsetMs", m_latencyOffsetMs}, {"queueBursts", queues}, {"liveStems", m_liveStemsAuto},
                                        {"recordPreFx", m_recordPreFx}, {"discordHost", m_discordHost},
                                        {"discordKey", m_discordKey}, {"deckDefaults", deckDefaultsJson()}})
                         .toJson());
@@ -3984,6 +4068,7 @@ QJsonObject Hub::snapshot() const {
                     {"remote", remoteStatus()},
                     {"lat", latencySeconds()},
                     {"vlat", visualExtraSeconds()},
+                    {"bt", routeKind() == QLatin1String("Bluetooth")},
                     {"lstems", deckStemsJson()},
                     {"ssrv", m_stemServer},
                     {"ddef", deckDefaultsJson()},

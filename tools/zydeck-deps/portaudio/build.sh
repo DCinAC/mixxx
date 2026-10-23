@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # PortAudio for ZyDeck's Android build: Mixxx's own (its vcpkg overlay: upstream at the pinned commit, with Mixxx's
-# patches 0001-0004, 0004 being the Oboe host) plus ours, 0005-ZyDeck-output-presentation-delay.patch, which adds
+# patches 0001-0004, 0004 being the Oboe host) plus ours: 0005-ZyDeck-output-presentation-delay.patch adds
 # PaOboe_GetOutputPresentationDelay(): when Mixxx's output is heard, from AAudio's timestamps of that very stream (the
-# hub draws the waveforms from it). Builds libportaudio.a as Mixxx's dependency bundle has it (Oboe, ALSA and JACK
-# hosts, the same exports plus ours) and puts it, with pa_oboe.h, into that bundle (the originals kept as *.orig).
+# hub draws the waveforms from it); 0006-ZyDeck-output-status-and-queue.patch, PaOboe_GetOutputStatus() (straight to
+# the hardware or through Android's mixer, the burst, the queue, AAudio's underruns: each also reaches Mixxx as
+# paOutputUnderflow and grows the queue a burst) and PaOboe_SetOutputQueueBursts(). Builds libportaudio.a as Mixxx's
+# dependency bundle has it (Oboe, ALSA and JACK hosts, the same exports plus ours) and puts it, with pa_oboe.h, into that
+# bundle (the originals kept as *.orig).
 # Run on the build PC whenever the bundle is fresh (a new BUILDENV_NAME), before building ZyDeck:
 #   bash tools/zydeck-deps/portaudio/build.sh
 set -euo pipefail
@@ -25,7 +28,9 @@ for p in 0001-Add-basic-support-for-iOS-to-portaudio.patch 0002-Update-CMakeList
   curl -fsSL -o "$p" "$MIXXX_VCPKG/$p"
   (cd src && patch -p1 -s < "../$p")
 done
-(cd src && patch -p1 -s < "$HERE/0005-ZyDeck-output-presentation-delay.patch")
+for p in 0005-ZyDeck-output-presentation-delay.patch 0006-ZyDeck-output-status-and-queue.patch; do
+  (cd src && patch -p1 -s < "$HERE/$p")
+done
 
 PKG_CONFIG_PATH="$R/lib/pkgconfig" PKG_CONFIG_LIBDIR="$R/lib/pkgconfig" cmake -S src -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \

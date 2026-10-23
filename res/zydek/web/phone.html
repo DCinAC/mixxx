@@ -457,6 +457,12 @@ async function api(path) {
   return body;
 }
 let toastT;
+// Bluetooth: once each time the sound goes there (the hub says so with the latency)
+let btWarned = false;
+function btWarn(bt) {
+  if (bt && !btWarned) toast("Bluetooth: the sound comes about 250 ms late. For mixing, use USB-C headphones.", "bad");
+  btWarned = !!bt;
+}
 function toast(msg, kind = "") {
   const t = $("#toast"); t.textContent = msg; t.className = "on " + kind;
   clearTimeout(toastT); toastT = setTimeout(() => t.className = kind, 2600);
@@ -630,13 +636,14 @@ function connect() {
     if (m.t === "clk") { ZydeckPos.clockPong(m.c, m.h, performance.now()); return; }
     ZydeckMenu.push(m);   // what the settings show: remote, opt, rec, dc, init
     if (m.t === "remote") return onRemote(m);
-    if (m.t === "lat") { LAT = m.s || 0; ZydeckPos.setLatency(m.s, m.v); return; }
+    if (m.t === "lat") { LAT = m.s || 0; ZydeckPos.setLatency(m.s, m.v); btWarn(m.bt); return; }
     if (m.t === "opt" || m.t === "rec" || m.t === "dc") return;
     if (m.t === "notice") { toast(m.m, "bad"); return; }
     if (m.init) {
       if (m.init.notice) toast(m.init.notice, "ok");
       LAT = m.init.lat || 0;
       ZydeckPos.setLatency(m.init.lat, m.init.vlat);
+      btWarn(m.init.bt);
       if (m.init.remote) onRemote(m.init.remote);
       live = !!m.init.live;
       m.init.decks.forEach((x, i) => { if (!decks[i]) return; onDeckName(decks[i], x.n); decks[i].cueColors = x.cues.map(v => v ? v - 1 : null); });

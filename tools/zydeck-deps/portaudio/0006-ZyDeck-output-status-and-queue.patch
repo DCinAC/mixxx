@@ -1,0 +1,167 @@
+diff --git a/include/pa_oboe.h b/include/pa_oboe.h
+index 9f63278..ec78da9 100644
+--- a/include/pa_oboe.h
++++ b/include/pa_oboe.h
+@@ -162,6 +162,33 @@ PaErrorCode PaOboe_RegisterDevice(const char* name, int32_t id, PaOboe_Direction
+  */
+ double PaOboe_GetOutputPresentationDelay(void);
+ 
++/**
++ * \brief  ZyDeck: the output stream as it runs (PaOboe_GetOutputStatus). Its queue (bufferSizeFrames, how far ahead of
++ *          the hardware it's kept filled) starts at PaOboe_SetOutputQueueBursts' size and grows a burst at each underrun,
++ *          as Oboe's LatencyTuner does; each underrun also reaches the stream callback as paOutputUnderflow.
++ */
++typedef struct PaOboe_OutputStatus {
++    int open;                   /* an output stream is running */
++    int mmap;                   /* 1: straight to the hardware (AAudio MMAP); 0: through Android's mixer; -1: unknown */
++    int exclusive;              /* 1: exclusive sharing mode */
++    int aaudio;                 /* 1: AAudio; 0: OpenSL ES */
++    int sampleRate;
++    int framesPerBurst;
++    int framesPerCallback;      /* 0: AAudio's choice */
++    int bufferSizeFrames;
++    int bufferCapacityFrames;
++    int xruns;                  /* underruns since it opened */
++    int deviceId;
++} PaOboe_OutputStatus;
++
++void PaOboe_GetOutputStatus(PaOboe_OutputStatus *status);
++
++/**
++ * \brief  ZyDeck: the output queue in bursts, for the stream open now (applied at its next callback) and the next ones
++ *          (0: PaOboe_SetNumberOfBuffers' count). It can be set at any time.
++ */
++void PaOboe_SetOutputQueueBursts(int bursts);
++
+ #ifdef __cplusplus
+ }
+ #endif //__cplusplus
+diff --git a/src/hostapi/oboe/pa_oboe.cpp b/src/hostapi/oboe/pa_oboe.cpp
+index 2dcce8e..c09d98d 100644
+--- a/src/hostapi/oboe/pa_oboe.cpp
++++ b/src/hostapi/oboe/pa_oboe.cpp
+@@ -61,12 +61,14 @@
+ #include <pthread.h>
+ #include <ctime>
+ #include <cstring>
++#include <algorithm>
+ #include <atomic>
+ #include <cmath>
+ #include <cstdint>
+ #include <string.h>
+ #include <vector>
+ #include "oboe/Oboe.h"
++#include "oboe/OboeExtensions.h"
+ #include "portaudio.h"
+ 
+ #include <android/log.h>
+@@ -159,6 +161,12 @@ static constexpr int kDelayBeforeCloseMillis = 100; // Copied from AudioStream::
+ 
+ using namespace oboe;
+ 
++/* ZyDeck: the output stream as it runs (PaOboe_GetOutputStatus; TuneOutput() keeps it) */
++static struct {
++    std::atomic<int> open{0}, mmap{-1}, exclusive{0}, aaudio{0}, sampleRate{0}, burst{0}, callback{0}, size{0},
++            capacity{0}, xruns{0}, deviceId{0};
++} g_output;
++
+ class OboeEngine;
+ class OboeMediator;
+ struct PaOboeHostApiRepresentation;
+@@ -588,6 +596,7 @@ bool OboeEngine::closeStream(PaOboeStream *paOboeStream) {
+     auto& mediator = paOboeStream->oboeMediator;
+ 
+     if (paOboeStream->hasOutput()) {
++        g_output.open = 0;   /* ZyDeck */
+         outputResult = mediator->mOutputStream->close();
+         if (outputResult == Result::ErrorClosed) {
+             outputResult = Result::OK;
+@@ -930,6 +939,79 @@ double PaOboe_GetOutputPresentationDelay(void) {
+     return g_outputPresentationDelay.load(std::memory_order_relaxed);
+ }
+ 
++/* ZyDeck: the output as it runs (PaOboe_GetOutputStatus), and its queue: the size asked for (PaOboe_SetOutputQueueBursts)
++ * at a new stream's first callback (a reopened one too: a new route), then a burst more at each underrun, up to 50 ms,
++ * as Oboe's LatencyTuner does. TuneOutput() runs in the output callback: true if there was an underrun since the last. */
++static std::atomic<int> g_queueBursts{0};
++static std::atomic<int> g_queueSerial{0};   /* bumped by each PaOboe_SetOutputQueueBursts */
++
++static bool TuneOutput(AudioStream *stream, unsigned defaultBursts) {
++    static AudioStream *s_stream = nullptr;
++    static int s_xruns = 0, s_serial = -1;
++    static int64_t s_written = 0;
++    const int burst = std::max(1, stream->getFramesPerBurst());
++    const int64_t written = stream->getFramesWritten();
++    /* a new stream (opened again, maybe at the old one's address; or reopened on a new route) */
++    if (stream != s_stream || !g_output.open || written < s_written) {
++        s_stream = stream;
++        s_xruns = 0;
++        s_serial = -1;
++        auto x = stream->getXRunCount();
++        if (x) {
++            s_xruns = x.value();
++        }
++        g_output.mmap = stream->getAudioApi() == AudioApi::AAudio ? (OboeExtensions::isMMapUsed(stream) ? 1 : 0) : 0;
++        g_output.exclusive = stream->getSharingMode() == SharingMode::Exclusive ? 1 : 0;
++        g_output.aaudio = stream->getAudioApi() == AudioApi::AAudio ? 1 : 0;
++        g_output.sampleRate = stream->getSampleRate();
++        g_output.burst = burst;
++        g_output.callback = std::max(0, stream->getFramesPerDataCallback());
++        g_output.capacity = stream->getBufferCapacityInFrames();
++        g_output.deviceId = stream->getDeviceId();
++        g_output.xruns = 0;
++        g_output.open = 1;
++    }
++    const int serial = g_queueSerial.load();
++    if (serial != s_serial) {
++        s_serial = serial;
++        const int bursts = g_queueBursts.load();
++        stream->setBufferSizeInFrames(burst * (bursts > 0 ? bursts : static_cast<int>(defaultBursts)));
++    }
++    bool underrun = false;
++    auto x = stream->getXRunCount();
++    if (x && x.value() > s_xruns) {
++        underrun = true;
++        g_output.xruns += x.value() - s_xruns;
++        s_xruns = x.value();
++        const int size = stream->getBufferSizeInFrames();
++        if (size + burst <= stream->getSampleRate() / 20) {
++            stream->setBufferSizeInFrames(size + burst);
++        }
++    }
++    g_output.size = stream->getBufferSizeInFrames();
++    s_written = written;
++    return underrun;
++}
++
++void PaOboe_GetOutputStatus(PaOboe_OutputStatus *status) {
++    status->open = g_output.open;
++    status->mmap = g_output.mmap;
++    status->exclusive = g_output.exclusive;
++    status->aaudio = g_output.aaudio;
++    status->sampleRate = g_output.sampleRate;
++    status->framesPerBurst = g_output.burst;
++    status->framesPerCallback = g_output.callback;
++    status->bufferSizeFrames = g_output.size;
++    status->bufferCapacityFrames = g_output.capacity;
++    status->xruns = g_output.xruns;
++    status->deviceId = g_output.deviceId;
++}
++
++void PaOboe_SetOutputQueueBursts(int bursts) {
++    g_queueBursts = std::max(0, bursts);
++    ++g_queueSerial;
++}
++
+ /**
+  * \brief   Oboe's callback routine.
+  */
+@@ -940,6 +1022,8 @@ OboeMediator::onAudioReady(AudioStream *oboeStream, void *audioData, int32_t num
+     mTimeInfo.currentTime = (PaTime)(mTimeSpec.tv_sec + (mTimeSpec.tv_nsec / 1000000000.0));
+     if (oboeStream->getDirection() == Direction::Output) {
+         MeasurePresentationDelay(oboeStream);   /* ZyDeck */
++        /* ZyDeck: an underrun since the last callback reaches PortAudio's callback (Mixxx counts it), and grows the queue */
++        mOboeCallbackStream->cbFlags = TuneOutput(oboeStream, OboeEngine::getInstance().getNumberOfBuffers()) ? paOutputUnderflow : 0;
+     }
+     mTimeInfo.outputBufferDacTime = (PaTime)(mOboeCallbackStream->framesPerHostCallback
+                                               /

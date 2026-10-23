@@ -108,10 +108,11 @@ class Hub : public QObject {
         int serial = 0;
         int step = 0;               // index into kOptimizeBuffers being tried
         double mainGain = 1;
-        double overloadsAt = 0;
-        QJsonArray results;         // [{buffer, dropouts, loadMax}]
+        int xrunsAt = 0, xrunsMid = 0;   // the output's underruns as the step's measuring starts, and halfway
+        QJsonArray results;         // [{buffer, glitches, late, queueMs, bursts}]
         QString state;              // what it's doing, for the pages
         int chosen = 0;
+        int chosenBursts = 0;       // the queue it settled at with that block
         QString error;
     };
     Optimize m_optimize;
@@ -179,6 +180,14 @@ class Hub : public QObject {
     void streamDelayTick();
     QString m_latencyRoute;
     int m_latencyOffsetMs = 0;
+    /// The output's queue (how far ahead of the hardware Android's buffer is kept filled; PortAudio's Oboe host grows it
+    /// a burst at each underrun), in bursts, per kind of output (routeKind()): where it settled, so the next stream on that
+    /// kind starts there (Optimize sets it); 4 until known
+    QHash<QString, int> m_queueBursts;
+    static constexpr int kDefaultQueueBursts = 4;
+    QString routeKind() const;     // "speaker", "USB", "wired", "Bluetooth", "output"; "" until ZydekAudio has looked
+    void applyQueue();             // the learned size for the output now
+    QJsonObject outputPath() const;   // PaOboe_GetOutputStatus: straight to the hardware or through Android's mixer, etc.
     double latencySeconds() const;
     void emitLatency();
     void saveAudioPrefs() const;

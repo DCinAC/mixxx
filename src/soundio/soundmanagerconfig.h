@@ -49,8 +49,14 @@ class SoundManagerConfig {
 
     static constexpr auto kMaxAudioBufferSizeIndex =
             static_cast<unsigned int>(AudioBufferSizeIndex::Size80xms);
+#ifdef __ANDROID__
+    // Zydek: a 5.3 ms block (256 frames at 48 kHz); the queue after it is PortAudio's Oboe host's, tuned per output
+    static constexpr auto kDefaultAudioBufferSizeIndex =
+            static_cast<unsigned int>(AudioBufferSizeIndex::Size5xms);
+#else
     static constexpr auto kDefaultAudioBufferSizeIndex =
             static_cast<unsigned int>(AudioBufferSizeIndex::Size20xms);
+#endif
 
     static const QString kAPINone;
     static const QString kEmptyComboBox;
