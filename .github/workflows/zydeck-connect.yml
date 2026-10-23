@@ -62,6 +62,9 @@ jobs:
             macOS)
               macdeployqt "build/ZyDeck Connect.app"
               codesign --force --deep --sign - "build/ZyDeck Connect.app"   # ad hoc: Apple Silicon won't run it unsigned
+              # the app itself again, with a designated requirement that stays the same from build to build (an ad hoc
+              # one is the build's own hash): macOS keeps its permissions (Mixxx's data, the network drive) across updates
+              codesign --force --sign - -r='designated => identifier "org.zydeck.connect"' "build/ZyDeck Connect.app"
               (cd build && ditto -c -k --keepParent "ZyDeck Connect.app" ../dist/ZyDeck-Connect-macOS.zip) ;;
             Windows)
               mkdir -p "dist/ZyDeck Connect"
