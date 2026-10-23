@@ -13,8 +13,11 @@
 
 namespace zc {
 
-/// Where Mixxx keeps its settings and library on this computer (the folder with mixxxdb.sqlite), or "".
-QString mixxxDir();
+/// Where Mixxx keeps its settings and library on this computer (the folder with mixxxdb.sqlite), or "". Looked for on
+/// a worker thread every few seconds and kept: on macOS the first look into Mixxx's folder (another app's data) waits
+/// until the user allows it, and the window mustn't wait with it. known: false until the first look is done (a worker
+/// asking then looks itself).
+QString mixxxDir(bool* known = nullptr);
 /// Where to look for it, in order (the first is where the mapping goes when Mixxx hasn't run yet).
 QStringList mixxxDirCandidates();
 

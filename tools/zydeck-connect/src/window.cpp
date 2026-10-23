@@ -13,7 +13,9 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QRegularExpression>
+#include <QPointer>
 #include <QSystemTrayIcon>
+#include <QThreadPool>
 #include <QTimer>
 #include <QWindow>
 #include <QSet>
@@ -476,9 +478,18 @@ void Window::refresh() {
     const bool problem = !m_core->midi()->problem().isEmpty();
     setTag(m_tagManual >= 0 ? m_tagManual == 1 : devices.isEmpty() && !problem);
 
-    if (!m_tracksAt.isValid() || m_tracksAt.elapsed() > 5000) {
-        m_tracks = mixxxDir().isEmpty() ? -1 : m_core->library()->trackCount();
+    if (!m_tracksAt.isValid() || m_tracksAt.elapsed() > 5000) {   // (on a worker: it reads the whole library)
         m_tracksAt.start();
+        QPointer<Window> self(this);
+        Library* library = m_core->library();
+        QThreadPool::globalInstance()->start([self, library] {
+            const int n = mixxxDir().isEmpty() ? -1 : library->trackCount();
+            QMetaObject::invokeMethod(qApp, [self, n] {
+                if (self) {
+                    self->m_tracks = n;
+                }
+            });
+        });
     }
     const QStringList hosts = lanAddresses();
     m_vfd = {problem ? QStringLiteral("MIDI  NO PORT: LOOPMIDI?") : QStringLiteral("MIDI  ZYDECK CONNECT  OK"),

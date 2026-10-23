@@ -73,8 +73,11 @@ void Setup::check() {
         set(State::NoPort, m_core->midi()->problem());
         return;
     }
-    if (mixxxDir().isEmpty()) {
-        set(State::NoMixxx);
+    bool known = false;
+    if (mixxxDir(&known).isEmpty()) {
+        if (known) {   // (still looking: macOS may be asking the user whether ZyDeck Connect may)
+            set(State::NoMixxx);
+        }
         return;
     }
     // (not yet allowed: it still looks whether Mixxx runs, and answers, before it asks; checked() decides)

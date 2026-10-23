@@ -1,6 +1,7 @@
 #include "library.h"
 
 #include <QCache>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -12,7 +13,9 @@
 #include <QSqlQuery>
 #include <QStandardPaths>
 #include <QThread>
+#include <QThreadPool>
 #include <QtEndian>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <optional>
@@ -35,13 +38,50 @@ QStringList mixxxDirCandidates() {
 #endif
 }
 
-QString mixxxDir() {
+namespace {
+QString lookForMixxxDir() {
     for (const QString& d : mixxxDirCandidates()) {
         if (QFileInfo(d + "/mixxxdb.sqlite").isFile()) {
             return d;
         }
     }
     return {};
+}
+QMutex g_dirMutex;
+QString g_dir;
+bool g_dirKnown = false;
+qint64 g_dirAt = 0;
+std::atomic<bool> g_dirLooking{false};
+} // namespace
+
+QString mixxxDir(bool* known) {
+    // (the window's thread, once it runs, mustn't wait; a worker, or the start before the event loop (the command
+    // line's --install-mapping), looks now)
+    const bool waitable = !QCoreApplication::instance() || QThread::currentThread() != QCoreApplication::instance()->thread() ||
+            QThread::currentThread()->loopLevel() == 0;
+    QMutexLocker lock(&g_dirMutex);
+    if (!g_dirKnown && waitable) {
+        lock.unlock();
+        const QString dir = lookForMixxxDir();
+        lock.relock();
+        g_dir = dir;
+        g_dirKnown = true;
+        g_dirAt = QDateTime::currentMSecsSinceEpoch();
+    }
+    if (QDateTime::currentMSecsSinceEpoch() - g_dirAt > 3000 && !g_dirLooking.exchange(true)) {
+        QThreadPool::globalInstance()->start([] {
+            const QString dir = lookForMixxxDir();
+            QMutexLocker l(&g_dirMutex);
+            g_dir = dir;
+            g_dirKnown = true;
+            g_dirAt = QDateTime::currentMSecsSinceEpoch();
+            g_dirLooking = false;
+        });
+    }
+    if (known) {
+        *known = g_dirKnown;
+    }
+    return g_dir;
 }
 
 namespace {
