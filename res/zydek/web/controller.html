@@ -309,10 +309,6 @@
   .chan.d34 { --acc: var(--deck34); }
   .chan .pfl { width: 100%; flex: 0 0 calc(var(--mm) * 9); font-size: calc(var(--mm) * 2); }
   .chan .pfl.on { background: var(--cue); border-color: var(--cue); color: #1b1206; }
-  .chan .mute { width: 100%; flex: 0 0 calc(var(--mm) * 9); font-size: calc(var(--mm) * 1.9); line-height: 1; }
-  .chan .mute small { display: block; font-size: calc(var(--mm) * 1.4); color: var(--dim); }
-  .chan .mute.on { background: var(--err); border-color: var(--err); color: #fff; }
-  .chan .mute.on small { color: #fff; }
   .fader.muted .cap { background: var(--err); border-color: var(--err); }
   .knob { --acc: inherit; display: flex; flex-direction: column; align-items: center; width: 100%; touch-action: none; }
   .knob svg { width: var(--knob); height: var(--knob); overflow: visible; }
@@ -520,7 +516,7 @@ if (PHONE) S.layout = "phone";
 function migrateSettings(o) {
   const before = o.knobMode;
   if (!o.knobV2) { o.knobMode = "drag"; o.knobV2 = 1; }
-  if (o.knobMode !== "spin") o.knobMode = "drag";
+  if (o.knobMode !== "spin" && o.knobMode !== "pinch") o.knobMode = "drag";
   return before !== o.knobMode || !o.knobV2;
 }
 migrateSettings(S);
@@ -734,6 +730,38 @@ function drawProtractor(svg, cx, cy, fx, fy, value) {
   ray.classList.toggle("dead", dist < mm(3));                           // inside the dead zone: no rotation read
 }
 
+// Pinch: the ring round the knob at 1.5x the fingers' spread, the knob's own pointer as the ray, and the shooting star
+// running out along it (over it), twice, a beat a pass
+function drawPinch(svg, cx, cy, p1, p2, value) {
+  const r = Math.max(1.5 * Math.hypot(p2.x - p1.x, p2.y - p1.y), mm(6));
+  const a = (-135 + value * 270 - 90) * Math.PI / 180, ex = cx + Math.cos(a) * r, ey = cy + Math.sin(a) * r;
+  svg.geo = { cx, cy, fx: ex, fy: ey };
+  const ring = svg.querySelector(".ring");
+  ring.setAttribute("cx", cx); ring.setAttribute("cy", cy); ring.setAttribute("r", r);
+  const ray = svg.querySelector(".ray");
+  ray.setAttribute("x1", cx); ray.setAttribute("y1", cy); ray.setAttribute("x2", ex); ray.setAttribute("y2", ey);
+  ray.classList.remove("dead");
+}
+// A finger landing within PINCH_MM of a knob's one finger (Knob gesture: Pinch), whatever it lands on, joins that
+// knob's gesture: the page hands it over before any control sees it
+const PINCH_MM = 35;
+const pinchOpen = new Set();   // knob gestures with one finger, that a second may join
+addEventListener("pointerdown", e => {
+  if (S.knobMode !== "pinch" || e.pointerType !== "touch" || !pinchOpen.size || isPalm(e)) return;
+  let best = null, bd = mm(PINCH_MM);
+  pinchOpen.forEach(st => {
+    if (st.p2 || st.pinched) return;
+    const dd = Math.hypot(e.clientX - st.p1.x, e.clientY - st.p1.y);
+    if (dd <= bd) { bd = dd; best = st; }
+  });
+  if (!best) return;
+  e.preventDefault(); e.stopPropagation(); e.zydekClaimed = true;
+  try { best.el.setPointerCapture(e.pointerId); } catch {}
+  const st = best;
+  active.set(e.pointerId, { h: { move: ev => st.move2(ev), up: () => st.up2() }, st });
+  st.join(e);
+}, true);
+
 // Drag (both): distance along the finger's path counts the same in every direction.
 // The path's direction is measured over the last 1 mm travelled (by distance, not per touch event, so it doesn't
 // depend on speed and the screen's ~0.1 mm jitter can't flip it). Each touch step is projected onto that
@@ -824,10 +852,39 @@ function knob(label, get, set, def, bipolar, target = () => null, onTap = null, 
         st.pr = protractor(60 / bpm);
         drawProtractor(st.pr, st.cx, st.cy, e.clientX, e.clientY, st.v);
       }
+      if (S.knobMode === "pinch") {
+        // One finger drags; a second (pinchOpen) makes it a pinch: the line between the two is the knob, and
+        // 270° of twist its whole range. A second finger within 250 ms: the first one's moment alone doesn't count.
+        st.el = el; st.p1 = { x: e.clientX, y: e.clientY };
+        const angle = () => Math.atan2(st.p2.y - st.p1.y, st.p2.x - st.p1.x);
+        st.twist = () => {
+          const a = angle();
+          let da = a - st.pa;
+          if (da > Math.PI) da -= 2 * Math.PI; else if (da < -Math.PI) da += 2 * Math.PI;
+          st.pa = a;
+          turnTo(st, (st.raw ?? st.v) + da / (1.5 * Math.PI));
+          set(st.v, st.ctx); el.paint(); drawPinch(st.pr, st.cx, st.cy, st.p1, st.p2, st.v);
+        };
+        st.join = e2 => {
+          knobHoldOff(st);
+          if (performance.now() - st.t0 < 250 && st.v !== st.v0) { st.v = st.v0; st.raw = undefined; set(st.v0, st.ctx); }
+          st.p2 = { x: e2.clientX, y: e2.clientY }; st.pinch = true; st.pa = angle();
+          const d = st.ctx || deckOf(0), bpm = d.bpm * (1 + d.tempo / 100);
+          st.pr = protractor(60 / bpm);
+          drawPinch(st.pr, st.cx, st.cy, st.p1, st.p2, st.v); el.paint(st.v);
+        };
+        st.move2 = e2 => { if (st.pinch) { st.p2 = { x: e2.clientX, y: e2.clientY }; st.twist(); } };
+        // the second finger off: the pinch is over (the finger left on the knob doesn't turn it)
+        st.up2 = () => { if (!st.pinch) return; st.pinch = false; st.pinched = true; if (st.pr) { st.pr.remove(); st.pr = null; } };
+        pinchOpen.add(st);
+      }
       return st;
     },
     move: (e, st) => {
       if (st.held) return;   // it was a hold: the menu's open, the knob stays put
+      if (st.p1) st.p1 = { x: e.clientX, y: e.clientY };
+      if (st.pinch) { st.twist(); return; }
+      if (st.pinched) return;
       if (st.holdT && Math.hypot(e.clientX - st.x0, e.clientY - st.y0) > mm(5)) knobHoldOff(st);
       if (S.knobMode === "spin") {
         // Angle around the knob's centre: one full circle of the finger = the knob's whole range.
@@ -859,9 +916,10 @@ function knob(label, get, set, def, bipolar, target = () => null, onTap = null, 
     },
     up: (e, st) => {
       knobHoldOff(st);
+      pinchOpen.delete(st); st.pinch = false;
       el.classList.remove("held"); el.hold = null; el.paint(); if (st.pr) st.pr.remove();
       // a short touch without moving: the knob's tap action (FX: on/off)
-      if (onTap && !st.held && performance.now() - st.t0 < 300 && Math.hypot(e.clientX - st.x0, e.clientY - st.y0) < mm(2)) onTap(st.ctx);
+      if (onTap && !st.held && !st.p2 && performance.now() - st.t0 < 300 && Math.hypot(e.clientX - st.x0, e.clientY - st.y0) < mm(2)) onTap(st.ctx);
     },
   });
   return el;
@@ -1471,12 +1529,9 @@ function buildMixer() {
     const k = key => knob(key.toUpperCase(), d => d[key], (v, d) => { d[key] = v; send(key, d.n, v); }, .5, true, () => deckOf(s));
     const knobs = ["gain", "high", "mid", "low", "filter"].map(k);
     const pfl = pflButton(s);
-    const mute = h("button", "mute", "MUTE<small>hold</small>");
-    let muteDeck = null;                             // held mute stays on the deck it started on
-    bindPress(mute, down => { if (down) muteDeck = deckOf(s); muteDeck.muted = down; send("mute", muteDeck.n, down); paintMixer(); });
     knobs.forEach((x, i) => { if (i || !stacked()) c.appendChild(x); });   // strips on top: GAIN sits by the strips
-    c.append(pfl, mute);
-    ui.chans[s] = { el: c, knobs, pfl, mute, gain: knobs[0] };
+    c.append(pfl);
+    ui.chans[s] = { el: c, knobs, pfl, gain: knobs[0] };
     return c;
   };
   const xf = h("div"); xf.id = "xf";
@@ -2105,7 +2160,6 @@ function paintMixer() {
     ui.faders[s].classList.toggle("d34", d.n > 2);
     c.knobs.forEach(k => { if (k.label) setHTML(k.querySelector("span"), k.label(d)); k.paint(); });
     c.pfl.classList.toggle("on", d.pfl);
-    c.mute?.classList.toggle("on", d.muted);
     ui.faders[s].classList.toggle("muted", d.muted);
     ui.faders[s].paint();
   });

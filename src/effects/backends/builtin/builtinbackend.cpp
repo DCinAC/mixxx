@@ -31,6 +31,7 @@
 #endif
 #include "effects/backends/builtin/gaineffect.h"
 #include "effects/backends/builtin/tremoloeffect.h"
+#include "effects/backends/builtin/sidechaineffect.h"
 #include "effects/backends/builtin/whitenoiseeffect.h"
 
 BuiltInBackend::BuiltInBackend() {
@@ -62,6 +63,7 @@ BuiltInBackend::BuiltInBackend() {
     registerEffect<MetronomeEffect>();
     registerEffect<KeyComparisonEffect>();
     registerEffect<TremoloEffect>();
+    registerEffect<SidechainEffect>();   // Zydek
 #ifdef __RUBBERBAND__
     registerEffect<PitchShiftEffect>();
 #endif

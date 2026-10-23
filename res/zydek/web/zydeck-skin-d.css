@@ -39,7 +39,7 @@ body.skin-d #app .pfl { --lc: var(--cue); }
 body.skin-d #app .flags button, body.skin-d #app .modes button { --lc: var(--acc); }
 /* SYNC: green, steady, when synced (the master is told by its MASTER legend, above) */
 body.skin-d #app .sync { --lc: var(--play); }
-body.skin-d #app .shift, body.skin-d #app .ol, body.skin-d #app .sshift, body.skin-d #app .mute, body.skin-d #app #rec { --lc: var(--err); }
+body.skin-d #app .shift, body.skin-d #app .ol, body.skin-d #app .sshift, body.skin-d #app #rec { --lc: var(--err); }
 body.skin-d #app .smpbtn, body.skin-d #app .loopbox .loop, body.skin-d #app .adj { --lc: var(--play); }
 body.skin-d #app .fxstrip button { --lc: var(--fx); }
 
