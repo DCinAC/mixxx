@@ -177,7 +177,9 @@
     { id: "latency", sec: "audio", name: "Latency compensation", kind: "slider", min: -200, max: 800, step: 5, show: () => !sys.remote.on && !!sys.audio?.devices,
       get: () => sys.audio?.offsetMs ?? 0, fmt: v => `${v > 0 ? "+" : ""}${v} ms`,
       set: async (v, final) => { if (!final) return; try { const a = await api(`/api/audio/latency?offset=${v}`); Object.assign(sys.audio, a); refresh(); } catch {} },
-      st: () => { const a = sys.audio; if (!a || a.totalMs == null) return ""; return a.measuredMs >= 0 ? `${Math.round(a.latencyMs)} ms buffer + ${a.measuredMs} ms output${a.route ? ` (${a.route})` : ""} · drawn ${a.totalMs} ms later` : `Output not measured yet · drawn ${a.totalMs} ms later`; },
+      st: () => { const a = sys.audio; if (!a || a.totalMs == null) return "";
+        const heard = a.streamMs >= 0 ? `heard ${a.streamMs} ms after Mixxx` : a.measuredMs >= 0 ? `${Math.round(a.latencyMs)} ms buffer + ${a.measuredMs} ms output` : "not measured yet";
+        return `${a.route ? a.route + ": " : ""}${heard} · drawn ${a.totalMs} ms later${a.kind ? ` · this offset is the ${a.kind === "output" ? "output" : a.kind}'s` : ""}`; },
       extra: { key: "measure", label: "Measure", act: async () => { await api("/api/audio/latency?measure=1"); await sleep(2500); await loads.audio(); } },
       desc: "" },
     { id: "calibrate", sec: "pinctl", name: "Line this screen up", kind: "proc", label: () => "Calibrate", lampless: true,

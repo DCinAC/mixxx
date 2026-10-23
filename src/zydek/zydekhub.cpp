@@ -324,7 +324,13 @@ void Hub::start() {
         QFile f(QDir(m_pConfig->getSettingsPath()).filePath(kAudioPrefsFile));
         if (f.open(QIODevice::ReadOnly)) {
             const QJsonObject prefs = QJsonDocument::fromJson(f.readAll()).object();
-            m_latencyOffsetMs = prefs.value(QStringLiteral("offsetMs")).toInt();
+            const QJsonObject offsets = prefs.value(QStringLiteral("offsets")).toObject();
+            for (auto it = offsets.begin(); it != offsets.end(); ++it) {
+                m_latencyOffsets.insert(it.key(), it.value().toInt());
+            }
+            if (offsets.isEmpty() && prefs.value(QStringLiteral("offsetMs")).toInt()) {   // (one for all, before: the speaker's)
+                m_latencyOffsets.insert(QStringLiteral("speaker"), prefs.value(QStringLiteral("offsetMs")).toInt());
+            }
             const QJsonObject queues = prefs.value(QStringLiteral("queueBursts")).toObject();
             for (auto it = queues.begin(); it != queues.end(); ++it) {
                 m_queueBursts.insert(it.key(), std::clamp(it.value().toInt(), 1, 16));
@@ -511,7 +517,8 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     }
     if (path == QLatin1String("/api/audio/latency")) {   // ?offset=ms (fine-tune) · ?measure=1
         if (query.contains(QStringLiteral("offset"))) {
-            m_latencyOffsetMs = std::clamp(query.value(QStringLiteral("offset")).toInt(), -200, 800);   // Bluetooth can need a lot
+            // (for the kind of output it plays on now; Bluetooth can need a lot)
+            m_latencyOffsets.insert(routeKind(), std::clamp(query.value(QStringLiteral("offset")).toInt(), -200, 800));
             saveAudioPrefs();
             emitLatency();
         }
@@ -1513,7 +1520,7 @@ QJsonObject Hub::audioStatus() const {
     out.insert(QStringLiteral("route"), m_latencyRoute);
     out.insert(QStringLiteral("kind"), routeKind());
     out.insert(QStringLiteral("path"), outputPath());
-    out.insert(QStringLiteral("offsetMs"), m_latencyOffsetMs);
+    out.insert(QStringLiteral("offsetMs"), latencyOffsetMs());
     out.insert(QStringLiteral("totalMs"), std::round(latencySeconds() * 1000));
     out.insert(QStringLiteral("dropouts"),
             ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("audio_latency_overload_count"))));
@@ -1940,9 +1947,9 @@ double Hub::visualExtraSeconds() const {
     // rest of Android's path and the user's offset it doesn't
     if (m_streamDelayMs >= 0) {
         const double buffer = ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms")));
-        return std::max(0.0, m_streamDelayMs - buffer + m_latencyOffsetMs) / 1000.0;
+        return std::max(0.0, m_streamDelayMs - buffer + latencyOffsetMs()) / 1000.0;
     }
-    return std::max(0.0, static_cast<double>(std::max(0, m_measuredLatencyMs) + m_latencyOffsetMs)) / 1000.0;
+    return std::max(0.0, static_cast<double>(std::max(0, m_measuredLatencyMs) + latencyOffsetMs())) / 1000.0;
 }
 
 /// Once a second: when Mixxx's output stream is heard (the Oboe host measures it at every callback from Android's
@@ -2208,6 +2215,10 @@ void Hub::outputLatencyMeasured(int ms, const QString& route) {
     emitLatency();
 }
 
+int Hub::latencyOffsetMs() const {
+    return m_latencyOffsets.value(routeKind(), 0);
+}
+
 QString Hub::routeKind() const {
     return m_latencyRoute.isEmpty() ? QString() : m_latencyRoute.section(QStringLiteral(" · "), -1);
 }
@@ -2244,9 +2255,9 @@ double Hub::latencySeconds() const {
     }
     const double buffer = ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms")));
     if (m_streamDelayMs >= 0) {   // the stream itself, as Android times it
-        return std::max(0, m_streamDelayMs + m_latencyOffsetMs) / 1000.0;
+        return std::max(0, m_streamDelayMs + latencyOffsetMs()) / 1000.0;
     }
-    return std::max(0.0, buffer + std::max(0, m_measuredLatencyMs) + m_latencyOffsetMs) / 1000.0;
+    return std::max(0.0, buffer + std::max(0, m_measuredLatencyMs) + latencyOffsetMs()) / 1000.0;
 }
 
 void Hub::emitLatency() {
@@ -2260,7 +2271,11 @@ void Hub::saveAudioPrefs() const {
         for (auto it = m_queueBursts.cbegin(); it != m_queueBursts.cend(); ++it) {
             queues.insert(it.key(), it.value());
         }
-        f.write(QJsonDocument(QJsonObject{{"offsetMs", m_latencyOffsetMs}, {"queueBursts", queues}, {"liveStems", m_liveStemsAuto},
+        QJsonObject offsets;
+        for (auto it = m_latencyOffsets.cbegin(); it != m_latencyOffsets.cend(); ++it) {
+            offsets.insert(it.key(), it.value());
+        }
+        f.write(QJsonDocument(QJsonObject{{"offsets", offsets}, {"queueBursts", queues}, {"liveStems", m_liveStemsAuto},
                                        {"recordPreFx", m_recordPreFx}, {"discordHost", m_discordHost},
                                        {"discordKey", m_discordKey}, {"deckDefaults", deckDefaultsJson()}})
                         .toJson());

@@ -179,7 +179,9 @@ class Hub : public QObject {
     QTimer m_streamDelayTimer;
     void streamDelayTick();
     QString m_latencyRoute;
-    int m_latencyOffsetMs = 0;
+    /// The user's fine-tune (Calibrate, or the slider), per kind of output (routeKind()); 0 where never set
+    QHash<QString, int> m_latencyOffsets;
+    int latencyOffsetMs() const;   // the one for the output now
     /// The output's queue (how far ahead of the hardware Android's buffer is kept filled; PortAudio's Oboe host grows it
     /// a burst at each underrun), in bursts, per kind of output (routeKind()): where it settled, so the next stream on that
     /// kind starts there (Optimize sets it); 4 until known
