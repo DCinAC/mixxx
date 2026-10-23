@@ -648,16 +648,21 @@ function isPalm(e) {
   return S.palm > 0 && e.pointerType === "touch" && Math.max(e.width || 0, e.height || 0) > mm(S.palm);
 }
 function drag(el, h) {
+  el._drag = h;   // (pinch: a touch beside a knob can start it, pinchOpen)
   el.addEventListener("pointerdown", e => {
     // a control inside another (a knob in an FX pad) has the touch: the outer one leaves it alone
     if (isPalm(e) || e.zydekClaimed) return;
-    e.preventDefault();
-    const st = h.down(e);
-    if (st === false) return;
-    e.zydekClaimed = true;
-    try { el.setPointerCapture(e.pointerId); } catch {}
-    active.set(e.pointerId, { h, st });
+    startDrag(el, h, e);
   });
+}
+function startDrag(el, h, e) {
+  e.preventDefault();
+  const st = h.down(e);
+  if (st === false) return false;
+  e.zydekClaimed = true;
+  try { el.setPointerCapture(e.pointerId); } catch {}
+  active.set(e.pointerId, { h, st });
+  return true;
 }
 // Touch moves. Precision: as the browser delivers them, once a frame, lined up with drawing (and with the predicted
 // points the knobs and faders draw ahead with). Real-time: each one the moment it arrives (pointerrawupdate),
@@ -746,8 +751,23 @@ function drawPinch(svg, cx, cy, p1, p2, value) {
 // knob's gesture: the page hands it over before any control sees it
 const PINCH_MM = 35;
 const pinchOpen = new Set();   // knob gestures with one finger, that a second may join
+// and a finger on nothing in particular within PINCH_REACH_MM of a knob's centre starts that knob: two fingers round
+// a knob land beside it as often as on it
+const PINCH_REACH_MM = 14;
 addEventListener("pointerdown", e => {
-  if (S.knobMode !== "pinch" || e.pointerType !== "touch" || !pinchOpen.size || isPalm(e)) return;
+  if (S.knobMode !== "pinch" || e.pointerType !== "touch" || isPalm(e)) return;
+  if (!pinchOpen.size) {
+    if (e.target.closest?.(".knob, button, input, select, .fader, #xf, .pad, canvas")) return;
+    let near = null, nd = mm(PINCH_REACH_MM);
+    document.querySelectorAll(".knob").forEach(k => {
+      const r = cachedRect(k.querySelector("svg"));
+      if (!r.width) return;
+      const dd = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
+      if (dd < nd) { nd = dd; near = k; }
+    });
+    if (near?._drag && startDrag(near, near._drag, e)) e.stopPropagation();
+    return;
+  }
   let best = null, bd = mm(PINCH_MM);
   pinchOpen.forEach(st => {
     if (st.p2 || st.pinched) return;
@@ -866,7 +886,7 @@ function knob(label, get, set, def, bipolar, target = () => null, onTap = null, 
           set(st.v, st.ctx); el.paint(); drawPinch(st.pr, st.cx, st.cy, st.p1, st.p2, st.v);
         };
         st.join = e2 => {
-          knobHoldOff(st);
+          knobHoldOff(st); lastTap = 0;   // (a quick pinch after this one isn't a double tap)
           if (performance.now() - st.t0 < 250 && st.v !== st.v0) { st.v = st.v0; st.raw = undefined; set(st.v0, st.ctx); }
           st.p2 = { x: e2.clientX, y: e2.clientY }; st.pinch = true; st.pa = angle();
           const d = st.ctx || deckOf(0), bpm = d.bpm * (1 + d.tempo / 100);
