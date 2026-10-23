@@ -1,6 +1,7 @@
 #include "waveforms.h"
 
 #include <QDateTime>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -239,6 +240,7 @@ void Waveforms::next() {
     });
     connect(decoder, qOverload<QAudioDecoder::Error>(&QAudioDecoder::error), m_context, [this, decoder](QAudioDecoder::Error) {
         if (decoder == m_decoder) {
+            qWarning() << "waveform: couldn't decode" << m_current->file << "-" << decoder->errorString();
             finish({});
         }
     });
@@ -280,12 +282,16 @@ void Waveforms::finish(const QByteArray& packed) {
         return;
     }
     m_stuckTimer->stop();
-    m_decoder->stop();
-    m_decoder->deleteLater();
+    // out of the way first: stopping it can report "finished" again, from inside stop()
+    QAudioDecoder* decoder = m_decoder;
     m_decoder = nullptr;
     const Job job = *m_current;
     m_current.reset();
     m_analysis.reset();
+    if (decoder) {
+        decoder->stop();
+        decoder->deleteLater();
+    }
     const bool ok = packed.size() > 12 + 4 * kPointsPerSecond;   // (a second at least)
     if (ok) {
         // an older one of this track's (its file has changed) goes
