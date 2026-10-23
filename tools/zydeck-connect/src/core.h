@@ -3,7 +3,8 @@
 // the link over Wi-Fi, TCP port 8771:
 //   "ZYDECK <key> <device name, hex>" -> "OK <this computer's name, hex>" (or "NO"), then lines both ways:
 //   "M <hex MIDI>" between the device and the ZyDeck Connect port, "J <json>" asking and answering track names
-//   GET /waveform/<id>?k=<key> and /beats/<id>?k=<key>: Mixxx's analysed waveform and beat grid, for the pages
+//   GET /waveform/<id>?k=<key> and /beats/<id>?k=<key>: the track's waveform (made here, waveforms.h; or Mixxx's
+//   analysed one) and Mixxx's beat grid, for the pages
 // The same key goes to a device over the cable (its hello) or in the pairing code (zydeck://connect?...).
 
 #include <QByteArray>
@@ -16,6 +17,7 @@
 
 #include "library.h"
 #include "midi.h"
+#include "waveforms.h"
 
 class QTcpSocket;
 
@@ -66,6 +68,7 @@ class Core : public QObject {
 
     QString m_name, m_key;
     Library m_library;
+    Waveforms m_waveforms{&m_library};
     Midi* m_midi;
     QTcpServer m_server;
     QHash<QTcpSocket*, Client*> m_clients;

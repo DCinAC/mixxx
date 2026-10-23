@@ -338,12 +338,15 @@ void Core::http(QTcpSocket* s, const QByteArray& request) {
     const int id = m.captured(2).toInt();
     QThreadPool::globalInstance()->start([this, waveform, id, respond] {
         if (waveform) {
-            const QByteArray data = m_library.waveform(id);
-            if (data.isEmpty()) {
-                respond(404, "not found\n", "Content-Type: text/plain\r\n");
-            } else {
-                respond(200, qCompress(data, 5).mid(4), "Content-Type: application/octet-stream\r\nContent-Encoding: deflate\r\n");
-            }
+            // made here (from the cache, or now); Mixxx's own analysis file if the track couldn't be read
+            m_waveforms.get(id, [this, id, respond](const QByteArray& made) {
+                const QByteArray data = made.isEmpty() ? m_library.waveform(id) : made;
+                if (data.isEmpty()) {
+                    respond(404, "not found\n", "Content-Type: text/plain\r\n");
+                } else {
+                    respond(200, qCompress(data, 5).mid(4), "Content-Type: application/octet-stream\r\nContent-Encoding: deflate\r\n");
+                }
+            });
         } else {
             const QJsonObject b = m_library.beats(id);
             if (b.isEmpty()) {

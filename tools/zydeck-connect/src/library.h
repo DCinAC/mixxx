@@ -1,10 +1,13 @@
 #pragma once
-// Mixxx's library, read only: tracks by their length (Mixxx's mapping only sees numbers), and each track's analysed
-// waveform and beat grid, as the phone's hub serves them. Safe from any thread (a database connection per thread).
+// Mixxx's library, read only: tracks by their length (Mixxx's mapping only sees numbers), their files (for the
+// waveforms made here, waveforms.h), and each track's analysed waveform and beat grid, as the phone's hub serves them.
+// Safe from any thread (a database connection per thread).
 
 #include <QByteArray>
 #include <QJsonObject>
+#include <QList>
 #include <QMutex>
+#include <QPair>
 #include <QString>
 #include <QVector>
 
@@ -26,6 +29,10 @@ class Library {
     /// {"beats": [seconds], "bar": k, "locked": bool}: beat i starts a bar when (i + k) % 4 == 0; empty if none.
     QJsonObject beats(int trackId);
     int trackCount();
+    /// Track id's file, or "" (not in the library, or removed from it).
+    QString location(int trackId);
+    /// The tracks most likely to be loaded next, {id, file}: played last, added last, played most (a third each).
+    QList<QPair<int, QString>> likelyTracks(int count);
 
   private:
     struct Row {

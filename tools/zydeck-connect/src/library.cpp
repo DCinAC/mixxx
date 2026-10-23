@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
+#include <QSet>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -377,6 +378,44 @@ QByteArray Library::waveform(int trackId) {
     QMutexLocker lock(&cacheMutex);
     cache.insert(key, new QByteArray(packed));
     return packed;
+}
+
+QString Library::location(int trackId) {
+    QSqlDatabase d = db();
+    if (!d.isValid()) {
+        return {};
+    }
+    QSqlQuery q(d);
+    q.prepare(QStringLiteral("SELECT tl.location FROM library l JOIN track_locations tl ON tl.id = l.location "
+                             "WHERE l.id = ? AND l.mixxx_deleted = 0 AND tl.fs_deleted = 0"));
+    q.addBindValue(trackId);
+    return q.exec() && q.next() ? q.value(0).toString() : QString();
+}
+
+QList<QPair<int, QString>> Library::likelyTracks(int count) {
+    QList<QPair<int, QString>> out;
+    QSqlDatabase d = db();
+    if (!d.isValid()) {
+        return out;
+    }
+    QSet<int> seen;
+    for (const char* order : {"l.last_played_at DESC", "l.datetime_added DESC", "l.timesplayed DESC"}) {
+        QSqlQuery q(d);
+        if (!q.exec(QStringLiteral("SELECT l.id, tl.location FROM library l JOIN track_locations tl ON tl.id = l.location "
+                                   "WHERE l.mixxx_deleted = 0 AND tl.fs_deleted = 0 ORDER BY %1 LIMIT %2")
+                            .arg(QLatin1String(order))
+                            .arg(count / 3))) {
+            continue;   // (an older Mixxx without last_played_at)
+        }
+        while (q.next()) {
+            const int id = q.value(0).toInt();
+            if (!seen.contains(id)) {
+                seen.insert(id);
+                out.append({id, q.value(1).toString()});
+            }
+        }
+    }
+    return out;
 }
 
 QJsonObject Library::beats(int trackId) {

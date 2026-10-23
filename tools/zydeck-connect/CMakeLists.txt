@@ -1,4 +1,5 @@
-# ZyDeck Connect: the computer side of ZyDeck's controller mode (see src/main.cpp). Qt 6 and C++17; RtMidi
+# ZyDeck Connect: the computer side of ZyDeck's controller mode (see src/main.cpp). Qt 6 and C++17 (Qt Multimedia,
+# when there, decodes tracks for the waveforms; without it they're Mixxx's analysis files only); RtMidi
 # (third_party/rtmidi, MIT-style) for MIDI, Project Nayuki's qrcodegen (third_party/qrcodegen, MIT) for the
 # pairing code. The ZyDeck mapping comes from ../../res/controllers, built in.
 #   cmake -S . -B build -DCMAKE_PREFIX_PATH=<Qt> && cmake --build build
@@ -15,7 +16,7 @@ option(ZC_OFFSCREEN "Static Qt: link only the offscreen platform plugin" OFF)
 if(ZC_OFFSCREEN)
   set(QT_SKIP_AUTO_PLUGIN_INCLUSION ON)
 endif()
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets Network Sql)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets Network Sql OPTIONAL_COMPONENTS Multimedia)
 
 # The mapping (the phone's own, named for the desktop when it's installed)
 set(MAPPING_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../res/controllers")
@@ -32,6 +33,7 @@ qt_add_executable(zydeck-connect WIN32 MACOSX_BUNDLE
   src/setup.cpp src/setup.h
   src/discovery.cpp src/discovery.h
   src/window.cpp src/window.h
+  src/waveforms.cpp src/waveforms.h
   third_party/rtmidi/RtMidi.cpp third_party/rtmidi/RtMidi.h
   third_party/qrcodegen/qrcodegen.cpp third_party/qrcodegen/qrcodegen.hpp
 )
@@ -42,6 +44,12 @@ qt_add_resources(zydeck-connect mapping
 )
 target_include_directories(zydeck-connect PRIVATE third_party/rtmidi third_party/qrcodegen)
 target_link_libraries(zydeck-connect PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Sql)
+if(TARGET Qt6::Multimedia)
+  target_compile_definitions(zydeck-connect PRIVATE ZC_DECODE)
+  target_link_libraries(zydeck-connect PRIVATE Qt6::Multimedia)
+else()
+  message(STATUS "No Qt Multimedia: the waveforms will be Mixxx's analysis files only")
+endif()
 
 # RtMidi's backend
 if(APPLE)
