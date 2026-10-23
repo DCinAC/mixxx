@@ -114,6 +114,9 @@ const $ = s => document.querySelector(s);
 const params = new URLSearchParams(location.search);
 const GROUP = params.get("group") || "[PreviewDeck1]", TRACK = +params.get("track") || 0;
 const VIEW = (+params.get("view") || 0) / 1000;   // the screen's own delay on top of the hub's (Controller › Calibrate)
+// (on another device's screen, &dev=1: on the sound's measured delay only, without the host screen's fine-tune)
+const DEV = params.get("dev") === "1";
+let AUD = 0;
 const PREVIEW = GROUP.startsWith("[PreviewDeck");
 const st = { pos: 0, dur: 0, ratio: 1, playing: false, bpm: 0, posAt: 0, wf: null, beats: null, bar: 0, locked: false, zoom: 4 };
 const ZOOMS = [1, 2, 4, 8, 16, 32];   // seconds across the view
@@ -134,8 +137,8 @@ function connect() {
   };
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data), now = performance.now();
-    if (m.init) { LAT = m.init.lat || 0; ZydeckPos.setLatency(m.init.lat, m.init.vlat); }
-    if (m.t === "lat") { LAT = m.s || 0; ZydeckPos.setLatency(m.s, m.v); }
+    if (m.init) { LAT = m.init.lat || 0; AUD = m.init.alat ?? LAT; ZydeckPos.setLatency(m.init.lat, m.init.vlat); }
+    if (m.t === "lat") { LAT = m.s || 0; AUD = m.a ?? LAT; ZydeckPos.setLatency(m.s, m.v); }
     if (m.t === "clk") return ZydeckPos.clockPong(m.c, m.h, now);
     if (m.t === "vp") {   // where the track is heard (the hub, from Mixxx's audio timing)
       const v = m.p[GROUP];
@@ -187,7 +190,7 @@ function draw(now) {
   const dpr = devicePixelRatio || 1, r = cv.getBoundingClientRect(), W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   // where the sound is (the hub's latency and this screen's), or under the finger while dragging
-  const pos = dragging || (d.pt === undefined && !d.vp) ? st.pos : ZydeckPos.posAt(d, now, LAT + VIEW);
+  const pos = dragging || (d.pt === undefined && !d.vp) ? st.pos : ZydeckPos.posAt(d, now, (DEV ? AUD : LAT) + VIEW);
   linePos = pos;
   const sec = ZOOMS[zi], pxs = W / sec, start = pos - sec / 2, mid = H / 2;
   g.clearRect(0, 0, W, H);

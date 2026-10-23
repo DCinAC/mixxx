@@ -2260,8 +2260,23 @@ double Hub::latencySeconds() const {
     return std::max(0.0, buffer + std::max(0, m_measuredLatencyMs) + latencyOffsetMs()) / 1000.0;
 }
 
+/// The sound's delay as measured (Android's timing of Mixxx's stream, or the test sound), without the user's offset:
+/// what another device's screen draws by, with its own calibration on top (that was measured against this sound, so
+/// the host screen's fine-tune isn't stacked on it)
+double Hub::audioSeconds() const {
+    if (m_controllerMode) {
+        return 0;
+    }
+    if (m_streamDelayMs >= 0) {
+        return m_streamDelayMs / 1000.0;
+    }
+    const double buffer = ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms")));
+    return std::max(0.0, buffer + std::max(0, m_measuredLatencyMs)) / 1000.0;
+}
+
 void Hub::emitLatency() {
-    emitJson({{"t", "lat"}, {"s", latencySeconds()}, {"v", visualExtraSeconds()}, {"bt", routeKind() == QLatin1String("Bluetooth")}});
+    emitJson({{"t", "lat"}, {"s", latencySeconds()}, {"v", visualExtraSeconds()}, {"a", audioSeconds()},
+            {"o", latencyOffsetMs()}, {"bt", routeKind() == QLatin1String("Bluetooth")}});
 }
 
 void Hub::saveAudioPrefs() const {
@@ -4091,6 +4106,8 @@ QJsonObject Hub::snapshot() const {
                     {"remote", remoteStatus()},
                     {"lat", latencySeconds()},
                     {"vlat", visualExtraSeconds()},
+                    {"alat", audioSeconds()},
+                    {"loff", latencyOffsetMs()},
                     {"bt", routeKind() == QLatin1String("Bluetooth")},
                     {"lstems", deckStemsJson()},
                     {"ssrv", m_stemServer},

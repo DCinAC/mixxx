@@ -3,7 +3,8 @@
 // analysis files, and none at all with Mixxx's waveform cache off). Made as Mixxx makes its own
 // (analyzer/analyzerwaveform.cpp): 441 points a second, each the loudest |sample| of the whole signal and of three
 // bands (4th-order Bessel filters at 600 and 4000 Hz) as 0-255, the louder channel. Checked against Mixxx's analysis
-// files (FLAC, AAC, Opus): the same, to the point and the level. Decoded by Qt Multimedia (FFmpeg) at 44.1 kHz on a
+// files (FLAC, AAC, Opus, MP3): the same, to the point and the level (an MP3 is put on Mixxx's timeline: its decoder
+// trims a file's start differently from FFmpeg's, see mp3Shift). Decoded by Qt Multimedia (FFmpeg) at 44.1 kHz on a
 // thread of its own, one track at a time, and kept in the cache folder (deflated, ~250 KB a track; the oldest go past
 // 2 GB). A track asked for goes first; with nothing asked, the tracks most likely to be loaded (added, played or
 // played most lately) are made ahead, one a second or so.

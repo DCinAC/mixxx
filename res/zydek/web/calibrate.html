@@ -79,15 +79,18 @@ let wf = null, wfImg = null;   // the pattern's waveform: {rate, n, data} (all, 
 let errs = [], est = null, delta = null;
 
 // where the drawing is at time t (this page's clock): the decks' own model, LAT earlier
-const lat = () => LAT + (SCOPE === "device" ? VIEW : 0);
+// (another device's screen: on the sound's measured delay only, without the host screen's fine-tune)
+const ON_DEVICE = SCOPE === "device" && Q.has("hub");
+let AUD = 0;
+const lat = () => SCOPE === "device" ? (ON_DEVICE ? AUD : LAT) + VIEW : LAT;
 const drawn = t => ZydeckPos.posModel(d, t, lat());
 
 function connect() {
   ws = new WebSocket(`ws://${HUB_HOST}/ws`);
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data), now = performance.now();
-    if (m.init) { LAT = m.init.lat || 0; ZydeckPos.setLatency(m.init.lat, m.init.vlat); return; }
-    if (m.t === "lat") { LAT = m.s || 0; ZydeckPos.setLatency(m.s, m.v); return; }
+    if (m.init) { LAT = m.init.lat || 0; AUD = m.init.alat ?? LAT; ZydeckPos.setLatency(m.init.lat, m.init.vlat); return; }
+    if (m.t === "lat") { LAT = m.s || 0; AUD = m.a ?? LAT; ZydeckPos.setLatency(m.s, m.v); return; }
     if (m.t === "clk") { ZydeckPos.clockPong(m.c, m.h, now); return; }
     if (m.t === "vp") {   // where the pattern is heard (the hub, from Mixxx's audio timing), as the decks get it
       const v = pat && m.p[pat.group];
@@ -168,7 +171,8 @@ const sign = ms => `${ms > 0 ? "+" : ""}${ms}`;
 async function showOffset(a) {
   try { a = a || await api("/api/audio"); } catch { return; }
   $("off").textContent = SCOPE === "device"
-    ? `This screen: ${sign(Math.round(VIEW * 1000))} ms on top of the host's ${a.totalMs} ms`
+    ? (ON_DEVICE ? `This screen: ${sign(Math.round(VIEW * 1000))} ms on top of the sound's measured ${Math.round(AUD * 1000)} ms`
+      : `This screen: ${sign(Math.round(VIEW * 1000))} ms on top of the host's ${a.totalMs} ms`)
     : `Drawn ${a.totalMs} ms behind Mixxx (adjusted ${sign(a.offsetMs)} ms)`;
   return a;
 }

@@ -29,6 +29,51 @@ constexpr int kStride = kRate / kPointsPerSecond;   // frames a point
 constexpr qint64 kCacheBytes = 2LL << 30;
 constexpr int kAheadCount = 600;        // tracks made ahead
 constexpr int kAheadPauseMs = 1000;     // between them
+const QString kCacheVersion = QStringLiteral("v2");   // (v1: MP3s without Mixxx's timing)
+
+/// Mixxx's MP3 decoder (libmad, sources/soundsourcemp3.cpp) doesn't trim a file's start as FFmpeg does: it drops the
+/// first frame (LAME's info frame; or audio, in a file without one) and keeps the rest. Measured against Mixxx's own
+/// waveforms, to the sample: with LAME's tag, Mixxx plays the track (encoder delay + 529) samples later than FFmpeg's
+/// output; with no info frame, 529 earlier. In the file's samples (+ silence before, - dropped), and its sample rate.
+int mp3Shift(const QString& file, int* rate) {
+    QFile f(file);
+    if (!f.open(QIODevice::ReadOnly)) {
+        return 0;
+    }
+    QByteArray b = f.read(10);
+    qint64 at = 0;
+    if (b.size() == 10 && b.startsWith("ID3")) {   // (its size is "syncsafe": 7 bits a byte)
+        const auto u = [&b](int i) { return static_cast<quint8>(b[i]); };
+        at = 10 + ((u(6) << 21) | (u(7) << 14) | (u(8) << 7) | u(9)) + ((u(5) & 0x10) ? 10 : 0);
+    }
+    f.seek(at);
+    b = f.read(64 * 1024);
+    int i = 0;
+    while (i + 4 < b.size() && !(static_cast<quint8>(b[i]) == 0xFF && (static_cast<quint8>(b[i + 1]) & 0xE0) == 0xE0)) {
+        ++i;
+    }
+    if (i + 4 >= b.size()) {
+        return 0;
+    }
+    const int version = (static_cast<quint8>(b[i + 1]) >> 3) & 3;   // 3: MPEG 1, 2: MPEG 2, 0: MPEG 2.5
+    const int index = (static_cast<quint8>(b[i + 2]) >> 2) & 3;
+    static const int kRates[3] = {44100, 48000, 32000};
+    if (index == 3 || version == 1) {
+        return 0;
+    }
+    *rate = kRates[index] / (version == 3 ? 1 : version == 2 ? 2 : 4);
+    const QByteArray frame = b.mid(i, 2000);
+    const bool info = frame.left(200).contains("Xing") || frame.left(200).contains("Info");
+    if (!info) {
+        return -529;
+    }
+    const int lame = frame.indexOf("LAME");
+    if (lame < 0 || lame + 24 > frame.size()) {
+        return 0;   // (an info frame without LAME's delay: both start after it)
+    }
+    const auto u = [&frame, lame](int k) { return static_cast<quint8>(frame[lame + k]); };
+    return ((u(21) << 4) | (u(22) >> 4)) + 529;
+}
 
 struct Biquad {
     double b0, b1, b2, a1, a2;
@@ -79,10 +124,15 @@ struct Waveforms::Analysis {
     Cascade<2> high{kHigh};
     float peak[4] = {};   // all, low, mid, high (either channel)
     int frames = 0;       // into this stride
+    int drop = 0;         // frames still to leave out (an MP3's start, as Mixxx has it)
     bool bad = false;     // it didn't come at 44.1 kHz
     QByteArray points;    // all/low/mid/high, a byte each
 
     void frame(float left, float right) {
+        if (drop > 0) {
+            --drop;
+            return;
+        }
         for (int ch = 0; ch < 2; ++ch) {
             const float s = ch ? right : left;
             peak[0] = std::max(peak[0], std::fabs(s));
@@ -118,6 +168,11 @@ Waveforms::Waveforms(Library* library, QObject* parent)
           m_cacheDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/waveforms")) {
 #ifdef ZC_DECODE
     QDir().mkpath(m_cacheDir);
+    for (const QString& old : QDir(m_cacheDir).entryList({QStringLiteral("*.mxwf")}, QDir::Files)) {   // an older make
+        if (!old.endsWith(QStringLiteral("-%1.mxwf").arg(kCacheVersion))) {
+            QFile::remove(m_cacheDir + '/' + old);
+        }
+    }
     m_context = new QObject;
     m_context->moveToThread(&m_thread);
     connect(&m_thread, &QThread::finished, m_context, &QObject::deleteLater);
@@ -152,7 +207,12 @@ QString Waveforms::cacheFileFor(int trackId, const QString& file) const {
         return {};
     }
     // (another size or time: the file changed, so its waveform is made again)
-    return QStringLiteral("%1/%2-%3-%4.mxwf").arg(m_cacheDir).arg(trackId).arg(info.size()).arg(info.lastModified().toMSecsSinceEpoch());
+    return QStringLiteral("%1/%2-%3-%4-%5.mxwf")
+            .arg(m_cacheDir)
+            .arg(trackId)
+            .arg(info.size())
+            .arg(info.lastModified().toMSecsSinceEpoch())
+            .arg(kCacheVersion);
 }
 
 void Waveforms::get(int trackId, Done done) {
@@ -218,6 +278,14 @@ void Waveforms::next() {
     }
     m_current = std::make_unique<Job>(m_queue.takeFirst());
     m_analysis = std::make_unique<Analysis>();
+    if (m_current->file.endsWith(QLatin1String(".mp3"), Qt::CaseInsensitive)) {   // on Mixxx's timeline
+        int rate = kRate;
+        const int shift = static_cast<int>(std::lround(mp3Shift(m_current->file, &rate) * static_cast<double>(kRate) / rate));
+        for (int k = 0; k < shift; ++k) {
+            m_analysis->frame(0, 0);
+        }
+        m_analysis->drop = std::max(0, -shift);
+    }
     m_thread.setPriority(asked ? QThread::NormalPriority : QThread::LowPriority);
     // a decoder per track: nothing from the last one's can be taken for this one's
     m_decoder = new QAudioDecoder(m_context);

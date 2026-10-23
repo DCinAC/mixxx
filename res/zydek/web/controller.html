@@ -1257,7 +1257,7 @@ function openGrid(s) {
   document.getElementById("gridview")?.remove();
   const f = document.createElement("iframe");
   f.id = "gridview";
-  f.src = `${HUB_ELSEWHERE ? HUB : ""}/grid?group=${encodeURIComponent(ch(d.n))}&track=${d.beatsFor}&view=${S.viewOffset || 0}`;
+  f.src = `${HUB_ELSEWHERE ? HUB : ""}/grid?group=${encodeURIComponent(ch(d.n))}&track=${d.beatsFor}&view=${S.viewOffset || 0}${LINKED ? "&dev=1" : ""}`;
   document.body.appendChild(f);
 }
 addEventListener("message", e => {
@@ -2264,9 +2264,16 @@ const { hubTime, posSeed, posModel, posUpdate } = ZydeckPos;
 // LAT: how far the sound runs behind Mixxx's play position (the output's measured latency, from the hub).
 // Positions are drawn that much earlier while playing, so the waveform matches what you hear.
 let LAT = 0;
-// and this screen's own delay on top (S.viewOffset, ms: Controller › Calibrate): the link, its display; the host's
-// output is the hub's (System › Calibrate)
-const latNow = () => LAT + (S.viewOffset || 0) / 1000;
+let AUD = 0;   // the sound's measured delay alone (LAT without the host's fine-tune)
+// and this screen's own delay on top (S.viewOffset, ms: Controller › Calibrate): the link, its display. Another device's
+// screen (LINKED) goes on the sound's measured delay only: its calibration was against that sound, so the host screen's
+// fine-tune (System › Calibrate) isn't stacked on it; the host's own screen keeps both
+const latNow = () => (LINKED ? AUD : LAT) + (S.viewOffset || 0) / 1000;
+// (once: a linked screen's offset was calibrated on top of the host's whole delay, the host's fine-tune included)
+function viewMigrate(off) {
+  if (!LINKED || S.viewBase === 2 || off === undefined) return;
+  S.viewOffset = Math.round((S.viewOffset || 0) + off); S.viewBase = 2; saveSettings();
+}
 const posAt = (d, now) => ZydeckPos.posAt(d, now, latNow());   // what to draw now
 
 // Turntable physics after the hand lets go. The platter is a heavy, servo-driven flywheel: holding the
@@ -3120,12 +3127,12 @@ function loadCueLabels(d) {
 }
 
 function onMixxx(m) {
-  if (m.init) { ZydeckMenu.push(m); if (m.init.notice) toast(m.init.notice); LAT = m.init.lat || 0; ZydeckPos.setLatency(m.init.lat, m.init.vlat); if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
+  if (m.init) { ZydeckMenu.push(m); if (m.init.notice) toast(m.init.notice); LAT = m.init.lat || 0; AUD = m.init.alat ?? LAT; viewMigrate(m.init.loff); ZydeckPos.setLatency(m.init.lat, m.init.vlat); if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
   if (m.t === "rec") { ZydeckMenu.push(m); return paintRec(m.r); }
   if (m.t === "remote") { ZydeckMenu.push(m); return onRemote(m); }
   if (m.t === "opt" || m.t === "dc" || m.t === "offer") return ZydeckMenu.push(m);
   if (m.t === "cuelbl") { decks.forEach(d => { if (d.loaded !== false) loadCueLabels(d); }); return; }   // hot cues edited (the phone's library, a pad)
-  if (m.t === "lat") { LAT = m.s || 0; ZydeckPos.setLatency(m.s, m.v); return; }
+  if (m.t === "lat") { LAT = m.s || 0; AUD = m.a ?? LAT; ZydeckPos.setLatency(m.s, m.v); return; }
   if (!live) return;
   const d = m.d !== undefined ? decks[m.d] : null;
   switch (m.t) {

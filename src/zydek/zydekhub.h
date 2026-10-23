@@ -191,6 +191,7 @@ class Hub : public QObject {
     void applyQueue();             // the learned size for the output now
     QJsonObject outputPath() const;   // PaOboe_GetOutputStatus: straight to the hardware or through Android's mixer, etc.
     double latencySeconds() const;
+    double audioSeconds() const;   // latencySeconds() without the user's offset
     void emitLatency();
     void saveAudioPrefs() const;
     QString lanUrl() const;
