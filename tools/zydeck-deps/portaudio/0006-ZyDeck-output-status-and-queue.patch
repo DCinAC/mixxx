@@ -37,7 +37,7 @@ index 9f63278..ec78da9 100644
  }
  #endif //__cplusplus
 diff --git a/src/hostapi/oboe/pa_oboe.cpp b/src/hostapi/oboe/pa_oboe.cpp
-index 2dcce8e..c09d98d 100644
+index 2dcce8e..c5408c2 100644
 --- a/src/hostapi/oboe/pa_oboe.cpp
 +++ b/src/hostapi/oboe/pa_oboe.cpp
 @@ -61,12 +61,14 @@
@@ -68,7 +68,21 @@ index 2dcce8e..c09d98d 100644
  class OboeEngine;
  class OboeMediator;
  struct PaOboeHostApiRepresentation;
-@@ -588,6 +596,7 @@ bool OboeEngine::closeStream(PaOboeStream *paOboeStream) {
+@@ -427,8 +435,11 @@ PaError OboeEngine::openStream(PaOboeStream *paOboeStream, Direction direction,
+             mediator->setOutputCallback(mediator);
+         }
+ 
+-        // We could also add AAudioExtensions library to allow the use of mmap and improve low latency performance
+-        // AAudioExtensions::getInstance().setMMapEnabled(false);
++        /* ZyDeck: ask for MMAP (straight to the hardware) where the device allows it. Android 15 takes the HAL's policy
++         * when the app states none, and a HAL that states none means never; the app's "auto" still yields to a
++         * device's "never", and AAudio falls back to its legacy path if MMAP doesn't open. */
++        static const bool s_mmapAsked = OboeExtensions::setMMapEnabled(true) == 0;
++        (void) s_mmapAsked;
+ 
+         result = mediator->mOutputBuilder.openStream(mediator->mOutputStream);
+         if (result != Result::OK) {
+@@ -588,6 +599,7 @@ bool OboeEngine::closeStream(PaOboeStream *paOboeStream) {
      auto& mediator = paOboeStream->oboeMediator;
  
      if (paOboeStream->hasOutput()) {
@@ -76,7 +90,7 @@ index 2dcce8e..c09d98d 100644
          outputResult = mediator->mOutputStream->close();
          if (outputResult == Result::ErrorClosed) {
              outputResult = Result::OK;
-@@ -930,6 +939,79 @@ double PaOboe_GetOutputPresentationDelay(void) {
+@@ -930,6 +942,79 @@ double PaOboe_GetOutputPresentationDelay(void) {
      return g_outputPresentationDelay.load(std::memory_order_relaxed);
  }
  
@@ -156,7 +170,7 @@ index 2dcce8e..c09d98d 100644
  /**
   * \brief   Oboe's callback routine.
   */
-@@ -940,6 +1022,8 @@ OboeMediator::onAudioReady(AudioStream *oboeStream, void *audioData, int32_t num
+@@ -940,6 +1025,8 @@ OboeMediator::onAudioReady(AudioStream *oboeStream, void *audioData, int32_t num
      mTimeInfo.currentTime = (PaTime)(mTimeSpec.tv_sec + (mTimeSpec.tv_nsec / 1000000000.0));
      if (oboeStream->getDirection() == Direction::Output) {
          MeasurePresentationDelay(oboeStream);   /* ZyDeck */

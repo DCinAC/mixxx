@@ -4,7 +4,8 @@
 # PaOboe_GetOutputPresentationDelay(): when Mixxx's output is heard, from AAudio's timestamps of that very stream (the
 # hub draws the waveforms from it); 0006-ZyDeck-output-status-and-queue.patch, PaOboe_GetOutputStatus() (straight to
 # the hardware or through Android's mixer, the burst, the queue, AAudio's underruns: each also reaches Mixxx as
-# paOutputUnderflow and grows the queue a burst) and PaOboe_SetOutputQueueBursts(). Builds libportaudio.a as Mixxx's
+# paOutputUnderflow and grows the queue a burst), PaOboe_SetOutputQueueBursts(), and asks AAudio for MMAP where the
+# device allows it (Android 15 otherwise reads a HAL that states no policy as "never"). Builds libportaudio.a as Mixxx's
 # dependency bundle has it (Oboe, ALSA and JACK hosts, the same exports plus ours) and puts it, with pa_oboe.h, into that
 # bundle (the originals kept as *.orig).
 # Run on the build PC whenever the bundle is fresh (a new BUILDENV_NAME), before building ZyDeck:
