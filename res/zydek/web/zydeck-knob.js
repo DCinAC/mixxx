@@ -115,11 +115,11 @@ window.zydeckTouch = function (env) {
     ray.setAttribute("x1", cx); ray.setAttribute("y1", cy); ray.setAttribute("x2", ex); ray.setAttribute("y2", ey);
     ray.classList.remove("dead");
   }
-  // A finger landing within PINCH_MM of a knob's one finger (Knob gesture: Pinch), whatever it lands on, joins that
-  // knob's gesture: the page hands it over before any control sees it. Two pinches can go at once (a hand on each of
-  // two knobs): a finger joins the nearest one-finger knob that no other knob is in the way of (knobBetween: between
-  // the two, or nearer the finger), so each hand's second finger finds its own knob; blocked from every one, it's a
-  // touch of its own
+  // A finger landing within PINCH_MM of a knob gesture's one finger (Knob gesture: Pinch), whatever it lands on, can
+  // make a pinch with it: the page hands it over before any control sees it. The pinch turns the knob under the
+  // fingers' midpoint (pinchKnob), which needn't be the one the first finger started (that one goes back as it was).
+  // Two hands can pinch two knobs at once, and a finger on another knob's face is a touch of that knob: one finger
+  // each on two knobs, at the same moment, turns both
   const PINCH_MM = 35;
   const pinchOpen = new Set();   // knob gestures with one finger, that a second may join
   // and a finger on nothing in particular within PINCH_REACH_MM of a knob's centre starts that knob: two fingers round
@@ -127,14 +127,16 @@ window.zydeckTouch = function (env) {
   const PINCH_REACH_MM = 14;
   addEventListener("pointerdown", e => {
     if (cfg().knobMode !== "pinch" || e.pointerType !== "touch" || isPalm(e)) return;
-    const at = { x: e.clientX, y: e.clientY }, open = [];
+    const at = { x: e.clientX, y: e.clientY }, discs = knobDiscs();
+    let pick = null;   // the one-finger gesture this finger pinches with, and the knob that turns (the best centred)
     pinchOpen.forEach(st => {
-      if (st.p2 || st.pinched) return;
-      const dd = Math.hypot(at.x - st.p1.x, at.y - st.p1.y);
-      if (dd <= mm(PINCH_MM)) open.push([dd, st]);
+      if (st.p2 || st.pinched || Math.hypot(at.x - st.p1.x, at.y - st.p1.y) > mm(PINCH_MM)) return;
+      const d = pinchKnob(st.p1, at, discs);
+      if (!d || (d.k !== st.el && d.k.classList.contains("held"))) return;   // (another hand has that one)
+      const off = Math.hypot((st.p1.x + at.x) / 2 - d.x, (st.p1.y + at.y) / 2 - d.y);
+      if (!pick || off < pick.off) pick = { st, k: d.k, off };
     });
-    open.sort((a, b) => a[0] - b[0]);
-    const st = open.map(o => o[1]).find(o => !knobBetween(o.el, o.p1, at));
+    const st = pick && (pick.k === pick.st.el ? pick.st : moveTo(pick.st, pick.k));
     if (st) {
       e.preventDefault(); e.stopPropagation(); e.zydekClaimed = true;
       try { st.el.setPointerCapture(e.pointerId); } catch {}
@@ -144,37 +146,49 @@ window.zydeckTouch = function (env) {
     }
     if (e.target.closest?.(controls)) return;
     let near = null, nd = mm(PINCH_REACH_MM);
-    document.querySelectorAll(".knob").forEach(k => {
-      if (k.classList.contains("held")) return;   // (a knob already in a hand)
-      const r = cachedRect(k.querySelector("svg"));
-      if (!r.width) return;
-      const dd = Math.hypot(at.x - (r.left + r.width / 2), at.y - (r.top + r.height / 2));
-      if (dd < nd) { nd = dd; near = k; }
+    discs.forEach(d => {
+      if (d.k.classList.contains("held")) return;   // (a knob already in a hand)
+      const dd = Math.hypot(at.x - d.x, at.y - d.y);
+      if (dd < nd) { nd = dd; near = d.k; }
     });
     if (near?._drag && startDrag(near, near._drag, e)) e.stopPropagation();
   }, true);
 
-  // Whether another knob is in the way of a pinch from finger a to finger b: more than PINCH_BETWEEN of its width under
-  // the line between them, or b nearer its centre than the pinched knob's (b is on that knob's side: another hand's
-  // finger, landing for a pinch of its own there)
-  const PINCH_BETWEEN = .4;
-  function knobBetween(own, a, b) {
-    const o = cachedRect(own.querySelector("svg"));
-    const ownDist = Math.hypot(b.x - (o.left + o.width / 2), b.y - (o.top + o.height / 2));
+  // The knobs on the screen now: each one's element, centre and radius
+  const knobDiscs = () => [...document.querySelectorAll(".knob")].map(k => {
+    const r = cachedRect(k.querySelector("svg"));
+    return r.width ? { k, x: r.left + r.width / 2, y: r.top + r.height / 2, R: Math.min(r.width, r.height) / 2 } : null;
+  }).filter(Boolean);
+  // What fingers a and b pinch: the knob under their midpoint (within its disc and PINCH_MID_MM more), unless a finger
+  // is clearly another knob's (that one's centre nearer than PINCH_NEARER of the way to this one's: it's touching that
+  // knob, or another hand's there) or more than PINCH_BETWEEN of another knob's width is under the line between them.
+  // That knob's disc, or null
+  const PINCH_MID_MM = 2, PINCH_NEARER = .75, PINCH_BETWEEN = .4;
+  function pinchKnob(a, b, discs) {
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    let best = null, bd = Infinity;
+    discs.forEach(d => { const dd = Math.hypot(mx - d.x, my - d.y); if (dd < bd) { bd = dd; best = d; } });
+    if (!best || bd > best.R + mm(PINCH_MID_MM)) return null;
     const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
-    for (const k of document.querySelectorAll(".knob")) {
-      if (k === own) continue;
-      const r = cachedRect(k.querySelector("svg"));
-      if (!r.width) continue;
-      const R = Math.min(r.width, r.height) / 2, cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-      if (Math.hypot(b.x - cx, b.y - cy) < ownDist) return true;
+    for (const d of discs) {
+      if (d === best) continue;
+      if (Math.hypot(a.x - d.x, a.y - d.y) < PINCH_NEARER * Math.hypot(a.x - best.x, a.y - best.y) ||
+          Math.hypot(b.x - d.x, b.y - d.y) < PINCH_NEARER * Math.hypot(b.x - best.x, b.y - best.y)) return null;
       if (len < 1) continue;
-      const ux = dx / len, uy = dy / len, t = (cx - a.x) * ux + (cy - a.y) * uy, d = Math.abs((cx - a.x) * uy - (cy - a.y) * ux);
-      if (d >= R) continue;
-      const half = Math.sqrt(R * R - d * d);
-      if (Math.min(len, t + half) - Math.max(0, t - half) > PINCH_BETWEEN * 2 * R) return true;
+      const ux = dx / len, uy = dy / len, t = (d.x - a.x) * ux + (d.y - a.y) * uy, off = Math.abs((d.x - a.x) * uy - (d.y - a.y) * ux);
+      if (off >= d.R) continue;
+      const half = Math.sqrt(d.R * d.R - off * off);
+      if (Math.min(len, t + half) - Math.max(0, t - half) > PINCH_BETWEEN * 2 * d.R) return null;
     }
-    return false;
+    return best;
+  }
+  // A one-finger gesture moved to knob k (the pinch's midpoint is on k): its own knob goes back as it was, and the
+  // finger starts k
+  function moveTo(st, k) {
+    st.drop();
+    if (!k._drag) return null;
+    const ev = { clientX: st.p1.x, clientY: st.p1.y, pointerId: st.pid, pointerType: "touch", preventDefault() {} };
+    return startDrag(k, k._drag, ev) ? active.get(st.pid)?.st || null : null;
   }
 
   // Drag (both): distance along the finger's path counts the same in every direction.
@@ -269,7 +283,13 @@ window.zydeckTouch = function (env) {
         if (cfg().knobMode === "pinch") {
           // One finger drags; a second (pinchOpen) makes it a pinch: the line between the two is the knob, and
           // 270° of twist its whole range. A second finger within 250 ms: the first one's moment alone doesn't count.
-          st.el = el; st.p1 = { x: e.clientX, y: e.clientY };
+          st.el = el; st.p1 = { x: e.clientX, y: e.clientY }; st.pid = e.pointerId;
+          st.drop = () => {   // (the finger moves on to another knob: this one as it was)
+            knobHoldOff(st); pinchOpen.delete(st);
+            if (st.v !== st.v0) set(st.v0, st.ctx);
+            el.classList.remove("held"); el.hold = null; el.paint();
+            if (st.pr) { st.pr.remove(); st.pr = null; }
+          };
           const angle = () => Math.atan2(st.p2.y - st.p1.y, st.p2.x - st.p1.x);
           st.twist = () => {
             const a = angle();
