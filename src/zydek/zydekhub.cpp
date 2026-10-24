@@ -412,6 +412,9 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     if (path == QLatin1String("/zydeck-position.js")) {   // where a playing track is drawn (every page that draws one)
         return staticFile(path.mid(1));
     }
+    if (path == QLatin1String("/zydeck-knob.js")) {   // touch and knobs (the deck page, the phone page's mixer)
+        return staticFile(path.mid(1));
+    }
     if (path == QLatin1String("/zydeck-menu.js") || path == QLatin1String("/zydeck-menu.css")) {   // the settings menu, both pages
         return staticFile(path.mid(1));
     }
