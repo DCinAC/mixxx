@@ -420,6 +420,21 @@ QByteArray Library::waveform(int trackId) {
     return packed;
 }
 
+QStringList Library::rootDirs() {
+    QStringList out;
+    QSqlDatabase d = db();
+    if (!d.isValid()) {
+        return out;
+    }
+    QSqlQuery q(d);
+    if (q.exec(QStringLiteral("SELECT directory FROM directories ORDER BY rowid"))) {
+        while (q.next()) {
+            out.append(q.value(0).toString());
+        }
+    }
+    return out;
+}
+
 QString Library::location(int trackId) {
     QSqlDatabase d = db();
     if (!d.isValid()) {

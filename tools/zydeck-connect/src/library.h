@@ -9,6 +9,7 @@
 #include <QMutex>
 #include <QPair>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 namespace zc {
@@ -32,6 +33,8 @@ class Library {
     /// {"beats": [seconds], "bar": k, "locked": bool}: beat i starts a bar when (i + k) % 4 == 0; empty if none.
     QJsonObject beats(int trackId);
     int trackCount();
+    /// Mixxx's music folders (Preferences › Library), in the order they were added.
+    QStringList rootDirs();
     /// Track id's file, or "" (not in the library, or removed from it).
     QString location(int trackId);
     /// The tracks most likely to be loaded next, {id, file}: played last, added last, played most (a third each).

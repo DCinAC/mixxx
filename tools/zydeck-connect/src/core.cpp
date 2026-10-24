@@ -321,6 +321,26 @@ void Core::line(QTcpSocket* s, Client& c, const QByteArray& l) {
 /// GET /waveform/<id>?k=<key> and /beats/<id>?k=<key>. The waveform goes deflated (as Mixxx's own files are:
 /// qCompress is zlib's format, which is HTTP's "deflate").
 void Core::http(QTcpSocket* s, const QByteArray& request) {
+    // /web/...: downloads and stems (web.h), for a device with the key or for this computer itself (Mixxx ZyDeck,
+    // which can't know the key)
+    const QByteArray first = request.left(request.indexOf("\r\n"));
+    if (first.startsWith("GET /web/")) {
+        const QUrl url(QString::fromUtf8(first.mid(4, first.lastIndexOf(' ') - 4)));
+        QString qs = url.query(QUrl::FullyEncoded);
+        qs.replace(QLatin1Char('+'), QStringLiteral("%20"));   // (a form's spaces)
+        const QUrlQuery query(qs);
+        int status = 403;
+        QJsonObject out{{"ok", false}, {"error", "wrong key"}};
+        if (s->peerAddress().isLoopback() || sameKey(query.queryItemValue(QStringLiteral("k")).toLatin1(), m_key.toLatin1())) {
+            out = m_web.handle(url.path().mid(5), query, &status);
+        }
+        const QByteArray body = QJsonDocument(out).toJson(QJsonDocument::Compact);
+        s->write("HTTP/1.1 " + QByteArray::number(status) + (status == 200 ? " OK" : " No") + "\r\nContent-Type: application/json\r\n"
+                 "Content-Length: " + QByteArray::number(body.size()) + "\r\nAccess-Control-Allow-Origin: *\r\n"
+                 "Cache-Control: no-store\r\nConnection: close\r\n\r\n" + body);
+        s->disconnectFromHost();
+        return;
+    }
     static const QRegularExpression route(QStringLiteral(R"(^GET /(waveform|beats)/(\d+)(?:\?k=([0-9a-f]+))?)"));
     const QRegularExpressionMatch m = route.match(QString::fromLatin1(request));
     QPointer<QTcpSocket> guard(s);
