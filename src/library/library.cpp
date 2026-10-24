@@ -43,6 +43,7 @@
 #include "widget/wtracktableview.h"
 #ifdef __ZYDECK__   // ZyDeck
 #include "zydeck/fitsfeature.h"
+#include "zydeck/webfolder.h"
 #endif
 
 namespace {
@@ -105,6 +106,7 @@ Library::Library(
     addFeature(m_pAutoDJFeature);
 #ifdef __ZYDECK__   // ZyDeck: what fits each deck
     addFeature(new zydeck::FitsFeature(this, m_pConfig));
+    new zydeck::WebFolder(this, m_pConfig);   // (the downloads folder, watched)
 #endif
 
     m_pPlaylistFeature = make_parented<PlaylistFeature>(this, UserSettingsPointer(m_pConfig));

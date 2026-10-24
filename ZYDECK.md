@@ -8,6 +8,10 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 - **Fits deck**: ZyDeck's "what fits next" in the library's sidebar: under "Fits deck", each deck that has a track; a
   click lists the tracks that mix with it now (within 6 % of its tempo, or half or double it, in a key next to its
   key as it sounds now; the same key first, then the nearest tempo). `src/zydeck/fitsfeature.*`, `fitstablemodel.*`.
+- **ZyDeck Web**: the downloads folder (ZyDeck Connect's YouTube and Bilibili downloads; `[ZyDeck] WebFolder`, by
+  default "ZyDeck Web" in the first music folder) is watched: a finished file that lands there joins the library at
+  once, in the crate "ZyDeck Web", and is analysed. No rescan, and no connection to Connect needed (the sandbox allows
+  no listening socket). `src/zydeck/webfolder.*`.
 - **ZyDeck connectivity**: the same hub as the Android app (`src/zydeck/`), so a tablet or phone talks to Mixxx
   directly: the exact track, its waveform at once, and positions timed by Mixxx's audio.
 - **Stems on request**: a track's right-click menu (and ZyDeck's button) makes its stems with HT-Demucs, Open-Unmix or
@@ -34,6 +38,6 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 | --- | --- |
 | `.github/workflows/develop.yml` | skip this branch (`zydeck-desktop.yml` builds it) |
 | `CMakeLists.txt` | the `ZYDECK` option, including `cmake/zydeck.cmake` (before Ebur128) |
-| `src/library/library.cpp` | adds the Fits deck feature after Auto DJ (and its include) |
+| `src/library/library.cpp` | adds the Fits deck feature after Auto DJ and starts ZyDeck Web (and their includes) |
 
 Based on upstream `main` at 2086fe0 (2026-10-22, 2.7.0-alpha).
