@@ -748,7 +748,14 @@ void Web::stemsFetch(Job* job) {
             return;
         }
         const QString to = freePath(folder(), job->outName, QStringLiteral(".stem.mp4"));
+        // a note beside it naming the original (hidden): Mixxx ZyDeck gives the stems its cues, beat grid and the rest
+        QFile note(QDir(folder()).filePath(QLatin1Char('.') + QFileInfo(to).fileName() + QStringLiteral(".json")));
+        if (note.open(QIODevice::WriteOnly)) {
+            note.write(QJsonDocument(QJsonObject{{"original", job->original}}).toJson(QJsonDocument::Compact));
+            note.close();
+        }
         if (!QFile::rename(part, to)) {
+            note.remove();
             QFile::remove(part);
             fail(job, QStringLiteral("Couldn't move the stems into the downloads folder"));
             return;

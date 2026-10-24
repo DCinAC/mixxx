@@ -6,8 +6,9 @@
 //   GET /web/download?url=&title=      the audio into the downloads folder: a job, its result
 //                                      {path, artist, title, duration, codec, kbps, playable}
 //   GET /web/stems?path=&preset=&server=   a track's stems from the PC's stem server (stemserver/server.py), into the
-//                                      downloads folder as "<name>.stem.mp4": a job, its result {path, artist, title,
-//                                      seconds, original}
+//                                      downloads folder as "<name>.stem.mp4", with a hidden note naming the original
+//                                      (Mixxx ZyDeck gives the stems its cues and beat grid): a job, its result
+//                                      {path, artist, title, seconds, original}
 //   GET /web/job?id=                   {state: running|done|error, progress 0-1, message, result | error}
 //   GET /web/cancel?id=
 // The same shapes as the phone's own downloader (res/zydek/python/zydek_web.py), so a page needs only the address.

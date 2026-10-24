@@ -712,6 +712,7 @@ function onRemote(r) {
   if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`, "ok");
   if (!!was.on !== !!r.on || was.http !== r.http) decks.forEach(d => { loadWaveform(d, d.wfFor); loadBeats(d, d.beatsFor); });
   paintCtlMode();
+  webNote();
 }
 function paintCtlMode() {
   const r = remote, box = $("#ctlmode");
@@ -1224,7 +1225,16 @@ $("#sort").addEventListener("change", () => { store.set("sort", $("#sort").value
 // ---------------------------------------------------------------------------------------------------
 // Web: YouTube search, Bilibili links and BV codes, downloaded with yt-dlp inside Zydek (zydek_web.py)
 // ---------------------------------------------------------------------------------------------------
+// Controller mode with ZyDeck Connect: the computer searches, downloads and makes stems (its /web/..., the same
+// answers as the phone's own), into its ZyDeck Web folder, which Mixxx ZyDeck takes in as files land
+const onComputer = () => remote.on && !!remote.http;
+const webNote = () => { if (!webSeq) $("#wnote").textContent = onComputer()
+  ? "Downloads go to the computer: its ZyDeck Web folder, and into Mixxx as they land."
+  : "Downloads go to Music/Zydek Web and into the library."; };
 async function webApi(path) {   // like api(), but "Python is starting" is an answer, not an error
+  if (onComputer() && /^\/api\/web\/(search|download|stems|job|cancel)\b/.test(path)) {
+    path = `${remote.http}${path.slice(4)}${path.includes("?") ? "&" : "?"}k=${encodeURIComponent(remote.key || "")}`;
+  }
   const r = await fetch(path);
   let body = null; try { body = await r.json(); } catch {}
   if (body && body.starting) return body;
@@ -1283,8 +1293,8 @@ function openWebSheet(r) {
   const s = $("#sheet");
   s.innerHTML = `<div class="grip"></div><div class="t">${esc(r.title)}</div>` +
     `<div class="a">${esc(r.channel)}${r.duration ? " · " + fmtTime(r.duration) : ""}</div>` +
-    `<div class="loads" style="margin-top:14px"></div><div class="more"><button class="dl">Download only</button></div>`;
-  [1, 2, 3, 4].forEach(n => {
+    `<div class="loads" style="margin-top:14px"></div><div class="more"><button class="dl">${onComputer() ? "Download to the computer" : "Download only"}</button></div>`;
+  if (!onComputer()) [1, 2, 3, 4].forEach(n => {
     const b = h("button", n > 2 ? "d34" : "d12", `Deck ${n}<small>download and load</small>`);
     b.addEventListener("click", () => { closeSheet(); webDownload(r, `deck${n}`); });
     s.querySelector(".loads").appendChild(b);
@@ -1317,11 +1327,16 @@ async function webDownload(r, target, stems) {
   try {
     const res = await webJob(`/api/web/download?${qs({ url: r.url, title: r.title })}`,
       j => show(j.progress, j.message ? `${j.message}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}` : null));
-    show(1, "Adding to the library");
-    const added = await api(`/api/library/add?${qs({ path: res.path })}`);
     const q = res.codec === "flac" ? "Hi-Res FLAC" : res.kbps ? `${res.kbps} kbps` : "";
-    show(1, `Saved${q ? " (" + q + ")" : ""}: ${res.path.split("/").pop()}`);
-    if (target) await load({ id: added.id }, target); else if (!stems) toast(`Downloaded ${res.title}`, "ok");
+    if (onComputer()) {   // (Mixxx ZyDeck takes it in from the folder, into the crate ZyDeck Web)
+      show(1, `On the computer${q ? " (" + q + ")" : ""}: ${res.path.split("/").pop()}`);
+      if (!stems) toast(`Downloaded ${res.title}: in Mixxx's ZyDeck Web crate`, "ok");
+    } else {
+      show(1, "Adding to the library");
+      const added = await api(`/api/library/add?${qs({ path: res.path })}`);
+      show(1, `Saved${q ? " (" + q + ")" : ""}: ${res.path.split("/").pop()}`);
+      if (target) await load({ id: added.id }, target); else if (!stems) toast(`Downloaded ${res.title}`, "ok");
+    }
     setTimeout(() => li.remove(), 8000);
     if (stems) stemsFor(res.path, res.title);
   } catch (e) {
@@ -1348,13 +1363,15 @@ async function stemsFor(path, title, trackId) {
   stemRows.set(path, li);
   toast("Making stems on the PC… (progress in the Web tab)");
   try {
-    const res = await webJob(`/api/web/stems?${qs({ path })}`,
+    const res = await webJob(`/api/web/stems?${qs(onComputer() ? { path, server: stemServer, preset: stemPreset } : { path })}`,
       j => show(j.progress, j.message ? `${j.message}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}` : null),
       r => { jobId = r.job; if (r.already) toast("Already making stems for this track: following that one"); });
-    show(1, "Adding to the library");
-    await api(`/api/library/add?${qs({ path: res.path })}`);
-    // the decks' stems for this track from now on (live stems); the quick ones made on the phone go
-    if (trackId) await api(`/api/livestems/adopt?${qs({ id: trackId, path: res.path })}`).catch(() => {});
+    if (!onComputer()) {
+      show(1, "Adding to the library");
+      await api(`/api/library/add?${qs({ path: res.path })}`);
+      // the decks' stems for this track from now on (live stems); the quick ones made on the phone go
+      if (trackId) await api(`/api/livestems/adopt?${qs({ id: trackId, path: res.path })}`).catch(() => {});
+    }
     show(1, `Saved: ${res.path.split("/").pop()}${res.seconds ? ` (separated in ${Math.round(res.seconds)} s)` : ""}`);
     toast(`Stems ready: ${res.title || title}`, "ok");
     li.querySelector(".x")?.remove();
