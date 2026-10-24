@@ -3520,6 +3520,12 @@ if(ENGINEPRIME)
   target_compile_definitions(mixxx-lib PUBLIC __ENGINEPRIME__)
 endif()
 
+# ZyDeck (this fork, see ZYDECK.md)
+option(ZYDECK "ZyDeck: what fits each deck" ON)
+if(ZYDECK)
+  include(cmake/zydeck.cmake)
+endif()
+
 # Ebur128
 find_package(Ebur128 REQUIRED)
 target_link_libraries(mixxx-lib PRIVATE Ebur128::Ebur128)

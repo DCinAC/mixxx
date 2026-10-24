@@ -41,6 +41,9 @@
 #include "widget/wlibrarysidebar.h"
 #include "widget/wsearchlineedit.h"
 #include "widget/wtracktableview.h"
+#ifdef __ZYDECK__   // ZyDeck
+#include "zydeck/fitsfeature.h"
+#endif
 
 namespace {
 
@@ -100,6 +103,9 @@ Library::Library(
 
     m_pAutoDJFeature = make_parented<AutoDJFeature>(this, m_pConfig, pPlayerManager);
     addFeature(m_pAutoDJFeature);
+#ifdef __ZYDECK__   // ZyDeck: what fits each deck
+    addFeature(new zydeck::FitsFeature(this, m_pConfig));
+#endif
 
     m_pPlaylistFeature = make_parented<PlaylistFeature>(this, UserSettingsPointer(m_pConfig));
     addFeature(m_pPlaylistFeature);
