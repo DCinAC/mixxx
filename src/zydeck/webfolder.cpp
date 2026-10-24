@@ -31,17 +31,8 @@ constexpr int kPollMs = 15000;
 
 WebFolder::WebFolder(Library* pLibrary, UserSettingsPointer pConfig)
         : QObject(pLibrary),
-          m_pLibrary(pLibrary) {
-    const ConfigKey key(kGroup, QStringLiteral("WebFolder"));
-    m_folder = pConfig->getValueString(key);
-    if (m_folder.isEmpty()) {
-        const QStringList roots = pLibrary->trackCollectionManager()->internalCollection()->getRootDirStrings();
-        if (roots.isEmpty()) {
-            return;   // no music folder yet: nothing to watch
-        }
-        m_folder = QDir(roots.first()).filePath(kCrateName);
-        pConfig->setValue(key, m_folder);
-    }
+          m_pLibrary(pLibrary),
+          m_set(pConfig->getValueString(ConfigKey(kGroup, QStringLiteral("WebFolder")))) {
     m_soon.setSingleShot(true);
     m_soon.setInterval(kSoonMs);
     connect(&m_soon, &QTimer::timeout, this, &WebFolder::look);
@@ -55,27 +46,39 @@ WebFolder::WebFolder(Library* pLibrary, UserSettingsPointer pConfig)
 WebFolder::~WebFolder() {
 }
 
-// The folder itself (once it exists: Connect makes it with the first download) and, until then, the folder it goes in
+// The folder: [ZyDeck] WebFolder if it's set and there; else "ZyDeck Web" in whichever music folder has one
+// (Connect makes it in Mixxx's first, with the first download; the order Mixxx lists its folders in isn't that).
+// "" while there's none: the look every 15 s finds it once it's made
+QString WebFolder::folder() const {
+    if (!m_set.isEmpty() && QFileInfo(m_set).isDir()) {
+        return m_set;
+    }
+    for (const QString& root : m_pLibrary->trackCollectionManager()->internalCollection()->getRootDirStrings()) {
+        const QString f = QDir(root).filePath(kCrateName);
+        if (QFileInfo(f).isDir()) {
+            return f;
+        }
+    }
+    return {};
+}
+
 void WebFolder::watch() {
     const QStringList now = m_watcher.directories();
-    const QString parent = QFileInfo(m_folder).absolutePath();
-    const QString want = QFileInfo::exists(m_folder) ? m_folder : parent;
-    if (now != QStringList{want}) {
+    if (now != QStringList{m_folder}) {
         if (!now.isEmpty()) {
             m_watcher.removePaths(now);
         }
-        if (QFileInfo::exists(want)) {
-            m_watcher.addPath(want);
-        }
+        m_watcher.addPath(m_folder);
     }
 }
 
 void WebFolder::look() {
-    watch();
-    const QDir dir(m_folder);
-    if (!dir.exists()) {
+    m_folder = folder();
+    if (m_folder.isEmpty()) {
         return;
     }
+    watch();
+    const QDir dir(m_folder);
     QStringList settled;
     QHash<QString, qint64> sizes;
     const QFileInfoList files = dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot);   // (no hidden ones: .incoming)
