@@ -258,6 +258,121 @@
   .wj .top { display: flex; gap: 8px; align-items: center; } .wj .top .t { flex: 1; min-width: 0; }
   .wj .x { flex: none; min-height: 28px; padding: 0 10px; font-size: 12px; }
 
+  /* ---- Menu UI: Hardware (body.menuhw), paint only: every key keeps its size and place. The library tab stays as it
+     is. Keys: a frame, a grey face lit from the top left. A choice: keys butted in one frame, the chosen one pushed
+     in with its strip lamp lit; on/off: a square lamp at the left end; something that takes time: the 2x2 lamp at
+     the right end (lamp()); typing goes into a recessed well; the decks sit behind a display's bezel ---- */
+  #dkbez { display: contents; }
+  .hpl { display: none; }
+  body.menuhw #dkbez { display: block; margin: 0 -2px 6px; padding: 5px 8px 1px; border: 3px solid #050505; border-radius: 6px;
+    background: linear-gradient(#0c0d0f, #050506); box-shadow: inset 0 2px 8px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.05); }
+  body.menuhw .dk .row b { text-shadow: 0 0 6px var(--acc); }
+  body.menuhw .needle { background: #0d0e10; }
+  body.menuhw .zoom { background: #08090a; }
+  body.menuhw nav button, body.menuhw .mixmode button, body.menuhw #deckbar button, body.menuhw .mx .pfl,
+  body.menuhw #p-fold button, body.menuhw #p-web button {
+    position: relative; border: 3px solid #050505; border-radius: 4px; color: #f1f1f1; text-shadow: 0 -1px 0 rgba(0,0,0,.55); font-weight: 600;
+    background: linear-gradient(#55575c, #414448 55%, #3c3e43); filter: none;
+    box-shadow: inset 1px 1px 0 rgba(255,255,255,.2), inset -1px -2px 0 rgba(0,0,0,.3), 3px 4px 8px rgba(0,0,0,.45); }
+  body.menuhw nav button:active, body.menuhw .mixmode button:active, body.menuhw #deckbar button:active, body.menuhw .mx .pfl:active,
+  body.menuhw #p-fold button:active:not(:disabled), body.menuhw #p-web button:active:not(:disabled) {
+    background: linear-gradient(#404347, #4a4d51); box-shadow: inset 2px 2px 4px rgba(0,0,0,.45), 1px 1px 2px rgba(0,0,0,.45); transform: translate(1px, 1px); filter: none; }
+  body.menuhw #p-fold button:disabled, body.menuhw #p-web button:disabled { opacity: 1; color: #7b7e83; text-shadow: none; background: linear-gradient(#3a3c40, #323438); }
+  /* a choice: the frame, the keys butted in it; the chosen one in, its strip lamp lit */
+  body.menuhw nav { background: #111214; border-top: 1px solid #000; box-shadow: 0 -1px 0 rgba(255,255,255,.04); padding: 5px 6px calc(5px + var(--safe-b)); }
+  body.menuhw nav::before { content: ""; position: absolute; left: 2px; right: 2px; top: 1px; bottom: calc(1px + var(--safe-b)); border-radius: 6px;
+    background: #0a0a0b; box-shadow: inset 0 2px 5px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.06); pointer-events: none; }
+  body.menuhw .mixmode { gap: 0; padding: 4px; border-radius: 6px; background: #0a0a0b; box-shadow: inset 0 2px 5px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.06); }
+  body.menuhw nav button, body.menuhw .mixmode button { border-radius: 0; border-left-width: 1.5px; border-right-width: 1.5px; padding-bottom: 6px; }
+  body.menuhw nav button:first-child, body.menuhw .mixmode button:first-child { border-radius: 4px 0 0 4px; border-left-width: 3px; }
+  body.menuhw nav button:last-child, body.menuhw .mixmode button:last-child { border-radius: 0 4px 4px 0; border-right-width: 3px; }
+  body.menuhw nav button { font-size: 11px; color: #b9bcc2; gap: 3px; justify-items: center; }
+  body.menuhw nav .ni { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  body.menuhw nav button::after, body.menuhw .mixmode button::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 32px; margin-left: -16px; height: 6px;
+    background: #202226; box-shadow: inset 0 0 0 1.5px #383a3e; }
+  body.menuhw nav button.on, body.menuhw .mixmode button.on { color: #fff; border-color: #050505;
+    background: linear-gradient(#3b3d41, #45484c); box-shadow: inset 2px 3px 6px rgba(0,0,0,.6); transform: translateY(2px); }
+  /* lamps lit: a strip under a choice, the square at an on key's left end */
+  body.menuhw nav button.on::after, body.menuhw .mixmode button.on::after, body.menuhw #four.on::before, body.menuhw .mx .pfl.on::before {
+    background: radial-gradient(70% 60% at 50% 55%, color-mix(in srgb, var(--lc, #ffc23d) 70%, #fff), var(--lc, #ffc23d) 55%, color-mix(in srgb, var(--lc, #ffc23d) 80%, #000));
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,.35), 0 0 8px color-mix(in srgb, var(--lc, #ffc23d) 50%, transparent); }
+  /* on / off: 4 Decks (blue), each strip's CUE (amber) */
+  body.menuhw #four { padding: 0 10px 0 25px; }
+  body.menuhw #four::before, body.menuhw .mx .pfl::before { content: ""; position: absolute; left: 7px; top: 50%; width: 11px; height: 16px; margin-top: -8px;
+    background: #202226; box-shadow: inset 0 0 0 2.5px #383a3e; }
+  body.menuhw #four.on { --lc: var(--deck34); color: #f1f1f1; border-color: #050505; }
+  body.menuhw #deckbar #link { flex: 1; min-width: 0; height: 28px; display: flex; align-items: center; padding: 0 10px; border: 1px solid #000; border-radius: 4px;
+    background: #070708; box-shadow: inset 0 2px 5px rgba(0,0,0,.85), 0 1px 0 rgba(255,255,255,.06);
+    font: 500 11px/1 ui-monospace, "Roboto Mono", monospace; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; overflow: hidden;
+    color: #7fe0a4; text-shadow: 0 0 6px rgba(61,220,132,.35); }
+  body.menuhw #deckbar #link.off { color: #ffcf73; text-shadow: 0 0 6px rgba(255,190,80,.35); }
+  /* takes time: the 2x2 lamp at the right end (the dot runs clockwise: zplrun, zydeck-menu.css) */
+  body.menuhw button:has(> .hpl) { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; padding-right: 8px; }
+  body.menuhw .hpl { display: grid; flex: none; grid-template-columns: repeat(2, 8px); grid-template-rows: repeat(2, 8px); gap: 2px; padding: 2px; background: #383a3e; }
+  body.menuhw .hpl i { position: relative; background: #202226; }
+  body.menuhw .hpl i::after { content: ""; position: absolute; inset: 0; opacity: 0;
+    background: radial-gradient(75% 70% at 50% 50%, color-mix(in srgb, var(--c) 65%, #fff), var(--c) 60%, color-mix(in srgb, var(--c) 75%, #000));
+    box-shadow: 0 0 5px color-mix(in srgb, var(--c) 55%, transparent); }
+  .hpl.busy { --c: #ffc23d; } .hpl.ok { --c: #3ddc84; } .hpl.err { --c: #ff4a3d; }
+  body.menuhw .hpl.ok i::after, body.menuhw .hpl.err i::after { opacity: 1; }
+  body.menuhw .hpl.busy i::after { animation: zplrun 1.2s infinite steps(1); }
+  body.menuhw .hpl.busy i:nth-child(2)::after { animation-delay: .3s; } body.menuhw .hpl.busy i:nth-child(4)::after { animation-delay: .6s; }
+  body.menuhw .hpl.busy i:nth-child(3)::after { animation-delay: .9s; }
+  /* fields: recessed wells */
+  body.menuhw #p-web .search input { border: 1px solid #000; border-radius: 4px; background: #0c0c0d; color: #e8e8e8;
+    box-shadow: inset 0 2px 5px rgba(0,0,0,.85), 0 1px 0 rgba(255,255,255,.06); }
+  body.menuhw #p-web .search input::placeholder { color: #6d6d70; }
+  body.menuhw #p-web .search button, body.menuhw #p-fold #scanline button { border-radius: 4px; }
+  /* downloads: each in a well, the progress on a row of lamps */
+  body.menuhw .wj { margin: 0 12px 8px; padding: 9px 10px; border: 1px solid #000; border-radius: 4px; background: #070708;
+    box-shadow: inset 0 2px 5px rgba(0,0,0,.85), 0 1px 0 rgba(255,255,255,.06); }
+  body.menuhw #wjobs { padding-top: 8px; }
+  body.menuhw .wj .t { color: #e9e9e9; }
+  body.menuhw .wj .bar2 { position: relative; height: 6px; margin-top: 8px; border-radius: 0; --q: calc(round(down, var(--p, 0) * 16, 1) * 6.25%);
+    background: linear-gradient(90deg, #ffc23d 0 var(--q), #2a2418 var(--q)); }
+  body.menuhw .wj .bar2::after { content: ""; position: absolute; inset: 0;
+    background: repeating-linear-gradient(90deg, transparent 0 calc(6.25% - 2px), #070708 calc(6.25% - 2px) 6.25%); }
+  body.menuhw .wj .bar2 i { display: none; }
+  body.menuhw .wj.err .t { color: #ff8a80; }
+  /* Folders: the lists in wells, the analysis on a card */
+  body.menuhw #folders:not(:empty), body.menuhw #excluded { margin: 0 12px; padding: 0 10px; border: 1px solid #000; border-radius: 4px; background: #0c0c0d;
+    box-shadow: inset 0 2px 5px rgba(0,0,0,.85), 0 1px 0 rgba(255,255,255,.06); }
+  body.menuhw .folder { padding: 7px 0; border-bottom: 1px solid #000; box-shadow: 0 1px 0 rgba(255,255,255,.03); font-size: 13px; color: #e6e6e6; }
+  body.menuhw .folder:last-child { border-bottom: 0; box-shadow: none; }
+  body.menuhw #excluded .note { padding: 12px 0; color: #8f8f93; }
+  body.menuhw .folder .rm.armed { color: #ff8a80; border-color: #050505; }
+  body.menuhw .fsub { font-size: 11px; letter-spacing: .12em; font-weight: 700; color: #8a8a8a; }
+  body.menuhw #browser .dirs { border: 1px solid #000; border-radius: 4px; background: #0c0c0d; box-shadow: inset 0 2px 5px rgba(0,0,0,.85); }
+  body.menuhw #browser .dirs li { border-bottom-color: #000; padding: 10px; }
+  body.menuhw #anz { border: 1px solid #000; border-radius: 8px; background: #141517; box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 2px 6px rgba(0,0,0,.5); }
+  /* the mixer: strips on a panel, the deck page's flat knob (a bigger cap, a thin ring round it, inside the same
+     size), flat fader caps with the deck's line, the level as a row of lamps */
+  body.menuhw .mx { border: 1px solid #000; border-radius: 8px; background: #121315; box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 2px 6px rgba(0,0,0,.5); }
+  body.menuhw .mx .n { text-shadow: 0 0 6px var(--acc); }
+  .knob .kface { display: none; }
+  body.menuhw #p-mix .knob .kbg { r: 15.2px; fill: url(#mx-sk) #2b2c30; stroke: #000; stroke-width: 1.2; }
+  body.menuhw #p-mix .knob.held .kbg { stroke: var(--acc); }
+  body.menuhw #p-mix .knob .kface { display: inline; fill: url(#mx-fc) #18191b; stroke: rgba(0,0,0,.6); stroke-width: .8; }
+  body.menuhw #p-mix .knob .ktrack, body.menuhw #p-mix .knob .karc { transform: scale(1.24); transform-origin: 20px 20px; stroke-width: 1.05; }
+  body.menuhw #p-mix .knob .ktrack { stroke: #2a2a2c; }
+  body.menuhw #p-mix .knob.centred .ktrack { stroke: color-mix(in srgb, var(--acc) 55%, #2a2a2c); }
+  body.menuhw.kc-dark #p-mix .knob.centred .ktrack { stroke: #0c0c0d; }
+  body.menuhw #p-mix .knob .kptr { stroke: #eee; stroke-width: 2.6; stroke-dasharray: 4.3 40; stroke-dashoffset: -6.2; }
+  body.menuhw .mx .pfl { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 4px 0 20px; }
+  body.menuhw .mx .pfl::before { left: 5px; width: 9px; height: 14px; margin-top: -7px; }
+  body.menuhw .mx .pfl.on { --lc: #f0a23b; background: linear-gradient(#55575c, #414448 55%, #3c3e43); border-color: #050505; color: #f1f1f1; }
+  body.menuhw .mf .rail, body.menuhw #mixxf .rail { border-color: #2c2c2c; }
+  body.menuhw .mf .cap { border: 0; border-radius: 3px; background: linear-gradient(#303135, #1d1e21);
+    box-shadow: 0 0 0 1px #000, inset 0 1px 0 rgba(255,255,255,.12), 0 3px 5px rgba(0,0,0,.6); }
+  body.menuhw #mixxf .cap { border: 0; border-radius: 3px; background: linear-gradient(to right, #1d1e21, #34353a 50%, #1d1e21);
+    box-shadow: 0 0 0 1px #000, inset 0 1px 0 rgba(255,255,255,.12), 0 4px 7px rgba(0,0,0,.65); }
+  body.menuhw #mixxf .cap::after { background: #e8e8e8; }
+  body.menuhw .vu { border-color: #1d1d1d; background-color: #050505; }
+  body.menuhw .vu i { background: rgba(5,5,5,.8); height: calc((1 - round(down, var(--l, 0) * 16, 1) / 16) * 100%); }
+  body.menuhw .vu::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(to top, transparent 0 calc(100% - 2px), #050505 calc(100% - 2px)) 0 100% / 100% 6.25%; }
+  body.menuhw .vu b { height: 6.25%; }
+
   /* Bilibili login screen: the QR code in the middle, actions at the bottom (after BILIBILIAS) */
   #login { --acc: #fb7299; --acc-bg: #2b1820; --acc-fg: #ffb3c9; position: fixed; inset: 0; z-index: 11; background: var(--bg);
     display: none; flex-direction: column; padding: calc(var(--safe-t) + 6px) 16px calc(var(--safe-b) + 16px); }
@@ -446,7 +561,7 @@
 <body>
 <div id="boot"><div class="st" id="boot-st"></div></div>
 <header id="decks">
-  <div id="dk2"></div><div id="dk0"></div><div id="dk1"></div><div id="dk3"></div>
+  <div id="dkbez"><div id="dk2"></div><div id="dk0"></div><div id="dk1"></div><div id="dk3"></div></div>
   <div id="deckbar"><span id="link">connecting…</span><button id="four">4 Decks</button></div>
 </header>
 
@@ -480,7 +595,7 @@
       <div class="row"><button id="up">⬑ Up</button><button id="usehere">Add this folder</button><button id="closebr">Cancel</button></div>
     </div>
     <div id="anz"><div class="row2"><div><b>Analyze the library</b><small id="anzmsg">BPM, key and beat grids for tracks that don't have them yet.</small></div>
-      <button id="anzgo">Analyze all</button></div><div class="bar2 el7"><i></i></div>
+      <button id="anzgo"><span class="lb">Analyze all</span></button></div><div class="bar2 el7"><i></i></div>
       <div class="anz7 hw7"><span class="silk" style="margin-right: auto">Analyzed</span><span class="s7" id="anzdone"></span>
       <span class="silk" style="padding: 0 2px">/</span><span class="s7" id="anztotal"></span><span class="silk" style="margin-left: 3px">tracks</span></div></div>
   </section>
@@ -496,6 +611,9 @@
   </section>
 
   <section class="page" id="p-mix">
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true"><defs>
+      <radialGradient id="mx-sk" cx="50%" cy="32%" r="70%"><stop offset="0" stop-color="#5d5f64"/><stop offset=".55" stop-color="#2b2c30"/><stop offset="1" stop-color="#141518"/></radialGradient>
+      <radialGradient id="mx-fc" cx="50%" cy="38%" r="62%"><stop offset="0" stop-color="#2c2d31"/><stop offset="1" stop-color="#101113"/></radialGradient></defs></svg>
     <div class="mixmode"><button data-four="0">2 decks</button><button data-four="1">4 decks</button></div>
     <div id="mixer"></div>
     <div id="mixxf"><div class="rail"></div><div class="cap"></div></div>
@@ -527,11 +645,11 @@
   document.getElementById("deckview").src = Math.min(screen.width, screen.height) >= 600 ? "/controller" : "/controller?phone=1";
 </script>
 <nav>
-  <button data-page="lib"><span class="i">♫</span>Library</button>
-  <button data-page="web"><span class="i">◎</span>Web</button>
-  <button data-page="mix"><span class="i"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 2v16M10 2v16M16 2v16" stroke="currentColor" stroke-width="1.6"/><rect x="1.5" y="11" width="5" height="3" rx="1" fill="currentColor"/><rect x="7.5" y="5" width="5" height="3" rx="1" fill="currentColor"/><rect x="13.5" y="9" width="5" height="3" rx="1" fill="currentColor"/></svg></span>Mixer</button>
-  <button data-page="fold"><span class="i">▤</span>Folders</button>
-  <button data-page="set"><span class="i">⚙</span>Settings</button>
+  <button data-page="lib"><span class="i el7">♫</span><svg class="ni hw7" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>Library</button>
+  <button data-page="web"><span class="i el7">◎</span><svg class="ni hw7" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/></svg>Web</button>
+  <button data-page="mix"><svg class="ni hw7" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4v16M12 4v16M18 4v16"/><rect x="4" y="13" width="4" height="3"/><rect x="10" y="7" width="4" height="3"/><rect x="16" y="11" width="4" height="3"/></svg><span class="i el7"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 2v16M10 2v16M16 2v16" stroke="currentColor" stroke-width="1.6"/><rect x="1.5" y="11" width="5" height="3" rx="1" fill="currentColor"/><rect x="7.5" y="5" width="5" height="3" rx="1" fill="currentColor"/><rect x="13.5" y="9" width="5" height="3" rx="1" fill="currentColor"/></svg></span>Mixer</button>
+  <button data-page="fold"><span class="i el7">▤</span><svg class="ni hw7" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h6l2 2h10v11H3z"/></svg>Folders</button>
+  <button data-page="set"><span class="i el7">⚙</span><svg class="ni hw7" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>Settings</button>
 </nav>
 <div id="scrim"></div>
 <div id="sheet" role="dialog" aria-modal="true"></div>
@@ -571,6 +689,17 @@ function seg7(el, text, cells) {
     for (let j = 0; j < 7; j++) segs[j].setAttribute("class", lit.includes("abcdefg"[j]) ? "on" : "off");
     svg.querySelector("rect").setAttribute("class", c.dp ? "on" : "off");
   });
+}
+// Hardware's lamp for something that takes time (Element hasn't one): the 2x2 square at a key's right end, a dot
+// running round while it works ("busy"), all green when it's done ("ok"), all red if it failed ("err"); ok and err go
+// dark again after ms
+function lamp(el, st, ms) {
+  if (!el) return;
+  let l = el.querySelector(":scope > .hpl");
+  if (!l) { el.insertAdjacentHTML("beforeend", `<span class="hpl"><i></i><i></i><i></i><i></i></span>`); l = el.lastElementChild; }
+  l.className = "hpl" + (st ? " " + st : "");
+  clearTimeout(l._t);
+  if (ms) l._t = setTimeout(() => { l.className = "hpl"; }, ms);
 }
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const store = { get(k, d) { try { const v = localStorage.getItem("zphone." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
@@ -710,6 +839,8 @@ function applyCv(k, v, ts) {
 // ZyDeck Connect there when it runs.
 let remote = { on: false };
 const assetUrl = path => !remote.on ? path : remote.http ? `${remote.http}${path}?k=${encodeURIComponent(remote.key || "")}` : null;
+// (.off: not connected, which Hardware's readout shows amber, not green)
+function showLink() { const l = $("#link"); l.textContent = linkText(); l.classList.toggle("off", remote.on ? !remote.live : !live); }
 function linkText() {
   if (remote.on) return !remote.live ? "Controller mode · not connected" :
     remote.via === "wifi" ? `Mixxx on ${remote.computer || "the computer"} · Wi-Fi` : "Mixxx on the computer · USB";
@@ -719,7 +850,7 @@ function onRemote(r) {
   const was = remote;
   remote = r;
   document.body.classList.toggle("remote", !!r.on);
-  $("#link").textContent = linkText();
+  showLink();
   if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`, "ok");
   if (!!was.on !== !!r.on || was.http !== r.http) decks.forEach(d => { loadWaveform(d, d.wfFor); loadBeats(d, d.beatsFor); });
   paintCtlMode();
@@ -794,7 +925,7 @@ function connect() {
       sub.push(["[PreviewDeck1]", "playposition", 1]);
       mixCtl.forEach((c, k) => { const [g, key] = k.split(/,(?=[^,]*$)/); sub.push([g, key, c.kind]); });
       wsSend({ sub });
-      $("#link").textContent = linkText();
+      showLink();
       return;
     }
     if (m.t === "cv") applyCv(m.k, m.v, m.ts);
@@ -802,7 +933,7 @@ function connect() {
     else if (m.t === "dn" && decks[m.d]) onDeckName(decks[m.d], m.n);
     else if (m.t === "wf") wfReady(m.id);   // a deck's waveform is analysed
   };
-  ws.onclose = () => { $("#link").textContent = "reconnecting…"; setTimeout(connect, 1500); };
+  ws.onclose = () => { $("#link").textContent = "reconnecting…"; $("#link").classList.add("off"); setTimeout(connect, 1500); };
 }
 
 // Four deck panels (needle search + zoomed waveform), built once; the shown ones are painted every frame.
@@ -968,12 +1099,15 @@ function mixDrag(el, c, set, span, axis, def) {
 function mixKnob(label, n, g, k) {
   const c = mixCtl.get(mixKey(g, k)), el = knob(label, () => c.v, v => mixSet(g, k, v), .5, true, () => decks[n - 1]);
   c.paint.push(() => el.paint()); el.paint();
+  // Hardware's flat knob: a level top over the cap (Element hasn't one)
+  el.querySelector(".kbg").insertAdjacentHTML("afterend", `<circle class="kface" cx="20" cy="20" r="11"/>`);
   return el;
 }
+const HP_SVG = `<svg class="hw7" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4" height="6" rx="1"/><rect x="17" y="14" width="4" height="6" rx="1"/></svg>`;
 function mixStrip(n) {
   const el = h("div", "mx" + (n > 2 ? " d34" : ""), `<div class="n">${n}</div>`);
   MIX_KNOBS.forEach(([label, f]) => el.appendChild(mixKnob(label, n, ...f(n))));
-  const g = `[Channel${n}]`, pc = mixCtl.get(mixKey(g, "pfl")), pfl = h("button", "pfl", "🎧 CUE");
+  const g = `[Channel${n}]`, pc = mixCtl.get(mixKey(g, "pfl")), pfl = h("button", "pfl", `<span class="el7">🎧&nbsp;</span>${HP_SVG}CUE`);
   const paintPfl = () => pfl.classList.toggle("on", pc.v > 0);
   pc.paint.push(paintPfl); paintPfl();
   pfl.addEventListener("click", () => mixSet(g, "pfl", pc.v > 0 ? 0 : 1));
@@ -1291,10 +1425,12 @@ async function webSearch() {
   const seq = ++webSeq;
   $("#wres").innerHTML = "";
   $("#wnote").textContent = "Searching…";
+  lamp($("#wgo"), "busy");
   try {
     const list = await webJob(`/api/web/search?${qs({ q })}`, j => { if (seq === webSeq && j.message) $("#wnote").textContent = j.message; });
     if (seq !== webSeq) return;
     $("#wnote").textContent = list.length ? "" : "Nothing found.";
+    lamp($("#wgo"), "ok", 6000);
     list.forEach(r => {
       const li = h("li", "wr");
       const badge = { bilibili: ["bili", "BILIBILI"], "bilibili-intl": ["bilitv", "BILIBILI.TV"] }[r.site] || ["yt", "YOUTUBE"];
@@ -1305,7 +1441,7 @@ async function webSearch() {
       li.addEventListener("click", () => openWebSheet(r));
       $("#wres").appendChild(li);
     });
-  } catch (e) { if (seq === webSeq) $("#wnote").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  } catch (e) { if (seq === webSeq) { $("#wnote").innerHTML = `<span class="err">${esc(e.message)}</span>`; lamp($("#wgo"), "err", 8000); } }
 }
 $("#wq").value = store.get("wq", "");
 $("#wgo").addEventListener("click", webSearch);
@@ -1333,18 +1469,20 @@ function openWebSheet(r) {
 // Downloads: each shows its progress at the top of the tab until it's done.
 function jobRow(title, onCancel) {
   const li = h("li", "wj", `<div class="top"><div class="t">${esc(title)}</div>` +
-    `<span class="pct7 hw7"><span class="s7"></span><span class="silk">%</span></span>${onCancel ? `<button class="x">Cancel</button>` : ""}</div>` +
+    `<span class="pct7 hw7"><span class="s7"></span><span class="silk">%</span></span>${onCancel ? `<button class="x">Cancel</button>` : ""}` +
+    `<span class="hpl busy"><i></i><i></i><i></i><i></i></span></div>` +
     `<div class="bar2"><i></i></div><div class="m">Starting…</div>`);
   $("#wjobs").prepend(li);
   const show = (p, m) => {
-    if (p != null) { li.querySelector("i").style.width = `${Math.round(p * 100)}%`; seg7(li.querySelector(".pct7 .s7"), String(Math.round(p * 100)), 3); }
+    if (p != null) { const b = li.querySelector(".bar2 i"); b.style.width = `${Math.round(p * 100)}%`; li.style.setProperty("--p", p.toFixed(3)); seg7(li.querySelector(".pct7 .s7"), String(Math.round(p * 100)), 3); }
     if (m) li.querySelector(".m").textContent = m;
   };
   li.querySelector(".x")?.addEventListener("click", e => { e.target.disabled = true; show(null, "Cancelling…"); onCancel(); });
-  return { li, show };
+  const done = st => { li.querySelector(".top > .hpl").className = "hpl" + (st ? " " + st : ""); };   // its lamp
+  return { li, show, done };
 }
 async function webDownload(r, target, stems) {
-  const { li, show } = jobRow(r.title);
+  const { li, show, done } = jobRow(r.title);
   toast(target ? `Downloading for ${target.replace("deck", "deck ")}…` : "Downloading…");
   try {
     const res = await webJob(`/api/web/download?${qs({ url: r.url, title: r.title })}`,
@@ -1359,10 +1497,11 @@ async function webDownload(r, target, stems) {
       show(1, `Saved${q ? " (" + q + ")" : ""}: ${res.path.split("/").pop()}`);
       if (target) await load({ id: added.id }, target); else if (!stems) toast(`Downloaded ${res.title}`, "ok");
     }
+    done("ok");
     setTimeout(() => li.remove(), 8000);
     if (stems) stemsFor(res.path, res.title);
   } catch (e) {
-    li.classList.add("err"); show(null, e.message); toast(e.message, "bad");
+    li.classList.add("err"); show(null, e.message); done("err"); toast(e.message, "bad");
   }
 }
 // Stems from the PC (Settings > Stem server): the phone sends the track's file, the PC separates it, the
@@ -1381,7 +1520,7 @@ const stemRows = new Map();
 async function stemsFor(path, title, trackId) {
   if (stemRows.has(path)) { toast("Already making stems for this track (the Web tab)"); return; }
   let jobId = null;
-  const { li, show } = jobRow(`${title} · stems`, () => { if (jobId) webApi(`/api/web/cancel?${qs({ id: jobId })}`).catch(() => {}); });
+  const { li, show, done } = jobRow(`${title} · stems`, () => { if (jobId) webApi(`/api/web/cancel?${qs({ id: jobId })}`).catch(() => {}); });
   stemRows.set(path, li);
   toast("Making stems on the PC… (progress in the Web tab)");
   try {
@@ -1396,11 +1535,12 @@ async function stemsFor(path, title, trackId) {
     }
     show(1, `Saved: ${res.path.split("/").pop()}${res.seconds ? ` (separated in ${Math.round(res.seconds)} s)` : ""}`);
     toast(`Stems ready: ${res.title || title}`, "ok");
+    done("ok");
     li.querySelector(".x")?.remove();
     setTimeout(() => li.remove(), 12000);
   } catch (e) {
     const cancelled = /cancelled/i.test(e.message);
-    li.classList.toggle("err", !cancelled); show(null, cancelled ? "Cancelled" : e.message);
+    li.classList.toggle("err", !cancelled); show(null, cancelled ? "Cancelled" : e.message); done(cancelled ? "" : "err");
     li.querySelector(".x")?.remove();
     if (cancelled) setTimeout(() => li.remove(), 4000); else toast(e.message, "bad");
   } finally {
@@ -2054,16 +2194,21 @@ $("#usehere").addEventListener("click", async () => {
     loadFolders(); watchScan();
   } catch (e) { toast(e.message, "bad"); }
 });
-$("#rescan").addEventListener("click", async () => { await api("/api/scan").catch(() => {}); watchScan(); });
+$("#rescan").addEventListener("click", async () => {
+  try { await api("/api/scan"); } catch (e) { lamp($("#rescan"), "err", 8000); toast(e.message, "bad"); return; }
+  watchScan();
+});
 let scanTimer = null;
 function watchScan() {
   clearInterval(scanTimer);
   $("#scanmsg").textContent = "Scanning…";
+  lamp($("#rescan"), "busy");
   scanTimer = setInterval(async () => {
     const s = await api("/api/scan/status").catch(() => ({ scanning: false }));
     if (!s.scanning) {
       clearInterval(scanTimer);
       $("#scanmsg").textContent = "Scan finished.";
+      lamp($("#rescan"), "ok", 8000);
       loadViews(); loadTracks();
     }
   }, 1500);
@@ -2155,7 +2300,7 @@ async function watchAnalysis() {
     $("#anzmsg").textContent = `${st.done} of ${st.total} done · about ${Math.max(1, Math.round(left * rate / 60))} min left`;
     $("#anz .bar2 i").style.width = `${Math.round(st.done / Math.max(1, st.total) * 100)}%`;
     seg7($("#anzdone"), String(st.done), 5); seg7($("#anztotal"), String(st.total), 5);
-    $("#anzgo").textContent = "Stop";
+    $("#anzgo .lb").textContent = "Stop"; lamp($("#anzgo"), "busy");
     anzTimer = setTimeout(watchAnalysis, 2000);
     if (st.done !== watchAnalysis.lastDone) { watchAnalysis.lastDone = st.done; if (st.done % 10 === 0) loadTracks(); }
   } else {
@@ -2164,7 +2309,8 @@ async function watchAnalysis() {
       $("#anzmsg").textContent = st.done < st.total ? `Stopped after ${st.done} of ${st.total}: Analyze all carries on from there.` : "Finished.";
       loadTracks();
     }
-    $("#anzgo").textContent = "Analyze all";
+    if ($("#anzgo .lb").textContent === "Stop") lamp($("#anzgo"), st.done < st.total ? "" : "ok", 8000);
+    $("#anzgo .lb").textContent = "Analyze all";
   }
 }
 $("#anzgo").addEventListener("click", async () => {
