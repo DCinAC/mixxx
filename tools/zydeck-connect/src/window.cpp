@@ -49,7 +49,9 @@ double easeOut(double u) { return 1 - std::pow(1 - u, 3); }
 double easeInOut(double u) { return u < .5 ? 4 * u * u * u : 1 - std::pow(-2 * u + 2, 3) / 2; }
 double smooth(double a, double b, double u) { const double t = std::clamp((u - a) / (b - a), 0.0, 1.0); return t * t * (3 - 2 * t); }
 const QRectF kVfd(54, 58, 220, 74);
-const QRectF kMap(54, 150, 120, 42), kScan(213, 149, 40, 40);   // SCAN: round, its word under it
+// MIXXX: a plate standing out of the panel with Mixxx's red rocker and a cable plugged in beside it (what MAP was);
+// the unit's own POWER rocker in the corner (for show: it says which switch is Mixxx's); SCAN: round, its word under it
+const QRectF kMixxx(84, 142, 106, 62), kPowerRocker(42, 178, 16, 24), kScan(213, 149, 40, 40);
 // the slots: bays from kBayX to the right edge; in each, the name, then 30 px clear, then the cluster: PAIR (3:2)
 // and the IN and OUT lamps
 constexpr double kBayX = 298, kBayRight = 22, kBayH = 46, kBayGap = 8, kBayY = 16;
@@ -115,6 +117,50 @@ void lamp(QPainter& p, const QRectF& r, const QColor& c, bool on, bool round = t
 }
 
 /// The deck's key: a black frame, a grey face lit from the top left; pushed in when down
+/// A rocker switch from the front: its black bezel, the rocker in it pressed in at I (on) or O (off), the pressed half
+/// sunk and the other standing out; lit (glow 0..1), it glows from inside and round the bezel
+void rocker(QPainter& p, const QRectF& r, bool on, double glow, const QColor& body, bool held) {
+    p.save();
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0, 0, 0, 120));   // its shadow on what it's in
+    p.drawRoundedRect(r.translated(1.5, 2), 3, 3);
+    if (glow > 0) {
+        for (int i = 4; i >= 1; --i) {
+            QColor halo = body;
+            halo.setAlphaF(.07 * glow * (5 - i));
+            p.setBrush(halo);
+            p.drawRoundedRect(r.adjusted(-i * 1.6, -i * 1.6, i * 1.6, i * 1.6), 4 + i, 4 + i);
+        }
+    }
+    p.setBrush(QColor(8, 8, 8));   // the bezel
+    p.drawRoundedRect(r, 3, 3);
+    const QRectF in = r.adjusted(3, 3, -3, -3);
+    QColor c = glow > 0 ? body.lighter(100 + static_cast<int>(40 * glow)) : body.darker(150);
+    if (held) {
+        c = c.darker(120);
+    }
+    const double mid = in.center().y();
+    const auto half = [&](const QRectF& h, bool sunk, bool upper) {
+        QLinearGradient g(h.topLeft(), h.bottomLeft());
+        if (sunk) {   // in: shadowed where it goes under the other half
+            g.setColorAt(0, c.darker(upper ? 165 : 112));
+            g.setColorAt(1, c.darker(upper ? 112 : 165));
+        } else {      // out: catching the light at its top
+            g.setColorAt(0, c.lighter(upper ? 130 : 112));
+            g.setColorAt(1, c.darker(upper ? 104 : 128));
+        }
+        p.setBrush(g);
+        p.drawRect(h);
+    };
+    half(QRectF(in.x(), in.y(), in.width(), mid - in.y()), on, true);
+    half(QRectF(in.x(), mid, in.width(), in.bottom() - mid), !on, false);
+    p.setPen(QColor(255, 255, 255, glow > 0 ? 225 : 110));
+    p.setFont(pxFont(8, QFont::Bold));
+    p.drawText(QRectF(in.x(), in.y(), in.width(), mid - in.y()), Qt::AlignCenter, QStringLiteral("I"));
+    p.drawText(QRectF(in.x(), mid, in.width(), in.bottom() - mid), Qt::AlignCenter, QStringLiteral("O"));
+    p.restore();
+}
+
 void key(QPainter& p, const QRectF& r, const QString& label, bool down) {
     p.save();
     const QRectF face = down ? r.translated(1, 1) : r;
@@ -141,22 +187,6 @@ void key(QPainter& p, const QRectF& r, const QString& label, bool down) {
 }
 
 /// ZyDeck's 2x2 process lamp: one dot going round while busy, all green done, all red failed, dark off
-void processLamp(QPainter& p, const QPointF& at, const QString& state, qint64 ms) {
-    p.save();
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(0x38, 0x3a, 0x3e));
-    p.drawRect(QRectF(at, QSizeF(16, 16)));
-    static const int order[4] = {0, 1, 3, 2};   // clockwise
-    const int lit = static_cast<int>(ms / 300 % 4);
-    for (int i = 0; i < 4; ++i) {
-        const QRectF cell(at.x() + 2 + (i % 2) * 6.5, at.y() + 2 + (i / 2) * 6.5, 5.5, 5.5);
-        const bool on = state == QLatin1String("ok") || state == QLatin1String("err") ||
-                (state == QLatin1String("busy") && order[lit] == i);
-        lamp(p, cell, state == QLatin1String("err") ? kRed : state == QLatin1String("ok") ? kGreen : kLamp, on, false);
-    }
-    p.restore();
-}
-
 void deviceIcon(QPainter& p, const QRectF& r, bool tablet) {
     p.save();
     p.setPen(QPen(QColor(0x9a, 0x9a, 0x9a), 1.6));
@@ -266,7 +296,7 @@ Window::Window(Core* core, Setup* setup, Discovery* discovery)
     auto* second = new QTimer(this);
     connect(second, &QTimer::timeout, this, &Window::refresh);
     second->start(1000);
-    auto* frame = new QTimer(this);   // the lamps that move: MIDI activity, a busy MAP, a slot waiting to pair
+    auto* frame = new QTimer(this);   // the lamps that move: MIDI activity, the MIXXX rocker breathing, a slot waiting to pair
     connect(frame, &QTimer::timeout, this, [this] {
         if (isVisible()) {
             update();
@@ -279,7 +309,7 @@ Window::Window(Core* core, Setup* setup, Discovery* discovery)
     refresh();
 }
 
-// ---- Mixxx's side: the readout's second line, MAP's lamp, and asking (each thing once a run) only when it needs the
+// ---- Mixxx's side: the readout's second line, the MIXXX rocker, and asking (each thing once a run) only when it needs the
 // user: whether to set Mixxx up at all, to quit it so its settings can change, to restart it when it doesn't answer
 namespace {
 QString setupLine(Setup::State s, int tracks) {
@@ -289,7 +319,7 @@ QString setupLine(Setup::State s, int tracks) {
     case Setup::State::StartMixxx: return QStringLiteral("MIXXX SET UP: START IT");
     case Setup::State::QuitMixxx: return QStringLiteral("MIXXX QUIT IT TO SET UP");
     case Setup::State::RestartMixxx: return QStringLiteral("MIXXX RESTART IT");
-    case Setup::State::NeedConsent: return QStringLiteral("MIXXX NOT SET UP: MAP");
+    case Setup::State::NeedConsent: return QStringLiteral("MIXXX NOT SET UP: ITS SWITCH");
     case Setup::State::NoMixxx: return QStringLiteral("MIXXX NOT FOUND");
     case Setup::State::NoPort: return QStringLiteral("MIXXX NO PORT");
     case Setup::State::Failed: return QStringLiteral("MIXXX SETUP FAILED");
@@ -298,7 +328,7 @@ QString setupLine(Setup::State s, int tracks) {
     return QStringLiteral("MIXXX CHECKING");
 }
 
-QString setupLamp(Setup::State s) {   // MAP's 2x2: green linked, going round while waiting, red failed
+QString setupLamp(Setup::State s) {   // Mixxx's side for its rocker: "ok" linked, "busy" waiting, "err" failed
     switch (s) {
     case Setup::State::Linked: return QStringLiteral("ok");
     case Setup::State::Failed:
@@ -685,7 +715,7 @@ Window::Hit Window::hitAt(const QPointF& at) const {
     if (QRectF(kTagX - 6, kH - 14, kTagW + 12, 16).contains(p)) {   // the tag's slot (generous: it's thin)
         return {Key::Slit, -1};
     }
-    if (kMap.contains(p)) {
+    if (kMixxx.contains(p)) {
         return {Key::Map, -1};
     }
     if (QRectF(kScan).adjusted(-2, -2, 2, 14).contains(p)) {
@@ -957,11 +987,89 @@ void Window::paintEvent(QPaintEvent*) {
         p.drawText(at, m_vfd[i]);
     }
 
-    // MAP and SCAN
-    const bool mapDown = m_down.key == Key::Map;
-    key(p, kMap, QStringLiteral("MAP"), mapDown);
-    processLamp(p, kMap.topLeft() + QPointF(kMap.width() - 25 + mapDown, 13 + mapDown),
-            m_mapLamp.isEmpty() ? setupLamp(m_setup->state()) : m_mapLamp, m_clock.elapsed());
+    // MIXXX: the plate standing out of the panel (its shadow at 45°), Mixxx's red rocker in it and a cable plugged in
+    // beside it, out through the plate's foot. On and lit while Mixxx answers, on with its glow breathing while it
+    // waits (for Mixxx, or for the user), off when it failed (MIXXX in red) or Mixxx isn't there. A press: set it up
+    // again (as MAP did)
+    {
+        const QRectF plate = kMixxx;
+        const QString state = m_mapLamp.isEmpty() ? setupLamp(m_setup->state()) : m_mapLamp;
+        const bool on = state == QLatin1String("ok") || state == QLatin1String("busy");
+        const double glow = state == QLatin1String("ok") ? 1
+                : state == QLatin1String("busy") ? .35 + .3 * (1 + std::sin(m_clock.elapsed() / 260.0))
+                                                 : 0;
+        p.setPen(Qt::NoPen);
+        for (int i = 7; i >= 1; --i) {   // the shadow, down and to the right
+            p.setBrush(QColor(0, 0, 0, 20));
+            p.drawRoundedRect(plate.translated(i * .8, i * .8).adjusted(-i * .35, -i * .35, i * .35, i * .35), 5 + i * .3, 5 + i * .3);
+        }
+        QLinearGradient face(plate.topLeft(), plate.bottomLeft());
+        face.setColorAt(0, QColor(0x3e, 0x40, 0x45));
+        face.setColorAt(1, QColor(0x2d, 0x2f, 0x33));
+        p.setBrush(face);
+        p.drawRoundedRect(plate, 5, 5);
+        QLinearGradient rim(plate.topLeft(), plate.bottomRight());   // its edge: lit top left, dark bottom right
+        rim.setColorAt(0, QColor(255, 255, 255, 70));
+        rim.setColorAt(.5, QColor(255, 255, 255, 10));
+        rim.setColorAt(1, QColor(0, 0, 0, 140));
+        p.setPen(QPen(QBrush(rim), 1.2));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(plate.adjusted(.6, .6, -.6, -.6), 5, 5);
+        p.setPen(state == QLatin1String("err") ? kRed : QColor(0xc4, 0xc4, 0xc6));
+        p.setFont(pxFont(8, QFont::Bold, 2.6));
+        p.drawText(QPointF(plate.x() + 10, plate.y() + 14), QStringLiteral("MIXXX"));
+        rocker(p, QRectF(plate.x() + 13, plate.y() + 20, 24, 34), on, glow, QColor(0xe8, 0x2a, 0x1f), m_down.key == Key::Map);
+
+        // the cable: a socket with its plug in, the cable hanging from it and out through a grommet in the plate's foot
+        p.save();
+        p.setClipRect(plate.adjusted(1, 1, -1, 4));
+        const QRectF plug(plate.x() + 52, plate.y() + 19, 38, 24);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0x14, 0x15, 0x17));   // the socket's surround
+        p.drawRoundedRect(plug.adjusted(-3, -3, 3, 3), 3, 3);
+        QPainterPath body;   // the plug, its top corners cut (an IEC plug)
+        body.moveTo(plug.left(), plug.top() + 6);
+        body.lineTo(plug.left() + 6, plug.top());
+        body.lineTo(plug.right() - 6, plug.top());
+        body.lineTo(plug.right(), plug.top() + 6);
+        body.lineTo(plug.right(), plug.bottom());
+        body.lineTo(plug.left(), plug.bottom());
+        body.closeSubpath();
+        QLinearGradient shine(plug.topLeft(), plug.bottomLeft());
+        shine.setColorAt(0, QColor(0x2e, 0x30, 0x33));
+        shine.setColorAt(1, QColor(0x0d, 0x0d, 0x0e));
+        p.setBrush(shine);
+        p.drawPath(body);
+        const double cx = plug.center().x();
+        QPainterPath relief;   // the strain relief, narrowing to the cable
+        relief.moveTo(cx - 8, plug.bottom());
+        relief.lineTo(cx + 8, plug.bottom());
+        relief.lineTo(cx + 4.5, plug.bottom() + 9);
+        relief.lineTo(cx - 4.5, plug.bottom() + 9);
+        relief.closeSubpath();
+        p.setBrush(QColor(0x10, 0x10, 0x11));
+        p.drawPath(relief);
+        QPainterPath cable;
+        cable.moveTo(cx, plug.bottom() + 8);
+        cable.cubicTo(QPointF(cx, plug.bottom() + 14), QPointF(cx + 7, plate.bottom() - 6), QPointF(cx + 8, plate.bottom() + 3));
+        p.setBrush(Qt::NoBrush);
+        p.setPen(QPen(QColor(0x0b, 0x0b, 0x0c), 6, Qt::SolidLine, Qt::RoundCap));
+        p.drawPath(cable);
+        p.setPen(QPen(QColor(255, 255, 255, 32), 1.2, Qt::SolidLine, Qt::RoundCap));
+        p.drawPath(cable.translated(-1.6, 0));
+        p.restore();
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0x0a, 0x0a, 0x0b));   // the grommet
+        p.drawRoundedRect(QRectF(cx + 2, plate.bottom() - 3, 12, 4), 2, 2);
+    }
+
+    // the unit's own POWER (for show: on, and nothing else)
+    rocker(p, kPowerRocker, true, 0, QColor(0x46, 0x47, 0x4b), false);
+    p.setPen(QColor(0x80, 0x80, 0x82));
+    p.setFont(pxFont(7, QFont::Bold, 1.2));
+    p.drawText(QRectF(kPowerRocker.center().x() - 20, kPowerRocker.bottom() + 4, 40, 10), Qt::AlignHCenter, QStringLiteral("POWER"));
+
+    // SCAN
     {   // SCAN: a round push button (it doesn't latch), its word under it
         const bool down = m_down.key == Key::Scan;
         const QPointF c = kScan.center() + (down ? QPointF(1, 1) : QPointF());

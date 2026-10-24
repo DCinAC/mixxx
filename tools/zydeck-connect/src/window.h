@@ -1,10 +1,12 @@
 #pragma once
 // ZyDeck Connect's window: a rack unit. The face: ZYDECK CONNECT and its power lamp, a VFD readout (the MIDI port,
-// Mixxx's side, this computer's address), MAP (set Mixxx up) and SCAN (look for devices now and release the tag),
+// Mixxx's side, this computer's address), the MIXXX plate (Mixxx's red rocker with a cable plugged in beside it, standing
+// out of the panel: set Mixxx up) and SCAN (look for devices now and release the tag), the unit's own POWER rocker in the
+// corner (for show: so the red one reads as Mixxx's),
 // and the four device slots stacked as bays (the ZyDecks found on the network, not linked yet, wait dimmed in the
 // free ones: their PAIR asks them to link): the device and how it's linked, then its PAIR key (3:2, the word under
-// it) and its MIDI IN / OUT lamps. MAP's lamp is Mixxx's side (setup.h): green linked, going round while it waits for
-// Mixxx or the user, red if it failed. The unit is as wide as the longest device name needs (30 px clear of that
+// it) and its MIDI IN / OUT lamps. The rocker is Mixxx's side (setup.h): on and lit linked, its glow breathing while it
+// waits for Mixxx or the user, off if it failed (MIXXX in red) or Mixxx isn't there. The unit is as wide as the longest device name needs (30 px clear of that
 // cluster). Open at login is in the menu bar menu.
 // Under it, a black tag comes out of the bottom edge with the pairing code on a white sticker: by itself while no
 // device is linked, back in once one is. Coming out it snags: its inner corner catches and it slants, a moment's
@@ -65,7 +67,7 @@ class Window : public QWidget {
     QRectF slotKey(int slot) const;
     QRectF tagRect() const;
 
-    void setupChanged();       // Mixxx's side moved on: the readout, MAP's lamp, and asking when it needs the user
+    void setupChanged();       // Mixxx's side moved on: the readout, the MIXXX rocker, and asking when it needs the user
     void say(const QString& title, const QString& text, bool warning = false);
 
     Core* m_core;
@@ -85,7 +87,7 @@ class Window : public QWidget {
     QHash<QString, int> m_slotOf;   // device -> its slot
     int m_lastDeviceCount = -1;
     Hit m_down;
-    QString m_mapLamp;         // the MAP key's 2x2 lamp: "", "busy", "ok", "err"
+    QString m_mapLamp;         // the MIXXX rocker for a moment after a press: "", "busy", "ok", "err"
     QPixmap m_qr;
     QString m_qrFor;
     QStringList m_vfd;         // the readout's three lines
