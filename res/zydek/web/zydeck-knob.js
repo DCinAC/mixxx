@@ -117,8 +117,9 @@ window.zydeckTouch = function (env) {
   }
   // A finger landing within PINCH_MM of a knob's one finger (Knob gesture: Pinch), whatever it lands on, joins that
   // knob's gesture: the page hands it over before any control sees it. Two pinches can go at once (a hand on each of
-  // two knobs): a finger joins the nearest one-finger knob with no other knob between them (knobBetween), so each
-  // hand's second finger finds its own knob; blocked from every one, it's a touch of its own
+  // two knobs): a finger joins the nearest one-finger knob that no other knob is in the way of (knobBetween: between
+  // the two, or nearer the finger), so each hand's second finger finds its own knob; blocked from every one, it's a
+  // touch of its own
   const PINCH_MM = 35;
   const pinchOpen = new Set();   // knob gestures with one finger, that a second may join
   // and a finger on nothing in particular within PINCH_REACH_MM of a knob's centre starts that knob: two fingers round
@@ -154,16 +155,19 @@ window.zydeckTouch = function (env) {
   }, true);
 
   // Whether another knob is in the way of a pinch from finger a to finger b: more than PINCH_BETWEEN of its width under
-  // the line between them, or b landed right on its face (a hand starting a pinch of its own on that knob)
-  const PINCH_BETWEEN = .4, PINCH_FACE = .8;
+  // the line between them, or b nearer its centre than the pinched knob's (b is on that knob's side: another hand's
+  // finger, landing for a pinch of its own there)
+  const PINCH_BETWEEN = .4;
   function knobBetween(own, a, b) {
+    const o = cachedRect(own.querySelector("svg"));
+    const ownDist = Math.hypot(b.x - (o.left + o.width / 2), b.y - (o.top + o.height / 2));
     const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
     for (const k of document.querySelectorAll(".knob")) {
       if (k === own) continue;
       const r = cachedRect(k.querySelector("svg"));
       if (!r.width) continue;
       const R = Math.min(r.width, r.height) / 2, cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-      if (Math.hypot(b.x - cx, b.y - cy) < R * PINCH_FACE) return true;
+      if (Math.hypot(b.x - cx, b.y - cy) < ownDist) return true;
       if (len < 1) continue;
       const ux = dx / len, uy = dy / len, t = (cx - a.x) * ux + (cy - a.y) * uy, d = Math.abs((cx - a.x) * uy - (cy - a.y) * ux);
       if (d >= R) continue;
