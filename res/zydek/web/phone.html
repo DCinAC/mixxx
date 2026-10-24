@@ -146,11 +146,45 @@
     gap: 10px; align-items: center; background: #1b1b1b; border: 1px solid #333; border-radius: 12px; padding: 6px 8px 6px 12px; }
   #pv.on { display: flex; }
   #pv span { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 7; display: grid; grid-template-columns: repeat(4, 1fr);
+  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 7; display: grid; grid-template-columns: repeat(5, 1fr);
     height: calc(var(--tabbar) + var(--safe-b)); padding-bottom: var(--safe-b); background: rgba(14,14,14,.96); border-top: 1px solid var(--edge); }
   nav button { border: none; background: none; border-radius: 0; color: var(--dim); font-size: 12px; display: grid; place-content: center; gap: 2px; }
   nav button .i { font-size: 18px; line-height: 1; }
   nav button.on { color: var(--text); }
+
+  /* mixer tab: the decks' channel strips (2, or 4 as 3 1 2 4), knobs sized to fit (at most --kmax), the crossfader */
+  #p-mix { --kmax: 66px; padding: calc(8px + var(--safe-t)) 8px 0; }
+  body.on-mix #decks { display: none; }   /* (the strips say what's loaded: the waveforms don't fit with them) */
+  .mx .tt { width: 100%; padding: 0 4px; font-size: 10px; color: var(--dim); text-align: center; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; min-height: 13px; }
+  .mixmode { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+  .mixmode button { height: 36px; border-radius: 10px; font-size: 13px; }
+  .mixmode button.on { color: var(--text); border-color: var(--deck34); background: #1d2a33; }
+  #mixer { display: grid; gap: 6px; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); }
+  .mx { --acc: var(--deck12); display: grid; justify-items: center; gap: 4px; padding: 6px 2px 8px; border: 1px solid var(--edge);
+    border-radius: 12px; background: #121212; min-width: 0; }
+  .mx.d34 { --acc: var(--deck34); }
+  .mx .n { color: var(--acc); font-weight: 700; font-size: 13px; }
+  .mk { width: min(var(--kmax), 100%); touch-action: none; text-align: center; }
+  .mk svg { width: 100%; display: block; }
+  .mk .tr { fill: none; stroke: #2a2a2a; stroke-width: 3.2; stroke-linecap: round; }
+  .mk .ar { fill: none; stroke: var(--acc); stroke-width: 3.2; stroke-linecap: round; }
+  .mk .bg { fill: #1b1b1b; stroke: #3a3a3a; stroke-width: 1; }
+  .mk .pt { stroke: #eee; stroke-width: 2.6; stroke-linecap: round; }
+  .mk.held .bg { stroke: var(--acc); }
+  .mk span { display: block; font-size: 10px; color: var(--dim); margin-top: -2px; }
+  .mx .pfl { width: 100%; max-width: var(--kmax); height: 30px; border-radius: 8px; font-size: 11px; padding: 0; }
+  .mx .pfl.on { background: var(--acc); border-color: var(--acc); color: #111; }
+  .mf { position: relative; width: 100%; max-width: var(--kmax); height: 150px; touch-action: none; }
+  .mf .rail, #mixxf .rail { position: absolute; background: #050505; border: 1px solid #333; border-radius: 3px; }
+  .mf .rail { left: 50%; top: 10px; bottom: 10px; width: 6px; margin-left: -3px; }
+  .mf .cap, #mixxf .cap { position: absolute; background: #d8d8d8; border: 1px solid #fff; border-radius: 6px; }
+  .mf .cap { left: 8%; right: 8%; height: 20px; margin-top: -10px; top: calc(10px + (100% - 20px) * (1 - var(--v, 1))); }
+  .mf .cap::after { content: ""; position: absolute; left: 12%; right: 12%; top: 50%; height: 2px; margin-top: -1px; background: var(--acc); }
+  #mixxf { position: relative; height: 54px; margin: 10px 4px 0; touch-action: none; }
+  #mixxf .rail { top: 50%; left: 14px; right: 14px; height: 6px; margin-top: -3px; }
+  #mixxf .cap { top: 50%; width: 22px; height: 40px; margin: -20px 0 0 -11px; left: calc(14px + (100% - 28px) * var(--v, .5)); }
+  #mixxf .cap::after { content: ""; position: absolute; top: 12%; bottom: 12%; left: 50%; width: 2px; margin-left: -1px; background: #333; }
 
   /* web tab */
   #p-web .search button { height: 42px; padding: 0 14px; border-radius: 12px; }
@@ -401,6 +435,12 @@
     <ul class="list" id="wres"></ul>
   </section>
 
+  <section class="page" id="p-mix">
+    <div class="mixmode"><button data-four="0">2 decks</button><button data-four="1">4 decks</button></div>
+    <div id="mixer"></div>
+    <div id="mixxf"><div class="rail"></div><div class="cap"></div></div>
+  </section>
+
   <section class="page" id="p-set"></section>
 </main>
 
@@ -429,6 +469,7 @@
 <nav>
   <button data-page="lib"><span class="i">♫</span>Library</button>
   <button data-page="web"><span class="i">◎</span>Web</button>
+  <button data-page="mix"><span class="i"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 2v16M10 2v16M16 2v16" stroke="currentColor" stroke-width="1.6"/><rect x="1.5" y="11" width="5" height="3" rx="1" fill="currentColor"/><rect x="7.5" y="5" width="5" height="3" rx="1" fill="currentColor"/><rect x="13.5" y="9" width="5" height="3" rx="1" fill="currentColor"/></svg></span>Mixer</button>
   <button data-page="fold"><span class="i">▤</span>Folders</button>
   <button data-page="set"><span class="i">⚙</span>Settings</button>
 </nav>
@@ -479,6 +520,8 @@ function showPage(p) {
   if (p === "fold") { loadFolders(); loadExcluded(); watchAnalysis(); }
   if (p === "set") ZydeckMenu.open({ layout: "page", into: $("#p-set") });
   if (p === "web") webJobs();
+  document.body.classList.toggle("on-mix", p === "mix");
+  if (p === "mix") mixTitles();
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
 
@@ -551,6 +594,7 @@ async function loadWaveform(d, id) {
   }
 }
 function applyCv(k, v, ts) {
+  if (mixCtl.has(k)) return mixCv(k, v);
   if (k.startsWith("[PreviewDeck1],")) return applyPreviewCv(k.slice(15), v);
   const m = /^\[Channel(\d)\],(.*)$/.exec(k);
   if (!m) return;
@@ -656,6 +700,7 @@ function connect() {
       }
       for (const k of ["play", "track_loaded", "duration"]) sub.push(["[PreviewDeck1]", k, 0]);
       sub.push(["[PreviewDeck1]", "playposition", 1]);
+      mixCtl.forEach((c, k) => { const [g, key] = k.split(/,(?=[^,]*$)/); sub.push([g, key, c.param ? 2 : 0]); });
       wsSend({ sub });
       $("#link").textContent = linkText();
       return;
@@ -695,10 +740,130 @@ const panels = [0, 1, 2, 3].map(k => {
 });
 const deckFor = p => decks[p.k];
 const shown = p => four || p.k < 2;
+// ---------------------------------------------------------------------------------------------------
+// Mixer tab: each deck's channel strip (GAIN, the EQ's HIGH / MID / LOW, FILTER, the headphones' cue, the volume
+// fader) and the crossfader, on Mixxx's own controls (knobs and faders as 0-1 parameters). Drag up (or along) to
+// turn up; a double tap puts a knob or the crossfader back to its centre. Two decks, or four as 3 1 2 4 (the 4 Decks key).
+// ---------------------------------------------------------------------------------------------------
+const mixCtl = new Map();   // "group,key" -> { param, def, v, paint: [fn] }
+const mixKey = (g, k) => `${g},${k}`;
+const MIX_KNOBS = [
+  ["GAIN", n => [`[Channel${n}]`, "pregain"]],
+  ["HIGH", n => [`[EqualizerRack1_[Channel${n}]_Effect1]`, "parameter3"]],
+  ["MID", n => [`[EqualizerRack1_[Channel${n}]_Effect1]`, "parameter2"]],
+  ["LOW", n => [`[EqualizerRack1_[Channel${n}]_Effect1]`, "parameter1"]],
+  ["FILTER", n => [`[QuickEffectRack1_[Channel${n}]]`, "super1"]],
+];
+function mixReg(g, k, param, def) {
+  const key = mixKey(g, k);
+  if (!mixCtl.has(key)) mixCtl.set(key, { param, def, v: def, paint: [] });
+  return mixCtl.get(key);
+}
+for (let n = 1; n <= 4; n++) {   // (all up front: the subscription at connect asks for each)
+  MIX_KNOBS.forEach(([, f]) => mixReg(...f(n), true, .5));
+  mixReg(`[Channel${n}]`, "pfl", false, 0);
+  mixReg(`[Channel${n}]`, "volume", true, 1);
+}
+mixReg("[Master]", "crossfader", true, .5);
+function mixCv(k, v) { const c = mixCtl.get(k); c.v = v; c.paint.forEach(f => f()); }
+function mixSet(g, k, v) {
+  const c = mixCtl.get(mixKey(g, k));
+  c.v = v; c.paint.forEach(f => f());
+  wsSend({ set: [g, k, v, c.param ? 1 : 0] });
+}
+const mixPxMm = (() => { try { const v = +window.ZydekAndroid?.screenPxPerMm?.(); if (v > 2 && v < 12) return v; } catch {} return 6.3; })();
+const clamp01 = v => Math.min(1, Math.max(0, v));
+// an arc of the knob's ring, angles in degrees clockwise from the top
+function mixArc(a0, a1, r = 16) {
+  if (a1 < a0) [a0, a1] = [a1, a0];
+  const p = a => [20 + r * Math.sin(a * Math.PI / 180), 20 - r * Math.cos(a * Math.PI / 180)];
+  const [x0, y0] = p(a0), [x1, y1] = p(a1);
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+// drag along `axis` (y: up raises it; x: right does) over `span` px for the whole range; double tap: def
+function mixDrag(el, c, set, span, axis, def) {
+  let st = null, lastTap = 0;
+  el.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    try { el.setPointerCapture(e.pointerId); } catch {}
+    const now = performance.now();
+    if (def != null && now - lastTap < 300) { lastTap = 0; set(def); return; }
+    lastTap = now;
+    st = { p: axis === "y" ? e.clientY : e.clientX, v: c.v, span: span() };
+    el.classList.add("held");
+  });
+  el.addEventListener("pointermove", e => {
+    if (!st) return;
+    const d = axis === "y" ? st.p - e.clientY : e.clientX - st.p;
+    set(clamp01(st.v + d / st.span));
+  });
+  const up = () => { st = null; el.classList.remove("held"); };
+  el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
+}
+function mixKnob(label, g, k) {
+  const c = mixCtl.get(mixKey(g, k)), el = h("div", "mk",
+    `<svg viewBox="0 0 40 40"><path class="tr" d="${mixArc(-135, 135)}"/><circle class="bg" cx="20" cy="20" r="12"/>` +
+    `<path class="ar"/><line class="pt" x1="20" y1="20" x2="20" y2="10"/></svg><span>${label}</span>`);
+  const ar = el.querySelector(".ar"), pt = el.querySelector(".pt");
+  const paint = () => {
+    const a = -135 + c.v * 270;
+    ar.setAttribute("d", Math.abs(c.v - .5) < .004 ? "" : mixArc(0, a));   // (from the centre: every knob here has one)
+    pt.setAttribute("x2", (20 + 10 * Math.sin(a * Math.PI / 180)).toFixed(2));
+    pt.setAttribute("y2", (20 - 10 * Math.cos(a * Math.PI / 180)).toFixed(2));
+  };
+  c.paint.push(paint); paint();
+  mixDrag(el, c, v => mixSet(g, k, v), () => 40 * mixPxMm, "y", .5);
+  return el;
+}
+function mixStrip(n) {
+  const el = h("div", "mx" + (n > 2 ? " d34" : ""), `<div class="n">${n}</div><div class="tt"></div>`);
+  MIX_KNOBS.forEach(([label, f]) => el.appendChild(mixKnob(label, ...f(n))));
+  const g = `[Channel${n}]`, pc = mixCtl.get(mixKey(g, "pfl")), pfl = h("button", "pfl", "CUE");
+  const paintPfl = () => pfl.classList.toggle("on", pc.v > 0);
+  pc.paint.push(paintPfl); paintPfl();
+  pfl.addEventListener("click", () => mixSet(g, "pfl", pc.v > 0 ? 0 : 1));
+  const vc = mixCtl.get(mixKey(g, "volume")), f = h("div", "mf", `<div class="rail"></div><div class="cap"></div>`);
+  const paintVol = () => f.style.setProperty("--v", vc.v);
+  vc.paint.push(paintVol); paintVol();
+  mixDrag(f, vc, v => mixSet(g, "volume", v), () => f.getBoundingClientRect().height - 20, "y", null);
+  el.append(pfl, f);
+  return el;
+}
+// what each strip's deck has loaded (the waveform header is hidden on this tab): looked at while it's open
+function mixTitles() {
+  document.querySelectorAll("#mixer .mx").forEach(el => {
+    const d = decks[el.dataset.n - 1], t = d && d.loaded ? d.title || "…" : "Empty";
+    const tt = el.querySelector(".tt");
+    if (tt.textContent !== t) tt.textContent = t;
+  });
+  clearTimeout(mixTitles.t);
+  if (page === "mix") mixTitles.t = setTimeout(mixTitles, 1000);
+}
+function buildMixer() {
+  const m = $("#mixer");
+  if (!m) return;
+  const order = four ? [3, 1, 2, 4] : [1, 2];
+  mixCtl.forEach(c => { c.paint = c.paint.filter(f => f.keep); });   // (the strips are made again; the crossfader stays)
+  m.style.setProperty("--cols", order.length);
+  m.replaceChildren(...order.map(n => { const el = mixStrip(n); el.dataset.n = n; return el; }));
+  if (typeof page !== "undefined" && page === "mix") mixTitles();
+  document.querySelectorAll(".mixmode button").forEach(b => b.classList.toggle("on", (b.dataset.four === "1") === four));
+}
+(() => {
+  const g = "[Master]", c = mixCtl.get(mixKey(g, "crossfader")), x = $("#mixxf");
+  const paint = () => x.style.setProperty("--v", c.v);
+  paint.keep = true; c.paint.push(paint); paint();
+  mixDrag(x, c, v => mixSet(g, "crossfader", v), () => x.getBoundingClientRect().width - 28, "x", .5);
+  document.querySelectorAll(".mixmode button").forEach(b => b.addEventListener("click", () => {
+    four = b.dataset.four === "1"; store.set("four", four); applyFour();
+  }));
+})();
+
 function applyFour() {
   $("#four").classList.toggle("on", four);
   $("#decks").classList.toggle("four", four);
   panels.forEach(p => { p.el.hidden = !shown(p); });
+  buildMixer();
 }
 $("#four").addEventListener("click", () => { four = !four; store.set("four", four); applyFour(); });
 applyFour();
