@@ -33,6 +33,7 @@ class Core : public QObject {
     Q_OBJECT
   public:
     explicit Core(QObject* parent = nullptr);
+    ~Core() override;
     bool listen();   // false: the port is taken (ZyDeck Connect, or the old ZyDeck Link, is already running)
 
     QString name() const { return m_name; }

@@ -217,6 +217,16 @@ void Core::fromMixxx(const QByteArray& msg) {
     }
 }
 
+// Quitting: the devices' sockets close after this object's own members are gone, and a closing socket says so
+// (disconnected): they mustn't call back in here then (that was the crash on quit)
+Core::~Core() {
+    for (auto it = m_clients.cbegin(); it != m_clients.cend(); ++it) {
+        it.key()->disconnect(this);
+        delete it.value();
+    }
+    m_clients.clear();
+}
+
 // ---- the link ------------------------------------------------------------------------------------------------
 void Core::connection() {
     while (QTcpSocket* s = m_server.nextPendingConnection()) {
