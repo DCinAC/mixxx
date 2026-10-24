@@ -155,6 +155,9 @@
   /* mixer tab: the decks' channel strips (2, or 4 as 3 1 2 4), knobs sized to fit (at most --kmax), the crossfader */
   #p-mix { --kmax: 63px; padding: 8px 8px 0; }   /* (--kmax: 10 mm, set from the screen) */
   body.on-mix #decks { position: relative; }   /* (the waveforms on top, scrolled away on the way down to the faders) */
+  /* two stops, like pages: the waveforms (and the knobs), or the mixer from its top (the faders; no waveform) */
+  html.snapmix { scroll-snap-type: y mandatory; }
+  html.snapmix #decks, html.snapmix #p-mix { scroll-snap-align: start; }
   .mixmode { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
   .mixmode button { height: 36px; border-radius: 10px; font-size: 13px; }
   .mixmode button.on { color: var(--text); border-color: var(--deck34); background: #1d2a33; }
@@ -534,6 +537,7 @@ function showPage(p) {
   if (p === "set") ZydeckMenu.open({ layout: "page", into: $("#p-set") });
   if (p === "web") webJobs();
   document.body.classList.toggle("on-mix", p === "mix");
+  document.documentElement.classList.toggle("snapmix", p === "mix");
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
 
