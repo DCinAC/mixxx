@@ -179,6 +179,9 @@
   /* mixer tab: the decks' channel strips (2, or 4 as 3 1 2 4), knobs sized to fit (at most --kmax), the crossfader */
   #p-mix { --kmax: 63px; padding: 8px 8px 0; }   /* (--kmax: 10 mm, set from the screen) */
   #p-mix, body.on-mix #decks { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  /* the mixer turns page by page (mixTurn): the page never scrolls by itself, nor stretches at its ends */
+  html.pagemix { overflow: hidden; overscroll-behavior: none; }
+  html.pagemix body { overscroll-behavior: none; }
   body.on-mix #decks { position: relative; }   /* (the waveforms on top, scrolled away on the way down to the faders) */
   .mixmode { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
   .mixmode button { height: 36px; border-radius: 10px; font-size: 13px; }
@@ -603,6 +606,7 @@ function showPage(p) {
   if (p === "set") ZydeckMenu.open({ layout: "page", into: $("#p-set") });
   if (p === "web") webJobs();
   document.body.classList.toggle("on-mix", p === "mix");
+  document.documentElement.classList.toggle("pagemix", p === "mix");
   if (p === "mix") {
     mixFit();
     // the first time this launch: from the faders back up to the top, so it's clear there's a page below
@@ -877,13 +881,13 @@ function mixFit() {
   pm.style.setProperty("--fh", fh.toFixed(0) + "px");
 }
 addEventListener("resize", () => { if (page === "mix") mixFit(); });
-// The mixer's two pages: the waveforms (the top) and the faders (the mixer from its top). A swipe turns the page only
-// once it has gone 40 % of the way to the other; a shorter one goes back to where it started. Released, the page goes
-// there by itself (its own glide: the browser's fling is stopped, so it can't carry the page past)
-let mixShown = false, mixAnim = 0, mixFrom = null, mixTouching = false;
-const MIX_TURN = .4;
+// The mixer's two pages: the waveforms (the top) and the faders (the mixer from its top), like a site that turns
+// page by page. The page itself never scrolls (html.pagemix: nor stretches at its ends): it stays put under the finger
+// and only a flick (MIX_FLING px/ms as the finger lifts) or a long drag (MIX_TURN_MM) turns it, in one glide. A
+// touch that starts on a knob, fader or key is theirs
+let mixShown = false, mixAnim = 0, mixSwipe = null;
+const MIX_FLING = .5, MIX_TURN_MM = 30;
 const mixPages = () => { const pm = $("#p-mix"); return [0, Math.min(pm.offsetTop, document.documentElement.scrollHeight - innerHeight)]; };
-const mixNearest = () => { const p = mixPages(); return Math.abs(scrollY - p[0]) <= Math.abs(scrollY - p[1]) ? 0 : 1; };
 function mixScrollTo(y, ms = 360) {
   cancelAnimationFrame(mixAnim);
   const y0 = scrollY, t0 = performance.now();
@@ -894,24 +898,32 @@ function mixScrollTo(y, ms = 360) {
   };
   mixAnim = requestAnimationFrame(step);
 }
-function mixSettle() {
-  const pages = mixPages(), from = mixFrom ?? mixNearest(), moved = scrollY - pages[from], turn = (pages[1] - pages[0]) * MIX_TURN;
-  const to = moved > turn ? 1 : moved < -turn ? 0 : from;
-  mixFrom = null;
-  if (Math.abs(scrollY - pages[to]) > 1) mixScrollTo(pages[to]);
+function mixTurn(down) {   // to the faders (down) or back up to the waveforms
+  const pages = mixPages();
+  if (Math.abs(scrollY - pages[down ? 1 : 0]) > 1) mixScrollTo(pages[down ? 1 : 0]);
 }
-addEventListener("touchstart", () => {
-  if (page !== "mix") return;
-  cancelAnimationFrame(mixAnim); mixAnim = 0; mixTouching = true;
-  if (mixFrom == null) mixFrom = mixNearest();
+addEventListener("touchstart", e => {
+  mixSwipe = null;
+  if (page !== "mix" || e.touches.length !== 1 || e.target.closest?.(".knob, .mf, #mixxf, button, input, select, #sheet")) return;
+  const t = e.touches[0], now = performance.now();
+  mixSwipe = { y0: t.clientY, y: t.clientY, t: now, v: 0 };
 }, { passive: true });
-addEventListener("touchend", e => {
-  if (page !== "mix" || e.touches.length) return;
-  mixTouching = false;
-  const html = document.documentElement;   // (stops the fling: the page goes where mixSettle says, no further)
-  html.style.overflow = "hidden"; requestAnimationFrame(() => { html.style.overflow = ""; mixSettle(); });
+addEventListener("touchmove", e => {
+  const s = mixSwipe;
+  if (!s) return;
+  if (e.touches.length !== 1) { mixSwipe = null; return; }
+  const t = e.touches[0], now = performance.now();
+  if (now - s.t > 0) s.v = .6 * s.v + .4 * (t.clientY - s.y) / (now - s.t);   // (the finger's speed, smoothed)
+  s.y = t.clientY; s.t = now;
 }, { passive: true });
-addEventListener("scrollend", () => { if (page === "mix" && !mixTouching && !mixAnim) mixSettle(); });
+addEventListener("touchend", () => {
+  const s = mixSwipe;
+  mixSwipe = null;
+  if (!s || page !== "mix") return;
+  const fresh = performance.now() - s.t < 80, dy = s.y - s.y0;   // (a finger held still before lifting isn't a flick)
+  if ((fresh && Math.abs(s.v) > MIX_FLING) || Math.abs(dy) > MIX_TURN_MM * mixPxMm) mixTurn(dy < 0);
+}, { passive: true });
+addEventListener("wheel", e => { if (page === "mix" && Math.abs(e.deltaY) > 20 && !mixAnim) mixTurn(e.deltaY > 0); }, { passive: true });
 const clamp01 = v => Math.min(1, Math.max(0, v));
 // The deck page's settings on this phone (its landscape view keeps them): the knobs here turn as there, and look so
 const CTL_KEY = "ctl-settings-phone", CTL_DEF = { knobMode: "drag", palm: 18, inputMode: "precision", knobCentre: "lit", endWarn: true };
