@@ -3570,8 +3570,8 @@ void Hub::remoteTick() {
     // the computer it linked with over Wi-Fi, again: unless a cable is up, or one is but Mixxx hasn't answered through it
     // for 10 s (a cable to a charger, or to a computer without Mixxx on that port)
     const bool cableWorks = m_usbState == 2 && (m_remoteLive || now - m_usbReadyMs < 10000);
-    if (!m_pLink && !cableWorks && !m_linkSaved.isEmpty() && now - m_helloMs > 5000) {
-        m_helloMs = now;
+    if (!m_pLink && !cableWorks && !m_linkSaved.isEmpty() && now - m_linkTryMs > 5000) {   // (its own clock: the
+        m_linkTryMs = now;                                                                    // cable's hello resets m_helloMs)
         linkConnect(m_linkSaved);
     }
 }

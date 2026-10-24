@@ -252,6 +252,7 @@ class Hub : public QObject {
     bool m_controllerMode = false;
     int m_usbState = 0;
     qint64 m_usbReadyMs = 0;   // when the cable came up (Mixxx not answering through it for 10 s: Wi-Fi again)
+    qint64 m_linkTryMs = 0;    // the last try at the saved Wi-Fi link
     bool m_remoteLive = false;   // the mapping on the computer answered
     qint64 m_remoteRxMs = 0;     // when it last did
     qint64 m_helloMs = -100000;  // when the hello last went over the cable
