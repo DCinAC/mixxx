@@ -508,16 +508,18 @@ const SETTINGS_KEY = PHONE ? "ctl-settings-phone" : "ctl-settings";
 if (PHONE) {
   let pxmm = 5.74;
   try { const v = +parent.ZydekAndroid?.screenPxPerMm?.(); if (v > 2 && v < 12) pxmm = v; } catch {}
-  Object.assign(DEFAULTS, { pxmm, layout: "phone", autoFs: false, knobSize: 8.5, telemetry: false, pingHz: 0 });
+  Object.assign(DEFAULTS, { pxmm, layout: "phone", autoFs: false, telemetry: false, pingHz: 0 });
 }
 let S = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") }; } catch { return { ...DEFAULTS }; } })();
 if (PHONE) S.layout = "phone";
 // Older settings: knobs became Drag by default (the one-axis drags are gone). True if it changed something.
+// Knobs became 10.5 mm on phones too (they were 8.5): a phone still on the old default moves.
 function migrateSettings(o) {
-  const before = o.knobMode;
+  const before = o.knobMode, size = o.knobSize;
   if (!o.knobV2) { o.knobMode = "drag"; o.knobV2 = 1; }
   if (o.knobMode !== "spin" && o.knobMode !== "pinch") o.knobMode = "drag";
-  return before !== o.knobMode || !o.knobV2;
+  if (!o.knobV3) { if (o.knobSize === 8.5) o.knobSize = 10.5; o.knobV3 = 1; }
+  return before !== o.knobMode || !o.knobV2 || size !== o.knobSize;
 }
 migrateSettings(S);
 let applyingRemote = false;

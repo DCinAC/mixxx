@@ -319,7 +319,7 @@
       desc: "Strips on top: both platter strips across the top, like Mixxx's waveforms (about twice as long)." },
     { id: "autofs", sec: "screen", name: "Fullscreen on first touch", kind: "toggle", ...C("autoFs", true), show: () => ctl() && !ctl().phone && !inApp(),
       desc: "In a browser: the first touch goes fullscreen." },
-    { id: "knobsize", sec: "screen", name: "Mixer knob size", kind: "slider", min: 9, max: 18, step: .5, ...C("knobSize", 10.5), show: () => ctl() && !ctl().phone,
+    { id: "knobsize", sec: "screen", name: "Mixer knob size", kind: "slider", min: 9, max: 18, step: .5, ...C("knobSize", 10.5), show: () => !!ctl(),
       fmt: v => `${v} mm`, st: () => ctl()?.info?.knob?.() || "", desc: "Knob diameter; the mixer widens to fit." },
     { id: "bar", sec: "screen", name: "Top bar height", kind: "slider", min: 12, max: 28, step: 1, ...C("bar", 15), show: () => ctl() && !ctl().phone,
       fmt: v => `${v} mm`, desc: "The row with the waveforms and the top-bar keys." },

@@ -60,7 +60,7 @@ class Window : public QWidget {
     void setTag(bool out);     // slide it
     void layoutWidth();        // as wide as the device names need
     void updateTray();
-    QIcon lampIcon(const QColor& c) const;
+    QIcon trayIcon(bool dot, const QColor& c) const;   // the ZyDeck app's status bar icon
     QRectF bay(int slot) const;
     QRectF slotKey(int slot) const;
     QRectF tagRect() const;

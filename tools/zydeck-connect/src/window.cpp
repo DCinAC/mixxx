@@ -169,19 +169,59 @@ void deviceIcon(QPainter& p, const QRectF& r, bool tablet) {
 }
 } // namespace
 
-QIcon Window::lampIcon(const QColor& c) const {
-    QPixmap pm(32, 32);
-    pm.fill(Qt::transparent);
-    QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing);
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(0x38, 0x3a, 0x3e));
-    p.drawRoundedRect(QRectF(2, 2, 28, 28), 4, 4);
-    p.setBrush(c);
-    for (int i = 0; i < 4; ++i) {
-        p.drawRect(QRectF(5 + (i % 2) * 12, 5 + (i / 2) * 12, 10, 10));
+/// The ZyDeck app's status bar icon (packaging/android/res/drawable/ic_stat_zydeck.xml: the open-reel deck, on a
+/// 24 x 24 grid), with a dot at the corner while a device is linked (or something's wrong). On the Mac a template
+/// image (black, the menu bar tints it); elsewhere white with a dark rim, to show on light and dark taskbars, the dot
+/// in the state's colour.
+QIcon Window::trayIcon(bool dot, const QColor& c) const {
+    QPainterPath deck;
+    deck.setFillRule(Qt::OddEvenFill);
+    for (const double x : {6.5, 17.5}) {   // the reels: a disc, its hub and three holes
+        deck.addEllipse(QPointF(x, 10.5), 5, 5);
+        deck.addEllipse(QPointF(x, 10.5), 1.2, 1.2);
+        deck.addEllipse(QPointF(x, 7.6), 1.05, 1.05);
+        deck.addEllipse(QPointF(x + 2.511, 11.95), 1.05, 1.05);
+        deck.addEllipse(QPointF(x - 2.511, 11.95), 1.05, 1.05);
     }
-    return QIcon(pm);
+    QPainterPath base;   // the tape path under them, and the head
+    base.moveTo(3.2, 14.4);
+    for (const QPointF& pt : {QPointF(9.2, 19.2), QPointF(14.8, 19.2), QPointF(20.8, 14.4), QPointF(21.6, 15.4),
+                 QPointF(15.3, 20.4), QPointF(8.7, 20.4), QPointF(2.4, 15.4)}) {
+        base.lineTo(pt);
+    }
+    base.closeSubpath();
+    base.addRect(QRectF(10.2, 18.6, 3.6, 3.2));
+#ifdef Q_OS_MACOS
+    const bool mask = true;
+#else
+    const bool mask = false;
+#endif
+    QIcon icon;
+    for (const int px : {16, 22, 32, 44, 64}) {
+        QPixmap pm(px, px);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.scale(px / 24.0, px / 24.0);
+        const QColor ink = mask ? QColor(Qt::black) : QColor(Qt::white);
+        if (!mask) {
+            p.setPen(QPen(QColor(0, 0, 0, 160), 1.2));
+        } else {
+            p.setPen(Qt::NoPen);
+        }
+        p.setBrush(ink);
+        p.drawPath(deck);
+        p.drawPath(base);
+        if (dot) {
+            p.setPen(mask ? Qt::NoPen : QPen(QColor(0, 0, 0, 160), 1));
+            p.setBrush(mask ? ink : c);
+            p.drawEllipse(QPointF(21, 3), 2.6, 2.6);
+        }
+        p.end();
+        icon.addPixmap(pm);
+    }
+    icon.setIsMask(mask);
+    return icon;
 }
 
 
@@ -511,7 +551,7 @@ void Window::updateTray() {
     }
     const QList<Core::Device> devices = m_core->devices();
     const bool problem = !m_core->midi()->problem().isEmpty();
-    m_tray->setIcon(lampIcon(problem ? kRed : devices.isEmpty() ? kLamp : kGreen));
+    m_tray->setIcon(trayIcon(problem || !devices.isEmpty(), problem ? kRed : kGreen));
     m_tray->setToolTip(devices.isEmpty() ? tr("ZyDeck Connect: no device yet")
                                          : tr("ZyDeck Connect: %n device(s)", nullptr, static_cast<int>(devices.size())));
     QStringList lines;
