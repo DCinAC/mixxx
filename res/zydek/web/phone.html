@@ -607,6 +607,7 @@ function showPage(p) {
   if (p === "web") webJobs();
   document.body.classList.toggle("on-mix", p === "mix");
   document.documentElement.classList.toggle("pagemix", p === "mix");
+  try { window.ZydekAndroid?.setStretch?.(p !== "mix"); } catch {}
   if (p === "mix") {
     mixFit();
     // the first time this launch: from the faders back up to the top, so it's clear there's a page below

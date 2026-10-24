@@ -212,6 +212,17 @@ public class MainActivity extends QtActivityBase {
             m_realtimeInput = on;
         }
 
+        /// The Mixer page turns page by page: Android's stretch at a scroll's end (which takes the whole view with
+        /// it, tab bar included, and CSS can't turn off) is off while it's shown.
+        @JavascriptInterface
+        public void setStretch(boolean on) {
+            runOnUiThread(() -> {
+                if (m_phoneView != null) {
+                    m_phoneView.setOverScrollMode(on ? View.OVER_SCROLL_IF_CONTENT_SCROLLS : View.OVER_SCROLL_NEVER);
+                }
+            });
+        }
+
         /// Settings › Connections › Pair by QR: Google's code scanner (Play services shows the camera, so this app
         /// needs no camera permission); a ZyDeck code goes to the page, which asks before using it.
         @JavascriptInterface
