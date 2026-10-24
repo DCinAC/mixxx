@@ -153,16 +153,18 @@
   nav button.on { color: var(--text); }
 
   /* mixer tab: the decks' channel strips (2, or 4 as 3 1 2 4), knobs sized to fit (at most --kmax), the crossfader */
-  #p-mix { --kmax: 63px; padding: calc(8px + var(--safe-t)) 8px 0; }   /* (--kmax: 10 mm, set from the screen) */
-  body.on-mix #decks { display: none; }   /* (the strips say what's loaded: the waveforms don't fit with them) */
-  .mx .tt { width: 100%; padding: 0 4px; font-size: 10px; color: var(--dim); text-align: center; white-space: nowrap; overflow: hidden;
-    text-overflow: ellipsis; min-height: 13px; }
+  #p-mix { --kmax: 63px; padding: 8px 8px 0; }   /* (--kmax: 10 mm, set from the screen) */
+  body.on-mix #decks { position: relative; }   /* (the waveforms on top, scrolled away on the way down to the faders) */
   .mixmode { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
   .mixmode button { height: 36px; border-radius: 10px; font-size: 13px; }
   .mixmode button.on { color: var(--text); border-color: var(--deck34); background: #1d2a33; }
   #mixer { display: grid; gap: 6px; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); }
-  .mx { --acc: var(--deck12); display: grid; justify-items: center; gap: 4px; padding: 6px 2px 8px; border: 1px solid var(--edge);
-    border-radius: 12px; background: #121212; min-width: 0; }
+  /* a strip: its level the whole height on the left, the knobs, CUE and the fader beside it */
+  .mx { --acc: var(--deck12); display: grid; grid-template-columns: 6px minmax(0, 1fr); column-gap: 4px; row-gap: 4px;
+    justify-items: center; padding: 6px 4px 8px; border: 1px solid var(--edge); border-radius: 12px; background: #121212; min-width: 0; }
+  .mx > * { grid-column: 2; }
+  .mx { grid-template-rows: repeat(8, auto); }   /* (its number, five knobs, CUE, the fader) */
+  .mx > .vu { grid-column: 1; grid-row: 1 / -1; justify-self: stretch; height: auto; }
   .mx.d34 { --acc: var(--deck34); }
   .mx .n { color: var(--acc); font-weight: 700; font-size: 13px; }
   .mk { width: min(var(--kmax), 100%); touch-action: none; text-align: center; }
@@ -173,23 +175,26 @@
   .mk .pt { stroke: #eee; stroke-width: 2.6; stroke-linecap: round; }
   .mk.held .bg { stroke: var(--acc); }
   .mk span { display: block; font-size: 10px; color: var(--dim); margin-top: -2px; }
-  .mx .pfl { width: 100%; max-width: var(--kmax); height: 27px; border-radius: 8px; font-size: 11px; padding: 0; }
-  /* the volume fader with the channel's level beside it: green, amber near the top, red at the top; the cap lit red
-     while it clips (Mixxx's peak indicator) */
-  .mxv { display: flex; gap: 4px; width: 100%; max-width: calc(var(--kmax) + 10px); justify-content: center; }
-  .vu { position: relative; flex: 0 0 6px; height: 150px; border-radius: 3px; background: #0a0a0a; border: 1px solid #262626; overflow: hidden; }
-  .vu i { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--l, 0) * 100%);
-    background: linear-gradient(to top, #2fd36f 0 70%, #f2c037 70% 88%, #ff4d4f 88%); background-size: 100% 150px; background-position: bottom; }
+  .mx .pfl { width: 100%; max-width: var(--kmax); height: 27px; border-radius: 8px; font-size: 11px; padding: 0; white-space: nowrap; }
+  /* the channel's level: green, amber from 70 %, red from 88 % (the colours stay where they are; what isn't reached is
+     covered from the top); the cap lit red while it clips (Mixxx's peak indicator) */
+  .vu { position: relative; border-radius: 3px; border: 1px solid #262626; overflow: hidden;
+    background: linear-gradient(to top, #2fd36f 0 70%, #f2c037 70% 88%, #ff4d4f 88%); }
+  .vu i { position: absolute; left: 0; right: 0; top: 0; height: calc((1 - var(--l, 0)) * 100%); background: #0a0a0a; }
   .vu b { position: absolute; left: 0; right: 0; top: 0; height: 6px; background: #3a1414; }
   .vu.peak b { background: #ff4d4f; box-shadow: 0 0 6px #ff4d4f; }
   .mx .pfl.on { background: var(--acc); border-color: var(--acc); color: #111; }
-  .mf { position: relative; flex: 1; min-width: 0; max-width: var(--kmax); height: 150px; touch-action: none; }
+  .mf { position: relative; width: 100%; max-width: var(--kmax); height: 150px; touch-action: none; margin-top: 6px; }
   .mf .rail, #mixxf .rail { position: absolute; background: #050505; border: 1px solid #333; border-radius: 3px; }
   .mf .rail { left: 50%; top: 10px; bottom: 10px; width: 6px; margin-left: -3px; }
   .mf .cap, #mixxf .cap { position: absolute; background: #d8d8d8; border: 1px solid #fff; border-radius: 6px; }
   .mf .cap { left: 8%; right: 8%; height: 20px; margin-top: -10px; top: calc(10px + (100% - 20px) * (1 - var(--v, 1))); }
   .mf .cap::after { content: ""; position: absolute; left: 12%; right: 12%; top: 50%; height: 2px; margin-top: -1px; background: var(--acc); }
-  #mixxf { position: relative; height: 54px; margin: 10px 4px 0; touch-action: none; }
+  /* the crossfader: 37 mm at most, with a mark where each way the outgoing deck is 3 dB down and the incoming one full
+     (Mixxx's default curve, additive and linear: 35.4 % and 64.6 %) */
+  #mixxf { position: relative; height: 54px; margin: 10px auto 0; max-width: var(--xfmax, 233px); touch-action: none; }
+  #mixxf .tk { position: absolute; top: 50%; width: 2px; height: 16px; margin: -8px 0 0 -1px; background: #6b6b6b; border-radius: 1px;
+    left: calc(14px + (100% - 28px) * var(--at)); }
   #mixxf .rail { top: 50%; left: 14px; right: 14px; height: 6px; margin-top: -3px; }
   #mixxf .cap { top: 50%; width: 22px; height: 40px; margin: -20px 0 0 -11px; left: calc(14px + (100% - 28px) * var(--v, .5)); }
   #mixxf .cap::after { content: ""; position: absolute; top: 12%; bottom: 12%; left: 50%; width: 2px; margin-left: -1px; background: #333; }
@@ -446,7 +451,7 @@
   <section class="page" id="p-mix">
     <div class="mixmode"><button data-four="0">2 decks</button><button data-four="1">4 decks</button></div>
     <div id="mixer"></div>
-    <div id="mixxf"><div class="rail"></div><div class="cap"></div></div>
+    <div id="mixxf"><div class="rail"></div><i class="tk" style="--at: .354"></i><i class="tk" style="--at: .646"></i><div class="cap"></div></div>
   </section>
 
   <section class="page" id="p-set"></section>
@@ -529,7 +534,6 @@ function showPage(p) {
   if (p === "set") ZydeckMenu.open({ layout: "page", into: $("#p-set") });
   if (p === "web") webJobs();
   document.body.classList.toggle("on-mix", p === "mix");
-  if (p === "mix") mixTitles();
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
 
@@ -784,6 +788,7 @@ function mixSet(g, k, v) {
 }
 const mixPxMm = (() => { try { const v = +window.ZydekAndroid?.screenPxPerMm?.(); if (v > 2 && v < 12) return v; } catch {} return 6.3; })();
 document.getElementById("p-mix").style.setProperty("--kmax", (10 * mixPxMm).toFixed(1) + "px");   // knobs 10 mm across
+document.getElementById("p-mix").style.setProperty("--xfmax", (37 * mixPxMm).toFixed(1) + "px");  // the crossfader 37 mm
 const clamp01 = v => Math.min(1, Math.max(0, v));
 // an arc of the knob's ring, angles in degrees clockwise from the top
 function mixArc(a0, a1, r = 16) {
@@ -828,9 +833,9 @@ function mixKnob(label, g, k) {
   return el;
 }
 function mixStrip(n) {
-  const el = h("div", "mx" + (n > 2 ? " d34" : ""), `<div class="n">${n}</div><div class="tt"></div>`);
+  const el = h("div", "mx" + (n > 2 ? " d34" : ""), `<div class="n">${n}</div>`);
   MIX_KNOBS.forEach(([label, f]) => el.appendChild(mixKnob(label, ...f(n))));
-  const g = `[Channel${n}]`, pc = mixCtl.get(mixKey(g, "pfl")), pfl = h("button", "pfl", "CUE");
+  const g = `[Channel${n}]`, pc = mixCtl.get(mixKey(g, "pfl")), pfl = h("button", "pfl", "🎧 CUE");
   const paintPfl = () => pfl.classList.toggle("on", pc.v > 0);
   pc.paint.push(paintPfl); paintPfl();
   pfl.addEventListener("click", () => mixSet(g, "pfl", pc.v > 0 ? 0 : 1));
@@ -841,20 +846,8 @@ function mixStrip(n) {
   const vu = h("div", "vu", "<i></i><b></b>"), lc = mixCtl.get(mixKey(g, "vu_meter")), kc = mixCtl.get(mixKey(g, "peak_indicator"));
   const paintVu = () => vu.style.setProperty("--l", lc.v.toFixed(3)), paintPeak = () => vu.classList.toggle("peak", kc.v > 0);
   lc.paint.push(paintVu); kc.paint.push(paintPeak); paintVu(); paintPeak();
-  const row = h("div", "mxv");
-  row.append(vu, f);
-  el.append(pfl, row);
+  el.append(vu, pfl, f);
   return el;
-}
-// what each strip's deck has loaded (the waveform header is hidden on this tab): looked at while it's open
-function mixTitles() {
-  document.querySelectorAll("#mixer .mx").forEach(el => {
-    const d = decks[el.dataset.n - 1], t = d && d.loaded ? d.title || "…" : "Empty";
-    const tt = el.querySelector(".tt");
-    if (tt.textContent !== t) tt.textContent = t;
-  });
-  clearTimeout(mixTitles.t);
-  if (page === "mix") mixTitles.t = setTimeout(mixTitles, 1000);
 }
 function buildMixer() {
   const m = $("#mixer");
@@ -862,8 +855,7 @@ function buildMixer() {
   const order = four ? [3, 1, 2, 4] : [1, 2];
   mixCtl.forEach(c => { c.paint = c.paint.filter(f => f.keep); });   // (the strips are made again; the crossfader stays)
   m.style.setProperty("--cols", order.length);
-  m.replaceChildren(...order.map(n => { const el = mixStrip(n); el.dataset.n = n; return el; }));
-  if (typeof page !== "undefined" && page === "mix") mixTitles();
+  m.replaceChildren(...order.map(mixStrip));
   document.querySelectorAll(".mixmode button").forEach(b => b.classList.toggle("on", (b.dataset.four === "1") === four));
 }
 (() => {
