@@ -3369,7 +3369,7 @@ void Hub::usbMidiState(int state) {
     const bool wasReady = m_usbState == 2;
     m_usbState = state;
     if (state == 2 && !wasReady) {
-        m_usbReadyMs = QDateTime::currentMSecsSinceEpoch();
+        m_usbReadyMs = m_clock.elapsed();   // (remoteTick's clock)
     }
     if (state != 2) {
         m_usbParser = MidiParser();
