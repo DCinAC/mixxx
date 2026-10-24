@@ -6,7 +6,9 @@
 #include <QFileInfo>
 #include <QObject>
 #include <QRegularExpression>
+#include <QProcess>
 #include <QSaveFile>
+#include <QStandardPaths>
 
 #include "library.h"
 
@@ -233,6 +235,37 @@ void setOpenAtLogin(bool on) {
         f.write(text.toUtf8());
         f.commit();
     }
+}
+
+bool startMixxx() {
+#if defined(Q_OS_MACOS)
+    return QProcess::startDetached(QStringLiteral("open"), {QStringLiteral("-b"), QStringLiteral("org.mixxx.mixxx")}) ||
+            QProcess::startDetached(QStringLiteral("open"), {QStringLiteral("-a"), QStringLiteral("Mixxx")});
+#elif defined(Q_OS_WIN)
+    QString exe = QStandardPaths::findExecutable(QStringLiteral("mixxx"));
+    for (const QString& dir : {qEnvironmentVariable("ProgramFiles"), qEnvironmentVariable("ProgramFiles(x86)")}) {
+        if (exe.isEmpty() && !dir.isEmpty() && QFileInfo::exists(dir + QStringLiteral("/Mixxx/mixxx.exe"))) {
+            exe = dir + QStringLiteral("/Mixxx/mixxx.exe");
+        }
+    }
+    return !exe.isEmpty() && QProcess::startDetached(exe, {});
+#else
+    const QString exe = QStandardPaths::findExecutable(QStringLiteral("mixxx"));
+    if (!exe.isEmpty()) {
+        return QProcess::startDetached(exe, {});
+    }
+    return QProcess::startDetached(QStringLiteral("flatpak"), {QStringLiteral("run"), QStringLiteral("org.mixxx.Mixxx")});
+#endif
+}
+
+void quitMixxx() {
+#if defined(Q_OS_MACOS)
+    QProcess::startDetached(QStringLiteral("osascript"), {QStringLiteral("-e"), QStringLiteral("quit app \"Mixxx\"")});
+#elif defined(Q_OS_WIN)
+    QProcess::startDetached(QStringLiteral("taskkill"), {QStringLiteral("/IM"), QStringLiteral("mixxx.exe")});   // (no /F: it closes)
+#else
+    QProcess::startDetached(QStringLiteral("pkill"), {QStringLiteral("-TERM"), QStringLiteral("-x"), QStringLiteral("mixxx")});
+#endif
 }
 
 } // namespace zc

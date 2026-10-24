@@ -20,6 +20,11 @@ bool controllerOn();
 /// it reads the file when it starts and writes it when it quits. Throws QString (why not).
 void turnControllerOn();
 
+/// Open Mixxx (the MIXXX switch, off): false if it can't be found on this computer.
+bool startMixxx();
+/// Ask Mixxx to quit, as its own Quit would (it may ask about what's playing).
+void quitMixxx();
+
 bool openAtLogin();
 void setOpenAtLogin(bool on);
 

@@ -36,7 +36,8 @@ class Setup : public QObject {
     bool consented() const;
     bool mixxxRunning() const { return m_running; }   // (as of the last look, every 3 s)
     void consent(bool yes);   // the user's answer to "set Mixxx up?"
-    void redo();              // MAP: the mapping again, and look again now
+    void redo();              // the mapping again, and look again now (Set Up Mixxx Again)
+    void lookNow() { check(); }   // (after opening or quitting Mixxx)
 
     void pong();              // the mapping echoed our ping
     void mappingStarted();    // the mapping says it (re)started

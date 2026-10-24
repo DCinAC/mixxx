@@ -51,7 +51,8 @@ double smooth(double a, double b, double u) { const double t = std::clamp((u - a
 const QRectF kVfd(54, 58, 220, 74);
 // MIXXX: a plate standing out of the panel with Mixxx's red rocker and a cable plugged in beside it (what MAP was);
 // the unit's own POWER rocker in the corner (for show: it says which switch is Mixxx's); SCAN: round, its word under it
-const QRectF kMixxx(84, 142, 106, 62), kPowerRocker(42, 178, 16, 24), kScan(213, 149, 40, 40);
+const QRectF kMixxx(84, 142, 106, 62), kPowerKey(40, 178, 22, 22), kScan(213, 149, 40, 40);
+const QRectF kMixxxRocker(kMixxx.x() + 13, kMixxx.y() + 20, 24, 34);   // (only it is pressed, not the plate)
 // the slots: bays from kBayX to the right edge; in each, the name, then 30 px clear, then the cluster: PAIR (3:2)
 // and the IN and OUT lamps
 constexpr double kBayX = 298, kBayRight = 22, kBayH = 46, kBayGap = 8, kBayY = 16;
@@ -319,7 +320,7 @@ QString setupLine(Setup::State s, int tracks) {
     case Setup::State::StartMixxx: return QStringLiteral("MIXXX SET UP: START IT");
     case Setup::State::QuitMixxx: return QStringLiteral("MIXXX QUIT IT TO SET UP");
     case Setup::State::RestartMixxx: return QStringLiteral("MIXXX RESTART IT");
-    case Setup::State::NeedConsent: return QStringLiteral("MIXXX NOT SET UP: ITS SWITCH");
+    case Setup::State::NeedConsent: return QStringLiteral("MIXXX NOT SET UP: MENU");
     case Setup::State::NoMixxx: return QStringLiteral("MIXXX NOT FOUND");
     case Setup::State::NoPort: return QStringLiteral("MIXXX NO PORT");
     case Setup::State::Failed: return QStringLiteral("MIXXX SETUP FAILED");
@@ -618,7 +619,7 @@ void Window::updateTray() {
         showIt();
     });
     m_menu->addAction(tr("Open ZyDeck Connect"), this, showIt);
-    m_menu->addAction(tr("Set Up Mixxx Again"), this, [this] { press({Key::Map, -1}); });
+    m_menu->addAction(tr("Set Up Mixxx Again"), this, [this] { setUpMixxx(); });
     QAction* login = m_menu->addAction(tr("Open at Login"));
     login->setCheckable(true);
     login->setChecked(openAtLogin());
@@ -630,23 +631,54 @@ void Window::updateTray() {
     m_menu->addAction(tr("Quit ZyDeck Connect"), qApp, &QApplication::quit);
 }
 
+/// Set Mixxx up (again): the mapping, the controller on, and look whether it answers (asks first if it wasn't allowed)
+void Window::setUpMixxx() {
+    if (m_setup->state() == Setup::State::NeedConsent && !m_setup->consented()) {
+        m_asked.remove(static_cast<int>(Setup::State::NeedConsent));
+        setupChanged();   // (asks again)
+        return;
+    }
+    m_asked.clear();
+    m_mapLamp = QStringLiteral("busy");
+    update();
+    QTimer::singleShot(600, this, [this] {
+        m_mapLamp.clear();
+        m_setup->redo();
+        refresh();
+    });
+}
+
 void Window::press(const Hit& h) {
     switch (h.key) {
-    case Key::Map:   // set Mixxx up (again): the mapping, the controller on, and look whether it answers
-        if (m_setup->state() == Setup::State::NeedConsent && !m_setup->consented()) {
-            m_asked.remove(static_cast<int>(Setup::State::NeedConsent));
-            setupChanged();   // (asks again)
+    case Key::Map: {   // the MIXXX switch: off (Mixxx isn't running) opens Mixxx; on asks, then quits it
+        const auto lookSoon = [this] {
+            m_mapLamp = QStringLiteral("busy");   // (its glow breathing till Mixxx is seen to start or stop)
+            update();
+            for (const int ms : {2000, 5000, 9000}) {
+                QTimer::singleShot(ms, this, [this] { m_setup->lookNow(); });
+            }
+            QTimer::singleShot(10000, this, [this] { m_mapLamp.clear(); refresh(); });
+        };
+        if (!m_setup->mixxxRunning()) {
+            if (startMixxx()) {
+                lookSoon();
+            } else {
+                say(tr("Mixxx isn't here"), tr("ZyDeck Connect couldn't find Mixxx on this computer. Install it from "
+                                               "mixxx.org, then turn MIXXX on again."), true);
+            }
             break;
         }
-        m_asked.clear();
-        m_mapLamp = QStringLiteral("busy");   // (going round a moment, to see it work)
-        update();
-        QTimer::singleShot(600, this, [this] {
-            m_mapLamp.clear();
-            m_setup->redo();
-            refresh();
-        });
+        QMessageBox ask(QMessageBox::Question, tr("Turn Mixxx off?"),
+                tr("This switch quits Mixxx. If a deck is playing, Mixxx asks before it stops."), QMessageBox::NoButton, this);
+        QPushButton* quit = ask.addButton(tr("Quit Mixxx"), QMessageBox::DestructiveRole);
+        ask.addButton(tr("Keep It On"), QMessageBox::RejectRole);
+        ask.exec();
+        if (ask.clickedButton() == quit) {
+            quitMixxx();
+            lookSoon();
+        }
         break;
+    }
     case Key::Slot:   // a found ZyDeck's PAIR: ask it to link (it asks its user); an empty slot's: the tag out for it
         if (m_foundIn.contains(h.slot)) {
             m_discovery->offer(m_foundIn.value(h.slot).value(1), m_core->offer());
@@ -715,7 +747,7 @@ Window::Hit Window::hitAt(const QPointF& at) const {
     if (QRectF(kTagX - 6, kH - 14, kTagW + 12, 16).contains(p)) {   // the tag's slot (generous: it's thin)
         return {Key::Slit, -1};
     }
-    if (kMixxx.contains(p)) {
+    if (kMixxxRocker.adjusted(-3, -3, 3, 3).contains(p)) {
         return {Key::Map, -1};
     }
     if (QRectF(kScan).adjusted(-2, -2, 2, 14).contains(p)) {
@@ -993,11 +1025,15 @@ void Window::paintEvent(QPaintEvent*) {
     // again (as MAP did)
     {
         const QRectF plate = kMixxx;
+        // on while Mixxx runs: lit when it answers, its glow breathing while it doesn't yet (or Mixxx is starting or
+        // quitting); off and dark when it isn't running
         const QString state = m_mapLamp.isEmpty() ? setupLamp(m_setup->state()) : m_mapLamp;
-        const bool on = state == QLatin1String("ok") || state == QLatin1String("busy");
-        const double glow = state == QLatin1String("ok") ? 1
-                : state == QLatin1String("busy") ? .35 + .3 * (1 + std::sin(m_clock.elapsed() / 260.0))
-                                                 : 0;
+        const bool on = m_setup->mixxxRunning();
+        const double breathe = .35 + .3 * (1 + std::sin(m_clock.elapsed() / 260.0));
+        const double glow = !m_mapLamp.isEmpty() ? breathe   // (just pressed: Mixxx starting or quitting)
+                : !on ? 0
+                : state == QLatin1String("ok") ? 1
+                                               : breathe;
         p.setPen(Qt::NoPen);
         for (int i = 7; i >= 1; --i) {   // the shadow, down and to the right
             p.setBrush(QColor(0, 0, 0, 20));
@@ -1018,7 +1054,7 @@ void Window::paintEvent(QPaintEvent*) {
         p.setPen(state == QLatin1String("err") ? kRed : QColor(0xc4, 0xc4, 0xc6));
         p.setFont(pxFont(8, QFont::Bold, 2.6));
         p.drawText(QPointF(plate.x() + 10, plate.y() + 14), QStringLiteral("MIXXX"));
-        rocker(p, QRectF(plate.x() + 13, plate.y() + 20, 24, 34), on, glow, QColor(0xe8, 0x2a, 0x1f), m_down.key == Key::Map);
+        rocker(p, kMixxxRocker, on, glow, QColor(0xe8, 0x2a, 0x1f), m_down.key == Key::Map);
 
         // the cable: a socket with its plug in, the cable hanging from it and out through a grommet in the plate's foot
         p.save();
@@ -1063,11 +1099,37 @@ void Window::paintEvent(QPaintEvent*) {
         p.drawRoundedRect(QRectF(cx + 2, plate.bottom() - 3, 12, 4), 2, 2);
     }
 
-    // the unit's own POWER (for show: on, and nothing else)
-    rocker(p, kPowerRocker, true, 0, QColor(0x46, 0x47, 0x4b), false);
-    p.setPen(QColor(0x80, 0x80, 0x82));
-    p.setFont(pxFont(7, QFont::Bold, 1.2));
-    p.drawText(QRectF(kPowerRocker.center().x() - 20, kPowerRocker.bottom() + 4, 40, 10), Qt::AlignHCenter, QStringLiteral("POWER"));
+    // the unit's own POWER: a server's push button with its symbol lit (for show: it's on, and nothing else)
+    {
+        const QRectF k = kPowerKey;
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0, 0, 0, 120));
+        p.drawRoundedRect(k.translated(1.2, 1.6), 4, 4);
+        QLinearGradient face(k.topLeft(), k.bottomLeft());
+        face.setColorAt(0, QColor(0x2c, 0x2d, 0x30));
+        face.setColorAt(1, QColor(0x17, 0x18, 0x1a));
+        p.setBrush(face);
+        p.drawRoundedRect(k, 4, 4);
+        p.setPen(QPen(QColor(255, 255, 255, 30), 1));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(k.adjusted(.5, .5, -.5, -.5), 4, 4);
+        const QPointF c = k.center();
+        const double r = k.width() * .27;
+        const auto symbol = [&p, c, r](const QColor& ink, double width) {   // ⏻: a ring open at the top, a bar through it
+            p.setPen(QPen(ink, width, Qt::SolidLine, Qt::RoundCap));
+            p.drawArc(QRectF(c.x() - r, c.y() - r + 1, 2 * r, 2 * r), 120 * 16, 300 * 16);
+            p.drawLine(QPointF(c.x(), c.y() - r - 1.5), QPointF(c.x(), c.y() + 1));
+        };
+        for (const double w : {5.0, 3.6}) {   // its glow
+            QColor halo = kGreen;
+            halo.setAlpha(w > 4 ? 45 : 90);
+            symbol(halo, w);
+        }
+        symbol(QColor(0xc8, 0xff, 0xdf), 1.6);
+        p.setPen(QColor(0x80, 0x80, 0x82));
+        p.setFont(pxFont(7, QFont::Bold, 1.2));
+        p.drawText(QRectF(k.center().x() - 20, k.bottom() + 4, 40, 10), Qt::AlignHCenter, QStringLiteral("POWER"));
+    }
 
     // SCAN
     {   // SCAN: a round push button (it doesn't latch), its word under it

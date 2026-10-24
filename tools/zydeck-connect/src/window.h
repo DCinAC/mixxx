@@ -1,12 +1,13 @@
 #pragma once
 // ZyDeck Connect's window: a rack unit. The face: ZYDECK CONNECT and its power lamp, a VFD readout (the MIDI port,
 // Mixxx's side, this computer's address), the MIXXX plate (Mixxx's red rocker with a cable plugged in beside it, standing
-// out of the panel: set Mixxx up) and SCAN (look for devices now and release the tag), the unit's own POWER rocker in the
-// corner (for show: so the red one reads as Mixxx's),
+// out of the panel: on while Mixxx runs, off opens it, on asks then quits it; only the rocker takes a press) and SCAN
+// (look for devices now and release the tag), the unit's own POWER push button in the corner, lit (for show: so the red
+// switch reads as Mixxx's),
 // and the four device slots stacked as bays (the ZyDecks found on the network, not linked yet, wait dimmed in the
 // free ones: their PAIR asks them to link): the device and how it's linked, then its PAIR key (3:2, the word under
-// it) and its MIDI IN / OUT lamps. The rocker is Mixxx's side (setup.h): on and lit linked, its glow breathing while it
-// waits for Mixxx or the user, off if it failed (MIXXX in red) or Mixxx isn't there. The unit is as wide as the longest device name needs (30 px clear of that
+// it) and its MIDI IN / OUT lamps. The rocker: on while Mixxx runs, lit when it answers (setup.h), its glow breathing
+// while it doesn't yet or Mixxx is starting or quitting; MIXXX in red if setting it up failed. The unit is as wide as the longest device name needs (30 px clear of that
 // cluster). Open at login is in the menu bar menu.
 // Under it, a black tag comes out of the bottom edge with the pairing code on a white sticker: by itself while no
 // device is linked, back in once one is. Coming out it snags: its inner corner catches and it slants, a moment's
@@ -68,6 +69,7 @@ class Window : public QWidget {
     QRectF tagRect() const;
 
     void setupChanged();       // Mixxx's side moved on: the readout, the MIXXX rocker, and asking when it needs the user
+    void setUpMixxx();         // the menu's Set Up Mixxx Again
     void say(const QString& title, const QString& text, bool warning = false);
 
     Core* m_core;
