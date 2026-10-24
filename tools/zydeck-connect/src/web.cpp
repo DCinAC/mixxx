@@ -219,7 +219,14 @@ QString Web::folder() const {
     if (!set.isEmpty()) {
         return set;
     }
+    // "ZyDeck Web" in whichever music folder has one (Mixxx ZyDeck looks the same way), else made in the first
     const QStringList roots = m_library->rootDirs();
+    for (const QString& root : roots) {
+        const QString f = QDir(root).filePath(QStringLiteral("ZyDeck Web"));
+        if (QFileInfo(f).isDir()) {
+            return f;
+        }
+    }
     return roots.isEmpty() ? QString() : QDir(roots.first()).filePath(QStringLiteral("ZyDeck Web"));
 }
 
