@@ -12,13 +12,14 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
   default "ZyDeck Web" in the first music folder) is watched: a finished file that lands there joins the library at
   once, in the crate "ZyDeck Web", and is analysed. No rescan, and no connection to Connect needed (the sandbox allows
   no listening socket). `src/zydeck/webfolder.*`.
-- **ZyDeck connectivity**: the same hub as the Android app (`src/zydeck/`), so a tablet or phone talks to Mixxx
-  directly: the exact track, its waveform at once, and positions timed by Mixxx's audio.
-- **Stems on request**: a track's right-click menu (and ZyDeck's button) makes its stems with HT-Demucs, Open-Unmix or
-  the PC stem server; the stems file joins the library with the original's cues, beat grid, BPM, key and colour, in the
-  same crates and playlists. The separation itself runs in ZyDeck Connect, outside Mixxx.
-- **An add-on slot**: the hub's local API, through which ZyDeck Connect's downloader (YouTube, Bilibili) adds what it
-  fetches to the library. The downloader is not part of this repository.
+- **Stems on request**: the track menu's "Make Stems (ZyDeck)" asks ZyDeck Connect (on this computer, which answers
+  it without a key) to have them made on the PC's stem server; a small window follows each. The stem file lands in
+  ZyDeck Web with a note naming its original, and takes over the original's beat grid, key, cues, colour, rating,
+  crates and playlists. `src/zydeck/stems.*`.
+- **ZyDeck connectivity** (to come): the same hub as the Android app, so a tablet or phone talks to Mixxx directly:
+  the exact track, its waveform at once, and positions timed by Mixxx's audio. Downloading and separating stay in
+  ZyDeck Connect, not in this repository.
+- Still to come: HT-Demucs on this computer (ONNX, upstream's epic #15495) beside the PC stem server.
 
 ## How it stays mergeable
 
@@ -39,5 +40,6 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 | `.github/workflows/develop.yml` | skip this branch (`zydeck-desktop.yml` builds it) |
 | `CMakeLists.txt` | the `ZYDECK` option, including `cmake/zydeck.cmake` (before Ebur128) |
 | `src/library/library.cpp` | adds the Fits deck feature after Auto DJ and starts ZyDeck Web (and their includes) |
+| `src/widget/wtrackmenu.cpp` | "Make Stems (ZyDeck)" after the Analyze menu (and its include) |
 
 Based on upstream `main` at 2086fe0 (2026-10-22, 2.7.0-alpha).

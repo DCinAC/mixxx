@@ -16,7 +16,8 @@ namespace zydeck {
 // default "ZyDeck Web" in the first music folder). A file that lands there joins the library at once, goes into the
 // crate "ZyDeck Web" and is analysed: no rescan. Connect writes into the hidden ".incoming" folder inside it and
 // moves a file in when it's complete, so what shows up is finished; a file copied in some other way waits until its
-// size has stopped changing. Files that arrived while Mixxx was closed join at start.
+// size has stopped changing. Files that arrived while Mixxx was closed join at start. Stems Connect made come with a
+// note of their original, whose cues, beat grid and the rest they take over (stems.h).
 class WebFolder final : public QObject {
     Q_OBJECT
   public:

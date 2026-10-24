@@ -2,7 +2,10 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include "analyzer/analyzerscheduledtrack.h"
 #include "library/library.h"
@@ -13,6 +16,7 @@
 #include "sources/soundsourceproxy.h"
 #include "track/track.h"
 #include "track/trackref.h"
+#include "zydeck/stems.h"
 
 namespace zydeck {
 
@@ -111,6 +115,18 @@ void WebFolder::add(const QStringList& paths) {
             continue;
         }
         ids.append(pTrack->getId());
+        // stems from ZyDeck Connect: its note beside the file names the original, whose cues, beat grid and the rest
+        // they take over (once: the note goes)
+        const QFileInfo fi(path);
+        QFile note(fi.dir().filePath(QLatin1Char('.') + fi.fileName() + QStringLiteral(".json")));
+        if (note.open(QIODevice::ReadOnly)) {
+            const QString original = QJsonDocument::fromJson(note.readAll()).object().value(QStringLiteral("original")).toString();
+            note.close();
+            if (const TrackPointer pOriginal = pManager->getTrackByRef(TrackRef::fromFilePath(original))) {
+                takeOver(pManager, pTrack, pOriginal);
+            }
+            note.remove();
+        }
         if (!known) {
             analyse.append(AnalyzerScheduledTrack(pTrack->getId()));
         }

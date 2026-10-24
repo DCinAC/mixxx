@@ -54,6 +54,9 @@
 #include "widget/wstarratingaction.h"
 #ifdef __STEM__
 #include "widget/wtrackstemmenu.h"
+#ifdef __ZYDECK__   // ZyDeck
+#include "zydeck/stems.h"
+#endif
 #endif
 
 constexpr WTrackMenu::Features WTrackMenu::kDeckTrackMenuFeatures;
@@ -768,6 +771,9 @@ void WTrackMenu::setupActions() {
         m_pAnalyzeMenu->addAction(m_pReanalyzeConstBpmAction);
         m_pAnalyzeMenu->addAction(m_pReanalyzeVarBpmAction);
         addMenu(m_pAnalyzeMenu);
+#ifdef __ZYDECK__   // ZyDeck: stems on request (through ZyDeck Connect)
+        zydeck::addStemsAction(this, [this] { return getTrackPointers(); });
+#endif
     }
 
     // This action is created only for menus instantiated by deck widgets (e.g.

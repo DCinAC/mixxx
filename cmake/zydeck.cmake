@@ -6,5 +6,6 @@ target_sources(
     src/zydeck/fitsfeature.cpp
     src/zydeck/fitstablemodel.cpp
     src/zydeck/webfolder.cpp
+    src/zydeck/stems.cpp
 )
 target_compile_definitions(mixxx-lib PUBLIC __ZYDECK__)
