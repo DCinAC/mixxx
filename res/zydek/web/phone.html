@@ -156,9 +156,6 @@
   #p-mix { --kmax: 63px; padding: 8px 8px 0; }   /* (--kmax: 10 mm, set from the screen) */
   #p-mix, body.on-mix #decks { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   body.on-mix #decks { position: relative; }   /* (the waveforms on top, scrolled away on the way down to the faders) */
-  /* two stops, like pages: the waveforms (and the knobs), or the mixer from its top (the faders; no waveform) */
-  html.snapmix { scroll-snap-type: y mandatory; }
-  html.snapmix #decks, html.snapmix #p-mix { scroll-snap-align: start; }
   .mixmode { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
   .mixmode button { height: 36px; border-radius: 10px; font-size: 13px; }
   .mixmode button.on { color: var(--text); border-color: var(--deck34); background: #1d2a33; }
@@ -205,13 +202,14 @@
   /* level marks, 0 to 10, either side of the rail (not across it) */
   .mf .tk { position: absolute; left: 14%; right: 14%; height: 1px; margin-top: -.5px; top: calc(10px + (100% - 20px) * (1 - var(--at)));
     background: linear-gradient(to right, #3a3a3a 0 32%, transparent 32% 68%, #3a3a3a 68%); }
-  /* the crossfader: 37 mm at most, marks 0 to 10 above and below the rail, and a pink one where the outgoing deck is
-     3 dB down and the incoming one full (Mixxx's default curve, additive and linear: 64.6 %) */
+  .mf .tk.pk { height: 2px; margin-top: -1px; background: linear-gradient(to right, #ffb6d3 0 32%, transparent 32% 68%, #ffb6d3 68%); }
+  /* the crossfader: 37 mm at most, marks 0 to 10 above and below the rail, and white ones where one deck is 3 dB down
+     and the other full (Mixxx's default curve, additive and linear: 35.4 % and 64.6 %) */
   #mixxf { position: relative; height: calc(var(--mmpx, 6.3px) * 13 + 12px); margin: 10px auto 0; max-width: var(--xfmax, 233px); touch-action: none; }
   #mixxf .tk { position: absolute; top: 50%; width: 1px; height: calc(var(--mmpx, 6.3px) * 9); margin: calc(var(--mmpx, 6.3px) * -4.5) 0 0 -.5px;
     left: calc(14px + (100% - 28px) * var(--at)); background: linear-gradient(to bottom, #3a3a3a 0 36%, transparent 36% 64%, #3a3a3a 64%); }
-  #mixxf .tk.pk { width: 2px; margin-left: -1px; height: calc(var(--mmpx, 6.3px) * 11); margin-top: calc(var(--mmpx, 6.3px) * -5.5);
-    background: linear-gradient(to bottom, #ff5fa8 0 38%, transparent 38% 62%, #ff5fa8 62%); }
+  #mixxf .tk.mk { width: 2px; margin-left: -1px; height: calc(var(--mmpx, 6.3px) * 11); margin-top: calc(var(--mmpx, 6.3px) * -5.5);
+    background: linear-gradient(to bottom, #e8e8e8 0 38%, transparent 38% 62%, #e8e8e8 62%); }
   #mixxf .rail { top: 50%; left: 14px; right: 14px; height: 6px; margin-top: -3px; }
   /* its cap 13 mm tall, a quarter of that wide */
   #mixxf .cap { top: 50%; width: calc(var(--mmpx, 6.3px) * 3.25); height: calc(var(--mmpx, 6.3px) * 13); border-radius: 4px;
@@ -554,8 +552,11 @@ function showPage(p) {
   if (p === "set") ZydeckMenu.open({ layout: "page", into: $("#p-set") });
   if (p === "web") webJobs();
   document.body.classList.toggle("on-mix", p === "mix");
-  document.documentElement.classList.toggle("snapmix", p === "mix");
-  if (p === "mix") mixFit();
+  if (p === "mix") {
+    mixFit();
+    // the first time this launch: from the faders back up to the top, so it's clear there's a page below
+    if (!mixShown) { mixShown = true; requestAnimationFrame(() => { scrollTo(0, mixPages()[1]); setTimeout(() => mixScrollTo(0, 700), 350); }); }
+  }
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
 
@@ -823,6 +824,41 @@ function mixFit() {
   pm.style.setProperty("--fh", fh.toFixed(0) + "px");
 }
 addEventListener("resize", () => { if (page === "mix") mixFit(); });
+// The mixer's two pages: the waveforms (the top) and the faders (the mixer from its top). A swipe turns the page only
+// once it has gone 40 % of the way to the other; a shorter one goes back to where it started. Released, the page goes
+// there by itself (its own glide: the browser's fling is stopped, so it can't carry the page past)
+let mixShown = false, mixAnim = 0, mixFrom = null, mixTouching = false;
+const MIX_TURN = .4;
+const mixPages = () => { const pm = $("#p-mix"); return [0, Math.min(pm.offsetTop, document.documentElement.scrollHeight - innerHeight)]; };
+const mixNearest = () => { const p = mixPages(); return Math.abs(scrollY - p[0]) <= Math.abs(scrollY - p[1]) ? 0 : 1; };
+function mixScrollTo(y, ms = 360) {
+  cancelAnimationFrame(mixAnim);
+  const y0 = scrollY, t0 = performance.now();
+  const step = now => {
+    const t = Math.min(1, (now - t0) / ms), k = t < .5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    scrollTo(0, y0 + (y - y0) * k);
+    mixAnim = t < 1 ? requestAnimationFrame(step) : 0;
+  };
+  mixAnim = requestAnimationFrame(step);
+}
+function mixSettle() {
+  const pages = mixPages(), from = mixFrom ?? mixNearest(), moved = scrollY - pages[from], turn = (pages[1] - pages[0]) * MIX_TURN;
+  const to = moved > turn ? 1 : moved < -turn ? 0 : from;
+  mixFrom = null;
+  if (Math.abs(scrollY - pages[to]) > 1) mixScrollTo(pages[to]);
+}
+addEventListener("touchstart", () => {
+  if (page !== "mix") return;
+  cancelAnimationFrame(mixAnim); mixAnim = 0; mixTouching = true;
+  if (mixFrom == null) mixFrom = mixNearest();
+}, { passive: true });
+addEventListener("touchend", e => {
+  if (page !== "mix" || e.touches.length) return;
+  mixTouching = false;
+  const html = document.documentElement;   // (stops the fling: the page goes where mixSettle says, no further)
+  html.style.overflow = "hidden"; requestAnimationFrame(() => { html.style.overflow = ""; mixSettle(); });
+}, { passive: true });
+addEventListener("scrollend", () => { if (page === "mix" && !mixTouching && !mixAnim) mixSettle(); });
 const clamp01 = v => Math.min(1, Math.max(0, v));
 // The deck page's settings on this phone (its landscape view keeps them): the knobs here turn as there, and look so
 const CTL_KEY = "ctl-settings-phone", CTL_DEF = { knobMode: "drag", palm: 18, inputMode: "precision", knobCentre: "lit" };
@@ -874,7 +910,7 @@ function mixStrip(n) {
   const paintPfl = () => pfl.classList.toggle("on", pc.v > 0);
   pc.paint.push(paintPfl); paintPfl();
   pfl.addEventListener("click", () => mixSet(g, "pfl", pc.v > 0 ? 0 : 1));
-  const vc = mixCtl.get(mixKey(g, "volume")), f = h("div", "mf", `${mixTicks()}<div class="rail"></div><div class="cap"></div>`);
+  const vc = mixCtl.get(mixKey(g, "volume")), f = h("div", "mf", `${mixTicks()}<i class="tk pk" style="--at: .646"></i><div class="rail"></div><div class="cap"></div>`);
   const paintVol = () => f.style.setProperty("--v", vc.v);
   vc.paint.push(paintVol); paintVol();
   mixDrag(f, vc, v => mixSet(g, "volume", v), () => f.getBoundingClientRect().height - 20, "y", null);
@@ -896,7 +932,7 @@ function buildMixer() {
 }
 (() => {
   const g = "[Master]", c = mixCtl.get(mixKey(g, "crossfader")), x = $("#mixxf");
-  x.insertAdjacentHTML("afterbegin", mixTicks() + `<i class="tk pk" style="--at: .646"></i>`);
+  x.insertAdjacentHTML("afterbegin", mixTicks() + `<i class="tk mk" style="--at: .354"></i><i class="tk mk" style="--at: .646"></i>`);
   const paint = () => x.style.setProperty("--v", c.v);
   paint.keep = true; c.paint.push(paint); paint();
   mixDrag(x, c, v => mixSet(g, "crossfader", v), () => x.getBoundingClientRect().width - 28, "x", .5);

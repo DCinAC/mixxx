@@ -143,12 +143,42 @@ window.zydeckTouch = function (env) {
       if (dd <= bd) { bd = dd; best = st; }
     });
     if (!best) return;
+    // more than 40 % of another knob between the two fingers: a finger on each of two knobs, not a pinch (the second
+    // goes to whatever it landed on)
+    if (knobBetween(best.el, best.p1, { x: e.clientX, y: e.clientY })) return;
     e.preventDefault(); e.stopPropagation(); e.zydekClaimed = true;
     try { best.el.setPointerCapture(e.pointerId); } catch {}
     const st = best;
     active.set(e.pointerId, { h: { move: ev => st.move2(ev), up: () => st.up2() }, st });
     st.join(e);
   }, true);
+
+  // How much of another knob lies between two fingers: in the band a fingertip wide (PINCH_BAND_MM) that runs from one
+  // to the other, measured over the knob's disc on a grid of points
+  const PINCH_BAND_MM = 8, PINCH_BETWEEN = .4;
+  function knobBetween(own, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+    if (len < 1) return false;
+    const ux = dx / len, uy = dy / len, half = mm(PINCH_BAND_MM) / 2;
+    for (const k of document.querySelectorAll(".knob")) {
+      if (k === own) continue;
+      const r = cachedRect(k.querySelector("svg"));
+      if (!r.width) continue;
+      const R = Math.min(r.width, r.height) / 2, cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      let inside = 0, all = 0;
+      for (let i = 0; i < 15; i++) {
+        for (let j = 0; j < 15; j++) {
+          const px = cx + R * ((i + .5) / 7.5 - 1), py = cy + R * ((j + .5) / 7.5 - 1);
+          if (Math.hypot(px - cx, py - cy) > R) continue;
+          all++;
+          const t = (px - a.x) * ux + (py - a.y) * uy, d = Math.abs((px - a.x) * uy - (py - a.y) * ux);
+          if (t >= 0 && t <= len && d <= half) inside++;
+        }
+      }
+      if (all && inside / all > PINCH_BETWEEN) return true;
+    }
+    return false;
+  }
 
   // Drag (both): distance along the finger's path counts the same in every direction.
   // The path's direction is measured over the last 1 mm travelled (by distance, not per touch event, so it doesn't
