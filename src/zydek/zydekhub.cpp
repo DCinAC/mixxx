@@ -3368,6 +3368,9 @@ void Hub::usbMidiState(int state) {
     }
     const bool wasReady = m_usbState == 2;
     m_usbState = state;
+    if (state == 2 && !wasReady) {
+        m_usbReadyMs = QDateTime::currentMSecsSinceEpoch();
+    }
     if (state != 2) {
         m_usbParser = MidiParser();
         if (!m_linkUp) {
@@ -3564,7 +3567,10 @@ void Hub::remoteTick() {
             m_server.broadcast(QStringLiteral("/ws"), QJsonDocument(snapshot()).toJson(QJsonDocument::Compact));
         }
     }
-    if (!m_pLink && m_usbState != 2 && !m_linkSaved.isEmpty() && now - m_helloMs > 5000) {
+    // the computer it linked with over Wi-Fi, again: unless a cable is up, or one is but Mixxx hasn't answered through it
+    // for 10 s (a cable to a charger, or to a computer without Mixxx on that port)
+    const bool cableWorks = m_usbState == 2 && (m_remoteLive || now - m_usbReadyMs < 10000);
+    if (!m_pLink && !cableWorks && !m_linkSaved.isEmpty() && now - m_helloMs > 5000) {
         m_helloMs = now;
         linkConnect(m_linkSaved);
     }
