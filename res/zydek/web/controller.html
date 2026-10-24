@@ -94,6 +94,12 @@
       repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), #2e2e2e calc(25% - 1px) 25%),
       repeating-linear-gradient(90deg, transparent 0 calc(6.25% - 1px), #1f1f1f calc(6.25% - 1px) 6.25%), #121212; }
   .strip.held { border-color: var(--acc); background-color: #181818; }
+  /* the track end warning light (Settings › Screen): a playing track's last 30 s, the strip flashes pink, as Mixxx's
+     overview does; a blink of its own layer's opacity, so nothing is drawn again */
+  .endwarn { position: absolute; inset: 0; pointer-events: none; opacity: 0; will-change: opacity; z-index: 3;
+    background: rgba(255, 70, 165, .26); box-shadow: inset 0 0 0 2px rgba(255, 95, 175, .9); }
+  .ending .endwarn { animation: endwarn 1s steps(1) infinite; }
+  @keyframes endwarn { 0% { opacity: 1; } 50% { opacity: 0; } }
   .strip .cursor { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--acc); left: 50% !important;
     box-shadow: 0 0 calc(var(--mm) * 1.2) var(--acc); will-change: transform; left: 0; }
   /* waveform of the stretch of record the strip shows (Mixxx's analysis: red lows, green mids, blue highs) */
@@ -501,7 +507,8 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0 };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true };
+const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
 // Android, which knows the screen's real pixel density.
@@ -1077,7 +1084,7 @@ function buildStrip(s, u) {
   // platter strip
   u.strip = h("div", "strip", `<div class="axis"></div><div class="wftrack"><div class="tiles"></div></div>` +
     `<div class="slipghost"><div class="clip"><div class="wftrack"><div class="tiles"></div></div></div><div class="edge"></div></div><div class="played"></div>` +
-    `<div class="cursor"></div><div class="label"></div>`);
+    `<div class="cursor"></div><div class="label"></div><div class="endwarn"></div>`);
   u.cursor = u.strip.querySelector(".cursor");
   // Unload: hold the title of a paused deck (on its waveform): the eject sign fades in beside it, as tall as
   // the waveform, and after half a second it stays, as a button: a tap on it unloads (asking first, unless told
@@ -2135,7 +2142,10 @@ function frame(now) {
       if (u.play._off !== off) { u.play._off = off; u.play.classList.toggle("beatoff", off); }
       if (u.play._ng !== (preview && !grid)) { u.play._ng = preview && !grid; u.play.classList.toggle("nogrid", u.play._ng); }
     }
-    setText(u.time, fmtTime((d.dur - d.pos) / (1 + d.tempo / 100)));
+    const left = (d.dur - d.pos) / (1 + d.tempo / 100);
+    setText(u.time, fmtTime(left));
+    const ending = S.endWarn !== false && d.playing && d.dur > 0 && left > 0 && left < END_WARN_S;
+    if (u.strip._end !== ending) { u.strip._end = ending; u.strip.classList.toggle("ending", ending); }
   });
   requestAnimationFrame(frame);
 }
