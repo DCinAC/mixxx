@@ -187,7 +187,8 @@
   .vu b { position: absolute; left: 0; right: 0; top: 0; height: 6px; background: #3a1414; }
   .vu.peak b { background: #ff4d4f; box-shadow: 0 0 6px #ff4d4f; }
   .mx .pfl.on { background: var(--acc); border-color: var(--acc); color: #111; }
-  .mf { position: relative; width: 100%; max-width: var(--kmax); height: 150px; touch-action: none; margin-top: 6px; }
+  /* its length set to fill the fader page down to just above the tab bar (mixFit), 50 mm at most */
+  .mf { position: relative; width: 100%; max-width: var(--kmax); height: var(--fh, 150px); touch-action: none; margin-top: 6px; }
   .mf .rail, #mixxf .rail { position: absolute; background: #050505; border: 1px solid #333; border-radius: 3px; }
   .mf .rail { left: 50%; top: 10px; bottom: 10px; width: 6px; margin-left: -3px; }
   .mf .cap, #mixxf .cap { position: absolute; background: #d8d8d8; border: 1px solid #fff; border-radius: 6px; }
@@ -195,11 +196,13 @@
   .mf .cap::after { content: ""; position: absolute; left: 12%; right: 12%; top: 50%; height: 2px; margin-top: -1px; background: var(--acc); }
   /* the crossfader: 37 mm at most, with a mark where each way the outgoing deck is 3 dB down and the incoming one full
      (Mixxx's default curve, additive and linear: 35.4 % and 64.6 %) */
-  #mixxf { position: relative; height: 54px; margin: 10px auto 0; max-width: var(--xfmax, 233px); touch-action: none; }
+  #mixxf { position: relative; height: calc(var(--mmpx, 6.3px) * 13 + 12px); margin: 10px auto 0; max-width: var(--xfmax, 233px); touch-action: none; }
   #mixxf .tk { position: absolute; top: 50%; width: 2px; height: 16px; margin: -8px 0 0 -1px; background: #6b6b6b; border-radius: 1px;
     left: calc(14px + (100% - 28px) * var(--at)); }
   #mixxf .rail { top: 50%; left: 14px; right: 14px; height: 6px; margin-top: -3px; }
-  #mixxf .cap { top: 50%; width: 22px; height: 40px; margin: -20px 0 0 -11px; left: calc(14px + (100% - 28px) * var(--v, .5)); }
+  /* its cap 13 mm tall and 6 mm wide */
+  #mixxf .cap { top: 50%; width: calc(var(--mmpx, 6.3px) * 6); height: calc(var(--mmpx, 6.3px) * 13);
+    margin: calc(var(--mmpx, 6.3px) * -6.5) 0 0 calc(var(--mmpx, 6.3px) * -3); left: calc(14px + (100% - 28px) * var(--v, .5)); }
   #mixxf .cap::after { content: ""; position: absolute; top: 12%; bottom: 12%; left: 50%; width: 2px; margin-left: -1px; background: #333; }
 
   /* web tab */
@@ -538,6 +541,7 @@ function showPage(p) {
   if (p === "web") webJobs();
   document.body.classList.toggle("on-mix", p === "mix");
   document.documentElement.classList.toggle("snapmix", p === "mix");
+  if (p === "mix") mixFit();
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
 
@@ -793,6 +797,17 @@ function mixSet(g, k, v) {
 const mixPxMm = (() => { try { const v = +window.ZydekAndroid?.screenPxPerMm?.(); if (v > 2 && v < 12) return v; } catch {} return 6.3; })();
 document.getElementById("p-mix").style.setProperty("--kmax", (10 * mixPxMm).toFixed(1) + "px");   // knobs 10 mm across
 document.getElementById("p-mix").style.setProperty("--xfmax", (37 * mixPxMm).toFixed(1) + "px");  // the crossfader 37 mm
+document.getElementById("p-mix").style.setProperty("--mmpx", mixPxMm.toFixed(2) + "px");
+// The faders as long as the phone allows: the fader page (the mixer from its top) reaching down to just above the tab
+// bar, 50 mm at most (measured with the tab open: hidden, it has no size)
+function mixFit() {
+  const pm = $("#p-mix"), f = pm.querySelector(".mf");
+  if (!f || !pm.offsetHeight) return;
+  const rest = pm.offsetHeight - f.offsetHeight, nav = document.querySelector("nav").offsetHeight;
+  const fh = Math.max(15 * mixPxMm, Math.min(50 * mixPxMm, innerHeight - nav - rest - 8));
+  pm.style.setProperty("--fh", fh.toFixed(0) + "px");
+}
+addEventListener("resize", () => { if (page === "mix") mixFit(); });
 const clamp01 = v => Math.min(1, Math.max(0, v));
 // an arc of the knob's ring, angles in degrees clockwise from the top
 function mixArc(a0, a1, r = 16) {
@@ -860,6 +875,7 @@ function buildMixer() {
   mixCtl.forEach(c => { c.paint = c.paint.filter(f => f.keep); });   // (the strips are made again; the crossfader stays)
   m.style.setProperty("--cols", order.length);
   m.replaceChildren(...order.map(mixStrip));
+  mixFit();
   document.querySelectorAll(".mixmode button").forEach(b => b.classList.toggle("on", (b.dataset.four === "1") === four));
 }
 (() => {
