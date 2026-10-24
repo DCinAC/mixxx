@@ -134,7 +134,7 @@
   .transport { flex: 0 0 calc(var(--mm) * 13); display: grid; grid-template-columns: 1fr 1fr 1fr calc(var(--mm) * 24); gap: var(--gap); }
   .transport button { font-size: calc(var(--mm) * 2.6); }
   .transport .play.on { background: var(--play); border-color: var(--play); color: #04200e; }
-  .play.on.preview { animation: cueblink .5s steps(1) infinite; }
+  .play.on.preview.nogrid { animation: cueblink .5s steps(1) infinite; }   /* (with a grid: the beat flash below) */
   @keyframes cueblink { 50% { background: transparent; color: var(--play); } }
   .transport .play.on.beatoff { background: transparent; color: var(--play); }
   .pad .ct { position: absolute; bottom: calc(var(--mm) * .7); font: 600 calc(var(--mm) * 1.4)/1 ui-monospace, monospace; opacity: .75; font-style: normal; }
@@ -2418,9 +2418,12 @@ function frame(now) {
     }
     const sec = deckSpan(d);
     drawStripWave(u, d, d.pos - sec / 2, sec);             // the cursor stays in the middle; the waveform rolls
-    if (u.play) {   // PLAY keeps the beat while playing: lit a beat, dark the next (lit on the bar's first)
-      const off = d.playing && !u.play.classList.contains("preview") && beatOf(d, d.pos) % 2 !== 0;
+    if (u.play) {   // PLAY: steady while playing; flashing with the beat (lit one, dark the next) only while a held CUE
+      // plays it (letting go stops it); a track with no grid blinks instead
+      const preview = d.playing && u.play.classList.contains("preview"), grid = d.bpm > 0;
+      const off = preview && grid && beatOf(d, d.pos) % 2 !== 0;
       if (u.play._off !== off) { u.play._off = off; u.play.classList.toggle("beatoff", off); }
+      if (u.play._ng !== (preview && !grid)) { u.play._ng = preview && !grid; u.play.classList.toggle("nogrid", u.play._ng); }
     }
     setText(u.time, fmtTime((d.dur - d.pos) / (1 + d.tempo / 100)));
   });

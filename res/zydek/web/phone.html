@@ -153,7 +153,7 @@
   nav button.on { color: var(--text); }
 
   /* mixer tab: the decks' channel strips (2, or 4 as 3 1 2 4), knobs sized to fit (at most --kmax), the crossfader */
-  #p-mix { --kmax: 66px; padding: calc(8px + var(--safe-t)) 8px 0; }
+  #p-mix { --kmax: 63px; padding: calc(8px + var(--safe-t)) 8px 0; }   /* (--kmax: 10 mm, set from the screen) */
   body.on-mix #decks { display: none; }   /* (the strips say what's loaded: the waveforms don't fit with them) */
   .mx .tt { width: 100%; padding: 0 4px; font-size: 10px; color: var(--dim); text-align: center; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; min-height: 13px; }
@@ -173,9 +173,17 @@
   .mk .pt { stroke: #eee; stroke-width: 2.6; stroke-linecap: round; }
   .mk.held .bg { stroke: var(--acc); }
   .mk span { display: block; font-size: 10px; color: var(--dim); margin-top: -2px; }
-  .mx .pfl { width: 100%; max-width: var(--kmax); height: 30px; border-radius: 8px; font-size: 11px; padding: 0; }
+  .mx .pfl { width: 100%; max-width: var(--kmax); height: 27px; border-radius: 8px; font-size: 11px; padding: 0; }
+  /* the volume fader with the channel's level beside it: green, amber near the top, red at the top; the cap lit red
+     while it clips (Mixxx's peak indicator) */
+  .mxv { display: flex; gap: 4px; width: 100%; max-width: calc(var(--kmax) + 10px); justify-content: center; }
+  .vu { position: relative; flex: 0 0 6px; height: 150px; border-radius: 3px; background: #0a0a0a; border: 1px solid #262626; overflow: hidden; }
+  .vu i { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--l, 0) * 100%);
+    background: linear-gradient(to top, #2fd36f 0 70%, #f2c037 70% 88%, #ff4d4f 88%); background-size: 100% 150px; background-position: bottom; }
+  .vu b { position: absolute; left: 0; right: 0; top: 0; height: 6px; background: #3a1414; }
+  .vu.peak b { background: #ff4d4f; box-shadow: 0 0 6px #ff4d4f; }
   .mx .pfl.on { background: var(--acc); border-color: var(--acc); color: #111; }
-  .mf { position: relative; width: 100%; max-width: var(--kmax); height: 150px; touch-action: none; }
+  .mf { position: relative; flex: 1; min-width: 0; max-width: var(--kmax); height: 150px; touch-action: none; }
   .mf .rail, #mixxf .rail { position: absolute; background: #050505; border: 1px solid #333; border-radius: 3px; }
   .mf .rail { left: 50%; top: 10px; bottom: 10px; width: 6px; margin-left: -3px; }
   .mf .cap, #mixxf .cap { position: absolute; background: #d8d8d8; border: 1px solid #fff; border-radius: 6px; }
@@ -700,7 +708,7 @@ function connect() {
       }
       for (const k of ["play", "track_loaded", "duration"]) sub.push(["[PreviewDeck1]", k, 0]);
       sub.push(["[PreviewDeck1]", "playposition", 1]);
-      mixCtl.forEach((c, k) => { const [g, key] = k.split(/,(?=[^,]*$)/); sub.push([g, key, c.param ? 2 : 0]); });
+      mixCtl.forEach((c, k) => { const [g, key] = k.split(/,(?=[^,]*$)/); sub.push([g, key, c.kind]); });
       wsSend({ sub });
       $("#link").textContent = linkText();
       return;
@@ -754,15 +762,18 @@ const MIX_KNOBS = [
   ["LOW", n => [`[EqualizerRack1_[Channel${n}]_Effect1]`, "parameter1"]],
   ["FILTER", n => [`[QuickEffectRack1_[Channel${n}]]`, "super1"]],
 ];
-function mixReg(g, k, param, def) {
+// kind: what the subscription asks for (0 on change, 1 polled ~30 a second, 2 the 0-1 parameter on change)
+function mixReg(g, k, param, def, kind = param ? 2 : 0) {
   const key = mixKey(g, k);
-  if (!mixCtl.has(key)) mixCtl.set(key, { param, def, v: def, paint: [] });
+  if (!mixCtl.has(key)) mixCtl.set(key, { param, def, v: def, kind, paint: [] });
   return mixCtl.get(key);
 }
 for (let n = 1; n <= 4; n++) {   // (all up front: the subscription at connect asks for each)
   MIX_KNOBS.forEach(([, f]) => mixReg(...f(n), true, .5));
   mixReg(`[Channel${n}]`, "pfl", false, 0);
   mixReg(`[Channel${n}]`, "volume", true, 1);
+  mixReg(`[Channel${n}]`, "vu_meter", false, 0, 1);
+  mixReg(`[Channel${n}]`, "peak_indicator", false, 0);
 }
 mixReg("[Master]", "crossfader", true, .5);
 function mixCv(k, v) { const c = mixCtl.get(k); c.v = v; c.paint.forEach(f => f()); }
@@ -772,6 +783,7 @@ function mixSet(g, k, v) {
   wsSend({ set: [g, k, v, c.param ? 1 : 0] });
 }
 const mixPxMm = (() => { try { const v = +window.ZydekAndroid?.screenPxPerMm?.(); if (v > 2 && v < 12) return v; } catch {} return 6.3; })();
+document.getElementById("p-mix").style.setProperty("--kmax", (10 * mixPxMm).toFixed(1) + "px");   // knobs 10 mm across
 const clamp01 = v => Math.min(1, Math.max(0, v));
 // an arc of the knob's ring, angles in degrees clockwise from the top
 function mixArc(a0, a1, r = 16) {
@@ -826,7 +838,12 @@ function mixStrip(n) {
   const paintVol = () => f.style.setProperty("--v", vc.v);
   vc.paint.push(paintVol); paintVol();
   mixDrag(f, vc, v => mixSet(g, "volume", v), () => f.getBoundingClientRect().height - 20, "y", null);
-  el.append(pfl, f);
+  const vu = h("div", "vu", "<i></i><b></b>"), lc = mixCtl.get(mixKey(g, "vu_meter")), kc = mixCtl.get(mixKey(g, "peak_indicator"));
+  const paintVu = () => vu.style.setProperty("--l", lc.v.toFixed(3)), paintPeak = () => vu.classList.toggle("peak", kc.v > 0);
+  lc.paint.push(paintVu); kc.paint.push(paintPeak); paintVu(); paintPeak();
+  const row = h("div", "mxv");
+  row.append(vu, f);
+  el.append(pfl, row);
   return el;
 }
 // what each strip's deck has loaded (the waveform header is hidden on this tab): looked at while it's open
