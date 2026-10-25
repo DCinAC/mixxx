@@ -157,7 +157,7 @@ constexpr double kBurst = 512;   // events at once: half of Mixxx's input buffer
 constexpr double kRate = 16;     // events a millisecond after that (64 kB/s: thousands of control values a second)
 // how much of Mixxx's buffer a message takes: a SysEx 4 bytes an event, anything else one
 double events(const QByteArray& msg) {
-    return std::min(kBurst, msg.size() > 3 ? std::ceil(msg.size() / 4.0) : 1.0);
+    return (std::min)(kBurst, msg.size() > 3 ? std::ceil(msg.size() / 4.0) : 1.0);
 }
 // a control's value (the mapping's "set": F0 7D 50 <param> <name> 00 <value> F7): the control it's for, else ""
 QByteArray setKey(const QByteArray& msg) {
@@ -171,7 +171,7 @@ QByteArray setKey(const QByteArray& msg) {
 
 void Midi::refill() {
     const qint64 now = m_clock.nsecsElapsed();
-    m_tokens = m_tokensAtNs < 0 ? kBurst : std::min(kBurst, m_tokens + (now - m_tokensAtNs) / 1e6 * kRate);
+    m_tokens = m_tokensAtNs < 0 ? kBurst : (std::min)(kBurst, m_tokens + (now - m_tokensAtNs) / 1e6 * kRate);
     m_tokensAtNs = now;
 }
 
