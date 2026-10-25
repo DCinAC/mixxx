@@ -121,7 +121,11 @@ window.zydeckTouch = function (env) {
   // Two hands can pinch two knobs at once: a finger close to another free knob could be the other hand's first, so it
   // waits PINCH_WAIT_MS for a partner of its own (a hand's two fingers land within ~25 ms of each other) and only then
   // joins the pinch. One finger each on two knobs turns both
-  const PINCH_MM = 35, PINCH_WAIT_MS = 100, PINCH_CENTRE_MM = 2;
+  const PINCH_MM = 35, PINCH_WAIT_MS = 100;
+  // The centre's hold in a pinch, as the far finger moves round the near one: PINCH_CENTRE_MM while it's slow (coming
+  // to rest), narrowing to PINCH_CENTRE_FAST_MM as it speeds up (going through: no stick, no jump on leaving). From
+  // the user's own pinches (2026-10-24 touch logs): ~12 mm/s coming to rest, peaks ~46 mm/s going through
+  const PINCH_CENTRE_MM = 2, PINCH_CENTRE_FAST_MM = .3, PINCH_SLOW_MMS = 15, PINCH_FAST_MMS = 45, PINCH_SPEED_MS = 80;
   const pinchOpen = new Set();   // knob gestures with one finger, that a second may join
   let pending = null;            // that finger, while it waits: {pid, at, pick, timer}
   // and a finger on nothing in particular within PINCH_REACH_MM of a knob's centre starts that knob: two fingers round
@@ -352,16 +356,23 @@ window.zydeckTouch = function (env) {
             let da = a - st.pa;
             if (da > Math.PI) da -= 2 * Math.PI; else if (da < -Math.PI) da += 2 * Math.PI;
             st.pa = a;
-            // the centre holds while the far finger moves less than PINCH_CENTRE_MM round the near one (an angle that
-            // depends on the spread), not the 4° of the knob the other gestures have
-            const spread = Math.max(mm(5), Math.hypot(st.p2.x - st.p1.x, st.p2.y - st.p1.y));
-            turnTo(st, (st.raw ?? st.v) + da / (1.5 * Math.PI), mm(PINCH_CENTRE_MM) / spread / (1.5 * Math.PI));
+            // the centre holds while the far finger moves less than the hold round the near one (an angle that depends
+            // on the spread), the hold narrowing with the finger's speed over the last PINCH_SPEED_MS
+            const spread = Math.max(mm(5), Math.hypot(st.p2.x - st.p1.x, st.p2.y - st.p1.y)), now = performance.now();
+            st.arc = (st.arc || 0) + da * spread / mm(1);   // (mm the far finger has gone round)
+            const arcs = st.arcs ??= [];
+            arcs.push([now, st.arc]);
+            while (arcs.length > 2 && now - arcs[1][0] >= PINCH_SPEED_MS) arcs.shift();
+            const speed = now - arcs[0][0] >= 20 ? Math.abs(st.arc - arcs[0][1]) / ((now - arcs[0][0]) / 1000) : 0;
+            const fast = clamp((speed - PINCH_SLOW_MMS) / (PINCH_FAST_MMS - PINCH_SLOW_MMS), 0, 1);
+            const hold = PINCH_CENTRE_MM + (PINCH_CENTRE_FAST_MM - PINCH_CENTRE_MM) * fast;
+            turnTo(st, (st.raw ?? st.v) + da / (1.5 * Math.PI), mm(hold) / spread / (1.5 * Math.PI));
             set(st.v, st.ctx); el.paint(st.v); drawPinch(st.pr, st.cx, st.cy, st.p1, st.p2, st.v);   // (the knob itself as it turns)
           };
           st.join = e2 => {
             knobHoldOff(st); lastTap = 0;   // (a quick pinch after this one isn't a double tap)
             if (performance.now() - st.t0 < 250 && st.v !== st.v0) { st.v = st.v0; st.raw = undefined; set(st.v0, st.ctx); }
-            st.p2 = { x: e2.clientX, y: e2.clientY }; st.pinch = true; st.pa = angle();
+            st.p2 = { x: e2.clientX, y: e2.clientY }; st.pinch = true; st.pa = angle(); st.arc = 0; st.arcs = [];
             st.pr = protractor(env.beat(st.ctx));
             drawPinch(st.pr, st.cx, st.cy, st.p1, st.p2, st.v); el.paint(st.v);
           };
