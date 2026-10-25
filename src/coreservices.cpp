@@ -1,6 +1,9 @@
 #include "coreservices.h"
 
 #include <QApplication>
+#ifdef __ZYDECK__   // ZyDeck
+#include "zydeck/effectlist.h"
+#endif
 #include <QFileDialog>
 #include <QProcess>
 #include <QProcessEnvironment>
@@ -591,6 +594,9 @@ void CoreServices::initialize(QApplication* pApp) {
     m_pPlayerManager->addPreviewDeck();
 
     m_pEffectsManager->setup();
+#ifdef __ZYDECK__   // ZyDeck: the effects list, for a phone or tablet driving this Mixxx (zydeck/effectlist.h)
+    zydeck::watchEffectList(m_pEffectsManager, pConfig);
+#endif
 
 #ifdef __VINYLCONTROL__
     m_pVCManager->init();

@@ -32,6 +32,9 @@
 #include "effects/backends/builtin/gaineffect.h"
 #include "effects/backends/builtin/tremoloeffect.h"
 #include "effects/backends/builtin/whitenoiseeffect.h"
+#ifdef __ZYDECK__
+#include "zydeck/sidechaineffect.h"
+#endif
 
 BuiltInBackend::BuiltInBackend() {
     // Keep this list in a reasonable order
@@ -68,6 +71,9 @@ BuiltInBackend::BuiltInBackend() {
     registerEffect<DistortionEffect>();
     registerEffect<GlitchEffect>();
     registerEffect<CompressorEffect>();
+#ifdef __ZYDECK__   // ZyDeck: the Sidechain pump (zydeck/sidechaineffect.h), as in ZyDeck on Android
+    registerEffect<SidechainEffect>();
+#endif
     registerEffect<AutoGainControlEffect>();
     registerEffect<GainEffect>();
 }

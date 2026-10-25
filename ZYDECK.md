@@ -16,6 +16,10 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
   it without a key) to have them made on the PC's stem server; a small window follows each. The stem file lands in
   ZyDeck Web with a note naming its original, and takes over the original's beat grid, key, cues, colour, rating,
   crates and playlists. `src/zydeck/stems.*`.
+- **Sidechain**: the beat pump effect from ZyDeck on Android (the sound drops on each beat, or every 1/2 or 1/4 beat,
+  and swells back, locked to the beat grid), so both have the same effects.
+- **The effects list for ZyDeck**: `zydeck-effects.json` in the settings folder, Mixxx's visible effects in order,
+  kept up to date; ZyDeck Connect hands it to a phone or tablet so its FX menu shows this Mixxx's effects by name.
 - **ZyDeck connectivity** (to come): the same hub as the Android app, so a tablet or phone talks to Mixxx directly:
   the exact track, its waveform at once, and positions timed by Mixxx's audio. Downloading and separating stay in
   ZyDeck Connect, not in this repository.
@@ -41,5 +45,7 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 | `CMakeLists.txt` | the `ZYDECK` option, including `cmake/zydeck.cmake` (before Ebur128) |
 | `src/library/library.cpp` | adds the Fits deck feature after Auto DJ and starts ZyDeck Web (and their includes) |
 | `src/widget/wtrackmenu.cpp` | "Make Stems (ZyDeck)" after the Analyze menu (and its include) |
+| `src/effects/backends/builtin/builtinbackend.cpp` | registers the Sidechain effect (`src/zydeck/sidechaineffect.*`, the same as ZyDeck on Android) |
+| `src/coreservices.cpp` | writes the effects list for ZyDeck Connect once effects are set up (`src/zydeck/effectlist.*`) |
 
 Based on upstream `main` at 2086fe0 (2026-10-22, 2.7.0-alpha).

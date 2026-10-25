@@ -7,5 +7,7 @@ target_sources(
     src/zydeck/fitstablemodel.cpp
     src/zydeck/webfolder.cpp
     src/zydeck/stems.cpp
+    src/zydeck/sidechaineffect.cpp
+    src/zydeck/effectlist.cpp
 )
 target_compile_definitions(mixxx-lib PUBLIC __ZYDECK__)
