@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QSet>
 #include <algorithm>
 #include <cmath>
@@ -300,11 +301,17 @@ void Midi::toCables(const QByteArray& msg) {
 }
 
 void Midi::reply(const QString& port, const QByteArray& msg) {
-    QMutexLocker lock(&m_mutex);
-    RtMidiOut* out = m_replies.value(port);
-    try {
-        if (!out) {
-            auto made = std::make_unique<RtMidiOut>(RtMidi::UNSPECIFIED, kPortName);
+    // (no lock while RtMidi looks for or opens a port: on macOS CoreMIDI runs the event loop meanwhile, and what comes
+    // in then, e.g. Wi-Fi messages going into Mixxx, takes the lock too)
+    bool known = false;
+    {
+        QMutexLocker lock(&m_mutex);
+        known = m_replies.contains(port);
+    }
+    std::unique_ptr<RtMidiOut> made;
+    if (!known) {
+        try {
+            made = std::make_unique<RtMidiOut>(RtMidi::UNSPECIFIED, kPortName);
             const QString base = QString(port).remove(kAlsaNumbers);
             int index = -1;
             for (unsigned i = 0; i < made->getPortCount(); ++i) {
@@ -321,16 +328,34 @@ void Midi::reply(const QString& port, const QByteArray& msg) {
                 return;
             }
             made->openPort(static_cast<unsigned>(index), kPortName);
-            out = made.release();
-            m_replies.insert(port, out);
+        } catch (const RtMidiError&) {
+            return;
         }
+    }
+    QMutexLocker lock(&m_mutex);
+    RtMidiOut* out = m_replies.value(port);
+    if (!out && made) {
+        out = made.release();
+        m_replies.insert(port, out);
+    }
+    if (!out) {
+        return;   // (unplugged meanwhile)
+    }
+    try {
         out->sendMessage(reinterpret_cast<const unsigned char*>(msg.constData()), static_cast<size_t>(msg.size()));
     } catch (const RtMidiError&) {
     }
+    lock.unlock();
+    made.reset();   // (one opened meanwhile, by a reply that came in as this one opened its own)
 }
 
 /// Every 2 s: open the MIDI inputs that came (a phone or tablet plugged in), close the ones that went.
 void Midi::watch() {
+    if (m_watching) {
+        return;   // (macOS: called again from inside RtMidi, which runs the event loop as it looks for ports)
+    }
+    m_watching = true;
+    const auto done = qScopeGuard([this] { m_watching = false; });
     QStringList names;
     try {
         RtMidiIn probe(RtMidi::UNSPECIFIED, std::string(kPortName) + " probe");
@@ -365,12 +390,15 @@ void Midi::watch() {
         m_cables.insert(name, c);
     }
     QList<Cable*> gone;
+    QList<RtMidiOut*> goneOut;
     {
         QMutexLocker lock(&m_mutex);
         for (auto it = m_cables.begin(); it != m_cables.end();) {
             if (!names.contains(it.key())) {   // unplugged
                 gone.append(it.value());
-                delete m_replies.take(it.key());
+                if (RtMidiOut* out = m_replies.take(it.key())) {
+                    goneOut.append(out);
+                }
                 m_devices.remove(it.key());
                 it = m_cables.erase(it);
             } else {
@@ -379,6 +407,7 @@ void Midi::watch() {
         }
     }
     qDeleteAll(gone);   // (closing an input waits for its callback, which may be waiting for the lock)
+    qDeleteAll(goneOut);
 }
 
 void Midi::fromCable(const QString& port, const QByteArray& msg) {

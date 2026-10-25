@@ -71,6 +71,7 @@ class Midi : public QObject {
     QHash<QString, RtMidiOut*> m_replies;         // port name -> output to it
     QHash<QString, qint64> m_devices;             // port name -> when ZyDeck last said hello over it
     QTimer m_watch;
+    bool m_watching = false;   // (main thread)
 };
 
 } // namespace zc
