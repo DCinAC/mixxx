@@ -14,8 +14,9 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
   no listening socket). `src/zydeck/webfolder.*`.
 - **Stems on request**: the track menu's "Make Stems (ZyDeck)" asks ZyDeck Connect (on this computer, which answers
   it without a key) to have them made on the PC's stem server; a small window follows each. The stem file lands in
-  ZyDeck Web with a note naming its original, and takes over the original's beat grid, key, cues, colour, rating,
-  crates and playlists. `src/zydeck/stems.*`.
+  a "stem" folder in the original's own folder when that's on a network drive (the NAS), else in ZyDeck Web; Connect's
+  note in ZyDeck Web names both. It takes over the original's beat grid, key, cues, colour, rating, crates and
+  playlists, and the original's comment starts with "stem available". `src/zydeck/stems.*`, `src/zydeck/webfolder.*`.
 - **Sidechain**: the beat pump effect from ZyDeck on Android (the sound drops on each beat, or every 1/2 or 1/4 beat,
   and swells back, locked to the beat grid), so both have the same effects.
 - **The effects list for ZyDeck**: `zydeck-effects.json` in the settings folder, Mixxx's visible effects in order,
@@ -25,7 +26,8 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
   buffer, and with it the latency, stays as set. And a track that loads from a network drive is read whole once, in
   the background, so the computer keeps it in memory and the deck's reads during the set don't wait on the network.
 - **What's on the decks, for ZyDeck**: `zydeck-decks.json` beside it, each deck's and sampler's track (id, title,
-  artist, length) as it loads, so ZyDeck Connect names the track a phone or tablet sees by what's really there.
+  artist, length, hot cue names) as it loads and as its hot cues change, so ZyDeck Connect names the track a phone or
+  tablet sees, and its hot cues, by what's really there.
 - **ZyDeck connectivity** (to come): the same hub as the Android app, so a tablet or phone talks to Mixxx directly:
   the exact track, its waveform at once, and positions timed by Mixxx's audio. Downloading and separating stay in
   ZyDeck Connect, not in this repository.

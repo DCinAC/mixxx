@@ -95,6 +95,21 @@ void WebFolder::look() {
         }
     }
     m_sizes = sizes;
+    // Connect's notes on stems it made: each names its stem file, which is in a "stem" folder beside its original (one
+    // on the NAS) or here in the folder (found above)
+    m_notes.clear();
+    for (const QFileInfo& n : dir.entryInfoList({QStringLiteral(".*.json")}, QDir::Files | QDir::Hidden)) {
+        QFile f(n.absoluteFilePath());
+        if (!f.open(QIODevice::ReadOnly)) {
+            continue;
+        }
+        const QString stem = QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("stem")).toString();
+        const QString path = stem.isEmpty() ? dir.filePath(n.fileName().mid(1).chopped(5)) : stem;   // (older notes: no "stem")
+        m_notes.insert(path, n.absoluteFilePath());
+        if (!stem.isEmpty() && QFileInfo(stem).dir() != dir && !m_done.contains(stem) && QFileInfo::exists(stem)) {
+            settled.append(stem);   // (complete: Connect moves it there finished)
+        }
+    }
     if (!m_sizes.isEmpty()) {
         m_soon.start();   // (look again in a moment for the ones still settling)
     }
@@ -118,11 +133,10 @@ void WebFolder::add(const QStringList& paths) {
             continue;
         }
         ids.append(pTrack->getId());
-        // stems from ZyDeck Connect: its note beside the file names the original, whose cues, beat grid and the rest
-        // they take over (once: the note goes)
-        const QFileInfo fi(path);
-        QFile note(fi.dir().filePath(QLatin1Char('.') + fi.fileName() + QStringLiteral(".json")));
-        if (note.open(QIODevice::ReadOnly)) {
+        // stems from ZyDeck Connect: its note names the original, whose cues, beat grid and the rest they take over
+        // (once: the note goes)
+        QFile note(m_notes.value(path));
+        if (m_notes.contains(path) && note.open(QIODevice::ReadOnly)) {
             const QString original = QJsonDocument::fromJson(note.readAll()).object().value(QStringLiteral("original")).toString();
             note.close();
             if (const TrackPointer pOriginal = pManager->getTrackByRef(TrackRef::fromFilePath(original))) {

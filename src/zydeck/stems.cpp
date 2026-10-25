@@ -155,6 +155,12 @@ void takeOver(TrackCollectionManager* pManager, const TrackPointer& pStem, const
             pNew->setLabel(pCue->getLabel());
         }
     }
+    // and the original says it has stems: "stem available" in its comment (before what was there, if anything)
+    const QString kNote = QStringLiteral("stem available");
+    const QString comment = pOriginal->getComment().trimmed();
+    if (!comment.startsWith(kNote)) {
+        pOriginal->setComment(comment.isEmpty() ? kNote : kNote + QStringLiteral(", ") + comment);
+    }
     TrackCollection* const pCollection = pManager->internalCollection();
     const TrackId stemId = pStem->getId(), originalId = pOriginal->getId();
     for (const CrateId& crateId : pCollection->crates().collectCrateIdsOfTracks({originalId})) {

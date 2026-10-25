@@ -38,6 +38,7 @@ class WebFolder final : public QObject {
     QTimer m_poll;                     // a network share doesn't always say when something changed: looked at now and then
     QSet<QString> m_done;              // files already taken in (or found in the library)
     QHash<QString, qint64> m_sizes;    // files not settled yet: their size when last looked at
+    QHash<QString, QString> m_notes;   // stem file -> Connect's note on it (in the folder, hidden)
 };
 
 } // namespace zydeck
