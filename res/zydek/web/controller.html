@@ -310,6 +310,11 @@
   .strip .info .title { font-size: calc(var(--mm) * 2); pointer-events: auto; }   /* held (paused): unload */
   .strip .info .num { font-size: calc(var(--mm) * 2); }
   .num.keynum { color: var(--dim); } .num.keynum.shifted { color: var(--acc); }   /* lit: shifted from the track's own key */
+  /* the key's colour bar (as Mixxx's): the key you hear, and as it drifts off it (tempo without key lock) the key a
+     semitone that way creeping in, top for up, bottom for down: all one colour is in tune */
+  .num.keynum .kbar { display: inline-block; width: calc(var(--mm) * .7); height: .95em; margin-right: .35em; vertical-align: -.1em;
+    border-radius: 1px; background: linear-gradient(var(--kt) 0 var(--ks), var(--kb) var(--ks) 100%); }
+  .num.keynum .kbar[hidden] { display: none; }
 
   /* ---- mixer ---- */
   #mixer { display: grid; grid-template-columns: var(--kcol) minmax(0, 1fr) minmax(0, 1fr) var(--kcol);
@@ -561,6 +566,13 @@ function keyName(k) {
   if (S.keyNotation === "musical") return minor ? `${MINOR_NAMES[p]}m` : MAJOR_NAMES[p];
   return `${(open + 6) % 12 + 1}${minor ? "A" : "B"}`;   // Camelot: C major = 8B, A minor = 8A
 }
+// A key's colour: round the Camelot wheel, as the library's key chips (one hue per number, minor and major alike)
+function keyColor(k) {
+  const minor = k > 12, p = (k - 1) % 12, open = ((minor ? p + 3 : p) * 7) % 12 + 1, camelot = (open + 6) % 12 + 1;
+  return `hsl(${(camelot - 1) * 30} 75% 58%)`;
+}
+// The key n semitones from k (Mixxx's numbers: 1-12 major from C, 13-24 minor from C)
+const keyStep = (k, n) => (k > 12 ? 13 : 1) + (((k - 1) % 12 + n) % 12 + 12) % 12;
 // The key a press is about to give, shown straight away; Mixxx's own values replace it as they come. Only
 // within ±6: Mixxx's limit is near there (+7 up), and a wrong guess at its limit would stay, as Mixxx sends
 // nothing when its value doesn't change.
@@ -1080,7 +1092,8 @@ function buildStrip(s, u) {
   u.sw = h("button", "switch");
   bindPress(u.sw, down => { if (down) { sides[s] = sides[s] === s ? s + 2 : s; paintAll(); } });
   u.title = h("div", "title"); u.bpm = h("div", "num bpmtap"); u.time = h("div", "num dim");
-  u.keyNum = h("div", "num keynum");   // the key as it plays now (key shift and tempo in), beside the BPM
+  u.keyNum = h("div", "num keynum", `<i class="kbar" hidden></i><span></span>`);   // the key as it plays now (key shift and tempo in), beside the BPM
+  u.keyBar = u.keyNum.firstChild; u.keyTxt = u.keyNum.lastChild;
   u.bpm.addEventListener("pointerdown", e => e.stopPropagation());   // not a scratch
   u.bpm.addEventListener("click", () => openGrid(s));
   head.append(u.sw, u.title, u.keyNum, u.bpm, u.time);
@@ -1532,7 +1545,17 @@ function paintTempo(s) {
   u.tread.classList.toggle("over", Math.abs(d.tempo) > 8);
   u.ol.classList.toggle("on", d.ol);
   setText(u.bpm, (d.bpm * (1 + d.tempo / 100)).toFixed(1));
-  if (u.keyNum) { setText(u.keyNum, d.curKey ? keyName(d.curKey) : ""); u.keyNum.classList.toggle("shifted", !!d.key); }
+  if (u.keyNum) {
+    setText(u.keyTxt, d.curKey ? keyName(d.curKey) : ""); u.keyNum.classList.toggle("shifted", !!d.key);
+    // the colour bar: Mixxx's visual_key_distance, -0.5 to 0.5 of a semitone off the key it names
+    const k = Math.round(d.curKey || 0), off = d.keyOff || 0, bar = k >= 1 && k <= 24
+      ? (off < 0 ? [keyColor(k), keyColor(keyStep(k, -1)), 1 + off] : [keyColor(keyStep(k, 1)), keyColor(k), off]) : null;
+    const sig = bar ? `${bar[0]}|${bar[1]}|${bar[2].toFixed(3)}` : "";
+    if (u.keyBar._sig !== sig) {
+      u.keyBar._sig = sig; u.keyBar.hidden = !bar;
+      if (bar) { u.keyBar.style.setProperty("--kt", bar[0]); u.keyBar.style.setProperty("--kb", bar[1]); u.keyBar.style.setProperty("--ks", (bar[2] * 100).toFixed(1) + "%"); }
+    }
+  }
 }
 
 const fmtBeats = b => b >= 1 ? String(+b.toFixed(2)) : `1/${Math.round(1 / b)}`;
@@ -2824,6 +2847,7 @@ function applyCv(name, v, ts) {
       case "file_bpm": if (v > 0) upd("bpm", v); return;
       case "pitch": upd("key", Math.round(v)); return;   // semitones from the track's own key
       case "key": upd("curKey", v); return;      // the key you hear: file key + shift (+ tempo without key lock)
+      case "visual_key_distance": upd("keyOff", v); return;   // how far off that key, -0.5 to 0.5 of a semitone (its colour bar)
       case "sync_enabled": return upd("syncMode", v ? 2 : 0);
       case "sync_mode": return upd("leader", v >= 2);                     // 2/3: soft/explicit leader
       case "keylock": return upd("keylock", v > 0);
@@ -2877,7 +2901,7 @@ function subscribeAll() {
     for (let j = 0; j < 3; j++) for (const k of ["enabled", "meta", "loaded_effect"]) sub.push([fxSlotG(u, j), k, 0]);
   }
   for (let n = 1; n <= 4; n++) {
-    for (const k of ["play", "play_latched", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch", "key", "sync_enabled", "sync_mode", "keylock", "quantize", "slip_enabled",
+    for (const k of ["play", "play_latched", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch", "key", "visual_key_distance", "sync_enabled", "sync_mode", "keylock", "quantize", "slip_enabled",
       "pfl", "mute", "loop_enabled", "beatloop_size",
       "loop_start_position", "loop_end_position", "track_samples", "cue_point",
       ...[1, 2, 3, 4, 5, 6, 7, 8].map(k => `hotcue_${k}_position`)]) sub.push([ch(n), k, 0]);
