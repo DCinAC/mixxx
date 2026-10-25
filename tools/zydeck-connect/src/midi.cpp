@@ -300,6 +300,17 @@ void Midi::toCables(const QByteArray& msg) {
     }
 }
 
+void Midi::toDevices(const QByteArray& msg) {
+    QStringList ports;
+    {
+        QMutexLocker lock(&m_mutex);
+        ports = m_devices.keys();
+    }
+    for (const QString& p : std::as_const(ports)) {
+        reply(p, msg);
+    }
+}
+
 void Midi::reply(const QString& port, const QByteArray& msg) {
     // (no lock while RtMidi looks for or opens a port: on macOS CoreMIDI runs the event loop meanwhile, and what comes
     // in then, e.g. Wi-Fi messages going into Mixxx, takes the lock too)

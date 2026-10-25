@@ -33,6 +33,7 @@ class Midi : public QObject {
     void toMixxx(const QByteArray& msg);    // out of the ZyDeck Connect port, into Mixxx
     void toCables(const QByteArray& msg);   // Windows: Mixxx's messages relayed to the cables (see kRelayCable)
     void reply(const QString& port, const QByteArray& msg);   // to the device on that cable
+    void toDevices(const QByteArray& msg);                    // to every device that said hello over a cable
     QString problem() const;                // why there's no port ("" when there is)
     QStringList cables() const;             // the MIDI inputs being watched
     void rescan() { watch(); }              // look for cables now (it does every 2 s anyway)

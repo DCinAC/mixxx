@@ -133,6 +133,44 @@ Core::Core(QObject* parent)
         });
     });
     connect(&m_server, &QTcpServer::newConnection, this, &Core::connection);
+    connect(&m_decksWatch, &QTimer::timeout, this, &Core::decksChanged);
+    m_decksWatch.start(250);
+}
+
+// Mixxx ZyDeck writes zydeck-decks.json as a track loads: each new name goes to the devices then, without waiting to
+// be asked (the asking, by the track's length, is for plain Mixxx). Each name carries its track's length ("ms"), so a
+// device takes it only for that track, not for the one before or after (an answer arriving late)
+void Core::decksChanged() {
+    const QFileInfo fi(mixxxDir() + QStringLiteral("/zydeck-decks.json"));
+    if (!fi.exists() || fi.lastModified() == m_decksAt) {
+        return;
+    }
+    m_decksAt = fi.lastModified();
+    QFile f(fi.filePath());
+    if (!f.open(QIODevice::ReadOnly)) {
+        return;
+    }
+    const QJsonObject decks = QJsonDocument::fromJson(f.readAll()).object();
+    static const QRegularExpression slot(QStringLiteral(R"(^\[(Channel|Sampler)(\d+)\]$)"));
+    for (auto it = decks.constBegin(); it != decks.constEnd(); ++it) {
+        const QJsonObject t = it.value().toObject();
+        const QRegularExpressionMatch m = slot.match(it.key());
+        if (!m.hasMatch() || t.isEmpty() || m_decksSent.value(it.key()) == it.value()) {
+            continue;   // (an empty slot: the device sees the length go to 0 itself)
+        }
+        m_decksSent.insert(it.key(), it.value());
+        const QJsonObject n{{"s", m.captured(1) == QLatin1String("Sampler")}, {"i", m.captured(2).toInt() - 1},
+                {"ms", std::round(t.value(QStringLiteral("seconds")).toDouble() * 1000)},
+                {"n", QJsonObject{{"t", t.value(QStringLiteral("title")).toString()},
+                              {"a", t.value(QStringLiteral("artist")).toString()}, {"id", t.value(QStringLiteral("id")).toInt()}}}};
+        const QByteArray line = "J " + QJsonDocument(n).toJson(QJsonDocument::Compact) + '\n';
+        for (auto c = m_clients.cbegin(); c != m_clients.cend(); ++c) {
+            if (c.value()->linked) {
+                c.key()->write(line);
+            }
+        }
+        m_midi->toDevices(sysexText(kNameReply, n));
+    }
 }
 
 bool Core::listen() {
@@ -210,8 +248,8 @@ QJsonObject Core::nameReply(const QJsonObject& ask) {
     if (n.isEmpty() && ms > 0) {
         n = m_library.name(ms);
     }
-    return {{"s", ask.value(QStringLiteral("s")).toBool()}, {"i", ask.value(QStringLiteral("i")).toInt()},
-            {"n", n.isEmpty() ? QJsonValue() : QJsonValue(n)}};
+    return {{"s", ask.value(QStringLiteral("s")).toBool()}, {"i", ask.value(QStringLiteral("i")).toInt()}, {"ms", ms},
+            {"n", n.isEmpty() ? QJsonValue() : QJsonValue(n)}};   // (ms: the track it's for)
 }
 
 // ---- Mixxx -> linked devices -------------------------------------------------------------------------------

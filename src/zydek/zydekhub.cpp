@@ -3668,7 +3668,7 @@ void Hub::remoteMessage(const QByteArray& msg, bool viaUsb) {
                     }
                 }
             }
-        } else {
+        } else if (nameFits(j)) {
             applyName(j.value(QStringLiteral("s")).toBool(), j.value(QStringLiteral("i")).toInt(), j.value(QStringLiteral("n")));
         }
         return;
@@ -3795,7 +3795,7 @@ void Hub::linkLine(const QByteArray& line) {
         m_linkParser.feed(QByteArray::fromHex(line.mid(2)), [this](const QByteArray& msg) { remoteMessage(msg, false); });
     } else if (line.startsWith("J ")) {
         const QJsonObject j = QJsonDocument::fromJson(line.mid(2)).object();
-        if (j.contains(QStringLiteral("n"))) {
+        if (j.contains(QStringLiteral("n")) && nameFits(j)) {
             applyName(j.value(QStringLiteral("s")).toBool(), j.value(QStringLiteral("i")).toInt(), j.value(QStringLiteral("n")));
         }
     } else if (line.startsWith("OK")) {
@@ -4216,6 +4216,20 @@ void Hub::updateName(bool sampler, int index, int lengthMs) {
         name = QJsonObject{{"t", title}, {"a", pTrack->getArtist()}, {"id", pTrack->getId().toVariant().toInt()}};
     }
     applyName(sampler, index, name);
+}
+
+// A name from the computer, if it's for what's loaded there now: it says which track's length it's for ("ms"), so one
+// for the track before (answered late, after the next one's) can't stick. (Older ZyDeck Connects don't say.)
+bool Hub::nameFits(const QJsonObject& reply) const {
+    if (!reply.contains(QStringLiteral("ms"))) {
+        return true;
+    }
+    const QString key = QStringLiteral("[%1%2],duration")
+                                .arg(reply.value(QStringLiteral("s")).toBool() ? QStringLiteral("Sampler") : QStringLiteral("Channel"))
+                                .arg(reply.value(QStringLiteral("i")).toInt() + 1);
+    const auto it = m_controlValues.constFind(key);
+    return it != m_controlValues.constEnd() &&
+            std::abs(it.value().toDouble() * 1000 - reply.value(QStringLiteral("ms")).toDouble()) <= 1000;
 }
 
 void Hub::applyName(bool sampler, int index, const QJsonValue& name) {

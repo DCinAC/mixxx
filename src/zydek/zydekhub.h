@@ -223,6 +223,7 @@ class Hub : public QObject {
     void setDeckField(int deck, int& field, int value, const char* kind);
     void updateName(bool sampler, int index, int lengthMs);
     void applyName(bool sampler, int index, const QJsonValue& name);
+    bool nameFits(const QJsonObject& reply) const;
     void handleMixxx(const QByteArray& msg);   // from the mapping, here or on the computer
     QJsonObject snapshot() const;
     QJsonObject deckJson(int i) const;

@@ -14,7 +14,9 @@
 #include <QList>
 #include <QObject>
 #include <QString>
+#include <QDateTime>
 #include <QTcpServer>
+#include <QTimer>
 
 #include "library.h"
 #include "midi.h"
@@ -68,6 +70,8 @@ class Core : public QObject {
     void http(QTcpSocket* s, const QByteArray& request);
     void fromMixxx(const QByteArray& msg);
     QJsonObject nameReply(const QJsonObject& ask);
+    void decksChanged();   // Mixxx ZyDeck wrote what's loaded: the names, to the devices
+
     void seen(const QString& device, const QString& how, const QString& address = {});
 
     QString m_name, m_key;
@@ -85,6 +89,9 @@ class Core : public QObject {
     void activity(const QString& device, bool in);
     QHash<QString, Seen> m_seen;
     qint64 m_arrivals = 0;   // Seen::first: the order they came in (their slots)
+    QTimer m_decksWatch;
+    QDateTime m_decksAt;        // zydeck-decks.json, as last read
+    QJsonObject m_decksSent;    // group -> what the devices were told
 };
 
 } // namespace zc
