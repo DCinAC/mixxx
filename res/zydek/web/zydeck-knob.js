@@ -128,8 +128,9 @@ window.zydeckTouch = function (env) {
   const PINCH_CENTRE_MM = 2, PINCH_CENTRE_FAST_MM = .3, PINCH_SLOW_MMS = 15, PINCH_FAST_MMS = 45, PINCH_SPEED_MS = 80;
   const pinchOpen = new Set();   // knob gestures with one finger, that a second may join
   let pending = null;            // that finger, while it waits: {pid, at, pick, timer}
-  // and a finger on nothing in particular within PINCH_REACH_MM of a knob's centre starts that knob: two fingers round
-  // a knob land beside it as often as on it
+  // and a finger on nothing in particular within PINCH_REACH_MM of a knob's centre can pinch it with a second finger
+  // (two fingers round a knob land beside it as often as on it): it waits PINCH_WAIT_MS for one. Alone it starts
+  // nothing: one finger turns only the knob it's on, never one it's beside (or what's under it, a button say)
   const PINCH_REACH_MM = 14;
   addEventListener("pointerdown", e => {
     if (cfg().knobMode !== "pinch" || e.pointerType !== "touch" || isPalm(e)) return;
@@ -160,8 +161,7 @@ window.zydeckTouch = function (env) {
       if (st) { claim(e, st); return; }
     }
     if (e.target.closest?.(controls)) return;
-    const near = reachKnob(at, discs);
-    if (near?._drag && startDrag(near, near._drag, e)) e.stopPropagation();
+    if (!pending && reachKnob(at, discs)) pend(e, at, null);   // (a partner for it: the "if (pending)" above)
   }, true);
 
   // The knobs on the screen now: each one's element, centre and radius
@@ -238,18 +238,21 @@ window.zydeckTouch = function (env) {
     p.timer = setTimeout(() => { if (pending === p) settle(p); }, PINCH_WAIT_MS);
   }
   // The wait over. p: nobody came for it, so it joins the pinch it would have (or, that one taken meanwhile, starts
-  // the free knob it's on or beside); null: it's been dealt with
+  // the free knob it's right on, if any; a finger that only waited beside a knob for a partner starts nothing);
+  // null: it's been dealt with
   function settle(p) {
     if (pending) clearTimeout(pending.timer);
     pending = null;
-    if (!p) return;
+    if (!p?.pick) return;
     const st0 = p.pick.st;
     if (pinchOpen.has(st0) && !st0.p2 && !st0.pinched) {
       const st = p.pick.d.k === st0.el ? st0 : moveTo(st0, p.pick.d.k);
       if (st) { claim({ clientX: p.at.x, clientY: p.at.y, pointerId: p.pid }, st); return; }
     }
-    startOn(reachKnob(p.at, knobDiscs()), p.pid, p.at);
+    startOn(onKnob(p.at, knobDiscs()), p.pid, p.at);
   }
+  // The free knob whose face a point is on, or null
+  const onKnob = (at, discs) => discs.find(d => !d.k.classList.contains("held") && Math.hypot(at.x - d.x, at.y - d.y) < d.R)?.k || null;
 
   // Drag (both): distance along the finger's path counts the same in every direction.
   // The path's direction is measured over the last 1 mm travelled (by distance, not per touch event, so it doesn't

@@ -1151,6 +1151,7 @@ function buildStrip(s, u) {
       // held, Mixxx stops, and says nothing more until the track moves again: the model of where it is stops here too
       // (left alone it ran on a quarter of a second past the last report, and the waveform rushed after it on release)
       posSeed(d, d.pos, 0, performance.now());
+      scrGrab(d, performance.now());
       latTrace("d", s, Math.round(Math.max(e.width || 0, e.height || 0) / S.pxmm * 10) / 10);
       return { x: e.clientX, deck: d, w: u.strip.clientWidth, samples: [{ t: performance.now(), p: d.pos }] }; },
     move: (e, st) => {
@@ -1159,7 +1160,7 @@ function buildStrip(s, u) {
       const now = performance.now();
       st.samples.push({ t: now, p: st.deck.pos });
       while (st.samples.length > 2 && now - st.samples[0].t > 80) st.samples.shift();
-      send("scratch", st.deck.n, -dx / st.w);
+      send("scratch", st.deck.n, scrMove(st.deck, -dx / st.w * deckSpan(st.deck), now) / deckSpan(st.deck));
       latTrace("m", s, Math.round(dx * 10) / 10);
     },
     up: (e, st) => {
@@ -1187,6 +1188,8 @@ function buildStrip(s, u) {
         setCtl(ch(d.n), "playposition", clamp(d.pos, 0, d.dur) / d.dur);
         if (q) setTimeout(() => { markLocal(d, "quantize"); setCtl(ch(d.n), "quantize", 1); }, 80);
       }
+      if (d.scr) latTrace("s", s, Math.round(((d.scr.slip ?? 0) - d.scr.sent) * 1000));   // (slip left, ms)
+      d.scr = null;
       d.grabbed = false; u.strip.classList.remove("held"); send("scratchOff", d.n, +d.vel.toFixed(2));
       if (!d.coast) {
         // Mixxx goes on from where the hand left it (put there just above): the model of where it is starts again from
@@ -2184,6 +2187,62 @@ function slip(d, target, dt) {
   if (d.vel === target) { d.easeMs = 0; d.slipStep = undefined; }
   return d.vel;
 }
+// Scratching the computer's Mixxx (controller mode): Mixxx is sent how far the platter turns (ticks, as a jog wheel),
+// and works out a speed from them as it goes (a smoothing filter run every millisecond, Mixxx's scratch2); where
+// that leaves it isn't quite where the ticks say (the filter lags at each turn of the hand, and runs late when the
+// computer's busy: a little each stroke, adding up), and nothing checked. So while the record's in the hand, where
+// Mixxx says it is (its position reports) is checked against where it was sent (the ticks, so far): the difference
+// (how far it's slipped) is made up by a few ticks more or fewer, mixed into the hand's own movements (at most
+// SCR_MIX of each, so it's heard as part of the scratch; nothing while the hand's still). The reports come a moment
+// after Mixxx was there: that delay is found from them too (the one that makes the slip steadiest)
+const SCR_MIX = .3, SCR_WIN_MS = 1200, SCR_MAX = 3;
+function scrGrab(d, now) {
+  d.scr = REMOTE.on ? { log: [{ t: now, p: d.pos }], rep: [], sent: 0, slip: null, lag: d.scrLag ?? .08 } : null;
+}
+// where the ticks sent had put the record at time t (track seconds)
+function scrSentAt(c, t) {
+  const L = c.log;
+  if (t <= L[0].t) return L[0].p;
+  for (let i = L.length - 1; i > 0; i--) {
+    if (L[i - 1].t <= t) { const a = L[i - 1], b = L[i]; return b.t > a.t ? a.p + (b.p - a.p) * Math.min(1, (t - a.t) / (b.t - a.t)) : b.p; }
+  }
+  return L[L.length - 1].p;
+}
+// the hand moved the record by `by` (s): what to send, with some of the slip made up
+function scrMove(d, by, now) {
+  const c = d.scr;
+  if (!c) return by;
+  let extra = 0;
+  if (c.slip != null && Math.abs(c.slip) < SCR_MAX) extra = clamp(c.slip - c.sent, -SCR_MIX * Math.abs(by), SCR_MIX * Math.abs(by));
+  c.sent += extra;
+  c.log.push({ t: now, p: d.pos + c.sent });
+  while (c.log.length > 2 && now - c.log[1].t > SCR_WIN_MS + 300) c.log.shift();
+  return by + extra;
+}
+// Mixxx says it's at p (s), now
+function scrReport(d, p, now) {
+  const c = d.scr;
+  if (!c) return;
+  c.rep.push({ t: now, p });
+  while (c.rep.length && now - c.rep[0].t > SCR_WIN_MS) c.rep.shift();
+  if (c.rep.length >= 6) {   // the delay: the one that makes the slip steadiest, when the record's moved enough to tell
+    const sent = c.rep.map(r => scrSentAt(c, r.t - c.lag * 1000));
+    if (Math.max(...sent) - Math.min(...sent) > .05) {
+      let best = c.lag, bv = Infinity;
+      for (let L = 0; L <= .25; L += .01) {
+        const r = c.rep.map(x => scrSentAt(c, x.t - L * 1000) - x.p), m = r.reduce((a, b) => a + b, 0) / r.length;
+        const v = r.reduce((a, b) => a + (b - m) ** 2, 0);
+        if (v < bv) { bv = v; best = L; }
+      }
+      c.lag = d.scrLag = c.lag * .7 + best * .3;
+    }
+  }
+  // the slip: how far Mixxx is short of where the ticks sent (by c.lag before each report) had put it, over the
+  // last few reports (from the grab: it went on a moment past where the hand caught it). Making it up means sending
+  // that much more than the hand moves, in all (c.sent so far; scrMove)
+  const recent = c.rep.filter(r => now - r.t < 250);
+  c.slip = recent.reduce((a, r) => a + scrSentAt(c, r.t - c.lag * 1000) - r.p, 0) / recent.length;
+}
 // Least-squares slope of {t (ms), p (s)} samples, in seconds of track per second.
 function releaseSpeed(xs) {
   if (xs.length < 2 || xs[xs.length - 1].t - xs[0].t < 8) return 0;
@@ -2902,6 +2961,7 @@ function applyCv(name, v, ts) {
         const now = performance.now();
         if (REMOTE.on && d.playing && d.rawT != null) linkGap(now - d.rawT);
         d.rawP = v * d.dur; d.rawT = now;   // (what Mixxx last said, as is: a release on the computer's Mixxx starts from it)
+        if (d.grabbed) scrReport(d, d.rawP, now);
         posUpdate(d, d.rawP, now, ts);
         return;
       }
@@ -3203,7 +3263,8 @@ if (!PHONE) ctlConnect();   // the phone's deck view keeps its own settings
 //   fastest recent ping · js: time inside the hub + mapping · input: touch event -> handler
 // =====================================================================================================
 // Strip touches for the log: [ms into the second, kind, side, value]. d = down (contact size mm),
-// m = move (px), u/c = up/cancel (release speed), o = another touch while a strip is held (where), p = palm.
+// m = move (px), u/c = up/cancel (release speed), o = another touch while a strip is held (where), p = palm,
+// s = controller mode: the slip Mixxx had left to make up at release (ms).
 function latTrace(kind, side, v) {
   if (lat.trace.length < 400) lat.trace.push([Math.round(performance.now() - lat.t0), kind, side, v]);
 }
@@ -3279,6 +3340,7 @@ setInterval(() => {
     touches: active.size, page: sidePage.join("/"), fullscreen: !!document.fullscreenElement, viewport: [innerWidth, innerHeight],
     dpr: devicePixelRatio, decks: [0, 1].map(s => { const d = deckOf(s); return { side: s ? "R" : "L", n: d.n,
       pos: +d.pos.toFixed(3), vel: +(d.vel || 0).toFixed(3), playing: d.playing, grabbed: d.grabbed, coast: !!d.coast,
+      scr: d.scr ? { slip: d.scr.slip == null ? null : +d.scr.slip.toFixed(3), sent: +d.scr.sent.toFixed(3), lag: +d.scr.lag.toFixed(3) } : null,
       tempo: +d.tempo.toFixed(2), ol: d.ol, sync: d.syncMode, loop: d.loopOn ? d.loopSize : 0, vol: +d.vol.toFixed(2) }; }), events: events.slice(-60) });
   frames = 0; moves = 0; lastTele = now;
 }, 250);
