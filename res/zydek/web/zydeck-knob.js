@@ -121,7 +121,7 @@ window.zydeckTouch = function (env) {
   // Two hands can pinch two knobs at once: a finger close to another free knob could be the other hand's first, so it
   // waits PINCH_WAIT_MS for a partner of its own (a hand's two fingers land within ~25 ms of each other) and only then
   // joins the pinch. One finger each on two knobs turns both
-  const PINCH_MM = 35, PINCH_WAIT_MS = 100;
+  const PINCH_MM = 35, PINCH_WAIT_MS = 100, PINCH_CENTRE_MM = 3;
   const pinchOpen = new Set();   // knob gestures with one finger, that a second may join
   let pending = null;            // that finger, while it waits: {pid, at, pick, timer}
   // and a finger on nothing in particular within PINCH_REACH_MM of a knob's centre starts that knob: two fingers round
@@ -284,11 +284,11 @@ window.zydeckTouch = function (env) {
     // where the finger has turned it (st.raw); a knob with a centre (bipolar: EQ, filter, CUE MIX) clicks into the
     // centre, held there within 4° of the knob's 270° either side, with a tick as it lands (or turns straight past)
     const CENTRE_DZ = 4 / 270;
-    const turnTo = (st, raw) => {
+    const turnTo = (st, raw, dz = CENTRE_DZ) => {
       const prev = st.raw ?? st.v;
       st.raw = clamp(raw, 0, 1);
       if (!bipolar) { st.v = st.raw; return; }
-      const centred = Math.abs(st.raw - .5) <= CENTRE_DZ, crossed = (prev - .5) * (st.raw - .5) < 0;
+      const centred = Math.abs(st.raw - .5) <= dz, crossed = (prev - .5) * (st.raw - .5) < 0;
       if ((centred || crossed) && !st.atCentre) tick(el);
       st.atCentre = centred;
       st.v = centred ? .5 : st.raw;
@@ -352,7 +352,10 @@ window.zydeckTouch = function (env) {
             let da = a - st.pa;
             if (da > Math.PI) da -= 2 * Math.PI; else if (da < -Math.PI) da += 2 * Math.PI;
             st.pa = a;
-            turnTo(st, (st.raw ?? st.v) + da / (1.5 * Math.PI));
+            // the centre holds while the far finger moves less than PINCH_CENTRE_MM round the near one (an angle that
+            // depends on the spread), not the 4° of the knob the other gestures have
+            const spread = Math.max(mm(5), Math.hypot(st.p2.x - st.p1.x, st.p2.y - st.p1.y));
+            turnTo(st, (st.raw ?? st.v) + da / (1.5 * Math.PI), mm(PINCH_CENTRE_MM) / spread / (1.5 * Math.PI));
             set(st.v, st.ctx); el.paint(st.v); drawPinch(st.pr, st.cx, st.cy, st.p1, st.p2, st.v);   // (the knob itself as it turns)
           };
           st.join = e2 => {

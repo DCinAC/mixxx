@@ -1148,6 +1148,9 @@ function buildStrip(s, u) {
     // Grab like vinyl: touching holds the record and the waveform under the finger follows it 1:1
     // (the waveform rolls past a fixed cursor, so moving the finger left plays forward).
     down: e => { const d = deckOf(s); d.grabbed = true; d.coast = false; d.vel = 0; d.easeMs = 0; d.slipStep = undefined; u.strip.classList.add("held"); send("scratchOn", d.n);
+      // held, Mixxx stops, and says nothing more until the track moves again: the model of where it is stops here too
+      // (left alone it ran on a quarter of a second past the last report, and the waveform rushed after it on release)
+      posSeed(d, d.pos, 0, performance.now());
       latTrace("d", s, Math.round(Math.max(e.width || 0, e.height || 0) / S.pxmm * 10) / 10);
       return { x: e.clientX, deck: d, w: u.strip.clientWidth, samples: [{ t: performance.now(), p: d.pos }] }; },
     move: (e, st) => {
@@ -2867,7 +2870,12 @@ function flushPaint() {
 }
 const schedulePaint = () => markDirty("all");
 
+// Controller mode: the computer's sound delay (Mixxx's output buffer there), which the waveforms are drawn that much
+// behind; the hub knows only its own device's (0 in controller mode)
+let remoteLat = null;
+const useRemoteLat = () => { if (REMOTE.on && remoteLat != null) { LAT = AUD = remoteLat; ZydeckPos.setLatency(LAT, LAT); } };
 function applyCv(name, v, ts) {
+  if (name === "[App],output_latency_ms") { remoteLat = Math.max(0, v) / 1000; useRemoteLat(); return; }
   const comma = name.indexOf(","), group = name.slice(0, comma), key = name.slice(comma + 1);
   let m;
   if ((m = /^\[Channel(\d)\]$/.exec(group))) {
@@ -2951,6 +2959,7 @@ function subscribeAll() {
     for (const f of ["vol", "gain", "high", "mid", "low", "filter"]) sub.push([...MIXER[f](n), 2]);
   }
   for (const k of Object.values(MAIN)) sub.push([MAIN_GROUP, k, 2]);
+  sub.push(["[App]", "output_latency_ms", 0]);   // (controller mode: the computer's sound delay, useRemoteLat)
   for (let n = 1; n <= samplers.length; n++) sub.push([`[Sampler${n}]`, "sync_enabled", 0], [`[Sampler${n}]`, "keylock", 0]);
   mxSend({ sub });
 }
@@ -2995,6 +3004,7 @@ function liveText() {
 function onRemote(r) {
   const was = REMOTE;
   REMOTE = r;
+  useRemoteLat();
   if (live) topNote.textContent = liveText();
   if (r.on !== was.on || r.http !== was.http || r.computer !== was.computer) loadFxNames();   // (whose effects)
   if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`);
@@ -3048,12 +3058,12 @@ function loadCueLabels(d) {
 }
 
 function onMixxx(m) {
-  if (m.init) { ZydeckMenu.push(m); if (m.init.notice) toast(m.init.notice); LAT = m.init.lat || 0; AUD = m.init.alat ?? LAT; viewMigrate(m.init.loff); ZydeckPos.setLatency(m.init.lat, m.init.vlat); if (m.init.remote) onRemote(m.init.remote); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
+  if (m.init) { ZydeckMenu.push(m); if (m.init.notice) toast(m.init.notice); LAT = m.init.lat || 0; AUD = m.init.alat ?? LAT; viewMigrate(m.init.loff); ZydeckPos.setLatency(m.init.lat, m.init.vlat); if (m.init.remote) onRemote(m.init.remote); useRemoteLat(); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
   if (m.t === "rec") { ZydeckMenu.push(m); return paintRec(m.r); }
   if (m.t === "remote") { ZydeckMenu.push(m); return onRemote(m); }
   if (m.t === "opt" || m.t === "dc" || m.t === "offer") return ZydeckMenu.push(m);
   if (m.t === "cuelbl") { decks.forEach(d => { if (d.loaded !== false) loadCueLabels(d); }); return; }   // hot cues edited (the phone's library, a pad)
-  if (m.t === "lat") { LAT = m.s || 0; AUD = m.a ?? LAT; ZydeckPos.setLatency(m.s, m.v); return; }
+  if (m.t === "lat") { LAT = m.s || 0; AUD = m.a ?? LAT; ZydeckPos.setLatency(m.s, m.v); useRemoteLat(); return; }
   if (!live) return;
   const d = m.d !== undefined ? decks[m.d] : null;
   switch (m.t) {
