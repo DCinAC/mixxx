@@ -46,6 +46,7 @@ class Core : public QObject {
 
     struct Device {
         QString name, how;            // how: "Wi-Fi" or "USB cable"
+        QString address;              // over Wi-Fi, its IPv4 address (the one the network search finds it at)
         qint64 lastIn = 0, lastOut = 0;   // when MIDI last came from it / went to it (ms since the epoch)
     };
     /// Linked over Wi-Fi, or said hello over a cable in the last 10 s; in the order they came (their rack slots).
@@ -67,7 +68,7 @@ class Core : public QObject {
     void http(QTcpSocket* s, const QByteArray& request);
     void fromMixxx(const QByteArray& msg);
     QJsonObject nameReply(const QJsonObject& ask);
-    void seen(const QString& device, const QString& how);
+    void seen(const QString& device, const QString& how, const QString& address = {});
 
     QString m_name, m_key;
     Library m_library;
@@ -79,6 +80,7 @@ class Core : public QObject {
     struct Seen {
         QString how;
         qint64 at, first, lastIn = 0, lastOut = 0;
+        QString address;
     };
     void activity(const QString& device, bool in);
     QHash<QString, Seen> m_seen;

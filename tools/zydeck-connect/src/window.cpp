@@ -519,13 +519,21 @@ void Window::refresh() {
             m_pairSlot = -1;
         }
     }
-    // ZyDecks found on the network and not linked: the free slots, in the order they turned up
+    // ZyDecks found on the network and not linked: the free slots, in the order they turned up. A linked one is the
+    // same device when it's at the same address (the search finds it by its marketing name, "OnePlus 13"; linked, it
+    // says its model, "CPH2653")
     m_foundIn.clear();
     {
+        QSet<QString> linkedAt;
+        for (const Core::Device& d : devices) {
+            if (!d.address.isEmpty()) {
+                linkedAt.insert(d.address);
+            }
+        }
         const QList<int> taken = m_slotOf.values();
         int slot = 0;
         for (const Discovery::Found& f : m_discovery->found()) {
-            if (m_slotOf.contains(f.name)) {
+            if (m_slotOf.contains(f.name) || linkedAt.contains(f.address)) {
                 continue;   // (linked already)
             }
             while (slot < 4 && (taken.contains(slot) || slot == m_pairSlot)) {

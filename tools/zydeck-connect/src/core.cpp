@@ -1,6 +1,7 @@
 #include "core.h"
 
 #include <QDateTime>
+#include <QHostAddress>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -159,17 +160,18 @@ QList<Core::Device> Core::devices() const {
                 ++i;
             }
             order.insert(i, it->first);
-            out.insert(i, {it.key(), it->how, it->lastIn, it->lastOut});
+            out.insert(i, {it.key(), it->how, it->address, it->lastIn, it->lastOut});
         }
     }
     return out;
 }
 
-void Core::seen(const QString& device, const QString& how) {
+void Core::seen(const QString& device, const QString& how, const QString& address) {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const auto it = m_seen.constFind(device);
-    const bool fresh = it == m_seen.cend() || it->how != how;
-    m_seen.insert(device, {how, now, it == m_seen.cend() ? ++m_arrivals : it->first, now, it == m_seen.cend() ? 0 : it->lastOut});
+    const bool fresh = it == m_seen.cend() || it->how != how || (!address.isEmpty() && it->address != address);
+    m_seen.insert(device, {how, now, it == m_seen.cend() ? ++m_arrivals : it->first, now, it == m_seen.cend() ? 0 : it->lastOut,
+                                  address.isEmpty() && it != m_seen.cend() ? it->address : address});
     if (fresh) {
         emit changed();
     }
@@ -295,7 +297,9 @@ void Core::line(QTcpSocket* s, Client& c, const QByteArray& l) {
         }
         c.linked = true;
         s->write("OK " + m_name.toUtf8().toHex() + '\n');
-        seen(c.device, tr("Wi-Fi"));
+        bool v4 = false;   // (as the network search has it: a plain IPv4 address, not IPv6's ::ffff: form)
+        const quint32 ip = s->peerAddress().toIPv4Address(&v4);
+        seen(c.device, tr("Wi-Fi"), v4 ? QHostAddress(ip).toString() : s->peerAddress().toString());
         return;
     }
     if (l.startsWith("M ")) {
