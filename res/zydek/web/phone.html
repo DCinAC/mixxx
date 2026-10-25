@@ -53,9 +53,15 @@
   .endwarn { position: absolute; inset: 0; pointer-events: none; opacity: 0; will-change: opacity; z-index: 2;
     background: rgba(255, 70, 165, .26); box-shadow: inset 0 0 0 2px rgba(255, 95, 175, .9); border-radius: inherit; }
   .dk.ending .endwarn { animation: endwarn 1s step-end infinite; }
-  .dk.ending .row .tm, .dk.ending .row .tm7 .s7 .on { animation: endtime 1s step-end infinite; }   /* (Hardware: the lit segments only, the dark ones stay as they are) */
+  .dk.ending .row .tm { animation: endtime 1s step-end infinite; }
   @keyframes endwarn { 0% { opacity: 1; } 70%, 100% { opacity: 0; } }
   @keyframes endtime { 0% { opacity: 1; } 70%, 100% { opacity: .1; } }
+  /* Hardware: one clock for the readout (a property its lit segments follow), so a segment that lights as the time
+     counts down blinks in step with the rest instead of starting its own; the dark ones stay as they are */
+  @property --tlit { syntax: "<number>"; inherits: true; initial-value: 1; }
+  .dk.ending .row .tm7 { animation: endtime7 1s step-end infinite; }
+  @keyframes endtime7 { 0% { --tlit: 1; } 70%, 100% { --tlit: .1; } }
+  .dk .row .tm7 .s7 .on { opacity: var(--tlit); }
   .zoom .cur { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: var(--acc); }
   .zoom .played { position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background: rgba(0,0,0,.45); }
   #deckbar { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--dim); }
