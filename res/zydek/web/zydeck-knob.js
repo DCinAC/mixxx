@@ -363,7 +363,7 @@ window.zydeckTouch = function (env) {
             const arcs = st.arcs ??= [];
             arcs.push([now, st.arc]);
             while (arcs.length > 2 && now - arcs[1][0] >= PINCH_SPEED_MS) arcs.shift();
-            const speed = now - arcs[0][0] >= 20 ? Math.abs(st.arc - arcs[0][1]) / ((now - arcs[0][0]) / 1000) : 0;
+            const speed = now - arcs[0][0] >= 8 ? Math.abs(st.arc - arcs[0][1]) / ((now - arcs[0][0]) / 1000) : 0;
             const fast = clamp((speed - PINCH_SLOW_MMS) / (PINCH_FAST_MMS - PINCH_SLOW_MMS), 0, 1);
             const hold = PINCH_CENTRE_MM + (PINCH_CENTRE_FAST_MM - PINCH_CENTRE_MM) * fast;
             turnTo(st, (st.raw ?? st.v) + da / (1.5 * Math.PI), mm(hold) / spread / (1.5 * Math.PI));
