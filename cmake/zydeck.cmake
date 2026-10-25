@@ -10,5 +10,6 @@ target_sources(
     src/zydeck/sidechaineffect.cpp
     src/zydeck/effectlist.cpp
     src/zydeck/decklist.cpp
+    src/zydeck/prefetch.cpp
 )
 target_compile_definitions(mixxx-lib PUBLIC __ZYDECK__)

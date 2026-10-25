@@ -22,7 +22,8 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
   kept up to date; ZyDeck Connect hands it to a phone or tablet so its FX menu shows this Mixxx's effects by name.
 - **Network music folders without dropouts**: each deck reads about 6 s ahead of the play head instead of ~0.4 s
   (and keeps 16 MB of it instead of 5 MB), so a NAS that stalls for a moment doesn't cut the sound. The audio
-  buffer, and with it the latency, stays as set.
+  buffer, and with it the latency, stays as set. And a track that loads from a network drive is read whole once, in
+  the background, so the computer keeps it in memory and the deck's reads during the set don't wait on the network.
 - **What's on the decks, for ZyDeck**: `zydeck-decks.json` beside it, each deck's and sampler's track (id, title,
   artist, length) as it loads, so ZyDeck Connect names the track a phone or tablet sees by what's really there.
 - **ZyDeck connectivity** (to come): the same hub as the Android app, so a tablet or phone talks to Mixxx directly:

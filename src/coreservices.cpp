@@ -4,6 +4,7 @@
 #ifdef __ZYDECK__   // ZyDeck
 #include "zydeck/decklist.h"
 #include "zydeck/effectlist.h"
+#include "zydeck/prefetch.h"
 #endif
 #include <QFileDialog>
 #include <QProcess>
@@ -598,6 +599,7 @@ void CoreServices::initialize(QApplication* pApp) {
 #ifdef __ZYDECK__   // ZyDeck: the effects list, for a phone or tablet driving this Mixxx (zydeck/effectlist.h)
     zydeck::watchEffectList(m_pEffectsManager, pConfig);
     zydeck::watchDecks(pConfig);   // (what's on each deck, likewise: zydeck/decklist.h)
+    zydeck::prefetchNetworkTracks();   // (a track from a NAS read whole as it loads: zydeck/prefetch.h)
 #endif
 
 #ifdef __VINYLCONTROL__
