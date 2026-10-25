@@ -3,6 +3,8 @@
 // cable. RtMidi's callbacks come on its own threads: what they find goes out as signals (queued to the receiver).
 
 #include <QByteArray>
+#include <QElapsedTimer>
+#include <QList>
 #include <QHash>
 #include <QJsonObject>
 #include <QMutex>
@@ -45,6 +47,19 @@ class Midi : public QObject {
 
   private:
     void watch();
+    // Pacing what goes into Mixxx. Mixxx reads its MIDI input in turns, into a buffer of 1024 events (4 bytes of
+    // SysEx each), and drops what doesn't fit ("PortMidi: Buffer overflow"): both devices' subscriptions as they link,
+    // or the backlog a Wi-Fi stall lets go all at once. Up to kBurst events go straight out (ordinary playing never
+    // gets near it, so it adds no delay); past that the rest waits and goes at kRate a millisecond, a waiting control
+    // value replaced by a newer one for the same control (button presses, jog ticks and the rest keep their order)
+    void sendNow(const QByteArray& msg);   // (lock held)
+    void refill();                         // (lock held)
+    void drain();
+    QList<QByteArray> m_queue;
+    double m_tokens = 0;
+    qint64 m_tokensAtNs = -1;
+    QElapsedTimer m_clock;
+    QTimer m_pace;
 
     struct Cable;
     mutable QMutex m_mutex;

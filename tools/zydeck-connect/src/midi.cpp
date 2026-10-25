@@ -3,6 +3,8 @@
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include "RtMidi.h"
@@ -81,6 +83,10 @@ struct Midi::Cable {
 
 Midi::Midi(QObject* parent)
         : QObject(parent) {
+    m_clock.start();
+    m_pace.setInterval(1);
+    m_pace.setTimerType(Qt::PreciseTimer);
+    connect(&m_pace, &QTimer::timeout, this, &Midi::drain);
 #ifdef Q_OS_WIN
     QLibrary lib(sizeof(void*) == 8 ? QStringLiteral("teVirtualMIDI64") : QStringLiteral("teVirtualMIDI"));
     auto create = reinterpret_cast<CreatePort>(lib.resolve("virtualMIDICreatePortEx2"));
@@ -146,8 +152,64 @@ void Midi::fromMixxxRaw(const QByteArray& msg) {
     emit fromMixxx(msg);   // (queued to the main thread)
 }
 
+namespace {
+constexpr double kBurst = 512;   // events at once: half of Mixxx's input buffer
+constexpr double kRate = 16;     // events a millisecond after that (64 kB/s: thousands of control values a second)
+// how much of Mixxx's buffer a message takes: a SysEx 4 bytes an event, anything else one
+double events(const QByteArray& msg) {
+    return std::min(kBurst, msg.size() > 3 ? std::ceil(msg.size() / 4.0) : 1.0);
+}
+// a control's value (the mapping's "set": F0 7D 50 <param> <name> 00 <value> F7): the control it's for, else ""
+QByteArray setKey(const QByteArray& msg) {
+    if (msg.size() < 6 || static_cast<quint8>(msg[0]) != 0xF0 || msg[1] != 0x7D || msg[2] != 0x50) {
+        return {};
+    }
+    const qsizetype end = msg.indexOf('\0', 4);
+    return end > 4 ? msg.left(end) : QByteArray();
+}
+} // namespace
+
+void Midi::refill() {
+    const qint64 now = m_clock.nsecsElapsed();
+    m_tokens = m_tokensAtNs < 0 ? kBurst : std::min(kBurst, m_tokens + (now - m_tokensAtNs) / 1e6 * kRate);
+    m_tokensAtNs = now;
+}
+
 void Midi::toMixxx(const QByteArray& msg) {
     QMutexLocker lock(&m_mutex);
+    refill();
+    if (m_queue.isEmpty() && m_tokens >= events(msg)) {
+        m_tokens -= events(msg);
+        sendNow(msg);
+        return;
+    }
+    if (const QByteArray key = setKey(msg); !key.isEmpty()) {
+        for (QByteArray& waiting : m_queue) {
+            if (setKey(waiting) == key) {
+                waiting = msg;   // (the control's newest value, where its first one was waiting)
+                return;
+            }
+        }
+    }
+    m_queue.append(msg);
+    if (m_queue.size() == 1) {
+        QMetaObject::invokeMethod(&m_pace, qOverload<>(&QTimer::start), Qt::QueuedConnection);
+    }
+}
+
+void Midi::drain() {
+    QMutexLocker lock(&m_mutex);
+    refill();
+    while (!m_queue.isEmpty() && m_tokens >= events(m_queue.first())) {
+        m_tokens -= events(m_queue.first());
+        sendNow(m_queue.takeFirst());
+    }
+    if (m_queue.isEmpty()) {
+        m_pace.stop();
+    }
+}
+
+void Midi::sendNow(const QByteArray& msg) {
 #ifdef Q_OS_WIN
     if (m_winPort && s_send) {
         s_send(m_winPort, reinterpret_cast<LPBYTE>(const_cast<char*>(msg.constData())), static_cast<DWORD>(msg.size()));
