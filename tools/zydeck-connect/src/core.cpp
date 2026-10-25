@@ -4,6 +4,7 @@
 #include <QHostAddress>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QNetworkInterface>
@@ -14,11 +15,13 @@
 #include <QStandardPaths>
 #include <QSysInfo>
 #include <QTcpSocket>
+#include <QThread>
 #include <QThreadPool>
 #include <QTimer>
 #include <QUdpSocket>
 #include <QUrl>
 #include <QUrlQuery>
+#include <cmath>
 
 namespace zc {
 
@@ -184,9 +187,29 @@ void Core::activity(const QString& device, bool in) {
     }
 }
 
+// What's on a deck: Mixxx ZyDeck says exactly (zydeck-decks.json, which it writes as a track loads: a moment's wait
+// for it); plain Mixxx only tells the track's length, which the library is searched for
 QJsonObject Core::nameReply(const QJsonObject& ask) {
     const qint64 ms = static_cast<qint64>(ask.value(QStringLiteral("ms")).toDouble());
-    const QJsonObject n = ms > 0 ? m_library.name(ms) : QJsonObject();
+    const bool sampler = ask.value(QStringLiteral("s")).toBool();
+    const QString group = (sampler ? QStringLiteral("[Sampler%1]") : QStringLiteral("[Channel%1]")).arg(ask.value(QStringLiteral("i")).toInt() + 1);
+    QJsonObject n;
+    const QString decks = mixxxDir() + QStringLiteral("/zydeck-decks.json");
+    for (int attempt = 0; ms > 0 && n.isEmpty() && QFileInfo::exists(decks) && attempt < 8; ++attempt) {
+        QFile f(decks);
+        if (f.open(QIODevice::ReadOnly)) {
+            const QJsonObject t = QJsonDocument::fromJson(f.readAll()).object().value(group).toObject();
+            if (!t.isEmpty() && std::abs(t.value(QStringLiteral("seconds")).toDouble() * 1000 - ms) <= 1000) {   // (that track, not the one before)
+                n = {{"t", t.value(QStringLiteral("title")).toString()}, {"a", t.value(QStringLiteral("artist")).toString()},
+                        {"id", t.value(QStringLiteral("id")).toInt()}};
+                break;
+            }
+        }
+        QThread::msleep(250);
+    }
+    if (n.isEmpty() && ms > 0) {
+        n = m_library.name(ms);
+    }
     return {{"s", ask.value(QStringLiteral("s")).toBool()}, {"i", ask.value(QStringLiteral("i")).toInt()},
             {"n", n.isEmpty() ? QJsonValue() : QJsonValue(n)}};
 }

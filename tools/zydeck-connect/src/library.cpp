@@ -360,15 +360,22 @@ QJsonObject Library::name(qint64 ms) {
             if (attempt || QDateTime::currentMSecsSinceEpoch() - m_loadedMs > 5000) {
                 load();   // a track added a moment ago
             }
+            // Mixxx tells the length to the millisecond, as the library has it: a track within 60 ms, the nearest;
+            // further off (a file whose length Mixxx measured again), only one that nothing else comes near. Better
+            // no name than another track's (and its waveform)
             double gap = 1e18;
+            int near = 0;
             for (const Row& r : m_rows) {
                 const double g = std::abs(r.seconds * 1000 - ms);
+                if (g <= 1000) {
+                    ++near;
+                }
                 if (g < gap) {
                     gap = g;
                     best = &r;
                 }
             }
-            if (best && gap <= 1000) {
+            if (best && (gap <= 60 || (gap <= 1000 && near == 1))) {
                 found = *best;
             } else {
                 best = nullptr;
