@@ -33,7 +33,11 @@ constexpr SINT kDefaultHintFrames = 1024;
 // (kNumberOfCachedChunksInMemory = 1, 2, 3, ...) for testing purposes
 // to verify that the MRU/LRU cache works as expected. Even though
 // massive drop outs are expected to occur Mixxx should run reliably!
+#ifdef __ZYDECK__   // ZyDeck: room for the ~6 s read ahead (readaheadmanager.cpp) besides the rest: 16 MB a deck
+constexpr SINT kNumberOfCachedChunksInMemory = 256;
+#else
 constexpr SINT kNumberOfCachedChunksInMemory = 80;
+#endif
 
 } // anonymous namespace
 

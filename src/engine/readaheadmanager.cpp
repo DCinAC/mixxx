@@ -289,7 +289,11 @@ void ReadAheadManager::hintReader(double dRate,
 
     // SoundTouch can read up to 2 chunks ahead. Always keep 2 chunks ahead in
     // cache.
+#ifdef __ZYDECK__   // ZyDeck: ~6 s ahead (32 chunks), so a music folder on the network can stall that long without a dropout
+    SINT frameCountToCache = 32 * CachingReaderChunk::kFrames;
+#else
     SINT frameCountToCache = 2 * CachingReaderChunk::kFrames;
+#endif
     current_position.frameCount = frameCountToCache;
 
     // this called after the precious chunk was consumed
