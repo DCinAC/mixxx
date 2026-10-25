@@ -324,7 +324,7 @@
     { id: "autofs", sec: "screen", name: "Fullscreen on first touch", kind: "toggle", ...C("autoFs", true), show: () => ctl() && !ctl().phone && !inApp(),
       desc: "In a browser: the first touch goes fullscreen." },
     { id: "endwarn", sec: "screen", name: "Track end warning light", kind: "toggle", ...C("endWarn", true), show: () => !!ctl(),
-      desc: "In a playing track's last 30 seconds, its waveform flashes pink, as Mixxx's overview does; the time left blinks with it." },
+      desc: "In a playing track's last 30 seconds, its waveform flashes pink, as Mixxx's overview does (on the phone's library the time left blinks with it)." },
     { id: "padbeat", sec: "screen", name: "Pad mode light keeps the beat", kind: "toggle", ...C("padBeat", true), show: () => !!ctl(),
       desc: "While the deck plays, the chosen pad mode's light flashes with the beat: lit on each beat, dark half way to the next." },
     { id: "knobsize", sec: "screen", name: "Mixer knob size", kind: "slider", min: 9, max: 18, step: .5, ...C("knobSize", 10.5), show: () => !!ctl(),

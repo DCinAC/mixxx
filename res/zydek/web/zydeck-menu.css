@@ -295,5 +295,7 @@
 .zm-ask b { font-size: 18px; }
 .zm-ask p { margin: 0; color: #cfcfcf; overflow-wrap: anywhere; }
 .zm-ask .acts { display: flex; gap: 10px; margin-top: 4px; }
-.zm-ask button { flex: 1; min-height: 48px; font: 600 15px system-ui, "Roboto", sans-serif; color: #ddd; background: #1c1c1c; border: 1px solid #343434; border-radius: 12px; }
-.zm-ask .yes { border-color: #3ddc84; color: #3ddc84; }
+/* (Element's look whatever Menu UI says: a question from the system reads as one; the keys' edges plain to see) */
+.zm-ask button { flex: 1; min-height: 48px; font: 600 15px system-ui, "Roboto", sans-serif; color: #e6e6e6; background: #222; border: 1.5px solid #5c5c5c; border-radius: 12px; }
+.zm-ask button:active { background: #2c2c2c; }
+.zm-ask .yes { border-color: #3ddc84; color: #3ddc84; background: #15241b; }

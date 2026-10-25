@@ -48,11 +48,14 @@
   .needle .ph { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; left: 0; will-change: transform; }
   .zoom { position: relative; height: 40px; margin-top: 3px; border-radius: 4px; background: #101010; overflow: hidden; }
   /* the track end warning light (the deck view's Settings › Screen): a playing track's last 30 s, its waveforms flash
-     pink with the beat; a layer's opacity, nothing drawn again */
+     pink, and the time left with them: once a second, lit for 70 % of it (the time left at 10 % for the rest); in
+     Hardware only the digits, the colon being printed on the panel. A layer's opacity, nothing drawn again */
   .endwarn { position: absolute; inset: 0; pointer-events: none; opacity: 0; will-change: opacity; z-index: 2;
     background: rgba(255, 70, 165, .26); box-shadow: inset 0 0 0 2px rgba(255, 95, 175, .9); border-radius: inherit; }
-  /* (its flash, and the time left's, set each frame by the beat: ZydeckPos.endFlash; in Hardware only the digits blink,
-     the colon is printed on the panel) */
+  .dk.ending .endwarn { animation: endwarn 1s step-end infinite; }
+  .dk.ending .row .tm, .dk.ending .row .tm7 .s7 { animation: endtime 1s step-end infinite; }
+  @keyframes endwarn { 0% { opacity: 1; } 70%, 100% { opacity: 0; } }
+  @keyframes endtime { 0% { opacity: 1; } 70%, 100% { opacity: .1; } }
   .zoom .cur { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: var(--acc); }
   .zoom .played { position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background: rgba(0,0,0,.45); }
   #deckbar { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--dim); }
@@ -499,7 +502,7 @@
   #ask .chk input { width: 22px; height: 22px; margin: 1px 0 0; accent-color: var(--err); flex: none; }
   #ask .chk small { display: block; color: var(--dim); font-size: 13px; margin-top: 3px; }
   #ask .acts { display: flex; gap: 10px; }
-  #ask .acts button { flex: 1; min-height: 48px; font-size: 15px; font-weight: 600; }
+  #ask .acts button { flex: 1; min-height: 48px; font-size: 15px; font-weight: 600; background: #222; border: 1.5px solid #5c5c5c; }
   #ask .yes { border-color: var(--err); color: var(--err); }
   #ask .yes.danger { background: var(--err); color: #fff; }
 
@@ -944,7 +947,7 @@ const panels = [0, 1, 2, 3].map(k => {
     `<span class="tm7 hw7"><span class="s7"></span><span class="silk">:</span><span class="s7"></span></span></div>` +
     `<div class="needle"><canvas></canvas><div class="ph"></div><div class="endwarn"></div></div>` +
     `<div class="zoom"><canvas></canvas><div class="played"></div><div class="cur"></div><div class="endwarn"></div></div></div>`;
-  const p = { k, el, root: el.firstChild, num: el.querySelector("b"), title: el.querySelector(".t"), time: el.querySelector(".tm"), time7: el.querySelectorAll(".tm7 .s7"), warns: el.querySelectorAll(".endwarn"),
+  const p = { k, el, root: el.firstChild, num: el.querySelector("b"), title: el.querySelector(".t"), time: el.querySelector(".tm"), time7: el.querySelectorAll(".tm7 .s7"),
     needle: el.querySelector(".needle"), nCanvas: el.querySelector(".needle canvas"), ph: el.querySelector(".ph"),
     zCanvas: el.querySelector(".zoom canvas"), tiles: new Map() };
   // Needle search: touch anywhere on the bar to jump there; drag to keep seeking.
@@ -1295,10 +1298,6 @@ function frame(now) {
     const ending = ctlSettings().endWarn !== false && d.loaded && d.playing && d.dur > 0 && d.pos < d.dur &&
       (d.dur - d.pos) / (d.ratio || 1) < END_WARN_S;
     p.root.className = `dk${d.n > 2 ? " d34" : ""}${d.loaded ? "" : " empty"}${d.playing ? " playing" : ""}${ending ? " ending" : ""}`;
-    const fl = ending ? ZydeckPos.endFlash(d.beats, d.bar, d.bpm, d.ratio, d.pos) : { time: 1, pink: 0 };
-    const tOp = fl.time === 1 ? "" : String(fl.time), pOp = fl.pink.toFixed(2);
-    if (p._tOp !== tOp) { p._tOp = tOp; p.time.style.opacity = tOp; p.time7.forEach(s => s.style.opacity = tOp); }
-    if (p._pOp !== pOp) { p._pOp = pOp; p.warns.forEach(w => w.style.opacity = pOp); }
     p.num.textContent = d.n;
     const title = d.loaded ? (d.title || "Loaded") + (d.artist ? " · " + d.artist : "") : "Empty";
     if (p.title.textContent !== title) p.title.textContent = title;
