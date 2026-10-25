@@ -8,6 +8,7 @@
 <link rel="manifest" href="/controller.webmanifest">
 <link rel="stylesheet" href="/zydeck-menu.css">
 <link rel="stylesheet" href="/zydeck-skin-d.css">
+<script src="/zydeck-key.js"></script>
 <script src="/zydeck-menu.js"></script>
 <script src="/zydeck-position.js"></script>
 <script src="/zydeck-knob.js"></script>
@@ -507,7 +508,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true };
 const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
@@ -527,6 +528,7 @@ function migrateSettings(o) {
   if (!o.knobV2) { o.knobMode = "drag"; o.knobV2 = 1; }
   if (o.knobMode !== "spin" && o.knobMode !== "pinch") o.knobMode = "drag";
   if (!o.knobV3) { if (o.knobSize === 8.5) o.knobSize = 10.5; o.knobV3 = 1; }
+  if (!o.telemetryAsked) o.telemetry = false;   // (telemetry only once you've said yes: askTelemetry)
   return before !== o.knobMode || !o.knobV2 || size !== o.knobSize;
 }
 migrateSettings(S);
@@ -1054,7 +1056,7 @@ function openGrid(s) {
   document.getElementById("gridview")?.remove();
   const f = document.createElement("iframe");
   f.id = "gridview";
-  f.src = `${HUB_ELSEWHERE ? HUB : ""}/grid?group=${encodeURIComponent(ch(d.n))}&track=${d.beatsFor}&view=${S.viewOffset || 0}${LINKED ? "&dev=1" : ""}`;
+  f.src = (window.zydeckKeyed || (u => u))(`${HUB_ELSEWHERE ? HUB : ""}/grid?group=${encodeURIComponent(ch(d.n))}&track=${d.beatsFor}&view=${S.viewOffset || 0}${LINKED ? "&dev=1" : ""}`);
   document.body.appendChild(f);
 }
 addEventListener("message", e => {
@@ -3134,7 +3136,7 @@ addEventListener("pointermove", latInput, { capture: true, passive: true });
 let latLoopT = performance.now();
 setInterval(() => { const now = performance.now(); lat.loopMax = Math.max(lat.loopMax, now - latLoopT - 50); latLoopT = now; }, 50);
 setInterval(() => {
-  if (!(+S.pingHz > 0) || document.hidden) return;
+  if (!(+S.pingHz > 0) || document.hidden || !sharing()) return;
   ctlSend({ type: "latency", n: lat.rtt.length, rtt: latStats(lat.rtt), up: latStats(lat.up), down: latStats(lat.down),
     js: latStats(lat.js), lost: lat.lost, direct: lat.direct, input: latStats(lat.input), frameMax: Math.round(lat.frameMax),
     loopMax: Math.round(lat.loopMax), bufMax: lat.bufMax, sends: lat.sends, touches: active.size, page: sidePage.join("/"), live,
@@ -3142,12 +3144,23 @@ setInterval(() => {
   Object.assign(lat, { trace: [], t0: performance.now(), rtt: [], up: [], down: [], js: [], spikes: [], lost: 0, direct: 0, input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0 });
 }, 1000);
 
-// Telemetry for the Mac's debug view, 4 times a second.
+// Telemetry for the Mac's debug view, 4 times a second, and the latency summaries and debug probes: only once you've
+// said yes (askTelemetry, or Settings › Developer › Telemetry). What goes: frame rate, touch counts and timing, the
+// decks' position, tempo and controls, and the controls you press; no track names, library or anything personal.
+const sharing = () => S.telemetry === true && S.telemetryAsked === true;
+function askTelemetry() {
+  if (PHONE || S.telemetryAsked || !window.ZydeckMenu?.ask || document.querySelector(".zm-ask")) return;
+  ZydeckMenu.ask("Help make ZyDeck better?", [
+    "Share performance data with ZyDeck's debug tools when one is connected on your network: frame rate, touch timing and the decks' state (position, tempo, the controls you press).",
+    "It has no track names, no library and nothing personal. You can change this in Settings › Developer › Telemetry."], "Share it", "No thanks")
+    .then(yes => { S.telemetryAsked = true; S.telemetry = yes; saveSettings(); ZydeckMenu.refresh(); });
+}
+setTimeout(askTelemetry, 8000);
 let moves = 0, lastTele = performance.now(), sentUpTo = 0;
 addEventListener("pointermove", () => moves++, true);
 setInterval(() => {
   const now = performance.now(), secs = (now - lastTele) / 1000;
-  if (!S.telemetry) { frames = 0; moves = 0; lastTele = now; if (eventLog.length) sentUpTo = eventLog[eventLog.length - 1][0]; return; }
+  if (!sharing()) { frames = 0; moves = 0; lastTele = now; if (eventLog.length) sentUpTo = eventLog[eventLog.length - 1][0]; return; }
   const events = eventLog.filter(e => e[0] > sentUpTo);
   if (eventLog.length) sentUpTo = eventLog[eventLog.length - 1][0];
   ctlSend({ type: "telemetry", t: Date.now(), fps: Math.round(frames / secs), moves: Math.round(moves / secs),
@@ -3167,6 +3180,7 @@ function onProbe(p) {
   if (probeSeen === undefined) { probeSeen = p ? p.id : null; return; }
   if (!p || p.id === probeSeen) return;
   probeSeen = p.id;
+  if (!sharing()) return;   // (probes are telemetry too)
   if (p.kind === "reload") location.reload();
   else if (p.kind === "bench") runBench(p).catch(err => ctlSend({ type: "telemetry", probe: { kind: "bench", id: p.id, error: String(err) } }));
   else if (p.kind === "trace") armTrace(p);

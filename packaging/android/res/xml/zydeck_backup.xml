@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ZyDeck: what Android's backups leave out (Android 11 and older; zydeck_data_extraction.xml after): the keys and
+     logins. The library, settings and kits are backed up as before. -->
+<full-backup-content>
+    <exclude domain="file" path="zydeck-paired.json" />           <!-- the devices allowed to control this one -->
+    <exclude domain="file" path="zydek-controller-mode.json" />   <!-- ZyDeck Connect's pairing key -->
+    <exclude domain="file" path="zydek-web.json" />               <!-- the stem server's address and token -->
+    <exclude domain="file" path="broadcast_profiles/" />          <!-- Live Broadcasting's passwords and stream keys -->
+    <exclude domain="root" path="app_webview/" />                 <!-- Bilibili's login cookies, other devices' keys -->
+</full-backup-content>

@@ -12,7 +12,6 @@
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"  />
-    <uses-permission android:name="android.permission.RECORD_AUDIO"  />
     <uses-permission android:name="android.permission.USB_PERMISSION"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!-- Zydek: the library analysis keeps running in the background, with its progress in a notification -->
@@ -20,7 +19,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"  />
+    <!-- (Android 10 and older: Android 11 on, All files access or the music permission above) -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
 
     <supports-screens
         android:anyDensity="true"
@@ -42,6 +42,8 @@
         android:theme="@style/ZydekTheme"
         android:requestLegacyExternalStorage="true"
         android:allowBackup="true"
+        android:fullBackupContent="@xml/zydeck_backup"
+        android:dataExtractionRules="@xml/zydeck_data_extraction"
         android:debuggable="true"
         android:usesCleartextTraffic="true"
         tools:ignore="HardcodedDebugMode"

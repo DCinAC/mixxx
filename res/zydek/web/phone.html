@@ -2103,6 +2103,9 @@ const storageNow = () => {
   return !bridge ? "all" : bridge.storageAccess ? bridge.storageAccess() : bridge.hasAllFilesAccess() ? "all" : "none";
 };
 const canPick = () => !!window.ZydekAndroid?.pickFolder && storageNow() !== "all";
+// Folders picked but the music permission refused: Android lets ZyDeck into them, yet Mixxx reads files by their
+// path, which takes that permission too (checkPermission says so, with the way to allow it)
+let foldersKnown = 0;
 function checkPermission() {
   const access = storageNow();
   ["#perm", "#perm-lib"].forEach(id => {
@@ -2110,6 +2113,13 @@ function checkPermission() {
     const show = access === "none";
     el.classList.toggle("on", show); el.classList.remove("audio");
     if (!show) return;
+    if (foldersKnown && window.ZydekAndroid?.requestMusicAccess) {
+      el.innerHTML = `<b>ZyDeck has your music folders, but can't open the files in them.</b> Mixxx opens tracks by their ` +
+        `place on the phone, which takes Android's music permission as well: allow "Music and audio" and the tracks show up. ` +
+        `It covers audio files only, and ZyDeck never changes or uploads them.<div class="row"><button class="pick">Allow music access</button></div>`;
+      el.querySelector(".pick").addEventListener("click", () => window.ZydekAndroid.requestMusicAccess());
+      return;
+    }
     el.innerHTML = `<b>ZyDeck can't read your music yet.</b> Choose the folders your music is in: ZyDeck sees those and ` +
       `nothing else, and never changes or uploads your files.<div class="row"><button class="pick">Choose a music folder</button></div>`;
     el.querySelector(".pick").addEventListener("click", addFolder);
@@ -2134,10 +2144,12 @@ function addFolder() {
 }
 window.zydekStorage = () => { checkPermission(); loadTracks(); };
 checkPermission();
+api("/api/folders").then(l => { foldersKnown = l.length; checkPermission(); }).catch(() => {});
 async function loadFolders() {
   checkPermission();
   let list;
   try { list = await api("/api/folders"); } catch (e) { $("#folders").innerHTML = `<div class="note err">${esc(e.message)}</div>`; return; }
+  if (foldersKnown !== list.length) { foldersKnown = list.length; checkPermission(); }
   const box = $("#folders"); box.innerHTML = "";
   // with more than one folder, each can be taken out (its tracks are hidden, keeping their cues and grids)
   list.forEach(f => {

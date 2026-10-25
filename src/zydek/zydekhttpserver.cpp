@@ -1,6 +1,7 @@
 #include "zydek/zydekhttpserver.h"
 
 #include <QCryptographicHash>
+#include <QHostAddress>
 #include <QTcpSocket>
 #include <QUrl>
 #include <QUrlQuery>
@@ -128,6 +129,13 @@ void HttpServer::handleRequest(QTcpSocket* pSocket, Connection& conn) {
     for (const auto& item : QUrlQuery(url).queryItems(QUrl::FullyDecoded)) {
         query.insert(item.first, item.second);
     }
+    // where it came from: this device (loopback, IPv4 or IPv6) or another one
+    const QHostAddress peer = pSocket->peerAddress();
+    bool v4 = false;
+    const quint32 ip = peer.toIPv4Address(&v4);
+    const bool local = peer.isLoopback() || (v4 && (ip >> 24) == 127);
+    query.insert(QStringLiteral("_local"), local ? QStringLiteral("1") : QStringLiteral("0"));
+    query.insert(QStringLiteral("_peer"), v4 ? QHostAddress(ip).toString() : peer.toString());
 
     // A ZyDeck page served by another device's own server (Link devices: its version of the page, talking to
     // this hub) may read the answers; other web pages may not.
@@ -151,6 +159,10 @@ void HttpServer::handleRequest(QTcpSocket* pSocket, Connection& conn) {
 
     if (requestLine.value(0) != "GET") {
         respond({405, "text/plain", "GET only\n", {}});
+        return;
+    }
+    if (!local && m_gate && !m_gate(path, query)) {
+        respond({403, "text/plain", "not paired with this ZyDeck\n", {}});
         return;
     }
 

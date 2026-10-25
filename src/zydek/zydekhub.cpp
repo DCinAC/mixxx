@@ -8,6 +8,7 @@
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QNetworkInterface>
+#include <QRandomGenerator>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
@@ -96,6 +97,7 @@ const QString kRemoteFile = QStringLiteral("zydek-controller-mode.json");
 const QString kAudioPrefsFile = QStringLiteral("zydek-audio.json");
 
 const QString kSettingsFile = QStringLiteral("zydek-controller-settings.json");
+const QString kPairedFile = QStringLiteral("zydeck-paired.json");   // (kept out of backups: AndroidManifest's rules)
 const QString kSamplersFile = QStringLiteral("zydek-samplers.json");
 const QString kKitsFile = QStringLiteral("zydek-kits.json");
 constexpr int kKitSlots = 32;   // the pads ZyDeck shows
@@ -242,6 +244,11 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
     if (f.open(QIODevice::ReadOnly)) {
         m_ctlSettings = QJsonDocument::fromJson(f.readAll()).object();
     }
+    QFile paired(QDir(m_pConfig->getSettingsPath()).filePath(kPairedFile));
+    if (paired.open(QIODevice::ReadOnly)) {
+        m_paired = QJsonDocument::fromJson(paired.readAll()).object();
+    }
+    m_server.setGate([this](const QString& path, const HttpServer::Query& query) { return allowedFrom(path, query); });
     m_remoteTimer.setInterval(1000);
     connect(&m_remoteTimer, &QTimer::timeout, this, &Hub::remoteTick);
     m_recordTimer.setInterval(1000);
@@ -409,6 +416,9 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     if (path == QLatin1String("/controller.webmanifest")) {
         return staticFile(QStringLiteral("controller.webmanifest"));
     }
+    if (path == QLatin1String("/zydeck-key.js")) {   // a paired device's key on its requests here (pairApi)
+        return staticFile(path.mid(1));
+    }
     if (path == QLatin1String("/zydeck-position.js")) {   // where a playing track is drawn (every page that draws one)
         return staticFile(path.mid(1));
     }
@@ -558,8 +568,99 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     return {404, "text/plain", "not found\n", {}};
 }
 
+// ---- pairing: who else may use this ZyDeck --------------------------------------------------------------
+
+bool Hub::allowedFrom(const QString& path, const HttpServer::Query& query) const {
+    static const QRegularExpression outside(QStringLiteral(
+            R"(^/(|controller|settings|sizes|phone|grid|sample|calibrate|controller\.webmanifest|zydeck-[a-z0-9-]+\.(js|css)|api/(whoami|offer|pair))$)"));
+    if (outside.match(path).hasMatch()) {
+        return true;
+    }
+    const QString key = query.value(QStringLiteral("k"));
+    return !key.isEmpty() && m_paired.contains(key);
+}
+
+/// GET /api/pair. Another device: ?id=<its question>&name=<its name> asks (the pages here show the question; it asks
+/// again with the same id until there's an answer: {state: asked | yes (with its key, once) | no | busy}); ?k=<key>:
+/// is that key still allowed ({state: yes | no}). This device: ?answer=<id>&yes=0|1, ?list=1 (the allowed devices'
+/// names), ?forget=1 (none allowed any more).
+HttpServer::Response Hub::pairApi(const HttpServer::Query& query) {
+    const auto arg = [&query](const char* name) { return query.value(QLatin1String(name)); };
+    const bool local = arg("_local") == QLatin1String("1");
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    for (auto it = m_pairAsks.begin(); it != m_pairAsks.end();) {   // (a question lasts two minutes)
+        it = now - it->at > 120000 ? m_pairAsks.erase(it) : std::next(it);
+    }
+    if (query.contains(QStringLiteral("k"))) {
+        return json(QJsonObject{{"state", m_paired.contains(arg("k")) ? "yes" : "no"}});
+    }
+    if (local && query.contains(QStringLiteral("answer"))) {
+        const auto it = m_pairAsks.find(arg("answer"));
+        if (it == m_pairAsks.end() || it->state != QLatin1String("asked")) {
+            return result({{"ok", false}, {"error", "That question has gone (it waits two minutes)"}});
+        }
+        if (arg("yes") == QLatin1String("1")) {
+            QByteArray raw(24, Qt::Uninitialized);
+            QRandomGenerator::system()->fillRange(reinterpret_cast<quint32*>(raw.data()), raw.size() / 4);
+            it->key = QString::fromLatin1(raw.toHex());
+            it->state = QStringLiteral("yes");
+            m_paired.insert(it->key, QJsonObject{{"name", it->name}, {"at", QDateTime::currentDateTime().toString(Qt::ISODate)}});
+            savePaired();
+        } else {
+            it->state = QStringLiteral("no");
+        }
+        return result({{"ok", true}});
+    }
+    if (local && query.contains(QStringLiteral("list"))) {
+        QJsonArray names;
+        for (const QJsonValue& v : std::as_const(m_paired)) {
+            names.append(v.toObject().value(QStringLiteral("name")));
+        }
+        return json(QJsonObject{{"devices", names}});
+    }
+    if (local && query.contains(QStringLiteral("forget"))) {
+        m_paired = {};
+        savePaired();
+        return result({{"ok", true}});
+    }
+    const QString id = arg("id").left(64);
+    if (id.isEmpty()) {
+        return {400, "text/plain", "id missing\n", {}};
+    }
+    const auto it = m_pairAsks.find(id);
+    if (it == m_pairAsks.end()) {
+        for (const PairAsk& a : std::as_const(m_pairAsks)) {
+            if (a.state == QLatin1String("asked")) {
+                return json(QJsonObject{{"state", "busy"}});   // (one question at a time)
+            }
+        }
+        const QString name = arg("name").left(60).trimmed().isEmpty() ? QStringLiteral("A ZyDeck") : arg("name").left(60).trimmed();
+        m_pairAsks.insert(id, {name, arg("_peer"), QStringLiteral("asked"), {}, now});
+        emitJson({{"t", "pairask"}, {"id", id}, {"name", name}, {"peer", arg("_peer")}});
+        return json(QJsonObject{{"state", "asked"}});
+    }
+    const QJsonObject out{{"state", it->state}};
+    if (it->state == QLatin1String("yes")) {   // (the key goes out once)
+        const QJsonObject withKey{{"state", "yes"}, {"key", it->key}};
+        m_pairAsks.erase(it);
+        return json(withKey);
+    }
+    return json(out);
+}
+
+void Hub::savePaired() const {
+    QSaveFile f(QDir(m_pConfig->getSettingsPath()).filePath(kPairedFile));
+    if (f.open(QIODevice::WriteOnly)) {
+        f.write(QJsonDocument(m_paired).toJson(QJsonDocument::Compact));
+        f.commit();
+    }
+}
+
 HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query& query) {
     auto arg = [&query](const char* name) { return query.value(QLatin1String(name)); };
+    if (path == QLatin1String("/api/pair")) {
+        return pairApi(query);
+    }
     if (path == QLatin1String("/api/offer")) {   // ?offer=<JSON>: ZyDeck Connect on a computer, which found this device
         // on the network, asks it to link ({name, hosts, port, key}): the pages ask the user (nothing changes without)
         const QJsonObject offer = QJsonDocument::fromJson(arg("offer").toUtf8()).object();

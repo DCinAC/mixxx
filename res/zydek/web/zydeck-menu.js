@@ -139,7 +139,10 @@
     // System › Connections
     { id: "link", sec: "pin", name: "Link devices", kind: "custom", build: buildLink, st: () => linkSt(),
       desc: "Control another ZyDeck on the same Wi-Fi or hotspot from here, like a Bluetooth controller.",
-      more: "The tablet as the phone's decks, say: everything you touch goes to the other ZyDeck, which plays the music. ◀ Back to this device returns." },
+      more: "The tablet as the phone's decks, say: everything you touch goes to the other ZyDeck, which plays the music. ◀ Back to this device returns. The first time, the other ZyDeck asks whether to allow this one." },
+    { id: "paired", sec: "pin", name: "Allowed devices", kind: "custom", build: buildPaired, st: () => pairedSt(), show: () => inApp() && !host.linked,
+      desc: "The ZyDecks you allowed to control this one over the Wi-Fi. Nothing else on the network can use it.",
+      more: "Forget them all, and each one asks again next time." },
     { id: "ctlmode", sec: "conn", name: "Controller mode", ...onOff(() => !!sys.remote.on, v => api(`/api/controller?on=${v ? 1 : 0}`).then(() => { sys.remote.on = v; refresh(); })),
       desc: "Control Mixxx or other DJ software on a computer, over USB or Wi-Fi.", st: () => sys.remote.on ? remoteText(sys.remote) : "",
       more: "Over the USB cable: choose MIDI in Android's USB notification, then in Mixxx open Preferences › Controllers, pick this device and load the ZyDeck mapping. With ZyDeck Connect running on the computer it links over Wi-Fi, so the cable can go; track names and waveforms need ZyDeck Connect too." },
@@ -274,8 +277,9 @@
     { id: "introfull", sec: "start", name: "Full intro every time", ...onOff(() => store.get("introFull", host.introDefaults?.full ?? false), v => store.set("introFull", v)), show: () => inApp() && !host.linked,
       desc: "Off: the full intro plays only the very first time; after that, just the logo. A tap skips it." },
     // System › Developer
-    { id: "telemetry", sec: "dev", name: "Telemetry", kind: "toggle", ...C("telemetry", true), show: () => ctl() && !ctl().phone,
-      desc: "Sends debug data (touch rate, deck state, events) to the Mac's settings page." },
+    { id: "telemetry", sec: "dev", name: "Telemetry", kind: "toggle", get: () => !!S().telemetry && !!S().telemetryAsked,
+      set: (v, final = true) => { ctl()?.set("telemetryAsked", true, false); ctl()?.set("telemetry", v, final); }, show: () => ctl() && !ctl().phone,
+      desc: "Shares performance data with ZyDeck's debug tools on your network: frame rate, touch timing, the decks' state and the controls you press. No track names, library or anything personal. Off unless you say yes." },
 
     // Controller › Decks
     { id: "newtrack", sec: "decks", name: "On a new track", kind: "custom", build: buildNewTrack, show: () => !!ctl(),
@@ -617,10 +621,13 @@
         tray.replaceChildren(...(link.found.length ? link.found.map(d => {
           const r = el("div", "zm-dev", `<span class="who"><b>${esc(d.name)}</b><small>${esc(d.host)}</small></span>`);
           const go = procKey("Connect", "conn-" + d.host);
-          go.addEventListener("click", () => {
+          go.addEventListener("click", async () => {
+            if (pl["conn-" + d.host] === "busy") return;
             setPl("conn-" + d.host, "busy");
+            const k = await linkKey(d);
+            if (!k) { setPl("conn-" + d.host, "err"); return; }
             const page = isTablet() ? "/controller?" : "/controller?phone=1&";
-            bridge().linkOpen(`http://127.0.0.1:8766${page}hub=${encodeURIComponent(`${d.host}:${d.port}`)}`);
+            bridge().linkOpen(`http://127.0.0.1:8766${page}hub=${encodeURIComponent(`${d.host}:${d.port}`)}&k=${encodeURIComponent(k)}`);
           });
           lampOf(go, pl["conn-" + d.host] || "");
           r.appendChild(go);
@@ -777,12 +784,59 @@
     };
   }
 
+  // ---- Link devices: another ZyDeck lets this one in only once someone there allowed it (src/zydek/zydekhub.cpp,
+  // pairApi). Its key is kept here by its name; without one (or one it no longer takes) this asks, and waits up to a
+  // minute while the other one shows the question. The key, or null
+  const linkKeys = () => store.get("linkKeys", {}) || {};
+  async function linkKey(d) {
+    const base = `http://${d.host}:${d.port}/api/pair`, keys = linkKeys(), kept = keys[d.name];
+    const get = async q => (await fetch(`${base}?${qs(q)}`)).json();
+    try {
+      if (kept && (await get({ k: kept })).state === "yes") return kept;
+      const me = await api("/api/whoami").catch(() => ({}));
+      const id = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, "0")).join("");
+      host.toast(`Asked ${d.name}: allow this device there`);
+      for (let i = 0; i < 60; i++) {
+        const r = await get({ id, name: me.name || "A ZyDeck" });
+        if (r.state === "yes" && r.key) { store.set("linkKeys", { ...linkKeys(), [d.name]: r.key }); return r.key; }
+        if (r.state === "no") { host.toast(`${d.name} didn't allow it`, "bad"); return null; }
+        if (r.state === "busy") { host.toast(`${d.name} is answering another device: try again in a moment`, "bad"); return null; }
+        await sleep(1000);
+      }
+      host.toast(`${d.name} didn't answer`, "bad");
+    } catch { host.toast(`Couldn't reach ${d.name}`, "bad"); }
+    return null;
+  }
+  // and here: another ZyDeck asking (the hub's "pairask")
+  async function pairAsked(m) {
+    const yes = await ask(`Allow ${m.name} to control this ZyDeck?`, [
+      `A ZyDeck called ${m.name} (${m.peer}) on this Wi-Fi asks to link. Allowed, it can see your library and load and play tracks here, as this device can.`,
+      "Allow it only if it's yours. You can take it back in Settings › Allowed devices."], "Allow", "Don't allow");
+    await api(`/api/pair?${qs({ answer: m.id, yes: yes ? 1 : 0 })}`).catch(e => host.toast(e.message, "bad"));
+    if (yes) { host.toast(`${m.name} can control this ZyDeck now`, "ok"); pairedN = null; refresh(); }
+  }
+  let pairedN = null, pairedSt = () => pairedN == null ? "" : pairedN ? `${pairedN} allowed` : "None";
+  function buildPaired(c) {
+    const forget = key("Forget all");
+    c.appendChild(forget);
+    forget.addEventListener("click", async () => {
+      if (!pairedN) return;
+      if (!(await ask("Forget the allowed devices?", ["They can't control this ZyDeck any more; each one asks again next time."], "Forget"))) return;
+      await api("/api/pair?forget=1").then(() => { pairedN = 0; host.toast("No other device can control this ZyDeck now", "ok"); refresh(); })
+        .catch(e => host.toast(e.message, "bad"));
+    });
+    return () => {
+      if (pairedN == null) { pairedN = 0; api("/api/pair?list=1").then(r => { pairedN = (r.devices || []).length; refresh(); }).catch(() => {}); }
+      forget.disabled = !pairedN;
+    };
+  }
+
   // ---- pairing with a PC's servers: zydeck://pair?name=&stems=&st=&bot=&bk= (the QR ./launch.sh shows) ----
   // A question over everything, readable whatever the look (as the library's Remove): resolves true or false
-  function ask(title, lines, yes) {
+  function ask(title, lines, yes, no = "Cancel") {
     return new Promise(done => {
       const box = el("div", "zm-ask", `<div class="box" role="dialog" aria-modal="true"><b>${esc(title)}</b>
-        ${lines.map(l => `<p>${esc(l)}</p>`).join("")}<div class="acts"><button class="no">Cancel</button><button class="yes">${esc(yes)}</button></div></div>`);
+        ${lines.map(l => `<p>${esc(l)}</p>`).join("")}<div class="acts"><button class="no">${esc(no)}</button><button class="yes">${esc(yes)}</button></div></div>`);
       const end = v => { box.remove(); done(v); };
       box.addEventListener("click", e => { if (e.target === box) end(false); });
       box.querySelector(".no").addEventListener("click", () => end(false));
@@ -839,6 +893,7 @@
   // ---- what the pages call ----
   /// The hub's pushes (/ws): remote, opt, rec, dc; and init (its remote and rec)
   function push(m) {
+    if (m.t === "pairask" && m.id && window === top) { pairAsked(m); return; }   // another ZyDeck asks to link (Link devices)
     if (m.t === "offer" && m.o && window === top) {   // ZyDeck Connect on a computer found this device and asks to link
       const o = m.o, q = new URLSearchParams({ name: o.name || "", hosts: (o.hosts || []).join(","), port: o.port || 8771, key: o.key || "" });
       connectTo(q, true);
@@ -867,7 +922,7 @@
       if (waiting) setTimeout(() => pair(waiting), 0);
     },
     provide(name, p) { providers[name] = p; refresh(); },
-    providers, open, close, isOpen, refresh, push, pair, rows: ROWS,
+    providers, open, close, isOpen, refresh, push, pair, ask, rows: ROWS,
     reload: what => (loads[what] ? loads[what]() : loadAll()).then(refresh),
     get tab() { return curTab; },
     /// how many rows match q (for a page's own search)

@@ -77,6 +77,11 @@ class Hub : public QObject {
 
     HttpServer::Response handleHttp(const QString& path, const HttpServer::Query& query);
     HttpServer::Response handleApi(const QString& path, const HttpServer::Query& query);
+    // Other devices on the network get only what's on a ZyDeck's outside (its pages and scripts, who it is, and the
+    // two ways to ask: Connect's offer and pairing) unless they bring a key someone allowed here (/api/pair)
+    bool allowedFrom(const QString& path, const HttpServer::Query& query) const;
+    HttpServer::Response pairApi(const HttpServer::Query& query);
+    void savePaired() const;
     HttpServer::Response staticFile(const QString& name) const;
     // (pLoaded: whether the track is on a deck at all: empty and loaded means it's still being analysed)
     QByteArray waveform(int trackId, bool stems = false, bool* pLoaded = nullptr) const;
@@ -391,6 +396,12 @@ class Hub : public QObject {
     QJsonObject m_controlValues;          // last value Mixxx reported per subscribed control
 
     QJsonObject m_ctlSettings;
+    QJsonObject m_paired;   // key -> {name, at}: the devices allowed to use this ZyDeck over the network
+    struct PairAsk {
+        QString name, peer, state, key;   // state: asked, yes, no
+        qint64 at = 0;
+    };
+    QHash<QString, PairAsk> m_pairAsks;   // by the asking device's id for the question
     QHash<QTcpSocket*, QString> m_ctlRoles;
 
     struct Ping {

@@ -30,17 +30,24 @@ class HttpServer : public QObject {
     };
     using Query = QHash<QString, QString>;
     using Handler = std::function<Response(const QString& path, const Query& query)>;
+    /// Whether a request from another device (not this one) may have path: false answers it 403 (sockets too).
+    /// Every request's query gets "_local" ("1" from this device, else "0") and "_peer" (the address it came from),
+    /// whatever the request itself said
+    using Gate = std::function<bool(const QString& path, const Query& query)>;
 
     explicit HttpServer(QObject* pParent = nullptr);
     ~HttpServer() override;
 
-    /// Listen on all interfaces (the tablet connects over WiFi).
+    /// Listen on all interfaces (another device connects over Wi-Fi: only as the gate allows).
     bool listen(quint16 port);
     quint16 port() const {
         return m_server.serverPort();
     }
     void setHandler(Handler handler) {
         m_handler = std::move(handler);
+    }
+    void setGate(Gate gate) {
+        m_gate = std::move(gate);
     }
 
     void sendText(QTcpSocket* pClient, const QByteArray& utf8);
@@ -72,6 +79,7 @@ class HttpServer : public QObject {
     QTcpServer m_server;
     QHash<QTcpSocket*, Connection> m_connections;
     Handler m_handler;
+    Gate m_gate;
 };
 
 } // namespace zydek

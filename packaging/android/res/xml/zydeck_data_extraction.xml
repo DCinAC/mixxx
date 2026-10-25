@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ZyDeck: what Android's backups and device-to-device transfers leave out (Android 12 on): the keys and logins
+     (as zydeck_backup.xml) -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="zydeck-paired.json" />
+        <exclude domain="file" path="zydek-controller-mode.json" />
+        <exclude domain="file" path="zydek-web.json" />
+        <exclude domain="file" path="broadcast_profiles/" />
+        <exclude domain="root" path="app_webview/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="zydeck-paired.json" />
+        <exclude domain="file" path="zydek-controller-mode.json" />
+        <exclude domain="file" path="zydek-web.json" />
+        <exclude domain="file" path="broadcast_profiles/" />
+        <exclude domain="root" path="app_webview/" />
+    </device-transfer>
+</data-extraction-rules>
