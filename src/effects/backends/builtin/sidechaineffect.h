@@ -6,21 +6,26 @@
 #include "util/class.h"
 #include "util/types.h"
 
-// Zydek: a sidechain pump, as a kick ducks a pad: the sound drops on each beat (or every 1/2 or 1/4 beat) and
+// Zydek: a sidechain pump, as a kick ducks a pad: the sound drops on each beat (or every 1/4, 1/2, 2 or 4 beats) and
 // swells back before the next, locked to the deck's beat grid (the beat's position at the buffer's end, so it can't
 // drift); 120 BPM free-running where there's no grid. Depth: how far it drops; Release: how much of each pump it
-// takes to come back (a smooth curve: it stays down a moment, swells, then eases in); Rate: 1/4, 1/2 or 1 beat.
+// takes to come back (a smooth curve: it stays down a moment, swells, then eases in); Rate: 1/4 to 4 beats. A pump
+// longer than a beat counts beats from when it's switched on: the first comes on the next beat.
 class SidechainState : public EffectState {
   public:
     SidechainState(const mixxx::EngineParameters& engineParameters)
             : EffectState(engineParameters),
               gain(1),
-              freeFrame(0) {
+              freeFrame(0),
+              beat(0),
+              lastFraction(-1) {
     }
     ~SidechainState() override = default;
 
     double gain;            // what the last frame got (the next moves towards its target, never in a jump)
     unsigned int freeFrame; // without a beat grid: frames into the free-running beat
+    int beat;               // beats counted since it was switched on (pumps of 2 or 4 beats)
+    double lastFraction;    // where in the beat the last frame was (a smaller one next: a new beat)
 };
 
 class SidechainEffect : public EffectProcessorImpl<SidechainState> {

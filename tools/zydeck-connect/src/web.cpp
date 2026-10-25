@@ -256,10 +256,11 @@ const QHash<QString, QString>& builtinEffectNames() {
 const QHash<QString, QJsonObject>& builtinEffectBeats() {
     static const QHash<QString, QJsonObject> beats{
             {"org.mixxx.effects.echo", {{"knob", 1}, {"min", 0.0}, {"max", 2.0}}},
+            {"org.mixxx.effects.flanger", {{"knob", 1}, {"min", 0.25}, {"max", 32.0}}},   // (in beats, though not marked so)
             {"org.mixxx.effects.glitch", {{"knob", 1}, {"min", 0.0}, {"max", 2.0}}},
             {"org.mixxx.effects.phaser", {{"knob", 1}, {"min", 0.0}, {"max", 4.0}}},
             {"org.mixxx.effects.tremolo", {{"knob", 2}, {"min", 0.25}, {"max", 8.0}}},
-            {"org.zydeck.effects.sidechain", {{"knob", 2}, {"min", 0.25}, {"max", 1.0}}}};
+            {"org.zydeck.effects.sidechain", {{"knob", 2}, {"min", 0.25}, {"max", 4.0}}}};
     return beats;
 }
 } // namespace

@@ -2781,6 +2781,17 @@ int beatsKnob(const EffectSlotPointer& pSlot, double* pMin, double* pMax, double
             return static_cast<int>(k) + 1;
         }
     }
+    // Flanger's speed is in beats too (1/4 to 32 a sweep, with a grid), but Mixxx doesn't say so: its first knob
+    if (pSlot->getManifest()->id() == QLatin1String("org.mixxx.effects.flanger") && knobs > 0) {
+        const EffectParameterSlotBasePointer pParam = pSlot->getEffectParameterSlot(EffectParameterType::Knob, 0);
+        const EffectManifestParameterPointer pManifest = pParam ? pParam->getManifest() : EffectManifestParameterPointer();
+        if (pManifest) {
+            *pMin = pManifest->getMinimum();
+            *pMax = pManifest->getMaximum();
+            *pValue = ControlObject::get(ConfigKey(pSlot->getGroup(), QStringLiteral("parameter1")));
+            return 1;
+        }
+    }
     return 0;
 }
 } // namespace
