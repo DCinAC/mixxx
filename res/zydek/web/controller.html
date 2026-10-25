@@ -3056,7 +3056,7 @@ function goLive(init) {
   init.decks.forEach((x, i) => {
     const d = decks[i];
     d.cues = x.cues.map(v => v ? { c: v - 1 } : null); d.rolls = x.rolls; d.stems = x.stems; d.sc = x.sc;
-    if (x.n) { d.title = x.n.t; d.artist = x.n.a; }
+    if (x.n) { d.title = x.n.t; d.artist = x.n.a; if (REMOTE.on) d.cueLabels = x.n.l || null; }
     loadWaveform(d, x.n ? x.n.id : null); loadBeats(d, x.n ? x.n.id : null); loadCueLabels(d);
   });
   (init.lstems || []).forEach((x, i) => { if (decks[i]) decks[i].lstem = x; });
@@ -3149,7 +3149,8 @@ const cueLabelTimers = new Map();
 function loadCueLabels(d) {
   clearTimeout(cueLabelTimers.get(d));
   cueLabelTimers.set(d, setTimeout(async () => {
-    if (REMOTE.on || !live) { d.cueLabels = null; return; }
+    if (REMOTE.on) return;   // (the computer's Mixxx ZyDeck sends them with the track's name: "dn")
+    if (!live) { d.cueLabels = null; return; }
     try { d.cueLabels = (await (await fetch(`/api/cues?group=${encodeURIComponent(ch(d.n))}`)).json()).labels; } catch { return; }
     markDirty("deck", d); schedulePaint();
   }, 250));
@@ -3169,7 +3170,7 @@ function onMixxx(m) {
     case "s": if (m.i < samplers.length) samplers[m.i].state = m.v; break;
     case "sn": if (m.i < samplers.length) samplers[m.i].name = m.n ? m.n.t : `Sample ${m.i + 1}`; break;
     case "wf": wfReady(m.id); return;   // a deck's waveform is analysed
-    case "dn": d.title = m.n ? m.n.t : `Deck ${d.n}`; d.artist = m.n ? m.n.a : ""; loadCueLabels(d);
+    case "dn": d.title = m.n ? m.n.t : `Deck ${d.n}`; d.artist = m.n ? m.n.a : ""; if (REMOTE.on) d.cueLabels = m.n?.l || null; loadCueLabels(d);
       if ((m.n ? m.n.id : null) !== d.wfFor) { loadWaveform(d, m.n ? m.n.id : null); loadBeats(d, m.n ? m.n.id : null); }
       return markDirty("deck", d);
     case "sc": d.sc = m.v; return markDirty("deck", d);

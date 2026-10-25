@@ -14,6 +14,7 @@
 #include <QRandomGenerator>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QStorageInfo>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
@@ -79,6 +80,13 @@ QString safeFileName(QString s) {
 }
 
 // "name.ext" in dir, or "name (2).ext", "name (3).ext"... whichever isn't taken
+// Whether a file is on a network drive (the NAS), not this computer's own disk
+bool onNetwork(const QString& path) {
+    const QByteArray fs = QStorageInfo(path).fileSystemType().toLower();
+    return fs.contains("smb") || fs.contains("cifs") || fs.contains("nfs") || fs.contains("afp") || fs.contains("webdav") ||
+            path.startsWith(QLatin1String("//")) || path.startsWith(QLatin1String("\\\\"));
+}
+
 QString freePath(const QString& dir, const QString& name, const QString& ext) {
     QString path = QDir(dir).filePath(name + ext);
     for (int n = 2; QFileInfo::exists(path); ++n) {
@@ -803,14 +811,23 @@ void Web::stemsPoll(Job* job) {
     });
 }
 
-// The .stem.mp4 into .incoming, then into the folder (Mixxx ZyDeck takes it in); the PC keeps nothing after
+// The .stem.mp4, downloaded beside where it goes, then moved there; the PC keeps nothing after. Where: a track on a
+// network drive (the NAS), into a "stem" folder in its own folder (its album's); one on this computer's disk, into
+// the downloads folder. A note in the downloads folder names both (hidden: Mixxx ZyDeck takes the stems into the
+// library from it, gives them the original's cues, beat grid and the rest, and marks the original "stem available")
 void Web::stemsFetch(Job* job) {
     job->message = QStringLiteral("Downloading the stems");
-    const QString part = QDir(folder()).filePath(QStringLiteral(".incoming/") + job->outName + QStringLiteral(".stem.mp4.part"));
+    const bool beside = onNetwork(job->original);
+    const QString dir = beside ? QFileInfo(job->original).dir().filePath(QStringLiteral("stem")) : folder();
+    if (!QDir().mkpath(dir)) {
+        fail(job, QStringLiteral("Can't make the folder %1").arg(dir));
+        return;
+    }
+    const QString part = QDir(dir).filePath(QLatin1Char('.') + job->outName + QStringLiteral(".stem.mp4.part"));
     auto* out = new QFile(part, this);
     if (!out->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         delete out;
-        fail(job, QStringLiteral("Can't write to the downloads folder"));
+        fail(job, QStringLiteral("Can't write to %1").arg(dir));
         return;
     }
     QNetworkReply* reply = stemRequest(QStringLiteral("GET"), QStringLiteral("/jobs/%1/file").arg(job->remoteId));
@@ -821,7 +838,7 @@ void Web::stemsFetch(Job* job) {
             job->progress = 0.85 + 0.15 * static_cast<double>(got) / static_cast<double>(total);
         }
     });
-    connect(reply, &QNetworkReply::finished, this, [this, job, reply, out, part] {
+    connect(reply, &QNetworkReply::finished, this, [this, job, reply, out, part, dir] {
         reply->deleteLater();
         out->write(reply->readAll());
         out->close();
@@ -834,18 +851,17 @@ void Web::stemsFetch(Job* job) {
             }
             return;
         }
-        const QString to = freePath(folder(), job->outName, QStringLiteral(".stem.mp4"));
-        // a note beside it naming the original (hidden): Mixxx ZyDeck gives the stems its cues, beat grid and the rest
-        QFile note(QDir(folder()).filePath(QLatin1Char('.') + QFileInfo(to).fileName() + QStringLiteral(".json")));
-        if (note.open(QIODevice::WriteOnly)) {
-            note.write(QJsonDocument(QJsonObject{{"original", job->original}}).toJson(QJsonDocument::Compact));
-            note.close();
-        }
+        const QString to = freePath(dir, job->outName, QStringLiteral(".stem.mp4"));
         if (!QFile::rename(part, to)) {
-            note.remove();
             QFile::remove(part);
-            fail(job, QStringLiteral("Couldn't move the stems into the downloads folder"));
+            fail(job, QStringLiteral("Couldn't move the stems into %1").arg(dir));
             return;
+        }
+        // (a stem file in the downloads folder itself is found there; one elsewhere, by the note's "stem")
+        QFile note(freePath(folder(), QLatin1Char('.') + QFileInfo(to).fileName(), QStringLiteral(".json")));   // (any name: it says)
+        if (note.open(QIODevice::WriteOnly)) {
+            note.write(QJsonDocument(QJsonObject{{"original", job->original}, {"stem", to}}).toJson(QJsonDocument::Compact));
+            note.close();
         }
         QJsonObject r = job->result.toObject();
         r.insert(QStringLiteral("path"), to);

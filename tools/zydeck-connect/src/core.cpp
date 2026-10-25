@@ -137,8 +137,8 @@ Core::Core(QObject* parent)
     m_decksWatch.start(250);
 }
 
-// Mixxx ZyDeck writes zydeck-decks.json as a track loads: each new name goes to the devices then, without waiting to
-// be asked (the asking, by the track's length, is for plain Mixxx). Each name carries its track's length ("ms"), so a
+// Mixxx ZyDeck writes zydeck-decks.json as a track loads (and as its hot cues change: their names come along): each
+// new name goes to the devices then, without waiting to be asked (the asking, by the track's length, is for plain Mixxx). Each name carries its track's length ("ms"), so a
 // device takes it only for that track, not for the one before or after (an answer arriving late)
 void Core::decksChanged() {
     const QFileInfo fi(mixxxDir() + QStringLiteral("/zydeck-decks.json"));
@@ -162,7 +162,8 @@ void Core::decksChanged() {
         const QJsonObject n{{"s", m.captured(1) == QLatin1String("Sampler")}, {"i", m.captured(2).toInt() - 1},
                 {"ms", std::round(t.value(QStringLiteral("seconds")).toDouble() * 1000)},
                 {"n", QJsonObject{{"t", t.value(QStringLiteral("title")).toString()},
-                              {"a", t.value(QStringLiteral("artist")).toString()}, {"id", t.value(QStringLiteral("id")).toInt()}}}};
+                              {"a", t.value(QStringLiteral("artist")).toString()}, {"id", t.value(QStringLiteral("id")).toInt()},
+                              {"l", t.value(QStringLiteral("cues"))}}}};   // (l: its hot cues' names, as they change too)
         const QByteArray line = "J " + QJsonDocument(n).toJson(QJsonDocument::Compact) + '\n';
         for (auto c = m_clients.cbegin(); c != m_clients.cend(); ++c) {
             if (c.value()->linked) {
@@ -239,7 +240,7 @@ QJsonObject Core::nameReply(const QJsonObject& ask) {
             const QJsonObject t = QJsonDocument::fromJson(f.readAll()).object().value(group).toObject();
             if (!t.isEmpty() && std::abs(t.value(QStringLiteral("seconds")).toDouble() * 1000 - ms) <= 1000) {   // (that track, not the one before)
                 n = {{"t", t.value(QStringLiteral("title")).toString()}, {"a", t.value(QStringLiteral("artist")).toString()},
-                        {"id", t.value(QStringLiteral("id")).toInt()}};
+                        {"id", t.value(QStringLiteral("id")).toInt()}, {"l", t.value(QStringLiteral("cues"))}};   // (l: hot cue names)
                 break;
             }
         }
