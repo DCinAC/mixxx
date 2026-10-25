@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QSaveFile>
 
+#include "effects/backends/effectmanifest.h"
 #include "effects/effectsmanager.h"
 #include "effects/visibleeffectslist.h"
 
