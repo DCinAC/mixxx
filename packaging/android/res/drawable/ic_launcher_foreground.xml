@@ -2,6 +2,8 @@
 <!-- ZyDeck: an open-reel deck (the end of the start-up intro, res/zydek/web/intro.html) -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- (2 to the left: the deck and its shadow centred, 26 to 86) -->
+    <group android:translateX="-2">
     <path android:fillColor="#8F8A80" android:pathData="M30,35h52a4,4 0,0 1,4,4v32a4,4 0,0 1,-4,4h-52a4,4 0,0 1,-4,-4v-32a4,4 0,0 1,4,-4z"/>
     <path android:fillColor="#EBE7DF" android:strokeColor="#D1CCC2" android:strokeWidth="0.5"
         android:pathData="M31,33.8h50a4,4 0,0 1,4,4v32a4,4 0,0 1,-4,4h-50a4,4 0,0 1,-4,-4v-32a4,4 0,0 1,4,-4z"/>
@@ -22,4 +24,5 @@
     <path android:fillColor="#2A2A2A" android:pathData="M51,67.6h9a1,1 0,0 1,1,1v3.6a1,1 0,0 1,-1,1h-9a1,1 0,0 1,-1,-1v-3.6a1,1 0,0 1,1,-1z"/>
     <path android:fillColor="#A2A8B0" android:pathData="M51.6,65.7h2v1.9h-2zM54.5,65.7h2v1.9h-2zM57.4,65.7h2v1.9h-2z"/>
     <path android:fillColor="#FF8A1E" android:pathData="M29.90,38.4a1.7,1.7 0,1 0,3.4,0a1.7,1.7 0,1 0,-3.4,0Z"/>
+    </group>
 </vector>

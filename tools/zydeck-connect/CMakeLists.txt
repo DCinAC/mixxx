@@ -38,6 +38,16 @@ qt_add_executable(zydeck-connect WIN32 MACOSX_BUNDLE
   third_party/rtmidi/RtMidi.cpp third_party/rtmidi/RtMidi.h
   third_party/qrcodegen/qrcodegen.cpp third_party/qrcodegen/qrcodegen.hpp
 )
+# The icon: ZyDeck's open-reel deck (icon/zydeck-connect.svg, from the Android launcher icon; the .icns, .ico and .png
+# made from it). The window's from the resources; the app's own from the bundle (macOS) or the .exe (Windows)
+qt_add_resources(zydeck-connect icon PREFIX /icon BASE icon FILES icon/zydeck-connect.png)
+if(APPLE)
+  set_source_files_properties(icon/zydeck-connect.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+  target_sources(zydeck-connect PRIVATE icon/zydeck-connect.icns)
+  set_target_properties(zydeck-connect PROPERTIES MACOSX_BUNDLE_ICON_FILE zydeck-connect.icns)
+elseif(WIN32)
+  target_sources(zydeck-connect PRIVATE icon/zydeck-connect.rc)
+endif()
 qt_add_resources(zydeck-connect mapping
   PREFIX /mapping
   BASE "${CMAKE_CURRENT_BINARY_DIR}/mapping"

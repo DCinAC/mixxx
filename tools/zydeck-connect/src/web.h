@@ -11,6 +11,8 @@
 //                                      {path, artist, title, seconds, original}
 //   GET /web/job?id=                   {state: running|done|error, progress 0-1, message, result | error}
 //   GET /web/cancel?id=
+//   GET /web/fx                        Mixxx's effects as a unit's slots number them: {effects: [name, ...]} (Mixxx
+//                                      ZyDeck's live list, else effects.xml, which Mixxx writes as it quits)
 // The same shapes as the phone's own downloader (res/zydek/python/zydek_web.py), so a page needs only the address.
 // The downloads folder is "ZyDeck Web" in Mixxx's first music folder (settings: web/folder), which Mixxx ZyDeck
 // watches: a file is written into its hidden ".incoming" folder and moved in when it's finished, so Mixxx only ever
@@ -43,6 +45,8 @@ class Web : public QObject {
     QJsonObject handle(const QString& what, const QUrlQuery& query, int* status);
     /// Where downloads go ("" while Mixxx has no music folder).
     QString folder() const;
+    /// {effects: [names]}: Mixxx's effects in its order (a slot's loaded_effect is a place in it)
+    static QJsonObject effects();
     static QString ytDlp();    // "" if there's none
     static QString ffmpeg();   // "" if there's none
 

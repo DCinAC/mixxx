@@ -700,7 +700,7 @@ async function logo() {
   anim($("#logoName"), [{ opacity: 0 }, { opacity: 1 }], { duration: 380, delay: 150 });
   requestAnimationFrame(turn);
   setMode(reels[0], "play");
-  // The tape counter is the loading bar: 851, creeping on towards 851.7 while Mixxx loads, rolling over to 852
+  // The tape counter is the loading bar: 851, creeping on towards 851.9 while Mixxx loads, rolling over to 852
   // once it's in (then the app)
   const wheel = decks[0].querySelector(".wheel");
   const setCounter = p => { counterP = p; wheel.style.transform = `translateY(${(-16 * p).toFixed(2)}px)`; };
@@ -709,7 +709,7 @@ async function logo() {
   const t0 = performance.now();
   (function count() {
     if (!counting) return;
-    setCounter(.7 * (1 - Math.exp(-(performance.now() - t0) / 2500)));
+    setCounter(.9 * (1 - Math.exp(-(performance.now() - t0) / 2500)));
     requestAnimationFrame(count);
   })();
   await wait(700);

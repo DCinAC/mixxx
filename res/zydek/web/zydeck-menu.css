@@ -204,6 +204,9 @@
   background: linear-gradient(#1b1c1f, #161719); border: 3px solid #050505; border-radius: 8px;
   box-shadow: 0 24px 70px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.06); }
 .zm.zfx { --fx1: #ff8a3d; --fx2: #3ddcff; --fx3: #c77dff; }   /* Multi-FX: FX 1, 2, 3 */
+/* kept between uses (controller.html's fxHw): out of sight, still drawn, so showing it is instant */
+.zm.zfx { will-change: opacity; }
+.zm.zfx.zfx-off { opacity: 0; pointer-events: none; }
 .zfx-hd { display: flex; gap: calc(var(--zmm) * 1.6); align-items: center; }
 /* Multi-FX keys: the lamp at the left end, a 3:2 upright bar of three: FX 1 at the top, 2, 3 at the bottom, each lit
    in its colour when the effect is in that slot */

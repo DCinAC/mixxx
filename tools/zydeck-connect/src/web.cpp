@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QXmlStreamReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QNetworkReply>
@@ -230,6 +231,66 @@ QString Web::folder() const {
     return roots.isEmpty() ? QString() : QDir(roots.first()).filePath(QStringLiteral("ZyDeck Web"));
 }
 
+// Mixxx's built-in effects by id, for effects.xml (which names none): their names in Mixxx's manifests
+namespace {
+const QHash<QString, QString>& builtinEffectNames() {
+    static const QHash<QString, QString> names{
+            {"org.mixxx.effects.autogaincontrol", "Auto Gain Control"}, {"org.mixxx.effects.autopan", "Autopan"},
+            {"org.mixxx.effects.balance", "Stereo Balance"}, {"org.mixxx.effects.bessel4lvmixeq", "Bessel4 LV-Mix Isolator"},
+            {"org.mixxx.effects.bessel8lvmixeq", "Bessel8 LV-Mix Isolator"},
+            {"org.mixxx.effects.biquadfullkilleq", "Biquad Full Kill Equalizer"}, {"org.mixxx.effects.bitcrusher", "Bitcrusher"},
+            {"org.mixxx.effects.compressor", "Compressor"}, {"org.mixxx.effects.distortion", "Distortion"},
+            {"org.mixxx.effects.echo", "Echo"}, {"org.mixxx.effects.filter", "Filter"}, {"org.mixxx.effects.flanger", "Flanger"},
+            {"org.mixxx.effects.gain", "Gain"}, {"org.mixxx.effects.glitch", "Glitch"},
+            {"org.mixxx.effects.graphiceq", "Graphic Equalizer"}, {"org.mixxx.effects.keycomparison", "Key Comparison"},
+            {"org.mixxx.effects.linkwitzrileyeq", "LinkwitzRiley8 Isolator"},
+            {"org.mixxx.effects.loudnesscontour", "Loudness Contour"}, {"org.mixxx.effects.metronome", "Metronome"},
+            {"org.mixxx.effects.moogladder4filter", "Moog Ladder 4 Filter"},
+            {"org.mixxx.effects.parametriceq", "Parametric Equalizer"}, {"org.mixxx.effects.phaser", "Phaser"},
+            {"org.mixxx.effects.pitchshift", "Pitch Shift"}, {"org.mixxx.effects.reverb", "Reverb"},
+            {"org.mixxx.effects.threebandbiquadeq", "Biquad Equalizer"}, {"org.mixxx.effects.tremolo", "Tremolo/Trans"},
+            {"org.mixxx.effects.whitenoise", "White Noise"}, {"org.zydeck.effects.sidechain", "Sidechain"}};
+    return names;
+}
+} // namespace
+
+QJsonObject Web::effects() {
+    const QString dir = mixxxDir();
+    if (dir.isEmpty()) {
+        return {{"ok", false}, {"error", "Mixxx's settings aren't here"}};
+    }
+    const QFileInfo live(dir + QStringLiteral("/zydeck-effects.json")), xml(dir + QStringLiteral("/effects.xml"));
+    QJsonArray names;
+    if (live.isFile() && (!xml.isFile() || live.lastModified() >= xml.lastModified())) {   // (Mixxx ZyDeck's, kept up to date)
+        QFile f(live.filePath());
+        if (f.open(QIODevice::ReadOnly)) {
+            for (const QJsonValue& e : QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("effects")).toArray()) {
+                names.append(e.toObject().value(QStringLiteral("name")).toString());
+            }
+        }
+    }
+    if (names.isEmpty()) {   // effects.xml's <VisibleEffects>: <Effect><Id>...</Id> in order
+        QFile f(xml.filePath());
+        if (!f.open(QIODevice::ReadOnly)) {
+            return {{"ok", false}, {"error", "Mixxx hasn't saved its effects yet (it does as it quits)"}};
+        }
+        QXmlStreamReader r(&f);
+        bool inVisible = false;
+        while (!r.atEnd()) {
+            r.readNext();
+            if (r.isStartElement() && r.name() == QLatin1String("VisibleEffects")) {
+                inVisible = true;
+            } else if (r.isEndElement() && r.name() == QLatin1String("VisibleEffects")) {
+                break;
+            } else if (inVisible && r.isStartElement() && r.name() == QLatin1String("Id")) {
+                const QString id = r.readElementText();
+                names.append(builtinEffectNames().value(id, id.section(QLatin1Char('/'), -1).section(QLatin1Char('#'), -1)));
+            }
+        }
+    }
+    return {{"ok", true}, {"effects", names}};
+}
+
 QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status) {
     *status = 200;
     const auto arg = [&query](const char* name) {
@@ -265,6 +326,9 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
             fail(j, QStringLiteral("Cancelled"));
         }
         return {{"ok", true}};
+    }
+    if (what == QLatin1String("fx")) {
+        return effects();
     }
     if (what == QLatin1String("status")) {
         return {{"ytdlp", !ytDlp().isEmpty()}, {"ffmpeg", !ffmpeg().isEmpty()}, {"folder", folder()},

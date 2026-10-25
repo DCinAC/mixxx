@@ -240,8 +240,21 @@ TabletPads.setSync = function (d, mode) {
     engine.setValue(g, "beatsync_phase", 1);
 };
 
+// A read can hold more than one message (USB and the computer's MIDI pack ones that come close together, as when two
+// knobs turn at once): each F0 ... F7 in it is one
 TabletPads.incomingData = function (data, length) {
-    var b = new Uint8Array(data);
+    var all = new Uint8Array(data), start = -1;
+    for (var i = 0; i < all.length; i++) {
+        if (all[i] === 0xF0) {
+            start = i;
+        } else if (all[i] === 0xF7 && start >= 0) {
+            TabletPads.message(all.subarray(start, i + 1));
+            start = -1;
+        }
+    }
+};
+
+TabletPads.message = function (b) {
     if (b.length < 4 || b[0] !== 0xF0 || b[1] !== 0x7D) { return; }
     var type = b[2], nm;
     if (type === 0x50) {

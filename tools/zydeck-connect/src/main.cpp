@@ -6,6 +6,7 @@
 //   zydeck-connect --write-mapping DIR write the mapping's files into DIR and quit
 
 #include <QApplication>
+#include <QIcon>
 #include <QCommandLineParser>
 #include <QDir>
 #include <QFile>
@@ -102,6 +103,7 @@ int main(int argc, char** argv) {
             std::fflush(stdout);
         });
     } else {
+        QApplication::setWindowIcon(QIcon(QStringLiteral(":/icon/zydeck-connect.png")));
         static_cast<QApplication*>(app.get())->setQuitOnLastWindowClosed(false);   // (the menu bar icon stays)
         window = std::make_unique<zc::Window>(&core, &setup, discovery.get());
         window->show();

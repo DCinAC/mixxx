@@ -99,6 +99,7 @@
   .endwarn { position: absolute; inset: 0; pointer-events: none; opacity: 0; will-change: opacity; z-index: 3;
     background: rgba(255, 70, 165, .26); box-shadow: inset 0 0 0 2px rgba(255, 95, 175, .9); }
   .ending .endwarn { animation: endwarn 1s steps(1) infinite; }
+  .num.ending { animation: endwarn 1s steps(1) infinite; }   /* the time left blinks with it: shown while it's pink */
   @keyframes endwarn { 0% { opacity: 1; } 50% { opacity: 0; } }
   .strip .cursor { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--acc); left: 50% !important;
     box-shadow: 0 0 calc(var(--mm) * 1.2) var(--acc); will-change: transform; left: 0; }
@@ -183,6 +184,7 @@
   /* the pad mode in use: filled in the deck's colour (orange decks 1-2, blue 3-4), as on the phone */
   .modes button.on { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 22%, #1c1c1c); color: var(--text); }
   .modes button.on small { color: color-mix(in srgb, var(--acc) 70%, #fff); }
+  .modes button.on.beatoff, #app.phone .prow.modes button.on.beatoff { background: #1c1c1c; border-color: color-mix(in srgb, var(--acc) 35%, #333); }   /* (keeping the beat: the half that's dark) */
   .tempo .shift { flex: 0 0 calc(var(--mm) * 11); font-size: calc(var(--mm) * 1.7); }
   .tempo .shift.on { background: var(--err); border-color: var(--err); color: #fff; }
   .tempo .shift.idle { opacity: .35; }            /* SHIFT only does something in CUE and FX modes */
@@ -507,7 +509,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: true, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true };
 const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
@@ -1703,8 +1705,11 @@ function holdOrTap(onHold, onTap, el) {
 // straight from the list for this side's unit. Drawn as Menu UI says (Look): Element's, or the Hardware look's,
 // laid out for the FX layout: Multi-FX, every effect a key (its three slots lit beside it); Beat FX, the effects on
 // a display, a tap on one or the selector knob (one click per effect) and Load.
+// (no list: what to say)
+const fxNone = () => !REMOTE.on ? "Loading the effects…" : REMOTE.http ? "Asking the computer for its effects…"
+  : "Link over Wi-Fi (ZyDeck Connect) to list the computer's effects; meanwhile tap the effect's name to go through them";
 function fxMenu(s) {
-  document.getElementById("fxmenu")?.remove(); document.getElementById("fxmenu-hw")?.close?.();
+  document.getElementById("fxmenu")?.remove(); fxHw.forEach(b => b.close());
   if ((S.menuLook || "d") === "d") return fxMenuHw(s);
   const u = fxUnitOf(deckOf(s)), esc = t => String(t).replace(/</g, "&lt;");
   let slot = 0;
@@ -1720,7 +1725,7 @@ function fxMenu(s) {
         `<button data-slot="${j}" class="${slot === j ? "on" : ""}">FX ${j + 1}: ${esc(fxName(u, j))}</button>`).join("")}</div>` : ""}
       <div class="list">${fxNames.length ? fxNames.map((n, i) =>
         `<button data-fx="${i + 1}" class="${f.loaded[slot] === i + 1 ? "on" : ""}">${esc(n)}</button>`).join("")
-        : `<small>${REMOTE.on ? "The computer's effects can't be listed here: tap the effect's name to go through them" : "Loading the effects…"}</small>`}</div>
+        : `<small>${fxNone()}</small>`}</div>
       <div class="seg"><button class="close">Close</button></div>`;
   };
   box.addEventListener("click", e => {
@@ -1738,8 +1743,19 @@ function fxMenu(s) {
   render();
   document.body.appendChild(box);
 }
-function fxMenuHw(s) {
+// The Hardware FX menu is built once per side and kept, hidden, between uses (opening it is then only showing it): built
+// again when the list, the layout or the size changes, its keys again when the loaded effects changed meanwhile
+const fxHw = new Map();
+function fxPrewarm() {
+  if ((S.menuLook || "d") !== "d" || !fxNames.length) return;
+  const go = () => ui.sides.forEach((x, s) => { if (x) fxMenuHw(s, true); });
+  if (window.requestIdleCallback) requestIdleCallback(go, { timeout: 2000 }); else setTimeout(go, 300);
+}
+function fxMenuHw(s, prewarm) {
   const u = fxUnitOf(deckOf(s)), esc = t => String(t).replace(/</g, "&lt;"), display = S.fxLayout !== "multi";
+  const sig = [u, S.fxLayout, S.pxmm, fxNames.join("\u0001")].join("|"), kept = fxHw.get(s);
+  if (kept && kept._sig === sig) { if (!prewarm) kept.open(); return; }
+  kept?.drop();
   const DETENT = 24;                       // degrees of the selector knob per effect
   let slot = 0, cur = -1, turned = 0;      // cur: the display's highlighted effect (0-based)
   const box = h("div", `zm hw zfx${display ? " display" : ""}`);
@@ -1747,9 +1763,23 @@ function fxMenuHw(s) {
   box.style.setProperty("--zmm", S.pxmm + "px");
   // Hardware 2: over the deck, dimmed (a tap there closes it), so the window can be bigger
   const scrim = display ? h("div", "zfx-scrim") : null;
-  const close = () => { box.remove(); scrim?.remove(); };
+  const state = () => fxState[u - 1].loaded.join() + "|" + slot;
+  const close = () => {
+    if (box.classList.contains("zfx-off")) return;
+    box.classList.add("zfx-off"); scrim?.remove();
+    slot = 0; cur = -1; turned = 0;
+    setTimeout(() => { if (box.classList.contains("zfx-off") && box._state !== state()) render(); }, 350);   // (ready for next time)
+  };
   scrim?.addEventListener("click", close);
   box.close = close;
+  box.open = () => {
+    if (box._state !== state()) render();
+    if (scrim) document.body.appendChild(scrim);
+    box.classList.remove("zfx-off");
+    if (display) requestAnimationFrame(() => paintDisplay(true));
+  };
+  box.drop = () => { box.remove(); scrim?.remove(); fxHw.delete(s); };
+  box._sig = sig; fxHw.set(s, box);
   const key = (label, attrs = "", on = false, lamp = true, cls = "") =>
     `<button class="zk s${on ? " on" : ""}${cls ? " " + cls : ""}" ${attrs}>${lamp ? '<i class="zs" aria-hidden="true"></i>' : ""}${label}</button>`;
   const loaded = () => fxState[u - 1].loaded[slot] - 1;
@@ -1781,8 +1811,9 @@ function fxMenuHw(s) {
   const render = () => {
     const multi = S.fxLayout === "multi";
     if (!multi) slot = 0;
+    box._state = state();
     if (cur < 0) cur = Math.max(0, loaded());
-    const none = `<small class="zfx-none">${REMOTE.on ? "The computer's effects can't be listed here: tap the effect's name to go through them" : "Loading the effects…"}</small>`;
+    const none = `<small class="zfx-none">${fxNone()}</small>`;
     box.innerHTML = `<div class="zfx-hd"><span class="zfx-t">FX · unit ${u}</span><div class="zseg">${[["beat", "Beat FX"], ["multi", "Multi-FX"]].map(([v, l]) =>
         key(l, `data-layout="${v}"`, (S.fxLayout || "beat") === v)).join("")}</div>
       <button class="zk close" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button></div>
@@ -1833,7 +1864,8 @@ function fxMenuHw(s) {
     else if (b.classList.contains("close")) close();
   });
   render();
-  if (scrim) document.body.appendChild(scrim);
+  if (prewarm) box.classList.add("zfx-off");   // (built ahead: kept out of sight until it's opened)
+  else if (scrim) document.body.appendChild(scrim);
   document.body.appendChild(box);
 }
 // Multi-FX: a tap on an effect's knob turns it on or off (SHIFT: the next effect instead)
@@ -2142,10 +2174,14 @@ function frame(now) {
       if (u.play._off !== off) { u.play._off = off; u.play.classList.toggle("beatoff", off); }
       if (u.play._ng !== (preview && !grid)) { u.play._ng = preview && !grid; u.play.classList.toggle("nogrid", u.play._ng); }
     }
+    if (u.modes) {   // the pad mode's light keeps the beat: lit for the first half of each beat, dark for the second
+      const off = S.padBeat !== false && d.playing && d.bpm > 0 && beatOf(d, d.pos) !== beatOf(d, d.pos + 30 / d.bpm);
+      if (u.modes._off !== off) { u.modes._off = off; u.modes.forEach(b => b.classList.toggle("beatoff", off)); }
+    }
     const left = (d.dur - d.pos) / (1 + d.tempo / 100);
     setText(u.time, fmtTime(left));
     const ending = S.endWarn !== false && d.playing && d.dur > 0 && left > 0 && left < END_WARN_S;
-    if (u.strip._end !== ending) { u.strip._end = ending; u.strip.classList.toggle("ending", ending); }
+    if (u.strip._end !== ending) { u.strip._end = ending; u.strip.classList.toggle("ending", ending); u.time.classList.toggle("ending", ending); }
   });
   requestAnimationFrame(frame);
 }
@@ -2646,11 +2682,28 @@ async function fxSetBeats(u, slot, b) {
     if (!r.ok) toast(r.error || "No beat length for this effect");
   } catch {}
 }
+// The effects as a unit's slots number them: Mixxx here (the hub), or in controller mode Mixxx on the computer, from
+// ZyDeck Connect over the Wi-Fi link (the last list that computer gave, at once; then its list now). A new list builds
+// the Hardware FX menu ahead (fxPrewarm), so it opens without a wait
+const fxCacheKey = () => "zydeck.fxNames." + (REMOTE.computer || "computer");
+function setFxNames(list) {
+  if (list.length === fxNames.length && list.every((n, i) => n === fxNames[i])) return;
+  fxNames = list;
+  schedulePaint(); fxPrewarm();
+}
 function loadFxNames() {
-  if (REMOTE.on) return;
+  if (REMOTE.on) {
+    try { const c = JSON.parse(localStorage.getItem(fxCacheKey()) || "null"); if (Array.isArray(c)) setFxNames(c); } catch {}
+    if (!REMOTE.http) return;
+    fetch(`${REMOTE.http}/web/fx?k=${encodeURIComponent(REMOTE.key || "")}`).then(r => r.json()).then(j => {
+      if (!Array.isArray(j.effects)) return;
+      setFxNames(j.effects);
+      try { localStorage.setItem(fxCacheKey(), JSON.stringify(j.effects)); } catch {}
+    }).catch(() => {});
+    return;
+  }
   fetch("/api/fx").then(r => r.json()).then(j => {
-    fxNames = j.effects || [];
-    schedulePaint();
+    setFxNames(j.effects || []);
     setTimeout(fillFxDefaults, 1500);   // once the units' state has come in
   }).catch(() => {});
 }
@@ -2875,6 +2928,7 @@ function onRemote(r) {
   const was = REMOTE;
   REMOTE = r;
   if (live) topNote.textContent = liveText();
+  if (r.on !== was.on || r.http !== was.http || r.computer !== was.computer) loadFxNames();   // (whose effects)
   if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`);
   if (r.on && !r.live && was.live) toast(r.usb === 2 || r.via ? "Mixxx on the computer isn't answering: is the ZyDeck mapping on?" : "The computer is gone: plug the cable back in");
   // ZyDeck Connect answered over the cable: offer the wireless link
