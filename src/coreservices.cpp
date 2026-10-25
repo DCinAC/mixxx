@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #ifdef __ZYDECK__   // ZyDeck
+#include "zydeck/decklist.h"
 #include "zydeck/effectlist.h"
 #endif
 #include <QFileDialog>
@@ -596,6 +597,7 @@ void CoreServices::initialize(QApplication* pApp) {
     m_pEffectsManager->setup();
 #ifdef __ZYDECK__   // ZyDeck: the effects list, for a phone or tablet driving this Mixxx (zydeck/effectlist.h)
     zydeck::watchEffectList(m_pEffectsManager, pConfig);
+    zydeck::watchDecks(pConfig);   // (what's on each deck, likewise: zydeck/decklist.h)
 #endif
 
 #ifdef __VINYLCONTROL__

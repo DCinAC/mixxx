@@ -9,5 +9,6 @@ target_sources(
     src/zydeck/stems.cpp
     src/zydeck/sidechaineffect.cpp
     src/zydeck/effectlist.cpp
+    src/zydeck/decklist.cpp
 )
 target_compile_definitions(mixxx-lib PUBLIC __ZYDECK__)
