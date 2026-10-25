@@ -2199,8 +2199,8 @@ function frame(now) {
       if (u.play._off !== off) { u.play._off = off; u.play.classList.toggle("beatoff", off); }
       if (u.play._ng !== (preview && !grid)) { u.play._ng = preview && !grid; u.play.classList.toggle("nogrid", u.play._ng); }
     }
-    if (u.modes) {   // the pad mode's light keeps the beat: lit for the first half of each beat, dark for the second
-      const off = S.padBeat !== false && d.playing && d.bpm > 0 && beatOf(d, d.pos) !== beatOf(d, d.pos + 30 / d.bpm);
+    if (u.modes) {   // the pad mode's light keeps the beat: lit one beat, dark the next (as PLAY's flash: the bar's 1 and 3 lit)
+      const off = S.padBeat !== false && d.playing && d.bpm > 0 && beatOf(d, d.pos) % 2 !== 0;
       if (u.modes._off !== off) { u.modes._off = off; u.modes.forEach(b => b.classList.toggle("beatoff", off)); }
     }
     const left = (d.dur - d.pos) / (1 + d.tempo / 100);

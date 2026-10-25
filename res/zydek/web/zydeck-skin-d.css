@@ -72,7 +72,7 @@ body.skin-d #app button.on[data-ls]::before, body.skin-d #app button.adj[data-ls
 body.skin-d #app button.on.down[data-ls]::before, body.skin-d #app button.on:active[data-ls]::before { filter: brightness(1.15); }
 body.skin-d #app .play.on.preview[data-ls]::before { animation: sk-blink .5s steps(1) infinite; }
 @keyframes sk-blink { 50% { background: #202226; box-shadow: inset 0 0 0 2.5px #383a3e; } }
-/* PLAY keeping the beat: dark every other beat (as the blink's off); the pad mode's strip lamp the second half of each beat */
+/* PLAY keeping the beat: dark every other beat (as the blink's off); the pad mode's strip lamp every other beat too */
 body.skin-d #app .play.on.beatoff[data-ls]::before, body.skin-d #app button.on.beatoff[data-ls="s"]::before { background: #202226; box-shadow: inset 0 0 0 2.5px #383a3e; }
 /* a hot cue's time, in a lower corner */
 body.skin-d #app .pad .ct { z-index: 1; bottom: 6px; font: 400 var(--pfs2, calc(var(--mm) * 1.4))/1 "JetBrains Mono", ui-monospace, monospace; opacity: .8; }
