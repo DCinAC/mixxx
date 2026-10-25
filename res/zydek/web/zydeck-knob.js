@@ -121,7 +121,7 @@ window.zydeckTouch = function (env) {
   // Two hands can pinch two knobs at once: a finger close to another free knob could be the other hand's first, so it
   // waits PINCH_WAIT_MS for a partner of its own (a hand's two fingers land within ~25 ms of each other) and only then
   // joins the pinch. One finger each on two knobs turns both
-  const PINCH_MM = 35, PINCH_WAIT_MS = 100, PINCH_CENTRE_MM = 3;
+  const PINCH_MM = 35, PINCH_WAIT_MS = 100, PINCH_CENTRE_MM = 2;
   const pinchOpen = new Set();   // knob gestures with one finger, that a second may join
   let pending = null;            // that finger, while it waits: {pid, at, pick, timer}
   // and a finger on nothing in particular within PINCH_REACH_MM of a knob's centre starts that knob: two fingers round
