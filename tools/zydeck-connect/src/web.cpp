@@ -252,6 +252,16 @@ const QHash<QString, QString>& builtinEffectNames() {
             {"org.mixxx.effects.whitenoise", "White Noise"}, {"org.zydeck.effects.sidechain", "Sidechain"}};
     return names;
 }
+// and their knob in beats ({knob, min, max}: a slot's parameterN), for the BEAT keys
+const QHash<QString, QJsonObject>& builtinEffectBeats() {
+    static const QHash<QString, QJsonObject> beats{
+            {"org.mixxx.effects.echo", {{"knob", 1}, {"min", 0.0}, {"max", 2.0}}},
+            {"org.mixxx.effects.glitch", {{"knob", 1}, {"min", 0.0}, {"max", 2.0}}},
+            {"org.mixxx.effects.phaser", {{"knob", 1}, {"min", 0.0}, {"max", 4.0}}},
+            {"org.mixxx.effects.tremolo", {{"knob", 2}, {"min", 0.25}, {"max", 8.0}}},
+            {"org.zydeck.effects.sidechain", {{"knob", 2}, {"min", 0.25}, {"max", 1.0}}}};
+    return beats;
+}
 } // namespace
 
 QJsonObject Web::effects() {
@@ -260,12 +270,15 @@ QJsonObject Web::effects() {
         return {{"ok", false}, {"error", "Mixxx's settings aren't here"}};
     }
     const QFileInfo live(dir + QStringLiteral("/zydeck-effects.json")), xml(dir + QStringLiteral("/effects.xml"));
-    QJsonArray names;
+    QJsonArray names, beats;   // (beats: each effect's knob in beats, or null)
     if (live.isFile() && (!xml.isFile() || live.lastModified() >= xml.lastModified())) {   // (Mixxx ZyDeck's, kept up to date)
         QFile f(live.filePath());
         if (f.open(QIODevice::ReadOnly)) {
             for (const QJsonValue& e : QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("effects")).toArray()) {
-                names.append(e.toObject().value(QStringLiteral("name")).toString());
+                const QJsonObject o = e.toObject();
+                names.append(o.value(QStringLiteral("name")).toString());
+                beats.append(o.contains(QStringLiteral("beats")) ? o.value(QStringLiteral("beats"))
+                        : QJsonValue(builtinEffectBeats().value(o.value(QStringLiteral("id")).toString())));
             }
         }
     }
@@ -285,10 +298,12 @@ QJsonObject Web::effects() {
             } else if (inVisible && r.isStartElement() && r.name() == QLatin1String("Id")) {
                 const QString id = r.readElementText();
                 names.append(builtinEffectNames().value(id, id.section(QLatin1Char('/'), -1).section(QLatin1Char('#'), -1)));
+                const QJsonObject b = builtinEffectBeats().value(id);
+                beats.append(b.isEmpty() ? QJsonValue() : QJsonValue(b));
             }
         }
     }
-    return {{"ok", true}, {"effects", names}};
+    return {{"ok", true}, {"effects", names}, {"beats", beats}};
 }
 
 QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status) {

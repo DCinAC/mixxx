@@ -11,7 +11,8 @@
 //                                      {path, artist, title, seconds, original}
 //   GET /web/job?id=                   {state: running|done|error, progress 0-1, message, result | error}
 //   GET /web/cancel?id=
-//   GET /web/fx                        Mixxx's effects as a unit's slots number them: {effects: [name, ...]} (Mixxx
+//   GET /web/fx                        Mixxx's effects as a unit's slots number them: {effects: [name, ...], beats:
+//                                      [{knob, min, max} or null, ...] (the knob in beats, for the BEAT keys)} (Mixxx
 //                                      ZyDeck's live list, else effects.xml, which Mixxx writes as it quits)
 // The same shapes as the phone's own downloader (res/zydek/python/zydek_web.py), so a page needs only the address.
 // The downloads folder is "ZyDeck Web" in Mixxx's first music folder (settings: web/folder), which Mixxx ZyDeck
