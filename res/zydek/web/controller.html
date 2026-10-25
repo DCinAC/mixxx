@@ -1185,7 +1185,13 @@ function buildStrip(s, u) {
         if (q) setTimeout(() => { markLocal(d, "quantize"); setCtl(ch(d.n), "quantize", 1); }, 80);
       }
       d.grabbed = false; u.strip.classList.remove("held"); send("scratchOff", d.n, +d.vel.toFixed(2));
-      if (!d.coast) { d.released = performance.now(); d.shown = d.pos; }   // let go: no jump back by the sound's delay (zydeck-position.js)
+      if (!d.coast) {
+        // Mixxx goes on from where the hand left it (put there just above): the model of where it is starts again from
+        // there, at the deck's speed (the reports from while it slowed to a stop would run it on 250 ms ahead, and the
+        // waveform rush after it), and the drawing doesn't jump back by the sound's delay (zydeck-position.js)
+        posSeed(d, d.pos, d.playing ? d.ratio || 1 : 0, performance.now());
+        d.released = performance.now(); d.shown = d.pos;
+      }
     },
   });
   return head;
