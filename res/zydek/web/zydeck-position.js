@@ -157,6 +157,27 @@
     }
   }
 
+  // The track end warning's flash, locked to the deck's beat grid: a cycle every 2 beats from a bar's first beat; the
+  // time left lit for its first 65 % and 10 % visible for the rest (hard edges), the pink light lit for its first half
+  // with 100 ms fades at both ends (tuned on the End warning tuner). pos: where the track is (s); ratio: the deck's
+  // speed (the fades are real time). Without a grid, bpm (120 without one). {time, pink}: their opacities, 0-1
+  const END_BEATS = 2, END_TIME_DUTY = .65, END_TIME_OFF = .1, END_PINK_DUTY = .5, END_PINK_FADE_S = .1;
+  function endFlash(beats, bar, bpm, ratio, pos) {
+    let f, beat;
+    const n = beats ? beats.length : 0;
+    if (n > 1) {
+      let lo = 0, hi = n - 1;
+      if (pos <= beats[0]) { beat = beats[1] - beats[0]; f = (pos - beats[0]) / beat; }
+      else if (pos >= beats[hi]) { beat = beats[hi] - beats[hi - 1]; f = hi + (pos - beats[hi]) / beat; }
+      else { while (hi - lo > 1) { const m = (lo + hi) >> 1; if (beats[m] <= pos) lo = m; else hi = m; } beat = beats[hi] - beats[lo]; f = lo + (pos - beats[lo]) / beat; }
+      f += bar || 0;
+    } else { beat = 60 / (bpm > 0 ? bpm : 120); f = pos / beat; }
+    const x = ((f / END_BEATS % 1) + 1) % 1;
+    const fade = Math.min(END_PINK_DUTY / 2, END_PINK_FADE_S * (ratio || 1) / (END_BEATS * beat));   // (of the cycle)
+    const pink = x < fade ? x / fade : x < END_PINK_DUTY - fade ? 1 : x < END_PINK_DUTY ? (END_PINK_DUTY - x) / fade : 0;
+    return { time: x < END_TIME_DUTY ? 1 : END_TIME_OFF, pink };
+  }
+
   window.ZydeckPos = { hubTime, posSeed, posModel, posAt, posUpdate, posStop, posVisual, waveColumns, clockSync, clockStart,
-    clockPong, setLatency, ahead };
+    clockPong, setLatency, ahead, endFlash };
 })();

@@ -95,12 +95,10 @@
       repeating-linear-gradient(90deg, transparent 0 calc(6.25% - 1px), #1f1f1f calc(6.25% - 1px) 6.25%), #121212; }
   .strip.held { border-color: var(--acc); background-color: #181818; }
   /* the track end warning light (Settings › Screen): a playing track's last 30 s, the strip flashes pink, as Mixxx's
-     overview does; a blink of its own layer's opacity, so nothing is drawn again */
+     overview does, with the beat (ZydeckPos.endFlash, set each frame; the time left blinks with it); its own layer's
+     opacity, so nothing is drawn again */
   .endwarn { position: absolute; inset: 0; pointer-events: none; opacity: 0; will-change: opacity; z-index: 3;
     background: rgba(255, 70, 165, .26); box-shadow: inset 0 0 0 2px rgba(255, 95, 175, .9); }
-  .ending .endwarn { animation: endwarn 1s steps(1) infinite; }
-  .num.ending { animation: endwarn 1s steps(1) infinite; }   /* the time left blinks with it: shown while it's pink */
-  @keyframes endwarn { 0% { opacity: 1; } 50% { opacity: 0; } }
   .strip .cursor { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--acc); left: 50% !important;
     box-shadow: 0 0 calc(var(--mm) * 1.2) var(--acc); will-change: transform; left: 0; }
   /* waveform of the stretch of record the strip shows (Mixxx's analysis: red lows, green mids, blue highs) */
@@ -2181,7 +2179,11 @@ function frame(now) {
     const left = (d.dur - d.pos) / (1 + d.tempo / 100);
     setText(u.time, fmtTime(left));
     const ending = S.endWarn !== false && d.playing && d.dur > 0 && left > 0 && left < END_WARN_S;
-    if (u.strip._end !== ending) { u.strip._end = ending; u.strip.classList.toggle("ending", ending); u.time.classList.toggle("ending", ending); }
+    if (u.strip._end !== ending) { u.strip._end = ending; u.strip.classList.toggle("ending", ending); u.warn ??= u.strip.querySelector(".endwarn"); }
+    const fl = ending ? ZydeckPos.endFlash(d.beats, d.bar, d.bpm, 1 + d.tempo / 100, d.pos) : { time: 1, pink: 0 };
+    const tOp = fl.time === 1 ? "" : String(fl.time), pOp = fl.pink.toFixed(2);
+    if (u.time._op !== tOp) { u.time._op = tOp; u.time.style.opacity = tOp; }
+    if (u.warn && u.warn._op !== pOp) { u.warn._op = pOp; u.warn.style.opacity = pOp; }
   });
   requestAnimationFrame(frame);
 }
