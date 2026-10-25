@@ -16,8 +16,21 @@ namespace {
 void write(const VisibleEffectsList& list, const QString& path) {
     QJsonArray effects;
     for (const EffectManifestPointer& pManifest : list.getList()) {
-        effects.append(QJsonObject{{"id", pManifest->id()},
-                {"name", pManifest->displayName().isEmpty() ? pManifest->name() : pManifest->displayName()}});
+        QJsonObject e{{"id", pManifest->id()},
+                {"name", pManifest->displayName().isEmpty() ? pManifest->name() : pManifest->displayName()}};
+        // its knob in beats, if it has one (a slot's parameterN, N counting knobs only): ZyDeck's BEAT keys set it
+        int knob = 0;
+        for (const EffectManifestParameterPointer& pParam : pManifest->parameters()) {
+            if (pParam->parameterType() != EffectManifestParameter::ParameterType::Knob) {
+                continue;
+            }
+            ++knob;
+            if (pParam->unitsHint() == EffectManifestParameter::UnitsHint::Beats) {
+                e.insert(QStringLiteral("beats"), QJsonObject{{"knob", knob}, {"min", pParam->getMinimum()}, {"max", pParam->getMaximum()}});
+                break;
+            }
+        }
+        effects.append(e);
     }
     QSaveFile f(path);
     if (f.open(QIODevice::WriteOnly)) {
