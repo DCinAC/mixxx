@@ -1178,7 +1178,10 @@ function buildStrip(s, u) {
       // heard, and the record slides on a moment after the grab), and would play on from there, skipping it
       // (with quantize on, Mixxx keeps a playing deck's beat phase through a seek, which put it right back:
       // quantize is off for that moment)
-      if (live && Math.abs(d.vel) < .2 && d.dur > 0) {
+      // On the computer's Mixxx (controller mode) it stays where it is: the sound is what counts, and moving it there
+      // was a jump you'd hear (each scratch could leave it a few hundred ms from the hand, the time the grab took to
+      // reach it); the drawing goes to it instead, below
+      if (live && !REMOTE.on && Math.abs(d.vel) < .2 && d.dur > 0) {
         const q = d.quantize;
         if (q) { markLocal(d, "quantize"); setCtl(ch(d.n), "quantize", 0); }
         setCtl(ch(d.n), "playposition", clamp(d.pos, 0, d.dur) / d.dur);
@@ -1189,8 +1192,11 @@ function buildStrip(s, u) {
         // Mixxx goes on from where the hand left it (put there just above): the model of where it is starts again from
         // there, at the deck's speed (the reports from while it slowed to a stop would run it on 250 ms ahead, and the
         // waveform rush after it), and the drawing doesn't jump back by the sound's delay (zydeck-position.js)
-        posSeed(d, d.pos, d.playing ? d.ratio || 1 : 0, performance.now());
-        d.released = performance.now(); d.shown = d.pos;
+        // The computer's Mixxx: from where it last said it was (the hand drew ahead of what it heard), the drawing
+        // sliding over to it from the hand's place
+        const now = performance.now(), from = REMOTE.on && d.rawP != null && now - d.rawT < 1000 ? d.rawP : d.pos;
+        posSeed(d, from, d.playing ? d.ratio || 1 : 0, now);
+        d.released = now; d.shown = d.pos;
       }
     },
   });
@@ -2892,7 +2898,13 @@ function applyCv(name, v, ts) {
     const hc = /^hotcue_(\d+)_position$/.exec(key);
     if (hc) { const at = d.cuePos ??= []; if (at[hc[1] - 1] !== v) { at[hc[1] - 1] = v; if ((S.cueTime || "off") !== "off") markDirty("deck", d); } return; }
     switch (key) {
-      case "playposition": posUpdate(d, v * d.dur, performance.now(), ts); return;   // drawn by the animation loop
+      case "playposition": {   // drawn by the animation loop
+        const now = performance.now();
+        if (REMOTE.on && d.playing && d.rawT != null) linkGap(now - d.rawT);
+        d.rawP = v * d.dur; d.rawT = now;   // (what Mixxx last said, as is: a release on the computer's Mixxx starts from it)
+        posUpdate(d, d.rawP, now, ts);
+        return;
+      }
       case "play":
         if (!(v > 0) && d.pt !== undefined) posSeed(d, posModel(d, performance.now()), 0, performance.now());   // stopped: freeze here
         return upd("playing", v > 0);
@@ -3006,6 +3018,22 @@ function liveText() {
   const app = REMOTE.layout === "standard" ? "MIDI" : "Mixxx";
   return REMOTE.via === "wifi" ? `${app} on ${REMOTE.computer || "the computer"} · Wi-Fi` : `${app} on the computer · USB`;
 }
+// Controller mode over Wi-Fi: how often the computer's positions come (a playing deck's, every ~33 ms on a good link).
+// Slower for 10 s: said once (in 10 minutes) that the cable is steadier
+const gapLog = [];
+let gapToldAt = -1e9;
+function linkGap(ms) {
+  if (REMOTE.via !== "wifi" || ms > 2000) return;
+  const now = performance.now();
+  gapLog.push([now, ms]);
+  while (gapLog.length && now - gapLog[0][0] > 10000) gapLog.shift();
+  if (gapLog.length < 40 || now - gapLog[0][0] < 9000 || now - gapToldAt < 600000) return;
+  const median = gapLog.map(g => g[1]).sort((a, b) => a - b)[gapLog.length >> 1];
+  if (median > 60) {
+    gapToldAt = now;
+    toast(`Wi-Fi is slow right now: the computer's positions come every ${Math.round(median)} ms. The USB cable is steadier.`);
+  }
+}
 // Controller mode: what the hub says about the cable and ZyDeck Connect
 function onRemote(r) {
   const was = REMOTE;
@@ -3013,7 +3041,11 @@ function onRemote(r) {
   useRemoteLat();
   if (live) topNote.textContent = liveText();
   if (r.on !== was.on || r.http !== was.http || r.computer !== was.computer) loadFxNames();   // (whose effects)
-  if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`);
+  if (r.via === "wifi" && was.via === "usb") toast("Cable out: carrying on over Wi-Fi");
+  else if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`);
+  else if (r.via === "usb" && was.via === "wifi") toast("On the USB cable now (steadier). Wi-Fi stays linked, for if it's pulled");
+  if (r.powerSave && r.via === "wifi" && !(was.powerSave && was.via === "wifi"))
+    toast("Battery saver is on: it slows the Wi-Fi link to the computer. Turn it off while playing, or use the USB cable.", "bad");
   if (r.on && !r.live && was.live) toast(r.usb === 2 || r.via ? "Mixxx on the computer isn't answering: is the ZyDeck mapping on?" : "The computer is gone: plug the cable back in");
   // ZyDeck Connect answered over the cable: offer the wireless link
   document.getElementById("linkask")?.remove();

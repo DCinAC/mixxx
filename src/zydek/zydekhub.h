@@ -260,6 +260,14 @@ class Hub : public QObject {
     qint64 m_linkTryMs = 0;    // the last try at the saved Wi-Fi link
     bool m_remoteLive = false;   // the mapping on the computer answered
     qint64 m_remoteRxMs = 0;     // when it last did
+    // Controller mode's path: the cable while the mapping answers over it (steadier than Wi-Fi), else Wi-Fi, which
+    // stays linked beside a working cable so that pulling the cable goes over at once (choosePath)
+    qint64 m_usbRxMs = -100000;  // when the mapping last answered over the cable
+    bool m_viaCable = false;     // the path in use
+    bool m_forceCable = false;   // (a message that has to go over the cable: the hello)
+    bool m_powerSave = false;    // the device's battery saver (it overrides the Wi-Fi lock: the pages say so)
+    bool cableActive() const;
+    void choosePath();
     qint64 m_helloMs = -100000;  // when the hello last went over the cable
     MidiParser m_usbParser;
     MidiParser m_linkParser;

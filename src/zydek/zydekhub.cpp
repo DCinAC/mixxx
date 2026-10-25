@@ -2730,7 +2730,7 @@ void Hub::sendMidi(const QByteArray& data) {
         }
         return;
     }
-    if (m_linkUp && m_pLink) {
+    if (!m_viaCable && !m_forceCable && m_linkUp && m_pLink) {
         m_pLink->write("M " + data.toHex() + '\n');
         if (m_pLink->bytesToWrite() > 4 * 1024 * 1024) {
             // the computer stopped taking it (gone from the Wi-Fi without closing): start over, later
@@ -3495,9 +3495,11 @@ void Hub::usbMidiState(int state) {
             m_linkOffer = {};   // a new cable, a new offer
             m_offerDeclined = false;
         }
-    } else if (!wasReady && !m_linkUp) {
-        m_helloMs = -100000;   // say hello now
-        resendSubscriptions();
+    } else if (!wasReady) {
+        m_helloMs = -100000;   // say hello now (linked over Wi-Fi or not: the cable takes over once it answers)
+        if (!m_linkUp) {
+            resendSubscriptions();
+        }
     }
     emitRemote();
     remoteTick();
@@ -3508,6 +3510,7 @@ void Hub::setControllerMode(bool on) {
         return;
     }
     m_controllerMode = on;
+    choosePath();   // (off: nothing to choose, and the Wi-Fi lock let go)
     saveRemote();
 #ifdef Q_OS_ANDROID
     QJniObject::callStaticMethod<void>("org/mixxx/ZydekMidi", "setEnabled", "(Z)V", static_cast<jboolean>(on));
@@ -3567,6 +3570,28 @@ void Hub::resendSubscriptions() {
     }
 }
 
+/// The cable works: Android has it as MIDI and the mapping answered over it in the last 3 s
+bool Hub::cableActive() const {
+    return m_usbState == 2 && m_clock.elapsed() - m_usbRxMs < 3000;
+}
+
+/// Which way to talk to the computer now (the pages told, and the subscriptions sent again, when it changes), and the
+/// Wi-Fi lock held while it's Wi-Fi
+void Hub::choosePath() {
+    const bool cable = m_controllerMode && (cableActive() || (m_usbState == 2 && !m_linkUp));
+    if (cable != m_viaCable) {
+        m_viaCable = cable;
+        if (m_controllerMode) {
+            resendSubscriptions();
+            emitRemote();
+        }
+    }
+#ifdef Q_OS_ANDROID
+    QJniObject::callStaticMethod<void>("org/mixxx/ZydekLink", "setLowLatency", "(Z)V",
+            static_cast<jboolean>(m_controllerMode && m_linkUp && !m_viaCable));
+#endif
+}
+
 bool Hub::canSend() const {
     return m_controllerMode ? (m_linkUp || m_usbState == 2) : m_pController != nullptr;
 }
@@ -3581,7 +3606,9 @@ bool Hub::live() const {
 QJsonObject Hub::remoteStatus() const {
     QJsonObject out{{"on", m_controllerMode},
             {"usb", m_usbState},
-            {"via", !m_controllerMode ? "" : m_linkUp ? "wifi" : m_usbState == 2 ? "usb" : ""},
+            {"via", !m_controllerMode ? "" : m_viaCable ? "usb" : m_linkUp ? "wifi" : ""},
+            {"standby", m_controllerMode && m_viaCable && m_linkUp},   // (Wi-Fi linked too, for when the cable's pulled)
+            {"powerSave", m_powerSave},
             {"live", live()},
             {"linking", m_pLink != nullptr && !m_linkUp},
             {"saved", m_linkSaved.value(QStringLiteral("name"))},
@@ -3646,8 +3673,14 @@ void Hub::remoteMessage(const QByteArray& msg, bool viaUsb) {
         }
         return;
     }
-    if (viaUsb && m_linkUp) {
-        return;   // the same mapping's messages arrive over Wi-Fi now
+    if (viaUsb) {
+        m_usbRxMs = m_clock.elapsed();
+        if (!m_viaCable) {
+            choosePath();   // the cable answers: over to it
+        }
+    }
+    if (viaUsb != m_viaCable) {
+        return;   // (ZyDeck Connect sends Mixxx's messages down both: only the path in use is listened to)
     }
     if (standardMidi()) {
         standardFromDj(msg);
@@ -3669,11 +3702,21 @@ void Hub::remoteTick() {
         return;
     }
     const qint64 now = m_clock.elapsed();
-    if (m_usbState == 2 && !m_linkUp && m_linkOffer.isEmpty() && now - m_helloMs > 3000) {
-        m_helloMs = now;
+    choosePath();
+    if (m_usbState == 2 && !cableActive() && now - m_helloMs > 3000) {   // (until the cable answers: ZyDeck Connect
+        m_helloMs = now;                                                   // relays it once it knows the device)
+        m_forceCable = true;
         sendSysexText(kLinkHello,
                 QJsonDocument(QJsonObject{{"v", 1}, {"name", deviceName()}}).toJson(QJsonDocument::Compact));
+        m_forceCable = false;
     }
+#ifdef Q_OS_ANDROID
+    const bool powerSave = QJniObject::callStaticMethod<jboolean>("org/mixxx/ZydekLink", "powerSave", "()Z");
+    if (powerSave != m_powerSave) {
+        m_powerSave = powerSave;
+        emitRemote();
+    }
+#endif
     if (canSend() && !standardMidi() && now - m_remoteRxMs > 4000) {
         sysex({kPing, 0x7F, 0x7F, 0x7F});   // the mapping echoes it: still there?
         if (m_remoteLive && now - m_remoteRxMs > 10000) {
@@ -3682,10 +3725,8 @@ void Hub::remoteTick() {
             m_server.broadcast(QStringLiteral("/ws"), QJsonDocument(snapshot()).toJson(QJsonDocument::Compact));
         }
     }
-    // the computer it linked with over Wi-Fi, again: unless a cable is up, or one is but Mixxx hasn't answered through it
-    // for 10 s (a cable to a charger, or to a computer without Mixxx on that port)
-    const bool cableWorks = m_usbState == 2 && (m_remoteLive || now - m_usbReadyMs < 10000);
-    if (!m_pLink && !cableWorks && !m_linkSaved.isEmpty() && now - m_linkTryMs > 5000) {   // (its own clock: the
+    // the computer it linked with over Wi-Fi, again: kept linked beside a working cable too, ready for when it's pulled
+    if (!m_pLink && !m_linkSaved.isEmpty() && now - m_linkTryMs > 5000) {   // (its own clock: the
         m_linkTryMs = now;                                                                    // cable's hello resets m_helloMs)
         linkConnect(m_linkSaved);
     }
@@ -3763,9 +3804,12 @@ void Hub::linkLine(const QByteArray& line) {
         m_linkSaved = m_linkTarget;
         m_linkSaved.remove(QStringLiteral("host"));
         saveRemote();
-        m_remoteLive = false;
-        m_remoteRxMs = m_clock.elapsed();
-        resendSubscriptions();   // to the mapping on ZyDeck Link's port (the durations bring the names)
+        if (!m_viaCable) {
+            m_remoteLive = false;
+            m_remoteRxMs = m_clock.elapsed();
+            resendSubscriptions();   // to the mapping on ZyDeck Link's port (the durations bring the names)
+        }
+        choosePath();   // (beside a working cable it waits as the standby)
         emitRemote();
     } else if (line.startsWith("NO")) {   // a wrong key: that computer forgot this device
         m_linkSaved = {};
@@ -3784,12 +3828,10 @@ void Hub::linkDrop(bool retry) {
         pLink->abort();
         pLink->deleteLater();
     }
-    if (wasUp) {
+    if (wasUp && !m_viaCable) {
         m_remoteLive = false;
-        if (m_usbState == 2) {
-            resendSubscriptions();   // back on the cable
-        }
     }
+    choosePath();   // (on the cable now, if there is one; the Wi-Fi lock let go)
     if (retry) {
         m_helloMs = m_clock.elapsed();   // remoteTick tries again in a few seconds
     }

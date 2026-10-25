@@ -1,13 +1,16 @@
 #include "midi.h"
 
 #include <QDateTime>
+#include <QFile>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <QSet>
 #include <algorithm>
 #include <cmath>
 #include <vector>
 
 #include "RtMidi.h"
+#include "library.h"   // (mixxxDir)
 
 #ifdef Q_OS_WIN
 #include <QLibrary>
@@ -32,13 +35,66 @@ QJsonObject sysexJson(const QByteArray& msg) {
 }
 
 namespace {
-// Windows lets one app at a time open a MIDI input: there ZyDeck Connect holds the cable's port and relays it to
-// and from the ZyDeck Connect port, which is the one Mixxx uses. Elsewhere Mixxx can open the cable too.
-#ifdef Q_OS_WIN
+// A device on the cable reaches Mixxx through ZyDeck Connect: Connect holds the cable's port and relays it to and
+// from the ZyDeck Connect port, the one Mixxx has open from its start. So a cable plugged in (or out) while Mixxx runs
+// just works (Mixxx only looks for MIDI ports as it starts). Windows lets one app at a time open a MIDI input anyway.
+// Elsewhere Mixxx could open the cable itself: a port Mixxx is set to handle with the ZyDeck mapping (mixxxOwns) isn't
+// relayed, or every message would arrive twice.
 constexpr bool kRelayCable = true;
+
+// Whether Mixxx's settings have the ZyDeck mapping on for this MIDI port itself ([Controller] <name> 1, its
+// [ControllerPreset] a ZyDeck one; Mixxx writes the port's name with _ for spaces). Read again every 10 s
+bool mixxxOwns(const QString& port) {
+#ifdef Q_OS_WIN
+    Q_UNUSED(port);
+    return false;
 #else
-constexpr bool kRelayCable = false;
+    static QMutex mutex;
+    static QSet<QString> owned;
+    static qint64 readAt = 0;
+    QMutexLocker lock(&mutex);
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now - readAt > 10000) {
+        readAt = now;
+        owned.clear();
+        QFile f(mixxxDir() + QStringLiteral("/mixxx.cfg"));
+        if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QString section;
+            QHash<QString, bool> on;
+            QHash<QString, QString> preset;
+            while (!f.atEnd()) {
+                const QString line = QString::fromUtf8(f.readLine()).trimmed();
+                if (line.startsWith(QLatin1Char('['))) {
+                    section = line;
+                    continue;
+                }
+                const qsizetype space = line.indexOf(QLatin1Char(' '));
+                if (space <= 0) {
+                    continue;
+                }
+                if (section == QLatin1String("[Controller]")) {
+                    on.insert(line.left(space), line.mid(space + 1).trimmed() == QLatin1String("1"));
+                } else if (section == QLatin1String("[ControllerPreset]")) {
+                    preset.insert(line.left(space), line.mid(space + 1));
+                }
+            }
+            for (auto it = on.cbegin(); it != on.cend(); ++it) {
+                if (it.value() && preset.value(it.key()).contains(QLatin1String("ZyDeck"), Qt::CaseInsensitive)) {
+                    owned.insert(it.key());
+                }
+            }
+        }
+    }
+    QString key = port;
+    key.replace(QLatin1Char(' '), QLatin1Char('_'));
+    for (const QString& o : std::as_const(owned)) {
+        if (o != QLatin1String("ZyDeck_Connect") && (key == o || key.startsWith(o + QLatin1Char('_')))) {
+            return true;
+        }
+    }
+    return false;
 #endif
+}
 
 QByteArray bytes(const std::vector<unsigned char>* m) {
     return QByteArray(reinterpret_cast<const char*>(m->data()), static_cast<int>(m->size()));
@@ -233,7 +289,7 @@ void Midi::toCables(const QByteArray& msg) {
         QMutexLocker lock(&m_mutex);
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
         for (auto it = m_devices.cbegin(); it != m_devices.cend(); ++it) {
-            if (now - it.value() < 3600 * 1000) {
+            if (now - it.value() < 3600 * 1000 && !mixxxOwns(it.key())) {
                 ports.append(it.key());
             }
         }
@@ -333,10 +389,13 @@ void Midi::fromCable(const QString& port, const QByteArray& msg) {
             QMutexLocker lock(&m_mutex);
             relay = kRelayCable && m_devices.contains(port);
         }
+        if (relay && mixxxOwns(port)) {
+            relay = false;   // (Mixxx reads it itself)
+        }
         if (relay) {
             toMixxx(msg);
         }
-        return;   // the mapping's own messages: Mixxx reads those from this port itself
+        return;   // (the mapping's own messages: relayed above, unless Mixxx reads this port itself)
     }
     const QJsonObject j = sysexJson(msg);
     if (byte(2) == kLinkHello) {

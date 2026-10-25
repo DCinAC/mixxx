@@ -97,6 +97,43 @@ public class ZydekLink {
     }
 
     /// Starts looking (again) for 15 s; devices() has what turned up so far.
+    // ---- controller mode over Wi-Fi: the radio kept awake ----
+    // Android's Wi-Fi power saving holds what arrives until the radio wakes for the router's next beacon (every
+    // ~100 ms): the computer's deck positions came in clumps 100 ms apart (up to 0.7 s), and a scratch's grab reached
+    // Mixxx late. A low-latency lock (the one games and calls use) keeps it awake while ZyDeck is linked over Wi-Fi;
+    // Android honours it only while the app is in front with the screen on. No permission beyond WAKE_LOCK.
+    private static android.net.wifi.WifiManager.WifiLock s_wifiLock;
+
+    public static synchronized void setLowLatency(boolean on) {
+        if (s_context == null) {
+            return;
+        }
+        if (on && s_wifiLock == null) {
+            android.net.wifi.WifiManager wifi = (android.net.wifi.WifiManager) s_context.getSystemService(Context.WIFI_SERVICE);
+            if (wifi == null) {
+                return;
+            }
+            int mode = Build.VERSION.SDK_INT >= 29 ? android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                                                   : android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF;
+            s_wifiLock = wifi.createWifiLock(mode, "ZyDeck:controller");
+            s_wifiLock.setReferenceCounted(false);
+            s_wifiLock.acquire();
+            Log.i(TAG, "Wi-Fi kept awake (low latency) while linked");
+        } else if (!on && s_wifiLock != null) {
+            s_wifiLock.release();
+            s_wifiLock = null;
+        }
+    }
+
+    /// Battery saver on: it overrides the lock (and slows the device), worth saying while linked over Wi-Fi
+    public static boolean powerSave() {
+        if (s_context == null) {
+            return false;
+        }
+        android.os.PowerManager pm = (android.os.PowerManager) s_context.getSystemService(Context.POWER_SERVICE);
+        return pm != null && pm.isPowerSaveMode();
+    }
+
     public static synchronized void scan() {
         if (s_nsd == null) {
             return;
