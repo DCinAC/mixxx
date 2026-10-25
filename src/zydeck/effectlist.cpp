@@ -25,7 +25,9 @@ void write(const VisibleEffectsList& list, const QString& path) {
                 continue;
             }
             ++knob;
-            if (pParam->unitsHint() == EffectManifestParameter::UnitsHint::Beats) {
+            // (Flanger's speed is in beats too, 1/4 to 32 a sweep with a grid, though Mixxx doesn't say so)
+            if (pParam->unitsHint() == EffectManifestParameter::UnitsHint::Beats ||
+                    (knob == 1 && pManifest->id() == QLatin1String("org.mixxx.effects.flanger"))) {
                 e.insert(QStringLiteral("beats"), QJsonObject{{"knob", knob}, {"min", pParam->getMinimum()}, {"max", pParam->getMaximum()}});
                 break;
             }

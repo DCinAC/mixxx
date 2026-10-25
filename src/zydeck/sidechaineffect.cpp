@@ -41,10 +41,10 @@ EffectManifestPointer SidechainEffect::getManifest() {
     rate->setId("rate");
     rate->setName(QObject::tr("Rate"));
     rate->setShortName(QObject::tr("Rate"));
-    rate->setDescription(QObject::tr("How often it pumps: every 1/4, 1/2 or 1 beat"));
+    rate->setDescription(QObject::tr("How often it pumps: every 1/4, 1/2, 1, 2 or 4 beats"));
     rate->setValueScaler(EffectManifestParameter::ValueScaler::Logarithmic);
     rate->setUnitsHint(EffectManifestParameter::UnitsHint::Beats);   // (ZyDeck's beat keys set it)
-    rate->setRange(1.0 / 4, 1, 1);
+    rate->setRange(1.0 / 4, 1, 4);
 
     EffectManifestParameterPointer release = pManifest->addParameter();
     release->setId("release");
@@ -74,13 +74,15 @@ void SidechainEffect::processChannel(
         const GroupFeatureState& groupFeatures) {
     const double depth = std::clamp(m_pDepthParameter->value(), 0.0, 1.0);
     const double release = std::clamp(m_pReleaseParameter->value(), 0.1, 1.0);
-    // one pump's length in beats: 1/4, 1/2 or 1
-    const double beats = std::clamp(std::exp2(std::round(std::log2(std::max(m_pRateParameter->value(), 0.25)))), 0.25, 1.0);
+    // one pump's length in beats: 1/4, 1/2, 1, 2 or 4
+    const double beats = std::clamp(std::exp2(std::round(std::log2(std::max(m_pRateParameter->value(), 0.25)))), 0.25, 4.0);
     const int channels = engineParameters.channelCount();
     const SINT frames = engineParameters.samplesPerBuffer() / channels;
     const double sampleRate = engineParameters.sampleRate();
     if (enableState == EffectEnableState::Enabling) {
         pState->gain = 1;
+        pState->beat = -1;           // (the next beat is the first pump's)
+        pState->lastFraction = -1;
     }
 
     // where in the beat the buffer ends: the deck's grid, or 120 BPM running free
@@ -100,8 +102,18 @@ void SidechainEffect::processChannel(
     for (SINT f = 0; f < frames; ++f) {
         double fraction = endFraction - static_cast<double>(frames - f) / framesPerBeat;
         fraction -= std::floor(fraction);
-        double phase = fraction / beats;
-        phase -= std::floor(phase);
+        if (pState->lastFraction >= 0 && fraction < pState->lastFraction - 0.5) {
+            pState->beat = (pState->beat + 1) % 4;   // (a new beat: counted round a bar, enough for 4-beat pumps)
+        }
+        pState->lastFraction = fraction;
+        double phase;
+        if (beats > 1) {   // over several beats: which of them, and where in it (before the first: up, waiting)
+            const int n = static_cast<int>(beats);
+            phase = pState->beat < 0 ? 0.999 : ((pState->beat % n) + fraction) / beats;
+        } else {
+            phase = fraction / beats;
+            phase -= std::floor(phase);
+        }
         // down at the pump's start, then back up over `release` of it: a moment low, a swell, an easing in
         const double x = std::min(1.0, phase / release);
         const double target = 1.0 - depth * (1.0 - x * x * (3.0 - 2.0 * x));
