@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ZyDeck session profiler</title>
+<style>
+  /* ZyDeck: the session profiler (the hub's /api/profile). Start it, play a set, MARK what feels off, stop it: the
+     report says how long the controls took to reach Mixxx and back (cable and Wi-Fi apart), what happened when,
+     and what was going on around each mark. */
+  :root { --bg: #0b0b0b; --panel: #161616; --line: #2a2a2a; --text: #e8e8e8; --dim: #9a9a9a; --rec: #ff3b30; --cable: #4cc2ff;
+    --wifi: #ffb347; --local: #9be37d; --bad: #ff6b61; --ok: #6bd88a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px 16px 48px; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  h1 { font-size: 20px; margin: 0; flex: 1; }
+  h2 { font-size: 16px; margin: 22px 0 8px; }
+  a { color: var(--cable); }
+  button { min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #444; background: #1d1d1d; color: var(--text); font: inherit; font-weight: 600; }
+  button:disabled { opacity: .4; }
+  button.rec { border-color: var(--rec); color: #fff; background: #3a1210; }
+  button.small { min-height: 36px; padding: 0 10px; font-weight: 500; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  #state { color: var(--dim); }
+  #state.on { color: var(--rec); font-weight: 700; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .card b { display: block; font-size: 20px; }
+  .card span { color: var(--dim); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 12px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  th { color: var(--dim); font-weight: 500; font-size: 13px; }
+  .scroll { overflow-x: auto; }
+  canvas { width: 100%; height: 380px; display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--dim); font-size: 13px; margin-top: 6px; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .bad { color: var(--bad); } .ok { color: var(--ok); } .dim { color: var(--dim); }
+  #sessions td:last-child { white-space: nowrap; }
+  .note { color: var(--dim); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Session profiler</h1>
+    <a href="/controller">Back to the decks</a>
+  </header>
+  <div class="row">
+    <button id="start" class="rec">● Start</button>
+    <button id="mark" disabled>Mark</button>
+    <button id="stop" disabled>■ Stop</button>
+    <span id="state">Not recording</span>
+  </div>
+  <p class="note">Start it, play your set on the decks page, tap MARK on its red chip when something feels off, stop it. Everything stays on this device.</p>
+
+  <h2>Sessions</h2>
+  <div class="scroll"><table id="sessions"><thead><tr><th>Started</th><th>Size</th><th></th></tr></thead><tbody></tbody></table></div>
+
+  <section id="report" hidden>
+    <h2 id="rtitle">Report</h2>
+    <div class="cards" id="cards"></div>
+    <h2>Round trip to Mixxx and back</h2>
+    <p class="note">A ping 20 times a second, through the same path as the controls (the tablet's page → its hub → the cable or Wi-Fi →
+      ZyDeck Connect → Mixxx's mapping → back). Your hand to the sound is about half of this, plus Mixxx's own audio delay.</p>
+    <div class="scroll"><table id="paths"><thead><tr><th>Path</th><th>Time</th><th>Median</th><th>95%</th><th>99%</th><th>Worst</th><th>Jitter</th><th>Lost</th></tr></thead><tbody></tbody></table></div>
+    <h2>Mixxx's position updates</h2>
+    <p class="note">How far apart the playing decks' positions came (the waveform is drawn between them). About 33 ms is right.</p>
+    <div class="scroll"><table id="gaps"><thead><tr><th>Path</th><th>Median</th><th>95%</th><th>99%</th><th>Worst</th><th>Over 150 ms</th></tr></thead><tbody></tbody></table></div>
+    <h2>Over time</h2>
+    <canvas id="chart" role="img" aria-label="Round trip, position gaps, frames, CPU and Wi-Fi signal over the session"></canvas>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--cable)"></i>Cable</span><span><i class="sw" style="background:var(--wifi)"></i>Wi-Fi</span>
+      <span><i class="sw" style="background:var(--local)"></i>This device's Mixxx</span><span><i class="sw" style="background:var(--rec)"></i>Mark</span>
+      <span><i class="sw" style="background:#888"></i>Path, link or cable changed</span>
+    </div>
+    <h2>Marks and what was around them</h2>
+    <div class="scroll"><table id="marks"><thead><tr><th>#</th><th>At</th><th>Path</th><th>Round trip (worst)</th><th>Position gap (worst)</th><th>Lost pings</th><th>Frame (worst)</th><th>Dropouts</th><th>Scratching</th></tr></thead><tbody></tbody></table></div>
+    <h2>Problems found</h2>
+    <div class="scroll"><table id="issues"><thead><tr><th>At</th><th>What</th></tr></thead><tbody></tbody></table></div>
+    <h2>What happened</h2>
+    <div class="scroll"><table id="events"><thead><tr><th>At</th><th>Event</th></tr></thead><tbody></tbody></table></div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const api = async what => { const r = await fetch(`/api/profile?${what}`); const b = await r.json().catch(() => ({})); if (!r.ok || b.ok === false) throw new Error(b.error || r.statusText); return b; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const mmss = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+const q = (a, p) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
+const fmt = v => v == null ? "–" : v >= 100 ? Math.round(v) : (+v).toFixed(1);
+const PATH_NAME = { cable: "USB cable", wifi: "Wi-Fi", local: "This device's Mixxx" };
+const PATH_COLOR = { cable: "#4cc2ff", wifi: "#ffb347", local: "#9be37d" };
+let state = { on: false }, stateAt = 0;
+
+function paintState(s) {
+  if (s) { state = s; stateAt = performance.now(); }
+  $("start").disabled = state.on; $("stop").disabled = !state.on; $("mark").disabled = !state.on;
+  const t = (state.seconds || 0) + (state.on ? (performance.now() - stateAt) / 1000 : 0);
+  $("state").className = state.on ? "on" : "";
+  $("state").textContent = state.on ? `● Recording ${mmss(t)}${state.marks ? ` · ${state.marks} marked` : ""}` : "Not recording";
+}
+setInterval(() => state.on && paintState(), 1000);
+$("start").onclick = async () => { paintState(await api("do=start")); };
+$("stop").onclick = async () => { paintState(await api("do=stop")); await list(true); };
+$("mark").onclick = async () => { paintState(await api("do=mark")); };
+
+async function list(openNewest) {
+  const r = await api("do=list");
+  paintState(r.state);
+  const body = $("sessions").tBodies[0];
+  body.innerHTML = r.sessions.length ? "" : `<tr><td colspan="3" class="dim">None yet</td></tr>`;
+  for (const s of r.sessions) {
+    const tr = document.createElement("tr");
+    const live = state.on && s.id === state.id;
+    tr.innerHTML = `<td>${esc(s.id.replace("_", " ").replace(/-(\d\d)-(\d\d)$/, ":$1:$2"))}${live ? ' <span class="bad">● recording</span>' : ""}</td>
+      <td>${(s.bytes / 1024).toFixed(0)} KB</td>
+      <td><button class="small v">View</button> <a href="/api/profile?do=get&id=${encodeURIComponent(s.id)}" download>Download</a>
+        ${live ? "" : '<button class="small d">Delete</button>'}</td>`;
+    tr.querySelector(".v").onclick = () => show(s.id);
+    tr.querySelector(".d")?.addEventListener("click", async () => { if (confirm("Delete this session?")) { await api(`do=delete&id=${encodeURIComponent(s.id)}`); list(); } });
+    body.appendChild(tr);
+  }
+  if (openNewest && r.sessions[0]) show(r.sessions[0].id);
+}
+
+async function show(id) {
+  const text = await (await fetch(`/api/profile?do=get&id=${encodeURIComponent(id)}`)).text();
+  const lines = text.split("\n").filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  const secs = lines.filter(l => l.k === "sec"), events = lines.filter(l => l.k !== "sec"), marks = events.filter(e => e.k === "mark");
+  const start = lines.find(l => l.k === "start") || {};
+  const pathOf = l => l.page?.via || l.hub?.via || "local";
+  $("report").hidden = false;
+  $("rtitle").textContent = `Report · ${start.at ? new Date(start.at).toLocaleString() : id}${start.device ? ` · ${start.device}` : ""}`;
+
+  // per path: every round trip, every position gap, lost pings
+  const by = {};
+  for (const l of secs) {
+    const p = pathOf(l), b = by[p] || (by[p] = { rtt: [], gaps: [], lost: 0, sent: 0, secs: 0 });
+    b.secs++; b.rtt.push(...(l.page?.rttAll || [])); b.gaps.push(...(l.page?.gapsAll || []));
+    b.lost += l.page?.lost || 0; b.sent += (l.page?.rttAll || []).length + (l.page?.lost || 0);
+  }
+  const xr = secs.map(l => l.page?.xruns ?? l.hub?.xruns).filter(v => v != null);
+  const dropouts = xr.length ? Math.max(0, xr[xr.length - 1] - xr[0]) : null;
+  const dur = secs.length ? secs[secs.length - 1].t : 0;
+  const changes = events.filter(e => ["path", "wifiDown", "wifiUp", "cable"].includes(e.k)).length;
+  const allRtt = Object.values(by).flatMap(b => b.rtt);
+  const card = (v, label, cls = "") => `<div class="card"><b class="${cls}">${v}</b><span>${label}</span></div>`;
+  $("cards").innerHTML = card(mmss(dur), "recorded") + card(marks.length, "marks", marks.length ? "bad" : "") +
+    card(fmt(q(allRtt, .5)) + " ms", "round trip, median") + card(fmt(q(allRtt, .99)) + " ms", "round trip, 99%", q(allRtt, .99) > 40 ? "bad" : "") +
+    card(dropouts == null ? "–" : dropouts, "sound dropouts in Mixxx", dropouts ? "bad" : "ok") + card(changes, "path or link changes");
+
+  const jitter = a => a.length > 1 ? Math.sqrt(a.reduce((s, v, i) => i ? s + (v - a[i - 1]) ** 2 : 0, 0) / (a.length - 1)) : null;
+  $("paths").tBodies[0].innerHTML = Object.entries(by).map(([p, b]) => `<tr><td><i class="sw" style="background:${PATH_COLOR[p] || "#888"}"></i>${PATH_NAME[p] || esc(p)}</td>
+    <td>${mmss(b.secs)}</td><td>${fmt(q(b.rtt, .5))}</td><td>${fmt(q(b.rtt, .95))}</td><td class="${q(b.rtt, .99) > 40 ? "bad" : ""}">${fmt(q(b.rtt, .99))}</td>
+    <td>${fmt(q(b.rtt, 1))}</td><td>${fmt(jitter(b.rtt))}</td><td class="${b.lost ? "bad" : ""}">${b.lost}${b.sent ? ` (${(100 * b.lost / b.sent).toFixed(1)}%)` : ""}</td></tr>`).join("")
+    || `<tr><td colspan="8" class="dim">No pings recorded</td></tr>`;
+  $("gaps").tBodies[0].innerHTML = Object.entries(by).filter(([, b]) => b.gaps.length).map(([p, b]) => `<tr><td>${PATH_NAME[p] || esc(p)}</td>
+    <td>${fmt(q(b.gaps, .5))}</td><td>${fmt(q(b.gaps, .95))}</td><td>${fmt(q(b.gaps, .99))}</td><td>${fmt(q(b.gaps, 1))}</td>
+    <td class="${b.gaps.some(g => g > 150) ? "bad" : ""}">${b.gaps.filter(g => g > 150).length}</td></tr>`).join("")
+    || `<tr><td colspan="6" class="dim">No deck was playing</td></tr>`;
+
+  // around each mark: the 5 s before it and 2 after
+  const around = (t, f) => secs.filter(l => l.t >= t - 5 && l.t <= t + 2).map(f).filter(v => v != null);
+  $("marks").tBodies[0].innerHTML = marks.map(m => {
+    const rtt = around(m.t, l => l.page?.rtt?.[3]), gap = around(m.t, l => l.page?.gaps?.[3]), lost = around(m.t, l => l.page?.lost || 0);
+    const fr = around(m.t, l => l.page?.frameMax), x = around(m.t, l => l.page?.xruns ?? l.hub?.xruns), scr = around(m.t, l => l.page?.scratching);
+    const path = [...new Set(around(m.t, pathOf))].map(p => PATH_NAME[p] || p).join(", ");
+    return `<tr><td>${m.n}${m.note ? ` ${esc(m.note)}` : ""}</td><td>${mmss(m.t)}</td><td>${esc(path)}</td>
+      <td class="${Math.max(...rtt, 0) > 40 ? "bad" : ""}">${fmt(rtt.length ? Math.max(...rtt) : null)}</td>
+      <td class="${Math.max(...gap, 0) > 150 ? "bad" : ""}">${fmt(gap.length ? Math.max(...gap) : null)}</td>
+      <td class="${lost.reduce((a, b) => a + b, 0) ? "bad" : ""}">${lost.reduce((a, b) => a + b, 0)}</td>
+      <td class="${Math.max(...fr, 0) > 50 ? "bad" : ""}">${fmt(fr.length ? Math.max(...fr) : null)}</td>
+      <td class="${x.length && x[x.length - 1] > x[0] ? "bad" : ""}">${x.length ? x[x.length - 1] - x[0] : "–"}</td>
+      <td>${scr.some(Boolean) ? "yes" : "no"}</td></tr>`;
+  }).join("") || `<tr><td colspan="9" class="dim">No marks</td></tr>`;
+
+  // problems, a line each (the same kind in a row: one line)
+  const issues = [];
+  let prevX = null;
+  for (const l of secs) {
+    const p = l.page || {}, h = l.hub || {}, d = l.dev || {}, what = [];
+    if ((p.rtt?.[3] || 0) > 60) what.push(`a round trip of ${fmt(p.rtt[3])} ms`);
+    if (p.lost) what.push(`${p.lost} ping${p.lost > 1 ? "s" : ""} lost`);
+    if ((p.gaps?.[3] || 0) > 150) what.push(`positions ${fmt(p.gaps[3])} ms apart`);
+    if ((p.frameMax || 0) > 60) what.push(`a frame took ${p.frameMax} ms`);
+    if ((h.lagMax || 0) > 40) what.push(`the hub ran ${h.lagMax} ms late`);
+    const x = p.xruns ?? h.xruns;
+    if (x != null && prevX != null && x > prevX) what.push(`${x - prevX} sound dropout${x - prevX > 1 ? "s" : ""} in Mixxx`);
+    if (x != null) prevX = x;
+    if ((d.thermal || 0) >= 2) what.push(`the device is hot (thermal ${d.thermal})`);
+    if (h.powerSave && pathOf(l) === "wifi") what.push("battery saver on (it overrides the Wi-Fi lock)");
+    if (p.hidden) what.push("the decks page was in the background");
+    if (what.length) issues.push([l.t, what.join(", ")]);
+  }
+  $("issues").tBodies[0].innerHTML = issues.slice(0, 300).map(([t, w]) => `<tr><td>${mmss(t)}</td><td>${esc(w)}</td></tr>`).join("")
+    + (issues.length > 300 ? `<tr><td></td><td class="dim">… and ${issues.length - 300} more seconds</td></tr>` : "")
+    || `<tr><td colspan="2" class="ok">Nothing over the limits (round trip 60 ms, positions 150 ms apart, frames 60 ms, the hub 40 ms late)</td></tr>`;
+
+  const EVENT = { start: () => "Started", stop: e => `Stopped (${e.why === "asked" ? "by you" : e.why === "time" ? "3 hours" : e.why === "size" ? "50 MB" : esc(e.why)})`,
+    path: e => `Controls now over ${PATH_NAME[e.via] || esc(e.via)}`, wifiDown: () => "Wi-Fi link dropped", wifiUp: () => "Wi-Fi link up",
+    cable: e => `USB cable ${["out", "in (not ready)", "ready"][e.state] || e.state}`, mark: e => `Mark ${e.n}${e.note ? `: ${esc(e.note)}` : ""}` };
+  $("events").tBodies[0].innerHTML = events.map(e => `<tr><td>${mmss(e.t || 0)}</td><td>${(EVENT[e.k] || (() => esc(e.k)))(e)}</td></tr>`).join("");
+  drawn = [secs, events, pathOf];
+  requestAnimationFrame(redraw);   // (once the report is laid out: the canvas has its size then)
+}
+let drawn = null;
+const redraw = () => { if (drawn && $("chart").clientWidth) chart(...drawn); };
+addEventListener("resize", redraw);
+
+// Five lanes over the session: round trip (median line, worst dots), position gaps (worst), frames (worst), the
+// app's CPU, the Wi-Fi signal; marks and changes as lines across all of them
+function chart(secs, events, pathOf) {
+  const c = $("chart"), dpr = devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+  c.width = W * dpr; c.height = H * dpr;
+  const g = c.getContext("2d");
+  g.scale(dpr, dpr);
+  g.font = "12px system-ui, sans-serif";
+  const L = 92, R = 10, T = 8, dur = Math.max(1, secs.length ? secs[secs.length - 1].t : 1);
+  const lanes = [["Round trip", 80, l => l.page?.rtt?.[1], l => l.page?.rtt?.[3], "ms"], ["Positions apart", 300, null, l => l.page?.gaps?.[3], "ms"],
+    ["Frame", 120, null, l => l.page?.frameMax, "ms"], ["CPU", 200, null, l => l.hub?.cpu, "%"], ["Wi-Fi signal", 100, null, l => l.dev?.rssi != null ? 100 + l.dev.rssi : null, "dBm"]];
+  const lh = (H - T - 18) / lanes.length, x = t => L + (W - L - R) * t / dur;
+  lanes.forEach(([name, max, mid, top, unit], i) => {
+    const y0 = T + i * lh, y = v => y0 + lh - 4 - (lh - 10) * Math.min(1, v / max);
+    g.fillStyle = "#9a9a9a"; g.fillText(name, 6, y0 + 14);
+    g.fillText(unit === "dBm" ? "0 dBm" : `${max} ${unit}`, 6, y0 + 28);   // (the signal: -100 dBm at the bottom)
+    g.strokeStyle = "#2a2a2a"; g.beginPath(); g.moveTo(L, y0 + lh - 4); g.lineTo(W - R, y0 + lh - 4); g.stroke();
+    for (const l of secs) {
+      const v = top(l);
+      if (v == null) continue;
+      g.fillStyle = PATH_COLOR[pathOf(l)] || "#888";
+      g.fillRect(x(l.t) - 1, y(v) - 1, 2.5, 2.5);
+    }
+    if (mid) {
+      g.strokeStyle = "#e8e8e8"; g.lineWidth = 1; g.beginPath();
+      let on = false;
+      for (const l of secs) { const v = mid(l); if (v == null) { on = false; continue; } on ? g.lineTo(x(l.t), y(v)) : g.moveTo(x(l.t), y(v)); on = true; }
+      g.stroke();
+    }
+  });
+  for (const e of events) {
+    if (e.k === "start" || e.k === "stop") continue;
+    g.strokeStyle = e.k === "mark" ? "#ff3b30" : "#888"; g.lineWidth = e.k === "mark" ? 2 : 1;
+    g.beginPath(); g.moveTo(x(e.t), T); g.lineTo(x(e.t), H - 18); g.stroke();
+    if (e.k === "mark") { g.fillStyle = "#ff3b30"; g.fillText(String(e.n), x(e.t) + 3, T + 10); }
+  }
+  g.fillStyle = "#9a9a9a";
+  for (let i = 0; i <= 4; i++) { const t = dur * i / 4; g.fillText(mmss(t), Math.min(W - R - 30, x(t)), H - 4); }
+}
+
+list().catch(e => { $("state").textContent = e.message; });
+</script>
+</body>
+</html>

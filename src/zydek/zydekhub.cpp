@@ -1,6 +1,10 @@
 #include "zydek/zydekhub.h"
 #include "zydek/zydeckshared.h"
 
+#ifdef Q_OS_LINUX
+#include <unistd.h>   // (sysconf: the profiler's CPU time)
+#endif
+
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -399,7 +403,7 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     }
     if (path == QLatin1String("/controller") || path == QLatin1String("/settings") ||
             path == QLatin1String("/sizes") || path == QLatin1String("/phone") || path == QLatin1String("/grid") ||
-            path == QLatin1String("/sample")) {
+            path == QLatin1String("/sample") || path == QLatin1String("/profile")) {
         return staticFile(path.mid(1) + QLatin1String(".html"));
     }
     if (path == QLatin1String("/controller.webmanifest")) {
@@ -433,6 +437,9 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     }
     if (path == QLatin1String("/api/latency-log")) {
         return latencyLog(query);
+    }
+    if (path == QLatin1String("/api/profile")) {
+        return profileApi(query);
     }
     if (path.startsWith(QLatin1String("/beats/"))) {
         bool loaded = false;
@@ -1240,7 +1247,15 @@ void Hub::onWsText(QTcpSocket* pClient, const QString& path, const QByteArray& t
             }
         }
     } else if (type == QLatin1String("latency")) {
-        logLatency(m);
+        if (m_profOn) {
+            profileSecond(m);
+        }
+        if (m.value(QStringLiteral("profOnly")).toBool()) {   // (no telemetry: the session only)
+            m_lagMaxMs = 0;
+            m_slowRequests = QJsonArray();
+        } else {
+            logLatency(m);
+        }
     } else if (type == QLatin1String("telemetry")) {
         for (auto it = m_ctlRoles.cbegin(); it != m_ctlRoles.cend(); ++it) {
             if (it.value() == QLatin1String("debug")) {
@@ -2547,14 +2562,20 @@ void Hub::checkAudioOutput() {
 
 void Hub::ping(QTcpSocket* pClient, const QJsonArray& ping) {   // [seq, page's performance.now()]
     const int seq = ping.at(0).toInt() & 0x1FFFFF;
-    m_pings.insert(seq, Ping{pClient, ping.at(1).toDouble(), m_clock.elapsed()});
+    const qint64 now = m_clock.elapsed();
+    for (auto it = m_pings.begin(); it != m_pings.end();) {   // (echoes that never came: the page counts them lost)
+        it = now - it->hubMs > 2000 ? m_pings.erase(it) : std::next(it);
+    }
+    m_pings.insert(seq, Ping{pClient, ping.at(1).toDouble(), now});
     if (!canSend()) {
         pong(seq, false);
         return;
     }
     // Through the mapping, the way the page's controls go (it answers synchronously, on this thread)
     sysex({kPing, seq & 0x7F, (seq >> 7) & 0x7F, (seq >> 14) & 0x7F});
-    if (m_pings.contains(seq)) {   // the mapping didn't echo (an older mapping): answer directly
+    // This device's Mixxx answers at once, on this thread: no echo, an older mapping, so answer directly. The
+    // computer's (controller mode) answers over the cable or Wi-Fi, later: that round trip is the one to measure
+    if (m_pings.contains(seq) && !m_controllerMode) {
         pong(seq, false);
     }
 }
@@ -2620,6 +2641,174 @@ HttpServer::Response Hub::latencyLog(const HttpServer::Query& query) const {
     }
     const QList<QByteArray> tail = all.mid(std::max<qsizetype>(0, all.size() - lines));
     return {200, "application/x-ndjson", tail.join('\n') + '\n', {}};
+}
+
+// ---- session profiler -----------------------------------------------------------------------------
+// For trying a set: /api/profile?do=start|stop|mark (note=...)|status|list|get (id=...)|delete (id=...). While it
+// runs the controller page pings Mixxx 20 times a second and sends its summary every second, telemetry or not (it
+// stays on this device); each second's line also has the hub's own (its thread's lag, the path, the link) and the
+// device's (CPU, Wi-Fi, temperature, battery). /profile shows it. Stops by itself after 3 hours or 50 MB.
+
+namespace {
+const QString kSessionsDir = QStringLiteral("zydeck-sessions");
+constexpr int kSessionsKept = 30;
+constexpr qint64 kSessionMaxMs = 3 * 3600 * 1000, kSessionMaxBytes = 50 * 1024 * 1024;
+
+QString sessionsDir(const UserSettingsPointer& pConfig) {
+    return QDir(pConfig->getSettingsPath()).filePath(kSessionsDir);
+}
+
+// This app's CPU time so far, in ms (all its threads), or -1
+qint64 cpuMs() {
+#ifdef Q_OS_LINUX
+    QFile f(QStringLiteral("/proc/self/stat"));
+    if (f.open(QIODevice::ReadOnly)) {
+        const QByteArray stat = f.readAll();
+        const QList<QByteArray> fields = stat.mid(stat.lastIndexOf(')') + 2).split(' ');   // (from field 3, state)
+        if (fields.size() > 12) {
+            const long tick = sysconf(_SC_CLK_TCK);
+            return (fields[11].toLongLong() + fields[12].toLongLong()) * 1000 / (tick > 0 ? tick : 100);
+        }
+    }
+#endif
+    return -1;
+}
+} // namespace
+
+QJsonObject Hub::profileState() const {
+    return {{"t", "prof"}, {"on", m_profOn}, {"id", m_profId}, {"marks", m_profMarks},
+            {"seconds", m_profOn ? static_cast<double>(m_clock.elapsed() - m_profStartMs) / 1000 : 0.0}};
+}
+
+void Hub::profileWrite(const QJsonObject& line) {
+    QFile f(m_profPath);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Append)) {
+        return;
+    }
+    f.write(QJsonDocument(line).toJson(QJsonDocument::Compact) + '\n');
+    if (f.size() > kSessionMaxBytes) {
+        f.close();
+        profileStop(QStringLiteral("size"));
+    }
+}
+
+void Hub::profileEvent(const QString& kind, const QJsonObject& more) {
+    if (!m_profOn) {
+        return;
+    }
+    QJsonObject line = more;
+    line.insert(QStringLiteral("k"), kind);
+    line.insert(QStringLiteral("t"), static_cast<double>(m_clock.elapsed() - m_profStartMs) / 1000);
+    profileWrite(line);
+}
+
+void Hub::profileStart() {
+    if (m_profOn) {
+        return;
+    }
+    const QString dir = sessionsDir(m_pConfig);
+    QDir().mkpath(dir);
+    QFileInfoList old = QDir(dir).entryInfoList({QStringLiteral("*.jsonl")}, QDir::Files, QDir::Time);
+    while (old.size() >= kSessionsKept) {   // (the oldest go)
+        QFile::remove(old.takeLast().absoluteFilePath());
+    }
+    m_profId = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd_HH-mm-ss"));
+    m_profPath = QDir(dir).filePath(m_profId + QStringLiteral(".jsonl"));
+    m_profOn = true;
+    m_profStartMs = m_clock.elapsed();
+    m_profMarks = 0;
+    m_profCpuTicks = cpuMs();
+    m_profCpuAtMs = m_profStartMs;
+    profileWrite({{"k", "start"}, {"t", 0}, {"at", QDateTime::currentDateTime().toString(Qt::ISODate)},
+            {"device", deviceName()}, {"controllerMode", m_controllerMode}, {"remote", remoteStatus()}});
+    emitJson(profileState());
+}
+
+void Hub::profileStop(const QString& why) {
+    if (!m_profOn) {
+        return;
+    }
+    profileEvent(QStringLiteral("stop"), {{"why", why}});
+    m_profOn = false;
+    emitJson(profileState());
+}
+
+void Hub::profileSecond(const QJsonObject& page) {
+    const qint64 now = m_clock.elapsed();
+    if (now - m_profStartMs > kSessionMaxMs) {
+        profileStop(QStringLiteral("time"));
+        return;
+    }
+    QJsonObject p = page;
+    p.remove(QStringLiteral("type"));
+    p.remove(QStringLiteral("profOnly"));
+    const qint64 cpu = cpuMs();
+    const double cpuPct = cpu >= 0 && m_profCpuTicks >= 0 && now > m_profCpuAtMs
+            ? 100.0 * static_cast<double>(cpu - m_profCpuTicks) / static_cast<double>(now - m_profCpuAtMs)
+            : -1;
+    m_profCpuTicks = cpu;
+    m_profCpuAtMs = now;
+    QJsonObject hub{{"lagMax", static_cast<double>(m_lagMaxMs)}, {"slow", m_slowRequests.size()}, {"pending", m_pings.size()},
+            {"cpu", std::round(cpuPct * 10) / 10}, {"via", !m_controllerMode ? "local" : m_viaCable ? "cable" : "wifi"},
+            {"wifiUp", m_linkUp}, {"cable", m_usbState}, {"powerSave", m_powerSave}};
+    if (!m_controllerMode) {   // (this device's own Mixxx: its sound)
+        hub.insert(QStringLiteral("audioLoad"), ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("audio_latency_usage"))));
+        hub.insert(QStringLiteral("xruns"), ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("audio_latency_overload_count"))));
+    }
+    QJsonObject line{{"k", "sec"}, {"t", static_cast<double>(now - m_profStartMs) / 1000}, {"page", p}, {"hub", hub}};
+#ifdef Q_OS_ANDROID
+    const QString dev = QJniObject::callStaticObjectMethod("org/mixxx/ZydekLink", "deviceStats", "()Ljava/lang/String;").toString();
+    line.insert(QStringLiteral("dev"), QJsonDocument::fromJson(dev.toUtf8()).object());
+#endif
+    profileWrite(line);
+}
+
+HttpServer::Response Hub::profileApi(const HttpServer::Query& query) {
+    const QString what = query.value(QStringLiteral("do"), QStringLiteral("status"));
+    const QString dir = sessionsDir(m_pConfig);
+    static const QRegularExpression id(QStringLiteral(R"(^[0-9_-]{19}$)"));   // (a session's id: its start time)
+    const QString which = query.value(QStringLiteral("id"));
+    if (what == QLatin1String("start")) {
+        profileStart();
+    } else if (what == QLatin1String("stop")) {
+        profileStop(QStringLiteral("asked"));
+    } else if (what == QLatin1String("mark")) {
+        if (!m_profOn) {
+            return result({{"ok", false}, {"error", "Not profiling"}});
+        }
+        ++m_profMarks;
+        profileEvent(QStringLiteral("mark"), {{"n", m_profMarks}, {"note", query.value(QStringLiteral("note")).left(200)}});
+        emitJson(profileState());
+    } else if (what == QLatin1String("list")) {
+        QJsonArray out;
+        for (const QFileInfo& f : QDir(dir).entryInfoList({QStringLiteral("*.jsonl")}, QDir::Files, QDir::Time)) {
+            out.append(QJsonObject{{"id", f.completeBaseName()}, {"bytes", f.size()}});
+        }
+        return json(QJsonObject{{"ok", true}, {"sessions", out}, {"state", profileState()}});
+    } else if (what == QLatin1String("get") || what == QLatin1String("delete")) {
+        if (!id.match(which).hasMatch()) {
+            return result({{"ok", false}, {"error", "No such session"}});
+        }
+        const QString path = QDir(dir).filePath(which + QStringLiteral(".jsonl"));
+        if (what == QLatin1String("delete")) {
+            if (m_profOn && which == m_profId) {
+                return result({{"ok", false}, {"error", "It's still recording"}});
+            }
+            QFile::remove(path);
+        } else {
+            QFile f(path);
+            if (!f.open(QIODevice::ReadOnly)) {
+                return result({{"ok", false}, {"error", "No such session"}});
+            }
+            return {200, "application/x-ndjson", f.readAll(),
+                    {{"Content-Disposition", "attachment; filename=\"zydeck-session-" + which.toUtf8() + ".jsonl\""}}};
+        }
+    } else if (what != QLatin1String("status")) {
+        return result({{"ok", false}, {"error", "No such thing"}});
+    }
+    QJsonObject out = profileState();
+    out.insert(QStringLiteral("ok"), true);
+    return json(out);
 }
 
 // ---- page -> Mixxx --------------------------------------------------------------------------------
@@ -3471,6 +3660,7 @@ void Hub::usbMidiState(int state) {
     if (state == m_usbState) {
         return;
     }
+    profileEvent(QStringLiteral("cable"), {{"state", state}});   // (0 none, 1 there, 2 ready)
     const bool wasReady = m_usbState == 2;
     m_usbState = state;
     if (state == 2 && !wasReady) {
@@ -3571,6 +3761,7 @@ void Hub::choosePath() {
     const bool cable = m_controllerMode && (cableActive() || (m_usbState == 2 && !m_linkUp));
     if (cable != m_viaCable) {
         m_viaCable = cable;
+        profileEvent(QStringLiteral("path"), {{"via", cable ? "cable" : "wifi"}});
         if (m_controllerMode) {
             resendSubscriptions();
             emitRemote();
@@ -3785,6 +3976,7 @@ void Hub::linkLine(const QByteArray& line) {
         }
     } else if (line.startsWith("OK")) {
         m_linkUp = true;
+        profileEvent(QStringLiteral("wifiUp"));
         m_linkHost = 0;
         m_linkSaved = m_linkTarget;
         m_linkSaved.remove(QStringLiteral("host"));
@@ -3806,6 +3998,9 @@ void Hub::linkLine(const QByteArray& line) {
 void Hub::linkDrop(bool retry) {
     const bool wasUp = m_linkUp;
     m_linkUp = false;
+    if (wasUp) {
+        profileEvent(QStringLiteral("wifiDown"));
+    }
     if (m_pLink) {
         QTcpSocket* pLink = m_pLink;
         m_pLink = nullptr;

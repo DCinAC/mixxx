@@ -280,6 +280,11 @@
     { id: "telemetry", sec: "dev", name: "Telemetry", kind: "toggle", get: () => !!S().telemetry && !!S().telemetryAsked,
       set: (v, final = true) => { ctl()?.set("telemetryAsked", true, false); ctl()?.set("telemetry", v, final); }, show: () => ctl() && !ctl().phone,
       desc: "Shares performance data with ZyDeck's debug tools on your network: frame rate, touch timing, the decks' state and the controls you press. No track names, library or anything personal. Off unless you say yes." },
+    { id: "profiler", sec: "dev", name: "Session profiler", kind: "toggle", get: () => !!ctl()?.profiling?.(), set: v => ctl()?.setProfiling?.(v),
+      show: () => ctl() && !ctl().phone,
+      desc: "For trying a set: records, a line a second, how long the controls take to reach Mixxx and back (cable or Wi-Fi), the gaps in its positions, dropouts, frame and touch delays, the CPU, Wi-Fi signal and temperature. MARK on its chip notes a moment that felt off. Stays on this device." },
+    { id: "profreport", sec: "dev", name: "Session reports", kind: "custom", build: buildProfReport, show: () => ctl() && !ctl().phone,
+      desc: "Each session's report: the delays (median, 95th and 99th percentile, worst) cable and Wi-Fi apart, what happened when, your marks; to download too." },
 
     // Controller › Decks
     { id: "newtrack", sec: "decks", name: "On a new track", kind: "custom", build: buildNewTrack, show: () => !!ctl(),
@@ -742,6 +747,12 @@
       const st = c.querySelector(".zm-st"); st.textContent = tl ? (tl.tracks?.length ? `${tl.tracks.length} tracks` : "Nothing played yet") : ""; st.hidden = !st.textContent;
     };
   }
+  function buildProfReport(c) {
+    const b = key("Open the reports", "s");
+    b.addEventListener("click", () => { location.href = "/profile"; });
+    c.appendChild(b);
+  }
+
   function buildNewTrack(c) {
     const box = el("div", "zm-subs");
     const NAMES = ["Key lock", "Quantize", "Slip"];
@@ -903,6 +914,7 @@
     else if (m.t === "remote") sys.remote = m;
     else if (m.t === "opt") { sys.opt = m.o; if (!m.o.running) loads.audio().then(refresh); }
     else if (m.t === "rec") sys.rec = m.r;
+    else if (m.t === "prof") sys.prof = m;
     else if (m.t === "dc") sys.dc = m.d;
     else return;
     refresh();

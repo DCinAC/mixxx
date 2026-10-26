@@ -134,6 +134,51 @@ public class ZydekLink {
         return pm != null && pm.isPowerSaveMode();
     }
 
+    /// For the session profiler (the hub, once a second while it records): {"rssi": dBm, "mbps": link speed,
+    /// "mhz": band, "thermal": 0-6, "batteryC": temperature, "battery": %, "charging"}; what this Android
+    /// version tells without asking for more (the Wi-Fi from the network's own report, Android 10 and 12 on).
+    public static String deviceStats() {
+        if (s_context == null) {
+            return "{}";
+        }
+        StringBuilder out = new StringBuilder("{");
+        try {
+            android.net.ConnectivityManager cm =
+                    (android.net.ConnectivityManager) s_context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            android.net.NetworkCapabilities caps = cm == null ? null : cm.getNetworkCapabilities(cm.getActiveNetwork());
+            if (caps != null && caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) {
+                if (Build.VERSION.SDK_INT >= 29 && caps.getSignalStrength() != android.net.NetworkCapabilities.SIGNAL_STRENGTH_UNSPECIFIED) {
+                    out.append("\"rssi\":").append(caps.getSignalStrength()).append(',');
+                }
+                if (Build.VERSION.SDK_INT >= 31 && caps.getTransportInfo() instanceof android.net.wifi.WifiInfo) {
+                    android.net.wifi.WifiInfo info = (android.net.wifi.WifiInfo) caps.getTransportInfo();
+                    out.append("\"mbps\":").append(info.getLinkSpeed()).append(",\"mhz\":").append(info.getFrequency()).append(',');
+                }
+            }
+        } catch (RuntimeException e) {
+            // (not on this device)
+        }
+        android.os.PowerManager pm = (android.os.PowerManager) s_context.getSystemService(Context.POWER_SERVICE);
+        if (pm != null && Build.VERSION.SDK_INT >= 29) {
+            out.append("\"thermal\":").append(pm.getCurrentThermalStatus()).append(',');
+        }
+        android.content.Intent battery = s_context.registerReceiver(null,
+                new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+        if (battery != null) {
+            int level = battery.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+            int scale = battery.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100);
+            int status = battery.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
+            out.append("\"batteryC\":").append(battery.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0) / 10.0)
+                    .append(",\"battery\":").append(scale > 0 ? 100 * level / scale : -1)
+                    .append(",\"charging\":").append(status == android.os.BatteryManager.BATTERY_STATUS_CHARGING
+                            || status == android.os.BatteryManager.BATTERY_STATUS_FULL);
+        }
+        if (out.charAt(out.length() - 1) == ',') {
+            out.setLength(out.length() - 1);
+        }
+        return out.append('}').toString();
+    }
+
     public static synchronized void scan() {
         if (s_nsd == null) {
             return;

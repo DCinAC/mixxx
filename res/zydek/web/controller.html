@@ -62,6 +62,13 @@
   #rec { height: calc(var(--mm) * 7); padding: 0 calc(var(--mm) * 1.6); font-size: calc(var(--mm) * 1.9); font-weight: 700; flex: none;
     font-variant-numeric: tabular-nums; }
   #rec.on { border-color: #ff3b30; color: #fff; background: #b3261e; }
+  #prof { position: fixed; top: calc(var(--mm) * 1.2); left: 50%; transform: translateX(-50%); z-index: 45; display: flex; align-items: center;
+    gap: calc(var(--mm) * 1.2); padding: calc(var(--mm) * .6) calc(var(--mm) * .8) calc(var(--mm) * .6) calc(var(--mm) * 1.6);
+    border: 1px solid #ff3b30; border-radius: calc(var(--mm) * 4); background: rgba(20, 8, 8, .92); color: #ff6b61;
+    font: 700 calc(var(--mm) * 1.9) system-ui, sans-serif; }
+  #prof button { height: calc(var(--mm) * 5.5); min-width: calc(var(--mm) * 7); border-radius: calc(var(--mm) * 3); border: 1px solid #ff6b61;
+    background: none; color: #fff; font: inherit; }
+  #prof .pm { padding: 0 calc(var(--mm) * 1.6); }
   #rec.wait { border-color: #ff3b30; color: #ff6b61; }
   #gear.live { border-color: var(--play); color: var(--play); }   /* connected to Mixxx */
 
@@ -647,7 +654,10 @@ const deckOf = s => decks[sides[s]];
 const eventLog = [];
 // Latency log counters (see "Latency log" below)
 const lat = { seq: 0, sent: new Map(), rtt: [], up: [], down: [], js: [], spikes: [], lost: 0, direct: 0,
-  input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0, offsets: [], trace: [], t0: performance.now() };
+  input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0, offsets: [], trace: [], gaps: [], t0: performance.now() };
+// The session profiler (the hub's /api/profile; its report: /profile): while it runs, this page pings 20 times a
+// second and sends its summary every second, telemetry or not (it stays on this device)
+let prof = { on: false }, profAt = 0, remoteXruns = null;
 const send = (...args) => {
   if (!live && args[0] === "loopMove") { const d = decks[args[1] - 1]; d.loopStart += args[2] * 60 / d.bpm; }
   if (!live && args[0] === "loopPoint") {
@@ -2709,6 +2719,26 @@ function paintRec(r) {
   b.classList.toggle("on", rec.status === 2); b.classList.toggle("wait", rec.status === 1);
   b.textContent = rec.status === 2 ? `● REC ${mmss}` : rec.status === 1 ? "● …" : "● REC";
 }
+// The session profiler's chip (on while it runs): MARK puts "something was off here" in the session; ■ stops it
+function paintProf(p) {
+  const was = prof.on;
+  if (p) { prof = p; profAt = performance.now(); }
+  let chip = document.getElementById("prof");
+  if (!prof.on) { chip?.remove(); if (was) toast("Session saved: Settings › Developer › Session profiler › Report"); return; }
+  if (!chip) {
+    chip = h("div", "", `<span class="pt"></span><button class="pm">MARK</button><button class="ps" aria-label="Stop profiling">■</button>`);
+    chip.id = "prof";
+    chip.querySelector(".pm").addEventListener("click", () => fetch("/api/profile?do=mark").catch(() => {}));
+    chip.querySelector(".ps").addEventListener("click", () => fetch("/api/profile?do=stop").catch(() => {}));
+    document.body.appendChild(chip);
+  }
+  const t = Math.floor((prof.seconds || 0) + (performance.now() - profAt) / 1000);
+  chip.querySelector(".pt").textContent = `● ${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}${prof.marks ? ` · ${prof.marks} marked` : ""}`;
+}
+setInterval(() => prof.on && paintProf(), 1000);
+fetch("/api/profile?do=status").then(r => r.json()).then(paintProf).catch(() => {});
+const profiling = on => fetch(`/api/profile?do=${on ? "start" : "stop"}`).catch(() => {});
+
 document.getElementById("rec").addEventListener("click", async () => {
   const r = await (await fetch(`/api/record?on=${rec?.on ? 0 : 1}`)).json().catch(() => ({}));
   if (r.ok === false) toast(r.error || "Couldn't record");
@@ -2723,6 +2753,7 @@ ZydeckMenu.provide("controller", {
   set(k, v, final = true) { S[k] = v; saveSettings(); applySettings(); tellApp(); if (final) build(); },
   reset() { S = { ...DEFAULTS }; saveSettings(); applySettings(); tellApp(); build(); },
   deckDefaults: () => deckDefaults,
+  profiling: () => prof.on, setProfiling: profiling,
   setDeckDefault(i, v) { deckDefaults[i] = v; fetch(`/api/deckdefaults?${["keylock", "quantize", "slip"][i]}=${v}`).catch(() => {}); },
   ejectPlaces,
   toggleEject(place) {   // several at once (not left with left-mid; at least one)
@@ -2929,6 +2960,7 @@ let remoteLat = null;
 const useRemoteLat = () => { if (REMOTE.on && remoteLat != null) { LAT = AUD = remoteLat; ZydeckPos.setLatency(LAT, LAT); } };
 function applyCv(name, v, ts) {
   if (name === "[App],output_latency_ms") { remoteLat = Math.max(0, v) / 1000; useRemoteLat(); return; }
+  if (name === "[App],audio_latency_overload_count") { remoteXruns = v; return; }
   const comma = name.indexOf(","), group = name.slice(0, comma), key = name.slice(comma + 1);
   let m;
   if ((m = /^\[Channel(\d)\]$/.exec(group))) {
@@ -2942,6 +2974,7 @@ function applyCv(name, v, ts) {
       case "playposition": {   // drawn by the animation loop
         const now = performance.now();
         if (REMOTE.on && d.playing && d.rawT != null) linkGap(now - d.rawT);
+        if (prof.on && d.playing && d.rawT != null && now - d.rawT < 5000) lat.gaps.push(now - d.rawT);
         d.rawP = v * d.dur; d.rawT = now;   // (what Mixxx last said, as is: a release on the computer's Mixxx starts from it)
         if (d.grabbed) scrReport(d, d.rawP, now);
         posUpdate(d, d.rawP, now, ts);
@@ -3020,6 +3053,7 @@ function subscribeAll() {
   }
   for (const k of Object.values(MAIN)) sub.push([MAIN_GROUP, k, 2]);
   sub.push(["[App]", "output_latency_ms", 0]);   // (controller mode: the computer's sound delay, useRemoteLat)
+  sub.push(["[App]", "audio_latency_overload_count", 0]);   // (its sound's dropouts: the profiler counts them)
   for (let n = 1; n <= samplers.length; n++) sub.push([`[Sampler${n}]`, "sync_enabled", 0], [`[Sampler${n}]`, "keylock", 0]);
   mxSend({ sub });
 }
@@ -3141,6 +3175,7 @@ function loadCueLabels(d) {
 function onMixxx(m) {
   if (m.init) { ZydeckMenu.push(m); if (m.init.notice) toast(m.init.notice); LAT = m.init.lat || 0; AUD = m.init.alat ?? LAT; viewMigrate(m.init.loff); ZydeckPos.setLatency(m.init.lat, m.init.vlat); if (m.init.remote) onRemote(m.init.remote); useRemoteLat(); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
   if (m.t === "rec") { ZydeckMenu.push(m); return paintRec(m.r); }
+  if (m.t === "prof") { paintProf(m); ZydeckMenu.push(m); return; }
   if (m.t === "remote") { ZydeckMenu.push(m); return onRemote(m); }
   if (m.t === "opt" || m.t === "dc" || m.t === "offer") return ZydeckMenu.push(m);
   if (m.t === "cuelbl") { decks.forEach(d => { if (d.loaded !== false) loadCueLabels(d); }); return; }   // hot cues edited (the phone's library, a pad)
@@ -3262,7 +3297,7 @@ const latStats = a => {
   return [q(0), q(.5), q(.95), q(1)];
 };
 function latPing() {
-  const hz = +S.pingHz || 0;
+  const hz = prof.on ? Math.max(20, +S.pingHz || 0) : +S.pingHz || 0;
   setTimeout(latPing, hz > 0 ? 1000 / hz : 1000);
   if (hz <= 0 || document.hidden || !mxWs || mxWs.readyState !== 1) return;   // background tabs stay out of the log
   const now = performance.now();
@@ -3292,12 +3327,15 @@ addEventListener("pointermove", latInput, { capture: true, passive: true });
 let latLoopT = performance.now();
 setInterval(() => { const now = performance.now(); lat.loopMax = Math.max(lat.loopMax, now - latLoopT - 50); latLoopT = now; }, 50);
 setInterval(() => {
-  if (!(+S.pingHz > 0) || document.hidden || !sharing()) return;
-  ctlSend({ type: "latency", n: lat.rtt.length, rtt: latStats(lat.rtt), up: latStats(lat.up), down: latStats(lat.down),
+  if (!prof.on && (!(+S.pingHz > 0) || document.hidden || !sharing())) return;
+  ctlSend({ type: "latency", ...(prof.on ? { profOnly: !sharing() || !(+S.pingHz > 0), gaps: latStats(lat.gaps), xruns: remoteXruns,
+    rttAll: lat.rtt.map(v => +v.toFixed(1)), gapsAll: lat.gaps.map(v => Math.round(v)),   // (the whole set's percentiles)
+    via: !REMOTE.on ? "local" : REMOTE.via === "usb" ? "cable" : REMOTE.via, playing: decks.filter(d => d.playing).length, scratching: [0, 1].some(s => deckOf(s).grabbed),
+    hidden: document.hidden } : {}), n: lat.rtt.length, rtt: latStats(lat.rtt), up: latStats(lat.up), down: latStats(lat.down),
     js: latStats(lat.js), lost: lat.lost, direct: lat.direct, input: latStats(lat.input), frameMax: Math.round(lat.frameMax),
     loopMax: Math.round(lat.loopMax), bufMax: lat.bufMax, sends: lat.sends, touches: active.size, page: sidePage.join("/"), live,
     spikes: lat.spikes, ...(lat.trace.length ? { strip: lat.trace } : {}) });
-  Object.assign(lat, { trace: [], t0: performance.now(), rtt: [], up: [], down: [], js: [], spikes: [], lost: 0, direct: 0, input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0 });
+  Object.assign(lat, { trace: [], t0: performance.now(), rtt: [], up: [], down: [], js: [], spikes: [], lost: 0, direct: 0, input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0, gaps: [] });
 }, 1000);
 
 // Telemetry for the Mac's debug view, 4 times a second, and the latency summaries and debug probes: only once you've

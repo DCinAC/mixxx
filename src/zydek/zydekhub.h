@@ -212,6 +212,16 @@ class Hub : public QObject {
     void pong(int seq, bool viaMapping);
     void logLatency(const QJsonObject& summary);
     HttpServer::Response latencyLog(const HttpServer::Query& query) const;
+    // The session profiler (/api/profile, and the /profile page): while it runs, a line a second into
+    // zydeck-sessions/<id>.jsonl in the settings folder (the page's latency summary, the hub's own, the device's),
+    // and a line for each thing that happens (the path changing, the link dropping, a mark)
+    HttpServer::Response profileApi(const HttpServer::Query& query);
+    void profileStart();
+    void profileStop(const QString& why);
+    void profileEvent(const QString& kind, const QJsonObject& more = {});
+    void profileSecond(const QJsonObject& page);
+    void profileWrite(const QJsonObject& line);
+    QJsonObject profileState() const;
 
     // page -> Mixxx
     void handlePageMessage(const QByteArray& text);
@@ -426,6 +436,12 @@ class Hub : public QObject {
     qint64 m_lagLastMs = 0;
     qint64 m_lagMaxMs = 0;
     QJsonArray m_slowRequests;
+
+    bool m_profOn = false;
+    QString m_profId, m_profPath;
+    qint64 m_profStartMs = 0;
+    int m_profMarks = 0;
+    qint64 m_profCpuTicks = -1, m_profCpuAtMs = 0;   // the app's CPU time when last looked at
 };
 
 } // namespace zydek
