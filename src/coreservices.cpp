@@ -5,6 +5,7 @@
 #include "zydeck/decklist.h"
 #include "zydeck/effectlist.h"
 #include "zydeck/prefetch.h"
+#include "zydeck/loadrequest.h"
 #endif
 #include <QFileDialog>
 #include <QProcess>
@@ -600,6 +601,7 @@ void CoreServices::initialize(QApplication* pApp) {
     zydeck::watchEffectList(m_pEffectsManager, pConfig);
     zydeck::watchDecks(pConfig);   // (what's on each deck, likewise: zydeck/decklist.h)
     zydeck::prefetchNetworkTracks();   // (a track from a NAS read whole as it loads: zydeck/prefetch.h)
+    zydeck::watchLoadRequests(m_pPlayerManager, pConfig);   // (a device's "load to deck": zydeck/loadrequest.h)
 #endif
 
 #ifdef __VINYLCONTROL__

@@ -11,5 +11,6 @@ target_sources(
     src/zydeck/effectlist.cpp
     src/zydeck/decklist.cpp
     src/zydeck/prefetch.cpp
+    src/zydeck/loadrequest.cpp
 )
 target_compile_definitions(mixxx-lib PUBLIC __ZYDECK__)
