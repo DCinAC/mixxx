@@ -1,4 +1,5 @@
 #include "zydek/zydekstems.h"
+#include "zydek/zydeckshared.h"
 
 #include <QDir>
 #include <QElapsedTimer>
@@ -69,11 +70,7 @@ QString stemsFolder() {
     return dir;
 }
 
-QString safeName(QString s) {
-    static const QRegularExpression bad(QStringLiteral(R"([\\/:*?"<>|\x00-\x1f])"));
-    s.replace(bad, QStringLiteral(" "));
-    return s.simplified().left(150);
-}
+using zydeck::shared::safeFileName;   // (ZyDeck Connect names its files the same way)
 
 /// NI Stems' manifest (moov/udta/stem): the four stems' names and colours, in the file's order.
 QByteArray stemManifest() {
@@ -951,7 +948,7 @@ QString LiveStems::separateHere(const TrackPointer& pTrack, QString* pError) {
     const int id = pTrack->getId().toVariant().toInt();
 
     const QString title = pTrack->getTitle().isEmpty() ? QFileInfo(pTrack->getLocation()).completeBaseName() : pTrack->getTitle();
-    const QString base = safeName((pTrack->getArtist().isEmpty() ? QString() : pTrack->getArtist() + QStringLiteral(" - ")) + title);
+    const QString base = safeFileName((pTrack->getArtist().isEmpty() ? QString() : pTrack->getArtist() + QStringLiteral(" - ")) + title);
     const QString dir = stemsFolder();
     QString path = dir + QLatin1Char('/') + base + QStringLiteral(".stem.m4a");
     for (int n = 2; QFileInfo::exists(path); ++n) {

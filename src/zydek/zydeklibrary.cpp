@@ -1,4 +1,5 @@
 #include "zydek/zydeklibrary.h"
+#include "zydek/zydeckshared.h"
 #include "zydek/zydekmain.h"
 
 #include <QDateTime>
@@ -1250,11 +1251,7 @@ QString samplesFolder() {
     return dir;
 }
 
-QString safeName(QString s) {
-    static const QRegularExpression bad(QStringLiteral(R"([\\/:*?"<>|\x00-\x1f])"));
-    s.replace(bad, QStringLiteral(" "));
-    return s.simplified().left(150);
-}
+using zydeck::shared::safeFileName;   // (ZyDeck Connect names its files the same way)
 
 /// A 32-bit float WAV.
 bool writeWav(const QString& path, const CSAMPLE* data, SINT samples, int channels, int sampleRate) {
@@ -1382,7 +1379,7 @@ QJsonObject Library::renderSample(const TrackPointer& pTrack, double firstFrame,
                                         : QStringLiteral("%1 s").arg(QString::number(seconds, 'f', 1));
     const QString title = pTrack->getTitle().isEmpty() ? QFileInfo(pTrack->getLocation()).completeBaseName() : pTrack->getTitle();
     const QString what = beatsText + (stems.isEmpty() ? QString() : QStringLiteral(", ") + stems.join(QStringLiteral(" + ")));
-    const QString base = safeName((pTrack->getArtist().isEmpty() ? QString() : pTrack->getArtist() + QStringLiteral(" - ")) +
+    const QString base = safeFileName((pTrack->getArtist().isEmpty() ? QString() : pTrack->getArtist() + QStringLiteral(" - ")) +
             title + QStringLiteral(" (") + what + QStringLiteral(")"));
     const QString dir = samplesFolder();
     QString path = dir + QLatin1Char('/') + base + QStringLiteral(".wav");

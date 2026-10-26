@@ -566,6 +566,7 @@
 <link rel="stylesheet" href="/zydeck-menu.css">
 <script src="/zydeck-menu.js"></script>
 <script src="/zydeck-position.js"></script>
+<script src="/zydeck-wave.js"></script>
 <script src="/zydeck-knob.js"></script>
 </head>
 <body>
@@ -715,10 +716,10 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const store = { get(k, d) { try { const v = localStorage.getItem("zphone." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
                 set(k, v) { try { localStorage.setItem("zphone." + k, JSON.stringify(v)); } catch {} } };
 const qs = o => Object.entries(o).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
-async function api(path) {
+async function api(path) {   // the hub's answer, or an Error with its message (as the menu's api(), zydeck-menu.js)
   const r = await fetch(path);
   let body = null; try { body = await r.json(); } catch {}
-  if (!r.ok) throw new Error((body && body.error) || r.statusText);
+  if (!r.ok || (body && body.ok === false)) throw new Error((body && body.error) || r.statusText);
   return body;
 }
 let toastT;
@@ -773,12 +774,6 @@ function onDeckName(d, n) {
 // The hub answers a deck's waveform and beats with 200, 202 while Mixxx is still analysing the track (as long as that
 // takes: after a restart there can be a queue; a "wf" push says when it's done) or 404 when it's not on a deck; ZyDeck
 // Connect (controller mode) says 404 for both: there, a minute and a half of tries.
-const wfWaiting = new Map();   // track id -> what's waiting for its "wf"
-const wfReady = id => { (wfWaiting.get(id) || []).forEach(f => f()); wfWaiting.delete(id); };
-const untilWf = (id, ms) => new Promise(res => {
-  const t = setTimeout(res, ms);
-  wfWaiting.set(id, [...(wfWaiting.get(id) || []), () => { clearTimeout(t); res(); }]);
-});
 // one try: the response if it's the data; else how long to wait before the next ("stop": not on a deck)
 async function deckAsset(path, tries) {
   const url = assetUrl(path);
@@ -1247,7 +1242,7 @@ function drawZoom(p, d) {
   p.zKey = key;
   const g = c.getContext("2d");
   g.clearRect(0, 0, W, H);
-  if (!wf) { drawBeats(g, d, left / pxPerSec, ZOOM_SECONDS, pxPerSec, left, H); drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H); return; }
+  if (!wf) { drawBeats(g, d, pxPerSec, left, ZOOM_SECONDS * pxPerSec, H); drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H); return; }
   const tkey = `${d.n}|${d.wfVer}|${W}|${H}`;
   if (p.tileKey !== tkey) { p.tileKey = tkey; p.tiles = new Map(); }
   for (let t = Math.floor(left / TILE); t * TILE < left + W; t++) {
@@ -1270,22 +1265,10 @@ function drawZoom(p, d) {
     }
     g.drawImage(tile, t * TILE - left, 0);
   }
-  drawBeats(g, d, left / pxPerSec, ZOOM_SECONDS, pxPerSec, left, H);
+  drawBeats(g, d, pxPerSec, left, ZOOM_SECONDS * pxPerSec, H);
   drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H);
 }
 // Beat grid: bar lines across, the other beats as ticks top and bottom.
-function drawBeats(g, d, start, sec, pxPerSec, left, H) {
-  const b = d.beats;
-  if (!b || !b.length) return;
-  const dpr = devicePixelRatio || 1, tick = Math.round(H * .2);
-  let lo = 0, hi = b.length;
-  while (lo < hi) { const m = (lo + hi) >> 1; if (b[m] < start) lo = m + 1; else hi = m; }
-  for (let i = lo; i < b.length && b[i] <= start + sec; i++) {
-    const x = Math.round(b[i] * pxPerSec) - left;
-    if ((i + d.bar) % 4 === 0) { g.fillStyle = "rgba(255,255,255,.55)"; g.fillRect(x - dpr, 0, 2 * dpr, H); }
-    else { g.fillStyle = "rgba(255,255,255,.5)"; g.fillRect(x, 0, dpr, tick); g.fillRect(x, H - tick, dpr, tick); }
-  }
-}
 // Play position between Mixxx's updates, and where to draw it: zydeck-position.js (the same as the deck page and
 // the calibration page draw by)
 const { hubTime, posSeed, posModel, posUpdate } = ZydeckPos;
@@ -1409,7 +1392,7 @@ async function webApi(path) {   // like api(), but "Python is starting" is an an
   const r = await fetch(path);
   let body = null; try { body = await r.json(); } catch {}
   if (body && body.starting) return body;
-  if (!r.ok) throw new Error((body && body.error) || r.statusText);
+  if (!r.ok || (body && body.ok === false)) throw new Error((body && body.error) || r.statusText);
   return body;
 }
 const sleep = ms => new Promise(res => setTimeout(res, ms));
@@ -1423,6 +1406,7 @@ async function webJob(path, onProgress, onStart) {
     await sleep(1500);
   }
   onStart && onStart(r);
+  if (!r.job) return r;   // (an answer straight away, no job to follow: as the menu's webJob)
   for (;;) {
     const j = await webApi(`/api/web/job?${qs({ id: r.job })}`);
     if (j.state === "done") return j.result;

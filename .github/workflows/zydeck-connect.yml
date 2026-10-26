@@ -34,8 +34,11 @@ jobs:
         with:
           sparse-checkout: |
             tools/zydeck-connect
+            tools/zydeck-shared-tests
+            src/zydek/zydeckshared.h
             res/controllers/Zydek-Tablet.midi.xml
             res/controllers/Zydek-Tablet.script.js
+            res/zydek/python/zydek_web.py
           sparse-checkout-cone-mode: false
       - uses: jurplel/install-qt-action@v4
         with:
@@ -51,8 +54,13 @@ jobs:
         run: |
           args=(-DCMAKE_BUILD_TYPE=Release)
           [ "$RUNNER_OS" = macOS ] && args+=("-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0)
+          [ "$RUNNER_OS" = Linux ] && args+=(-DZC_TESTS=ON)   # (the shared code's checks: below)
           cmake -S . -B build "${args[@]}"
           cmake --build build --config Release --parallel
+      - name: The shared code's checks (the hub's and Connect's C++, the phone's Python, the mapping's JavaScript)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash tools/zydeck-shared-tests/run.sh tools/zydeck-connect/build
       - name: yt-dlp, for the downloads (web.h), pinned and checked against its release's checksums
         shell: bash
         working-directory: tools/zydeck-connect

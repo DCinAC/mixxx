@@ -305,9 +305,18 @@ def guess_artist_title(info):
     return channel, title
 
 
+_RESERVED = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$", re.IGNORECASE)
+
+
 def safe_filename(s):
+    """The same as ZyDeck Connect's and the hub's (src/zydek/zydeckshared.h safeFileName), checked against the same
+    cases (tools/zydeck-shared-tests): fine on every system ZyDeck writes to, a NAS over SMB too."""
     s = re.sub(r'[\\/:*?"<>|\x00-\x1f]', " ", s)
-    return re.sub(r"\s+", " ", s).strip(" .")[:150] or "untitled"
+    s = " ".join(s.split()).strip(" .")
+    s = s[:150].strip(" .")   # (characters, as the C++ counts them)
+    if _RESERVED.match(s):
+        s = "_" + s
+    return s or "untitled"
 
 
 def _tag(path, info, artist, title):

@@ -289,7 +289,7 @@ class Hub : public QObject {
     void sendMidi(const QByteArray& data);
     void setControl(const QString& group, const QString& key, double value);
     void remoteMessage(const QByteArray& msg, bool viaUsb);
-    void sendSysexText(int type, const QByteArray& text);
+    void sendSysexText(quint8 kind, const QJsonObject& obj);
     void linkConnect(const QJsonObject& computer);
     void linkDrop(bool retry);
     void linkLine(const QByteArray& line);

@@ -24,6 +24,7 @@
 #include <memory>
 
 #include "library.h"
+#include "zydeckshared.h"
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -42,12 +43,11 @@ const QByteArray kUserAgent =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 constexpr qint64 kKeepMs = 10 * 60 * 1000;   // a finished job, kept this long for its page to read
 constexpr int kStemPort = 8770;
+using zydeck::shared::artistTitle;    // (the phone's Python does the same)
+using zydeck::shared::safeFileName;   // (the hub names its files the same way)
 
 const QRegularExpression kUrl(QStringLiteral(R"(https?://\S+)"));
 const QRegularExpression kBv(QStringLiteral(R"(\b(BV[0-9A-Za-z]{10})\b)"));
-const QRegularExpression kJunk(
-        QStringLiteral(R"(\s*[\(\[][^\)\]]*\b(official|video|audio|lyrics?|visuali[sz]er|hd|hq|4k|mv|m/v|clip)\b[^\)\]]*[\)\]])"),
-        QRegularExpression::CaseInsensitiveOption);
 
 qint64 nowMs() {
     return QDateTime::currentMSecsSinceEpoch();
@@ -66,22 +66,6 @@ QString findTool(const QString& name) {
     }
     const QString brew = QStandardPaths::findExecutable(name, {QStringLiteral("/opt/homebrew/bin"), QStringLiteral("/usr/local/bin")});
     return brew.isEmpty() ? QStandardPaths::findExecutable(name) : brew;
-}
-
-QString safeFileName(QString s) {
-    static const QRegularExpression bad(QStringLiteral(R"([\\/:*?"<>|\x00-\x1f])"));
-    static const QRegularExpression spaces(QStringLiteral(R"(\s+)"));
-    s.replace(bad, QStringLiteral(" "));
-    s.replace(spaces, QStringLiteral(" "));
-    s = s.trimmed();
-    while (s.startsWith(QLatin1Char('.'))) {   // (no hidden files)
-        s.remove(0, 1);
-    }
-    s = s.left(150).trimmed();
-    while (s.endsWith(QLatin1Char('.'))) {
-        s.chop(1);
-    }
-    return s.isEmpty() ? QStringLiteral("untitled") : s;
 }
 
 // Whether a file is on a network drive (the NAS), not this computer's own disk
@@ -114,32 +98,6 @@ QString freePath(const QString& dir, const QString& name, const QString& ext) {
 QString stemsDir() {
     const QString mixxx = mixxxDir();
     return mixxx.isEmpty() ? QString() : mixxx + QStringLiteral("/zydeck-stems");   // ("": Mixxx's folder isn't known)
-}
-
-// Artist and title for the file and its tags: the site's own (YouTube Music), else "Artist - Title" in the video's
-// title (the usual junk like "(Official Video)" taken out), else the channel ("... - Topic" and "VEVO" taken off)
-QPair<QString, QString> artistTitle(const QJsonObject& info) {
-    QString artist = info.value(QStringLiteral("artist")).toString();
-    if (artist.isEmpty()) {
-        artist = info.value(QStringLiteral("artists")).toArray().at(0).toString();
-    }
-    const QString track = info.value(QStringLiteral("track")).toString();
-    if (!artist.isEmpty() && !track.isEmpty()) {
-        return {artist, track};
-    }
-    const QString title = info.value(QStringLiteral("title")).toString().remove(kJunk).trimmed();
-    for (const QString sep : {QStringLiteral(" - "), QStringLiteral(" – "), QStringLiteral(" — "), QStringLiteral(" | ")}) {
-        const int at = title.indexOf(sep);
-        if (at > 0) {
-            return {title.left(at).trimmed(), title.mid(at + sep.size()).trimmed()};
-        }
-    }
-    static const QRegularExpression topic(QStringLiteral(R"(\s*-\s*Topic$|VEVO$)"));
-    QString channel = info.value(QStringLiteral("channel")).toString();
-    if (channel.isEmpty()) {
-        channel = info.value(QStringLiteral("uploader")).toString();
-    }
-    return {channel.remove(topic).trimmed(), title};
 }
 
 // A search result, as the page shows it

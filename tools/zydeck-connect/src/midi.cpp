@@ -20,21 +20,6 @@
 
 namespace zc {
 
-QByteArray sysexText(quint8 kind, const QJsonObject& obj) {
-    QByteArray m;
-    m.append(static_cast<char>(0xF0)).append(static_cast<char>(0x7D)).append(static_cast<char>(kind));
-    m.append(QJsonDocument(obj).toJson(QJsonDocument::Compact).toHex());
-    m.append(static_cast<char>(0xF7));
-    return m;
-}
-
-QJsonObject sysexJson(const QByteArray& msg) {
-    if (msg.size() < 5) {
-        return {};
-    }
-    return QJsonDocument::fromJson(QByteArray::fromHex(msg.mid(3, msg.size() - 4))).object();
-}
-
 namespace {
 // A device on the cable reaches Mixxx through ZyDeck Connect: Connect holds the cable's port and relays it to and
 // from the ZyDeck Connect port, the one Mixxx has open from its start. So a cable plugged in (or out) while Mixxx runs

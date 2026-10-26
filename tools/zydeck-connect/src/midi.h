@@ -8,6 +8,8 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QMutex>
+
+#include "zydeckshared.h"
 #include <QObject>
 #include <QString>
 #include <QTimer>
@@ -19,10 +21,13 @@ class RtMidiOut;
 namespace zc {
 
 inline constexpr const char* kPortName = "ZyDeck Connect";
-// ZyDeck's SysEx (manufacturer 0x7D, "educational use"): text is the hex of UTF-8 JSON (MIDI data bytes are 7-bit)
-inline constexpr quint8 kLinkHello = 0x60, kLinkOffer = 0x61, kNameAsk = 0x62, kNameReply = 0x63;
-QByteArray sysexText(quint8 kind, const QJsonObject& obj);
-QJsonObject sysexJson(const QByteArray& msg);
+// ZyDeck's link SysEx: zydeckshared.h, the hub's too
+using zydeck::shared::kLinkHello;
+using zydeck::shared::kLinkOffer;
+using zydeck::shared::kNameAsk;
+using zydeck::shared::kNameReply;
+using zydeck::shared::sysexJson;
+using zydeck::shared::sysexText;
 
 class Midi : public QObject {
     Q_OBJECT

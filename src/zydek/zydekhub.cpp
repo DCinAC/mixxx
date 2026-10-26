@@ -1,4 +1,5 @@
 #include "zydek/zydekhub.h"
+#include "zydek/zydeckshared.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -88,11 +89,15 @@ constexpr int kSync = 0x54;
 constexpr int kValue = 0x58;
 constexpr int kPing = 0x5E;   // F0 7D 5E <seq 3x7 bits> F7, echoed back unchanged by the mapping
 constexpr int kHello = 0x5F;
-// Controller mode, with ZyDeck Link on the computer (the mapping ignores these): text as hex of UTF-8 JSON
-constexpr int kLinkHello = 0x60;   // device -> computer: {"v": 1, "name": device}
-constexpr int kLinkOffer = 0x61;   // computer -> device: {"name", "hosts": [...], "port", "key"}
-constexpr int kNameAsk = 0x62;     // device -> computer: {"s": sampler?, "i": index, "ms": track length}
-constexpr int kNameReply = 0x63;   // computer -> device: {"s", "i", "n": {t, a, id} or null}
+// Controller mode, with ZyDeck Connect on the computer: the link's own SysEx (the mapping ignores it), and the
+// controls' values (v7): zydeckshared.h, Connect's too
+using zydeck::shared::kLinkHello;
+using zydeck::shared::kLinkOffer;
+using zydeck::shared::kNameAsk;
+using zydeck::shared::kNameReply;
+using zydeck::shared::kValueBytes;
+using zydeck::shared::encodeValue;
+using zydeck::shared::decodeValue;
 const QString kRemoteFile = QStringLiteral("zydek-controller-mode.json");
 const QString kAudioPrefsFile = QStringLiteral("zydek-audio.json");
 
@@ -106,27 +111,6 @@ const QString kDeckSessionFile = QStringLiteral("zydek-decks.json");
 constexpr int kSamplerSlots = 64;
 const QString kLatencyFile = QStringLiteral("zydek-latency.log");
 constexpr qint64 kLatencyFileMax = 4 * 1024 * 1024;   // then it moves to .1, replacing the previous one
-
-/// round(v * 1e5) + 2^34 as five 7-bit bytes, LSB first (exact for +-171k in 1e-5 steps).
-// Control values: round(v * 1e5) + 2^48 as 7 x 7 bits, LSB first (sample positions need the range).
-constexpr int kValueBytes = 7;
-
-QList<int> encodeValue(double v) {
-    const qint64 n = std::llround(v * 1e5) + (qint64(1) << 48);
-    QList<int> out;
-    for (int i = 0; i < kValueBytes; ++i) {
-        out.append(static_cast<int>((n >> (7 * i)) & 0x7F));
-    }
-    return out;
-}
-
-double decodeValue(const QByteArray& bytes) {
-    qint64 n = 0;
-    for (int i = 0; i < kValueBytes && i < bytes.size(); ++i) {
-        n |= qint64(static_cast<unsigned char>(bytes[i]) & 0x7F) << (7 * i);
-    }
-    return static_cast<double>(n - (qint64(1) << 48)) / 1e5;
-}
 
 QList<int> encodeName(const QString& group, const QString& key) {
     QList<int> out;
@@ -424,7 +408,8 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     if (path == QLatin1String("/zydeck-key.js")) {   // a paired device's key on its requests here (pairApi)
         return staticFile(path.mid(1));
     }
-    if (path == QLatin1String("/zydeck-position.js")) {   // where a playing track is drawn (every page that draws one)
+    if (path == QLatin1String("/zydeck-position.js") || path == QLatin1String("/zydeck-wave.js")) {   // where a playing track
+                                                                                                    // is drawn, and how
         return staticFile(path.mid(1));
     }
     if (path == QLatin1String("/zydeck-knob.js")) {   // touch and knobs (the deck page, the phone page's mixer)
@@ -3642,12 +3627,8 @@ void Hub::emitRemote() {
     emitJson(m);
 }
 
-void Hub::sendSysexText(int type, const QByteArray& text) {
-    QList<int> parts{type};
-    for (const char c : text.toHex()) {
-        parts.append(c);
-    }
-    sysex(parts);
+void Hub::sendSysexText(quint8 kind, const QJsonObject& obj) {
+    sendMidi(zydeck::shared::sysexText(kind, obj));
 }
 
 /// From the computer: the mapping's MIDI/SysEx, or ZyDeck Link's answers.
@@ -3657,7 +3638,7 @@ void Hub::remoteMessage(const QByteArray& msg, bool viaUsb) {
     }
     const auto byte = [&msg](int i) { return static_cast<unsigned char>(msg[i]); };
     if (msg.size() >= 4 && byte(0) == 0xF0 && byte(1) == 0x7D && (byte(2) == kLinkOffer || byte(2) == kNameReply)) {
-        const QJsonObject j = QJsonDocument::fromJson(QByteArray::fromHex(msg.mid(3, msg.size() - 4))).object();
+        const QJsonObject j = zydeck::shared::sysexJson(msg);
         if (byte(2) == kLinkOffer) {
             const bool fresh = m_linkOffer.value(QStringLiteral("key")) != j.value(QStringLiteral("key"));
             m_linkOffer = j;
@@ -3711,8 +3692,7 @@ void Hub::remoteTick() {
     if (m_usbState == 2 && !cableActive() && now - m_helloMs > 3000) {   // (until the cable answers: ZyDeck Connect
         m_helloMs = now;                                                   // relays it once it knows the device)
         m_forceCable = true;
-        sendSysexText(kLinkHello,
-                QJsonDocument(QJsonObject{{"v", 1}, {"name", deviceName()}}).toJson(QJsonDocument::Compact));
+        sendSysexText(kLinkHello, QJsonObject{{"v", 1}, {"name", deviceName()}});
         m_forceCable = false;
     }
 #ifdef Q_OS_ANDROID
@@ -4198,10 +4178,9 @@ void Hub::updateName(bool sampler, int index, int lengthMs) {
             applyName(sampler, index, QJsonValue());
             return;
         }
-        const QByteArray ask = QJsonDocument(QJsonObject{{"s", sampler}, {"i", index}, {"ms", lengthMs}})
-                                       .toJson(QJsonDocument::Compact);
+        const QJsonObject ask{{"s", sampler}, {"i", index}, {"ms", lengthMs}};
         if (m_linkUp && m_pLink) {
-            m_pLink->write("J " + ask + '\n');
+            m_pLink->write("J " + QJsonDocument(ask).toJson(QJsonDocument::Compact) + '\n');
         } else {
             sendSysexText(kNameAsk, ask);
         }

@@ -11,6 +11,7 @@
 <script src="/zydeck-key.js"></script>
 <script src="/zydeck-menu.js"></script>
 <script src="/zydeck-position.js"></script>
+<script src="/zydeck-wave.js"></script>
 <script src="/zydeck-knob.js"></script>
 <title>Mixxx Controller</title>
 <style>
@@ -2611,19 +2612,6 @@ function cueMarks(d) {
 
 // Beat grid on a tile (left: its first pixel at pxPerSec): bar lines across the strip, ticks top and bottom
 // for the other beats
-function drawBeats(g, d, pxPerSec, left, W, H) {
-  const b = d.beats;
-  if (!b || !b.length) return;
-  const dpr = devicePixelRatio || 1, start = (left - 2 * dpr) / pxPerSec, end = (left + W + 2 * dpr) / pxPerSec;
-  let lo = 0, hi = b.length;
-  while (lo < hi) { const m = (lo + hi) >> 1; if (b[m] < start) lo = m + 1; else hi = m; }
-  const tick = Math.round(H * .2);
-  for (let i = lo; i < b.length && b[i] <= end; i++) {
-    const x = Math.round(b[i] * pxPerSec) - left;
-    if ((i + d.bar) % 4 === 0) { g.fillStyle = "rgba(255,255,255,.55)"; g.fillRect(x - dpr, 0, 2 * dpr, H); }
-    else { g.fillStyle = "rgba(255,255,255,.5)"; g.fillRect(x, 0, dpr, tick); g.fillRect(x, H - tick, dpr, tick); }
-  }
-}
 // Mixxx's pre-roll and post-roll (allshader/waveformrendererpreroll.cpp): before the track's start and after its
 // end, a row of triangles pointing in towards the track, 40 % of the waveform's height, outlined 1.5 px with a
 // 25 % fill.
@@ -2647,12 +2635,6 @@ function drawRolls(g, d, pxPerSec, left, W, H) {
 // Live: fetch the analysed waveform of the track on a deck. The hub answers 200 with it, 202 while Mixxx is still
 // analysing it (as long as that takes: after a restart there can be a queue; a "wf" push says when it's done), 404
 // when it's not on a deck. ZyDeck Connect (controller mode) says 404 for both: there, a minute of tries.
-const wfWaiting = new Map();   // track id -> what's waiting for its "wf"
-const wfReady = id => { (wfWaiting.get(id) || []).forEach(f => f()); wfWaiting.delete(id); };
-const untilWf = (id, ms) => new Promise(res => {
-  const t = setTimeout(res, ms);
-  wfWaiting.set(id, [...(wfWaiting.get(id) || []), () => { clearTimeout(t); res(); }]);
-});
 async function loadWaveform(d, id) {
   d.wfFor = id; d.wf = null; d.wfVer = (d.wfVer || 0) + 1;
   if (!id) return;

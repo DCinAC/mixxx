@@ -53,7 +53,8 @@ qt_add_resources(zydeck-connect mapping
   BASE "${CMAKE_CURRENT_BINARY_DIR}/mapping"
   FILES "${CMAKE_CURRENT_BINARY_DIR}/mapping/Zydek-Tablet.midi.xml" "${CMAKE_CURRENT_BINARY_DIR}/mapping/Zydek-Tablet.script.js"
 )
-target_include_directories(zydeck-connect PRIVATE third_party/rtmidi third_party/qrcodegen)
+# zydeckshared.h: what the phone's hub does the same way (the protocol's numbers, file names)
+target_include_directories(zydeck-connect PRIVATE third_party/rtmidi third_party/qrcodegen ../../src/zydek)
 target_link_libraries(zydeck-connect PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Sql)
 if(TARGET Qt6::Multimedia)
   target_compile_definitions(zydeck-connect PRIVATE ZC_DECODE)
@@ -101,3 +102,11 @@ if(QT_CORE_TYPE STREQUAL "STATIC_LIBRARY")
 endif()
 
 install(TARGETS zydeck-connect BUNDLE DESTINATION . RUNTIME DESTINATION bin)
+
+# The shared code's checks (tools/zydeck-shared-tests: run.sh runs them, with the Python's and the mapping's)
+option(ZC_TESTS "Build the shared code's checks (tools/zydeck-shared-tests)" OFF)
+if(ZC_TESTS)
+  add_executable(zydeck-shared-tests ../zydeck-shared-tests/test.cpp)
+  target_include_directories(zydeck-shared-tests PRIVATE ../../src/zydek)
+  target_link_libraries(zydeck-shared-tests PRIVATE Qt6::Core)
+endif()
