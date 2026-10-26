@@ -117,7 +117,14 @@ Core::Core(QObject* parent)
         : QObject(parent),
           m_key(loadKey()),
           m_midi(new Midi(this)),
-          m_profiler(new Profiler(m_midi, this)) {
+          m_profiler(new Profiler(m_midi, [this] {   // (a linked device's address: the network the profiler watches)
+              for (const Device& d : devices()) {
+                  if (!d.address.isEmpty()) {
+                      return d.address;
+                  }
+              }
+              return QString();
+          }, this)) {
     m_name = QSysInfo::machineHostName().section(QLatin1Char('.'), 0, 0);
     if (m_name.isEmpty()) {
         m_name = tr("This computer");

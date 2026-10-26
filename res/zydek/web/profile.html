@@ -83,7 +83,7 @@
       <span><i class="sw" style="background:#888"></i>Path, link or cable changed</span><span><i class="sw" style="background:#c9a7ff"></i>This computer</span>
     </div>
     <h2>Marks and what was around them</h2>
-    <div class="scroll"><table id="marks"><thead><tr><th>#</th><th>At</th><th>Path</th><th>Round trip (worst)</th><th>Position gap (worst)</th><th>Lost pings</th><th>Frame (worst)</th><th>Mixxx's leg (worst)</th><th>Dropouts</th><th>Mixxx warned</th><th>Scratching</th></tr></thead><tbody></tbody></table></div>
+    <div class="scroll"><table id="marks"><thead><tr><th>#</th><th>At</th><th>Path</th><th>Round trip (worst)</th><th>Position gap (worst)</th><th>Lost pings</th><th>Frame (worst)</th><th>This computer (worst)</th><th>Dropouts</th><th>Mixxx warned</th><th>Scratching</th></tr></thead><tbody></tbody></table></div>
     <h2>Problems found</h2>
     <div class="scroll"><table id="issues"><thead><tr><th>At</th><th>What</th></tr></thead><tbody></tbody></table></div>
     <h2>What happened</h2>
@@ -212,7 +212,10 @@ async function show(id) {
     const row = (what, a, unit, bad, note = "") => `<tr><td>${what}</td><td>${a.length ? fmt(q(a, .5)) + unit : "–"}</td>
       <td class="${a.length && maxOf(a) > bad ? "bad" : ""}">${a.length ? fmt(maxOf(a)) + unit : "–"}</td><td class="dim">${note}</td></tr>`;
     const sum = f => macSecs.reduce((s, l) => s + (f(l) || 0), 0);
-    $("mac").tBodies[0].innerHTML = row("Mixxx's CPU", col(l => l.mac.mixxx?.cpu), " %", 90, "of one core") +
+    $("mac").tBodies[0].innerHTML = row("This computer's Wi-Fi (to the router)", col(l => l.mac.routerMs?.[4]), " ms", 50,
+        `worst each second; ${sum(l => l.mac.routerLost)} lost. Over ~50 ms: its Wi-Fi stalls (AirDrop/Handoff's AWDL, a scan, power saving)`) +
+      row("ZyDeck Connect running late", col(l => l.mac.lagMax), " ms", 50, "worst each second (its thread busy)") +
+      row("Mixxx's CPU", col(l => l.mac.mixxx?.cpu), " %", 90, "of one core") +
       row("Mixxx's memory", col(l => l.mac.mixxx?.mb), " MB", 4000) + row("ZyDeck Connect's CPU", col(l => l.mac.connect?.cpu), " %", 50) +
       row("Messages into Mixxx", col(l => l.mac.toMixxx), " a second", 2000) +
       row("Waiting to go in (paced)", col(l => l.mac.queueMax), "", 256, `${sum(l => l.mac.paced)} waited, ${sum(l => l.mac.replaced)} replaced by a newer value`) +
@@ -225,7 +228,7 @@ async function show(id) {
     const rtt = around(m.t, devSecs, l => l.page.rtt?.[3]), gap = around(m.t, devSecs, l => l.page.gaps?.[3]);
     const lost = around(m.t, devSecs, l => l.page.lost || 0).reduce((a, b) => a + b, 0), fr = around(m.t, devSecs, l => l.page.frameMax);
     const x = around(m.t, devSecs, l => l.page.xruns ?? l.hub?.xruns), scr = around(m.t, devSecs, l => l.page.scratching);
-    const leg = around(m.t, macSecs, l => l.mac.mixxxMs?.[4]), warned = warnings.filter(([t]) => t >= m.t - 5 && t <= m.t + 2).length;
+    const leg = around(m.t, macSecs, l => Math.max(l.mac.mixxxMs?.[4] || 0, l.mac.routerMs?.[4] || 0, l.mac.lagMax || 0) || null), warned = warnings.filter(([t]) => t >= m.t - 5 && t <= m.t + 2).length;
     const path = [...new Set(around(m.t, devSecs, l => `${many ? srcOf(l) + ": " : ""}${PATH_NAME[pathOf(l)] || pathOf(l)}`))].join(", ");
     return `<tr><td>${m.n}${m.note ? ` ${esc(m.note)}` : ""}${m.src && m.src !== "mac" && many ? ` <span class="dim">(${esc(m.src)})</span>` : ""}</td><td>${mmss(m.t)}</td>
       <td>${esc(path)}</td><td class="${maxOf(rtt) > 40 ? "bad" : ""}">${fmt(maxOf(rtt))}</td><td class="${maxOf(gap) > 150 ? "bad" : ""}">${fmt(maxOf(gap))}</td>
@@ -257,6 +260,9 @@ async function show(id) {
     if ((m.mixxxMs?.[4] || 0) > 20) what.push(`Mixxx took ${fmt(m.mixxxMs[4])} ms to answer a ping`);
     if ((m.mixxx?.cpu || 0) > 90) what.push(`Mixxx used ${fmt(m.mixxx.cpu)} % CPU`);
     if ((m.queueMax || 0) > 256) what.push(`${m.queueMax} messages waited to go into Mixxx`);
+    if ((m.routerMs?.[4] || 0) > 50) what.push(`its Wi-Fi stalled ${fmt(m.routerMs[4])} ms (to the router)`);
+    if (m.routerLost) what.push(`${m.routerLost} ping${m.routerLost > 1 ? "s" : ""} to the router lost`);
+    if ((m.lagMax || 0) > 50) what.push(`ZyDeck Connect ran ${m.lagMax} ms late`);
     for (const w of m.warnings || []) what.push(`Mixxx's log: ${w}`);
     if (what.length) issues.push([l.t, "This computer", what.join(" · ")]);
   }
@@ -283,7 +289,8 @@ function chart(devSecs, macSecs, events, pathOf, dur) {
   const c = $("chart"), dpr = devicePixelRatio || 1, W = c.clientWidth;
   const lanes = [["Round trip", 80, devSecs, l => l.page.rtt?.[1], l => l.page.rtt?.[3], "ms"], ["Positions apart", 300, devSecs, null, l => l.page.gaps?.[3], "ms"],
     ["Frame", 120, devSecs, null, l => l.page.frameMax, "ms"]];
-  if (macSecs.length) lanes.push(["Mixxx's leg", 40, macSecs, l => l.mac.mixxxMs?.[1], l => l.mac.mixxxMs?.[4], "ms"], ["Mixxx's CPU", 200, macSecs, null, l => l.mac.mixxx?.cpu, "%"]);
+  if (macSecs.length) lanes.push(["Mixxx's leg", 40, macSecs, l => l.mac.mixxxMs?.[1], l => l.mac.mixxxMs?.[4], "ms"], ["Mac Wi-Fi", 150, macSecs, l => l.mac.routerMs?.[1], l => l.mac.routerMs?.[4], "ms"],
+    ["Mixxx's CPU", 200, macSecs, null, l => l.mac.mixxx?.cpu, "%"]);
   lanes.push(["Device CPU", 200, devSecs, null, l => l.hub?.cpu, "%"], ["Wi-Fi signal", 100, devSecs, null, l => l.dev?.rssi != null ? 100 + l.dev.rssi : null, "dBm"]);
   const LH = 64, H = 8 + lanes.length * LH + 18;
   c.style.height = H + "px";

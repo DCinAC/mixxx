@@ -523,7 +523,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, scrFix: true, scrFeel: "smooth" };
 const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
@@ -1816,7 +1816,7 @@ function fxMenu(s) {
   box.addEventListener("click", e => {
     const b = e.target.closest("button");
     if (!b) return;
-    if (b.dataset.layout) { S.fxLayout = b.dataset.layout; saveSettings(); build(); render(); }
+    if (b.dataset.layout) { S.fxLayout = b.dataset.layout; saveSettings(); applyFxLayout(); build(); render(); }
     else if (b.dataset.slot) { slot = +b.dataset.slot; render(); }
     else if (b.dataset.crate) { editCrate = !editCrate; render(); }
     else if (b.dataset.fx && editCrate) { fxCrateToggle(+b.dataset.fx); render(); }
@@ -1946,7 +1946,7 @@ function fxMenuHw(s, prewarm) {
   box.addEventListener("click", e => {
     const b = e.target.closest("button");
     if (!b) return;
-    if (b.dataset.layout) { S.fxLayout = b.dataset.layout; saveSettings(); build(); close(); fxMenu(s); }   // (the other layout's look)
+    if (b.dataset.layout) { S.fxLayout = b.dataset.layout; saveSettings(); applyFxLayout(); build(); close(); fxMenu(s); }   // (the other layout's look)
     else if (b.dataset.slot) { slot = +b.dataset.slot; cur = -1; render(); }
     else if (b.dataset.crate) { editCrate = !editCrate; render(); }
     else if (b.dataset.fx && editCrate) { fxCrateToggle(+b.dataset.fx); render(); }
@@ -2219,8 +2219,8 @@ function slip(d, target, dt) {
 // SCR_MIX of each, so it's heard as part of the scratch; nothing while the hand's still). The reports come a moment
 // after Mixxx was there: that delay is found from them too (the one that makes the slip steadiest)
 const SCR_MIX = .3, SCR_WIN_MS = 1200, SCR_MAX = 3;
-function scrGrab(d, now) {
-  d.scr = REMOTE.on ? { log: [{ t: now, p: d.pos }], rep: [], sent: 0, slip: null, lag: d.scrLag ?? .08 } : null;
+function scrGrab(d, now) {   // (S.scrFix off: the hand's movement only, as it is)
+  d.scr = REMOTE.on && S.scrFix !== false ? { log: [{ t: now, p: d.pos }], rep: [], sent: 0, slip: null, lag: d.scrLag ?? .08 } : null;
 }
 // where the ticks sent had put the record at time t (track seconds)
 function scrSentAt(c, t) {
@@ -2762,7 +2762,7 @@ let deckDefaults = [-1, -1, -1];
 // This page's settings, for the menu's Controller tab (and its Look rows): the menu reads S and sets through here
 ZydeckMenu.provide("controller", {
   S: () => S, phone: PHONE, rawInput: RAW_INPUT,
-  set(k, v, final = true) { S[k] = v; saveSettings(); applySettings(); tellApp(); if (final) build(); },
+  set(k, v, final = true) { S[k] = v; saveSettings(); applySettings(); tellApp(); if (k === "fxLayout") applyFxLayout(); if (final) build(); },
   reset() { S = { ...DEFAULTS }; saveSettings(); applySettings(); tellApp(); build(); },
   deckDefaults: () => deckDefaults,
   profiling: () => prof.on, setProfiling: profiling,
@@ -2826,10 +2826,21 @@ const fxUnitG = u => `[EffectRack1_EffectUnit${u}]`;
 const fxSlotG = (u, j) => `[EffectRack1_EffectUnit${u}_Effect${j + 1}]`;
 const fxName = (u, j) => { const i = fxState[u - 1].loaded[j]; return i > 0 && fxNames[i - 1] ? fxNames[i - 1] : REMOTE.on ? `FX ${j + 1}` : "—"; };
 const beatText = b => b < 1 ? (b === .5 ? "½" : b === .25 ? "¼" : "⅛") : String(b);
+// A change of FX layout changes Mixxx too, not just the look: Beat FX is one effect a unit (its slot 1) at the beat
+// length it shows, so the other two slots, which Multi-FX may have left on, go off (Beat FX has nothing to show them by)
+function applyFxLayout() {
+  if (!live || S.fxLayout === "multi") return;
+  for (const u of [1, 2]) {
+    const f = fxState[u - 1];
+    for (const j of [1, 2]) if (f.enabled[j]) { f.enabled[j] = 0; setCtl(fxSlotG(u, j), "enabled", 0); }
+    if (f.loaded[0]) fxSetBeats(u, 1, fxBeat[u - 1], true);
+  }
+  schedulePaint();
+}
 function fxRoute(d, u) { setCtl(fxUnitG(u), `group_${ch(d.n)}_enable`, 1); fxState[u - 1].route[d.n - 1] = 1; }
 // Each effect's knob in beats ({knob, min, max} or null), in fxNames' order: from ZyDeck Connect, for Mixxx on a computer
 let fxBeatKnobs = [];
-async function fxSetBeats(u, slot, b) {
+async function fxSetBeats(u, slot, b, quiet = false) {
   fxBeat[u - 1] = b; schedulePaint();
   if (REMOTE.on) {   // set the knob itself (Mixxx here does it in the hub: /api/fx/beats)
     let done = 0;
@@ -2839,12 +2850,12 @@ async function fxSetBeats(u, slot, b) {
       setCtl(fxSlotG(u, j), `parameter${k.knob}`, Math.min(k.max, Math.max(k.min, b)));
       done++;
     }
-    if (!done) toast(fxBeatKnobs.length ? "No beat length for this effect" : "The computer's effects aren't known yet");
+    if (!done && !quiet) toast(fxBeatKnobs.length ? "No beat length for this effect" : "The computer's effects aren't known yet");
     return;
   }
   try {
     const r = await (await fetch(`/api/fx/beats?unit=${u}&slot=${slot}&beats=${b}`)).json();
-    if (!r.ok) toast(r.error || "No beat length for this effect");
+    if (!r.ok && !quiet) toast(r.error || "No beat length for this effect");
   } catch {}
 }
 // The effects as a unit's slots number them: Mixxx here (the hub), or in controller mode Mixxx on the computer, from
@@ -2961,7 +2972,7 @@ function toMixxx(name, ...a) {
     case "censor": return setCtl(ch(d.n), "reverseroll", a[1]);   // reverse while held, with slip
     case "keyAction": return setCtl(ch(d.n), a[1], a[2] ? 1 : 0);   // sync_key, reset_key: press and release
     case "quantize": markLocal(d, "quantize"); return setCtl(ch(d.n), "quantize", a[1]);
-    case "scratchOn": d.tickAcc = 0; return mxSend({ scratch: [d.n - 1, 1, 0] });
+    case "scratchOn": d.tickAcc = 0; return mxSend({ scratch: [d.n - 1, 1, S.scrFeel === "direct" ? 1 : 0] });   // (Mixxx's filter: the mapping)
     case "scratch": return scratchBy(d, a[1] * deckSpan(d));
     case "scratchOff": if (!d.coast) { mxSend({ scratch: [d.n - 1, 0, 0] }); posSeed(d, d.pos, d.playing ? d.ratio : 0, performance.now()); } return;   // coasting: released later
     case "loop": return setCtl(ch(d.n), a[1], a[2] ? 1 : 0);   // press and release, like a controller button
@@ -3369,6 +3380,7 @@ setInterval(() => {
   const summary = { ...(prof.on ? { gaps: latStats(lat.gaps), xruns: remoteXruns,
     rttAll: lat.rtt.map(v => +v.toFixed(1)), gapsAll: lat.gaps.map(v => Math.round(v)),   // (the whole set's percentiles)
     via: !REMOTE.on ? "local" : REMOTE.via === "usb" ? "cable" : REMOTE.via, playing: decks.filter(d => d.playing).length, scratching: [0, 1].some(s => deckOf(s).grabbed),
+    scr: { fix: S.scrFix !== false, feel: S.scrFeel || "smooth" },
     hidden: document.hidden } : {}), n: lat.rtt.length, rtt: latStats(lat.rtt), up: latStats(lat.up), down: latStats(lat.down),
     js: latStats(lat.js), lost: lat.lost, direct: lat.direct, input: latStats(lat.input), frameMax: Math.round(lat.frameMax),
     loopMax: Math.round(lat.loopMax), bufMax: lat.bufMax, sends: lat.sends, touches: active.size, page: sidePage.join("/"), live,

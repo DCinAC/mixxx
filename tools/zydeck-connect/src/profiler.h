@@ -14,6 +14,7 @@
 #include <QProcess>
 #include <QString>
 #include <QTimer>
+#include <functional>
 
 namespace zc {
 
@@ -22,7 +23,8 @@ class Midi;
 class Profiler : public QObject {
     Q_OBJECT
   public:
-    explicit Profiler(Midi* midi, QObject* parent = nullptr);
+    // deviceAddress: a linked device's address, to find the network they're on (and its router)
+    Profiler(Midi* midi, std::function<QString()> deviceAddress, QObject* parent = nullptr);
 
     bool on() const { return m_on; }
     void start(const QString& by);                   // by: a device's name, or "" (here)
@@ -51,6 +53,13 @@ class Profiler : public QObject {
     QTimer m_tick;
     QProcess m_ps;              // the processes' CPU and memory (ps), asked once a second
     QJsonObject m_procs;        // what it last said
+    std::function<QString()> m_deviceAddress;
+    QTimer m_lagTimer;          // this program's own lateness: a 20 ms timer, how late it runs (its thread's busy)
+    qint64 m_lagLastMs = 0, m_lagMax = 0;
+    QString m_router;           // the router of the network the devices are on ("": not known)
+    QProcess m_ping;            // this computer's own Wi-Fi: the router pinged, ~10 times in each second
+    QJsonObject m_pinged;       // what the last round said
+    QString findRouter() const;
     qint64 m_logPos = -1;       // how far into Mixxx's log has been read
 };
 

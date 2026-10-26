@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHostAddress>
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QStandardPaths>
@@ -33,9 +34,30 @@ QJsonValue stats(QList<double> a) {
 }
 } // namespace
 
-Profiler::Profiler(Midi* midi, QObject* parent)
+Profiler::Profiler(Midi* midi, std::function<QString()> deviceAddress, QObject* parent)
         : QObject(parent),
-          m_midi(midi) {
+          m_midi(midi),
+          m_deviceAddress(std::move(deviceAddress)) {
+    m_lagTimer.setInterval(20);
+    m_lagTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_lagTimer, &QTimer::timeout, this, [this] {
+        const qint64 now = m_clock.elapsed();
+        if (m_lagLastMs) {
+            m_lagMax = (std::max)(m_lagMax, now - m_lagLastMs - 20);
+        }
+        m_lagLastMs = now;
+    });
+    connect(&m_ping, &QProcess::finished, this, [this] {
+        // "... time=12.3 ms" a reply; how many went, how many came back
+        static const QRegularExpression time(QStringLiteral(R"(time[=<]([0-9.]+) ?ms)"));
+        QList<double> ms;
+        auto it = time.globalMatch(QString::fromLatin1(m_ping.readAllStandardOutput()));
+        while (it.hasNext()) {
+            ms.append(it.next().captured(1).toDouble());
+        }
+        const int sent = m_ping.property("sent").toInt();
+        m_pinged = {{"routerMs", stats(ms)}, {"routerLost", (std::max)(0, sent - static_cast<int>(ms.size()))}};
+    });
     m_tick.setInterval(1000);
     connect(&m_tick, &QTimer::timeout, this, &Profiler::second);
     connect(&m_ps, &QProcess::finished, this, [this] {
@@ -102,6 +124,10 @@ void Profiler::start(const QString& by) {
     m_logPos = log.exists() ? log.size() : 0;
     write({{"k", "start"}, {"t", 0}, {"src", "mac"}, {"at", QDateTime::currentDateTime().toString(Qt::ISODate)},
             {"by", by.isEmpty() ? QStringLiteral("this computer") : by}, {"computer", QSysInfo::machineHostName()}});
+    m_router = findRouter();
+    m_lagLastMs = 0;
+    m_lagMax = 0;
+    m_lagTimer.start();
     m_tick.start();
     emit tell({{"do", "start"}});
 }
@@ -113,6 +139,7 @@ void Profiler::stop(const QString& why) {
     write({{"k", "stop"}, {"src", "mac"}, {"why", why}});
     m_on = false;
     m_tick.stop();
+    m_lagTimer.stop();
     emit tell({{"do", "stop"}});
 }
 
@@ -184,6 +211,12 @@ void Profiler::second() {
     for (auto it = m_procs.constBegin(); it != m_procs.constEnd(); ++it) {
         mac.insert(it.key(), it.value());
     }
+    mac.insert(QStringLiteral("lagMax"), static_cast<double>(m_lagMax));   // (this program ran that late, at worst)
+    m_lagMax = 0;
+    for (auto it = m_pinged.constBegin(); it != m_pinged.constEnd(); ++it) {
+        mac.insert(it.key(), it.value());
+    }
+    m_pinged = {};
     QJsonArray warnings;
     readMixxxLog(&warnings);
     if (!warnings.isEmpty()) {
@@ -191,9 +224,46 @@ void Profiler::second() {
     }
     write({{"k", "sec"}, {"src", "mac"}, {"mac", mac}});
 #ifndef Q_OS_WIN
+    if (m_ping.state() == QProcess::NotRunning && !m_router.isEmpty()) {   // (for the next second's line)
+#ifdef Q_OS_MACOS
+        const QStringList args{QStringLiteral("-c"), QStringLiteral("9"), QStringLiteral("-i"), QStringLiteral("0.1"), QStringLiteral("-t"), QStringLiteral("2"), m_router};
+        m_ping.setProperty("sent", 9);
+#else
+        const QStringList args{QStringLiteral("-c"), QStringLiteral("4"), QStringLiteral("-i"), QStringLiteral("0.2"), QStringLiteral("-w"), QStringLiteral("2"), m_router};
+        m_ping.setProperty("sent", 4);
+#endif
+        m_ping.start(QStringLiteral("ping"), args);
+    }
     if (m_ps.state() == QProcess::NotRunning) {   // (for the next second's line)
         m_ps.start(QStringLiteral("ps"), {QStringLiteral("-A"), QStringLiteral("-o"), QStringLiteral("pid=,%cpu=,rss=,command=")});
     }
+#endif
+}
+
+// The router of the network the devices are on: by the way to one of them (macOS's default route may be a VPN's)
+QString Profiler::findRouter() const {
+    const QString device = m_deviceAddress ? m_deviceAddress() : QString();
+    const auto run = [](const QString& program, const QStringList& args) {
+        QProcess p;
+        p.start(program, args);
+        p.waitForFinished(2000);
+        return QString::fromLatin1(p.readAllStandardOutput());
+    };
+#if defined(Q_OS_MACOS)
+    const QRegularExpressionMatch m = QRegularExpression(QStringLiteral(R"(interface:\s*(\S+))"))
+                                              .match(run(QStringLiteral("route"), {QStringLiteral("-n"), QStringLiteral("get"), device.isEmpty() ? QStringLiteral("default") : device}));
+    const QString router = m.hasMatch() ? run(QStringLiteral("ipconfig"), {QStringLiteral("getoption"), m.captured(1), QStringLiteral("router")}).trimmed() : QString();
+    return QHostAddress(router).isNull() ? QString() : router;
+#elif defined(Q_OS_LINUX)
+    const QRegularExpressionMatch m = QRegularExpression(QStringLiteral(R"(\bdev\s+(\S+))"))
+                                              .match(run(QStringLiteral("ip"), {QStringLiteral("route"), QStringLiteral("get"), device.isEmpty() ? QStringLiteral("1.1.1.1") : device}));
+    const QRegularExpressionMatch g = QRegularExpression(QStringLiteral(R"(default via (\S+))"))
+                                              .match(m.hasMatch() ? run(QStringLiteral("ip"), {QStringLiteral("route"), QStringLiteral("show"), QStringLiteral("default"), QStringLiteral("dev"), m.captured(1)}) : QString());
+    return g.hasMatch() ? g.captured(1) : QString();
+#else
+    Q_UNUSED(device);
+    Q_UNUSED(run);
+    return {};
 #endif
 }
 

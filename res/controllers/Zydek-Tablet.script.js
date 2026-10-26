@@ -270,8 +270,9 @@ TabletPads.message = function (b) {
     } else if (type === 0x52) {
         var deck = b[3] + 1, op = b[4];
         if (deck > TabletPads.DECKS) { return; }
-        if (op === 1) {
-            engine.scratchEnable(deck, TabletPads.TICKS_PER_REV, 33 + 1 / 3, 1 / 8, 1 / 8 / 32, false);
+        if (op === 1) {   // (the grab's number: 1 = Direct, a quicker filter; 0 = Smooth, the usual one)
+            var alpha = (b[5] + b[6] * 128 + b[7] * 16384) - 1048576 === 1 ? 1 / 4 : 1 / 8;
+            engine.scratchEnable(deck, TabletPads.TICKS_PER_REV, 33 + 1 / 3, alpha, alpha / 32, false);
         } else if (op === 2) {
             var ticks = (b[5] + b[6] * 128 + b[7] * 16384) - 1048576;
             if (isFinite(ticks)) { engine.scratchTick(deck, ticks); }
