@@ -27,6 +27,7 @@
 #include "zydeckshared.h"
 
 #ifdef Q_OS_WIN
+#define NOMINMAX   // (no min and max macros: std::min below)
 #include <windows.h>
 #endif
 
