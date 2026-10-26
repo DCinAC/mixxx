@@ -64,6 +64,7 @@ class Web : public QObject {
         QPointer<QProcess> process;
         QPointer<QNetworkReply> reply;
         QString remoteId, server, original, outName;   // stems
+        QString deck;                                    // a download to load there ("[Channel1]"; "": none)
     };
     Job* start(const QString& kind, const QString& title);
     void finish(Job* job, const QJsonValue& result);
@@ -74,6 +75,7 @@ class Web : public QObject {
     void download(Job* job, const QString& url);
     void downloaded(Job* job, const QJsonObject& info);
     void stems(Job* job, const QString& path, const QString& preset);
+    void loadToDeck(Job* job, QJsonObject result);   // (finishes the job when Mixxx ZyDeck has, or hasn't)
     void stemsPoll(Job* job);
     void stemsFetch(Job* job);
     static QString placeStem(const QString& local, const QString& dir, const QString& name, const QString& original, QString* error);

@@ -1451,8 +1451,8 @@ function openWebSheet(r) {
   s.innerHTML = `<div class="grip"></div><div class="t">${esc(r.title)}</div>` +
     `<div class="a">${esc(r.channel)}${r.duration ? " · " + fmtTime(r.duration) : ""}</div>` +
     `<div class="loads" style="margin-top:14px"></div><div class="more"><button class="dl">${onComputer() ? "Download to the computer" : "Download only"}</button></div>`;
-  if (!onComputer()) [1, 2, 3, 4].forEach(n => {
-    const b = h("button", n > 2 ? "d34" : "d12", `Deck ${n}<small>download and load</small>`);
+  [1, 2, 3, 4].forEach(n => {   // (controller mode: into the computer's Mixxx ZyDeck's deck, by ZyDeck Connect)
+    const b = h("button", n > 2 ? "d34" : "d12", `Deck ${n}<small>download and load${onComputer() ? " there" : ""}</small>`);
     b.addEventListener("click", () => { closeSheet(); webDownload(r, `deck${n}`); });
     s.querySelector(".loads").appendChild(b);
   });
@@ -1484,12 +1484,14 @@ async function webDownload(r, target, stems) {
   const { li, show, done } = jobRow(r.title);
   toast(target ? `Downloading for ${target.replace("deck", "deck ")}…` : "Downloading…");
   try {
-    const res = await webJob(`/api/web/download?${qs({ url: r.url, title: r.title })}`,
+    const res = await webJob(`/api/web/download?${qs({ url: r.url, title: r.title, ...(onComputer() && target ? { deck: target.slice(4) } : {}) })}`,
       j => show(j.progress, j.message ? `${j.message}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}` : null));
     const q = res.codec === "flac" ? "Hi-Res FLAC" : res.kbps ? `${res.kbps} kbps` : "";
     if (onComputer()) {   // (Mixxx ZyDeck takes it in from the folder, into the crate ZyDeck Web)
       show(1, `On the computer${q ? " (" + q + ")" : ""}: ${res.path.split("/").pop()}`);
-      if (!stems) toast(`Downloaded ${res.title}: in Mixxx's ZyDeck Web crate`, "ok");
+      if (res.loaded) toast(`Loaded into deck ${target.slice(4)}: ${res.title}`, "ok");
+      else if (res.loadError) toast(`Downloaded ${res.title}, not loaded: ${res.loadError}. It's in Mixxx's ZyDeck Web crate`, "bad");
+      else if (!stems) toast(`Downloaded ${res.title}: in Mixxx's ZyDeck Web crate`, "ok");
     } else {
       show(1, "Adding to the library");
       const added = await api(`/api/library/add?${qs({ path: res.path })}`);

@@ -13,6 +13,7 @@
 #include <QProcess>
 #include <QRandomGenerator>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QSettings>
 #include <QStorageInfo>
 #include <QStandardPaths>
@@ -358,6 +359,9 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
             return {{"ok", false}, {"error", "That isn't a link"}};
         }
         Job* j = start(QStringLiteral("download"), arg("title").isEmpty() ? q : arg("title"));
+        if (const int deck = arg("deck").toInt(); deck >= 1 && deck <= 4) {   // and then load it there (loadToDeck)
+            j->deck = QStringLiteral("[Channel%1]").arg(deck);
+        }
         download(j, q);
         return {{"job", j->id}};
     }
@@ -645,8 +649,13 @@ void Web::downloaded(Job* job, const QJsonObject& info) {
             return;
         }
         static const QStringList playable{".m4a", ".mp4", ".mp3", ".ogg", ".opus", ".flac", ".wav", ".webm"};
-        finish(job, QJsonObject{{"path", to}, {"artist", artist}, {"title", title}, {"duration", info.value(QStringLiteral("duration"))},
-                            {"codec", codec}, {"kbps", static_cast<int>(std::lround(tbr))}, {"playable", playable.contains(ext)}});
+        const QJsonObject result{{"path", to}, {"artist", artist}, {"title", title}, {"duration", info.value(QStringLiteral("duration"))},
+                {"codec", codec}, {"kbps", static_cast<int>(std::lround(tbr))}, {"playable", playable.contains(ext)}};
+        if (job->deck.isEmpty()) {
+            finish(job, result);
+        } else {
+            loadToDeck(job, result);
+        }
     };
     const QString ff = ffmpeg();
     if (ff.isEmpty()) {
@@ -801,6 +810,47 @@ void Web::stemsPoll(Job* job) {
             }
         });
     });
+}
+
+// A download for a deck: Mixxx ZyDeck asked to load it there (zydeck-load.json in its folder; its answer in
+// zydeck-load-done.json: the fork's zydeck/loadrequest.h). The job finishes with "loaded", or "loadError" (the deck
+// is playing, say); plain Mixxx doesn't answer: after 8 s the job says so, the track in the ZyDeck Web crate anyway
+void Web::loadToDeck(Job* job, QJsonObject result) {
+    job->message = QStringLiteral("Loading it into Mixxx");
+    const QString dir = mixxxDir();
+    const QString id = QString::number(QRandomGenerator::global()->generate64(), 16);
+    QFile::remove(dir + QStringLiteral("/zydeck-load-done.json"));
+    QSaveFile ask(dir + QStringLiteral("/zydeck-load.json"));
+    if (dir.isEmpty() || !ask.open(QIODevice::WriteOnly) ||
+            ask.write(QJsonDocument(QJsonObject{{"id", id}, {"group", job->deck}, {"path", result.value(QStringLiteral("path"))}}).toJson()) < 0 ||
+            !ask.commit()) {
+        result.insert(QStringLiteral("loadError"), QStringLiteral("Couldn't ask Mixxx"));
+        finish(job, result);
+        return;
+    }
+    auto* poll = new QTimer(this);
+    poll->setInterval(250);
+    auto tries = std::make_shared<int>(0);
+    connect(poll, &QTimer::timeout, this, [this, job, result, poll, tries, dir, id]() mutable {
+        QFile f(dir + QStringLiteral("/zydeck-load-done.json"));
+        const QJsonObject done = f.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(f.readAll()).object() : QJsonObject();
+        if (done.value(QStringLiteral("id")).toString() == id) {
+            f.remove();
+            if (done.value(QStringLiteral("ok")).toBool()) {
+                result.insert(QStringLiteral("loaded"), job->deck);
+            } else {
+                result.insert(QStringLiteral("loadError"), done.value(QStringLiteral("error")).toString(QStringLiteral("Mixxx didn't load it")));
+            }
+        } else if (++*tries < 32) {
+            return;
+        } else {
+            QFile::remove(dir + QStringLiteral("/zydeck-load.json"));   // (not taken: plain Mixxx, or not running)
+            result.insert(QStringLiteral("loadError"), QStringLiteral("Mixxx didn't take it (loading into a deck needs Mixxx ZyDeck)"));
+        }
+        poll->deleteLater();
+        finish(job, result);
+    });
+    poll->start();
 }
 
 // The .stem.mp4: downloaded here (stemsDir), then copied to where it belongs and the PC told to forget it. Where: a
