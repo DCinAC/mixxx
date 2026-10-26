@@ -116,12 +116,21 @@ struct Core::Client {
 Core::Core(QObject* parent)
         : QObject(parent),
           m_key(loadKey()),
-          m_midi(new Midi(this)) {
+          m_midi(new Midi(this)),
+          m_profiler(new Profiler(m_midi, this)) {
     m_name = QSysInfo::machineHostName().section(QLatin1Char('.'), 0, 0);
     if (m_name.isEmpty()) {
         m_name = tr("This computer");
     }
     connect(m_midi, &Midi::fromMixxx, this, &Core::fromMixxx);
+    connect(m_profiler, &Profiler::tell, this, [this](const QJsonObject& control) {   // the session profiler: all the devices
+        const QByteArray line = "P " + QJsonDocument(control).toJson(QJsonDocument::Compact) + '\n';
+        for (auto it = m_clients.cbegin(); it != m_clients.cend(); ++it) {
+            if (it.value()->linked) {
+                it.key()->write(line);
+            }
+        }
+    });
     connect(m_midi, &Midi::hello, this, [this](const QString& device, const QString& port) {
         seen(device, tr("USB cable"));
         m_midi->reply(port, sysexText(kLinkOffer, offer()));
@@ -253,6 +262,37 @@ QJsonObject Core::nameReply(const QJsonObject& ask) {
             {"n", n.isEmpty() ? QJsonValue() : QJsonValue(n)}};   // (ms: the track it's for)
 }
 
+// /web/profile?do=start|stop|mark (note=)|status|list|get (id=)|delete (id=): profiler.h
+QJsonObject Core::profileApi(const QUrlQuery& query, int* status) {
+    *status = 200;
+    const QString what = query.queryItemValue(QStringLiteral("do"));
+    const QString id = query.queryItemValue(QStringLiteral("id"));
+    if (what == QLatin1String("start")) {
+        m_profiler->start({});
+    } else if (what == QLatin1String("stop")) {
+        m_profiler->stop(QStringLiteral("asked"));
+    } else if (what == QLatin1String("mark")) {
+        m_profiler->mark({}, query.queryItemValue(QStringLiteral("note"), QUrl::FullyDecoded));
+    } else if (what == QLatin1String("list")) {
+        return {{"ok", true}, {"sessions", m_profiler->sessions()}, {"state", m_profiler->state()}};
+    } else if (what == QLatin1String("get")) {
+        const QByteArray lines = m_profiler->session(id);
+        if (lines.isEmpty()) {
+            *status = 404;
+            return {{"ok", false}, {"error", "No such session"}};
+        }
+        return {{"_lines", QString::fromUtf8(lines)}};
+    } else if (what == QLatin1String("delete")) {
+        if (!m_profiler->remove(id)) {
+            *status = 409;
+            return {{"ok", false}, {"error", "Can't delete it (still recording?)"}};
+        }
+    }
+    QJsonObject out = m_profiler->state();
+    out.insert(QStringLiteral("ok"), true);
+    return out;
+}
+
 // ---- Mixxx -> linked devices -------------------------------------------------------------------------------
 namespace {
 const QByteArray kOurPing = QByteArray::fromHex("f07d5e7e7e7ef7");   // (the devices' own pings carry their sequence)
@@ -370,6 +410,11 @@ void Core::line(QTcpSocket* s, Client& c, const QByteArray& l) {
             m_midi->toMixxx(data);
             activity(c.device, true);
         }
+    } else if (l.startsWith("P ")) {   // a line of the device's session (profiler.h)
+        const QJsonObject p = QJsonDocument::fromJson(l.mid(2)).object();
+        if (!p.isEmpty()) {
+            m_profiler->deviceLine(c.device, p);
+        }
     } else if (l.startsWith("J ")) {
         const QJsonObject ask = QJsonDocument::fromJson(l.mid(2)).object();
         QPointer<QTcpSocket> guard(s);
@@ -390,6 +435,16 @@ void Core::http(QTcpSocket* s, const QByteArray& request) {
     // /web/...: downloads and stems (web.h), for a device with the key or for this computer itself (Mixxx ZyDeck,
     // which can't know the key)
     const QByteArray first = request.left(request.indexOf("\r\n"));
+    const bool loopback = s->peerAddress().isLoopback();
+    if (first.startsWith("GET /profile ") || first.startsWith("GET /profile?")) {   // the session profiler's page: here only
+        QFile page(QStringLiteral(":/page/profile.html"));
+        const bool ok = loopback && page.open(QIODevice::ReadOnly);
+        const QByteArray body = ok ? page.readAll() : QByteArray("not here\n");
+        s->write("HTTP/1.1 " + QByteArray(ok ? "200 OK" : "404 No") + "\r\nContent-Type: " + (ok ? "text/html; charset=utf-8" : "text/plain") +
+                 "\r\nContent-Length: " + QByteArray::number(body.size()) + "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n" + body);
+        s->disconnectFromHost();
+        return;
+    }
     if (first.startsWith("GET /web/")) {
         const QUrl url(QString::fromUtf8(first.mid(4, first.lastIndexOf(' ') - 4)));
         QString qs = url.query(QUrl::FullyEncoded);
@@ -401,8 +456,17 @@ void Core::http(QTcpSocket* s, const QByteArray& request) {
         // without the key: Mixxx ZyDeck on this computer, which says so (X-ZyDeck: mixxx). Not just any request from
         // here: a web page open in this computer's browser can make one (an image's address will do), but it can't
         // add a header of its own without asking first (CORS), and isn't let
-        const bool mixxx = s->peerAddress().isLoopback() && request.toLower().contains("\r\nx-zydeck: mixxx");
-        if (keyed || mixxx) {
+        const bool mixxx = loopback && request.toLower().contains("\r\nx-zydeck:");   // (Mixxx ZyDeck, the profiler's page here)
+        if ((keyed || mixxx) && url.path() == QLatin1String("/web/profile")) {
+            out = profileApi(query, &status);
+            if (out.contains(QStringLiteral("_lines"))) {   // a session, as it is
+                const QByteArray lines = out.value(QStringLiteral("_lines")).toString().toUtf8();
+                s->write("HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nContent-Length: " + QByteArray::number(lines.size()) +
+                         "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n" + lines);
+                s->disconnectFromHost();
+                return;
+            }
+        } else if (keyed || mixxx) {
             out = m_web.handle(url.path().mid(5), query, &status, keyed);
         }
         const QByteArray body = QJsonDocument(out).toJson(QJsonDocument::Compact);

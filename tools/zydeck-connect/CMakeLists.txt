@@ -35,6 +35,7 @@ qt_add_executable(zydeck-connect WIN32 MACOSX_BUNDLE
   src/window.cpp src/window.h
   src/waveforms.cpp src/waveforms.h
   src/web.cpp src/web.h
+  src/profiler.cpp src/profiler.h
   third_party/rtmidi/RtMidi.cpp third_party/rtmidi/RtMidi.h
   third_party/qrcodegen/qrcodegen.cpp third_party/qrcodegen/qrcodegen.hpp
 )
@@ -48,6 +49,9 @@ if(APPLE)
 elseif(WIN32)
   target_sources(zydeck-connect PRIVATE icon/zydeck-connect.rc)
 endif()
+# The session profiler's page (the phone's own, res/zydek/web/profile.html), served at /profile to this computer
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../res/zydek/web/profile.html" "${CMAKE_CURRENT_BINARY_DIR}/page/profile.html" COPYONLY)
+qt_add_resources(zydeck-connect page PREFIX /page BASE "${CMAKE_CURRENT_BINARY_DIR}/page" FILES "${CMAKE_CURRENT_BINARY_DIR}/page/profile.html")
 qt_add_resources(zydeck-connect mapping
   PREFIX /mapping
   BASE "${CMAKE_CURRENT_BINARY_DIR}/mapping"

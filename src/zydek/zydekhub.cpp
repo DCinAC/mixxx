@@ -2681,11 +2681,15 @@ QJsonObject Hub::profileState() const {
 }
 
 void Hub::profileWrite(const QJsonObject& line) {
+    const QByteArray text = QJsonDocument(line).toJson(QJsonDocument::Compact);
+    if (m_linkUp && m_pLink) {   // ZyDeck Connect keeps every device's lines and the computer's on one timeline
+        m_pLink->write("P " + text + '\n');
+    }
     QFile f(m_profPath);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Append)) {
         return;
     }
-    f.write(QJsonDocument(line).toJson(QJsonDocument::Compact) + '\n');
+    f.write(text + '\n');
     if (f.size() > kSessionMaxBytes) {
         f.close();
         profileStop(QStringLiteral("size"));
@@ -3969,6 +3973,13 @@ void Hub::linkConnect(const QJsonObject& computer) {
 void Hub::linkLine(const QByteArray& line) {
     if (line.startsWith("M ")) {
         m_linkParser.feed(QByteArray::fromHex(line.mid(2)), [this](const QByteArray& msg) { remoteMessage(msg, false); });
+    } else if (line.startsWith("P ")) {   // ZyDeck Connect's session profiler: one started or stopped (on the computer, or another device)
+        const QString what = QJsonDocument::fromJson(line.mid(2)).object().value(QStringLiteral("do")).toString();
+        if (what == QLatin1String("start")) {
+            profileStart();
+        } else if (what == QLatin1String("stop")) {
+            profileStop(QStringLiteral("computer"));
+        }
     } else if (line.startsWith("J ")) {
         const QJsonObject j = QJsonDocument::fromJson(line.mid(2)).object();
         if (j.contains(QStringLiteral("n")) && nameFits(j)) {

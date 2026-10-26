@@ -39,6 +39,7 @@ jobs:
             res/controllers/Zydek-Tablet.midi.xml
             res/controllers/Zydek-Tablet.script.js
             res/zydek/python/zydek_web.py
+            res/zydek/web/profile.html
           sparse-checkout-cone-mode: false
       - uses: jurplel/install-qt-action@v4
         with:

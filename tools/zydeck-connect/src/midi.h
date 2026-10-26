@@ -44,6 +44,15 @@ class Midi : public QObject {
     void rescan() { watch(); }              // look for cables now (it does every 2 s anyway)
 
     void fromMixxxRaw(const QByteArray& msg);                // (the port's callback)
+
+    // For the session profiler (profiler.h), since it last asked: messages into Mixxx, how many waited (paced) or
+    // were replaced by a newer value for the same control, the most waiting at once, and the devices' pings'
+    // time from here into Mixxx and back (the mapping echoes them: Mixxx's own leg of their round trip), in ms
+    struct Stats {
+        int toMixxx = 0, paced = 0, replaced = 0, queueMax = 0;
+        QList<double> mixxxMs;
+    };
+    Stats takeStats();
     void fromCable(const QString& port, const QByteArray& msg);   // (a cable's callback)
 
   signals:
@@ -62,6 +71,9 @@ class Midi : public QObject {
     void refill();                         // (lock held)
     void drain();
     QList<QByteArray> m_queue;
+    Stats m_stats;                        // (m_mutex)
+    QMutex m_pingMutex;
+    QHash<QByteArray, qint64> m_pingsIn;  // a device's ping (its bytes) -> when it went into Mixxx (ns)
     double m_tokens = 0;
     qint64 m_tokensAtNs = -1;
     QElapsedTimer m_clock;

@@ -32,7 +32,7 @@
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
   th { color: var(--dim); font-weight: 500; font-size: 13px; }
   .scroll { overflow-x: auto; }
-  canvas { width: 100%; height: 380px; display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  canvas { width: 100%; height: 460px; display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
   .legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--dim); font-size: 13px; margin-top: 6px; }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   .bad { color: var(--bad); } .ok { color: var(--ok); } .dim { color: var(--dim); }
@@ -44,7 +44,7 @@
 <main>
   <header>
     <h1>Session profiler</h1>
-    <a href="/controller">Back to the decks</a>
+    <a href="/controller" id="back">Back to the decks</a>
   </header>
   <div class="row">
     <button id="start" class="rec">● Start</button>
@@ -52,7 +52,7 @@
     <button id="stop" disabled>■ Stop</button>
     <span id="state">Not recording</span>
   </div>
-  <p class="note">Start it, play your set on the decks page, tap MARK on its red chip when something feels off, stop it. Everything stays on this device.</p>
+  <p class="note" id="how">Start it, play your set on the decks page, tap MARK on its red chip when something feels off, stop it. Everything stays on this device.</p>
 
   <h2>Sessions</h2>
   <div class="scroll"><table id="sessions"><thead><tr><th>Started</th><th>Size</th><th></th></tr></thead><tbody></tbody></table></div>
@@ -63,19 +63,27 @@
     <h2>Round trip to Mixxx and back</h2>
     <p class="note">A ping 20 times a second, through the same path as the controls (the tablet's page → its hub → the cable or Wi-Fi →
       ZyDeck Connect → Mixxx's mapping → back). Your hand to the sound is about half of this, plus Mixxx's own audio delay.</p>
-    <div class="scroll"><table id="paths"><thead><tr><th>Path</th><th>Time</th><th>Median</th><th>95%</th><th>99%</th><th>Worst</th><th>Jitter</th><th>Lost</th></tr></thead><tbody></tbody></table></div>
+    <div class="scroll"><table id="paths"><thead><tr><th>Device</th><th>Path</th><th>Time</th><th>Median</th><th>95%</th><th>99%</th><th>Worst</th><th>Jitter</th><th>Lost</th></tr></thead><tbody></tbody></table></div>
     <h2>Mixxx's position updates</h2>
     <p class="note">How far apart the playing decks' positions came (the waveform is drawn between them). About 33 ms is right.</p>
-    <div class="scroll"><table id="gaps"><thead><tr><th>Path</th><th>Median</th><th>95%</th><th>99%</th><th>Worst</th><th>Over 150 ms</th></tr></thead><tbody></tbody></table></div>
+    <div class="scroll"><table id="gaps"><thead><tr><th>Device</th><th>Path</th><th>Median</th><th>95%</th><th>99%</th><th>Worst</th><th>Over 150 ms</th></tr></thead><tbody></tbody></table></div>
+    <div id="macpart" hidden>
+      <h2>Where the time goes</h2>
+      <p class="note">Each round trip, split: Mixxx's own leg (ZyDeck Connect → Mixxx's mapping → back, measured on this computer) and the
+        rest (the device's page and hub, and the cable or Wi-Fi, both ways).</p>
+      <div class="scroll"><table id="split"><thead><tr><th>Device</th><th>Path</th><th>Round trip, median</th><th>Mixxx's leg, median</th><th>The rest</th><th>Mixxx's leg, 99%</th><th>Mixxx's leg, worst</th></tr></thead><tbody></tbody></table></div>
+      <h2>This computer</h2>
+      <div class="scroll"><table id="mac"><thead><tr><th>What</th><th>Median</th><th>Worst</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
     <h2>Over time</h2>
     <canvas id="chart" role="img" aria-label="Round trip, position gaps, frames, CPU and Wi-Fi signal over the session"></canvas>
     <div class="legend">
       <span><i class="sw" style="background:var(--cable)"></i>Cable</span><span><i class="sw" style="background:var(--wifi)"></i>Wi-Fi</span>
       <span><i class="sw" style="background:var(--local)"></i>This device's Mixxx</span><span><i class="sw" style="background:var(--rec)"></i>Mark</span>
-      <span><i class="sw" style="background:#888"></i>Path, link or cable changed</span>
+      <span><i class="sw" style="background:#888"></i>Path, link or cable changed</span><span><i class="sw" style="background:#c9a7ff"></i>This computer</span>
     </div>
     <h2>Marks and what was around them</h2>
-    <div class="scroll"><table id="marks"><thead><tr><th>#</th><th>At</th><th>Path</th><th>Round trip (worst)</th><th>Position gap (worst)</th><th>Lost pings</th><th>Frame (worst)</th><th>Dropouts</th><th>Scratching</th></tr></thead><tbody></tbody></table></div>
+    <div class="scroll"><table id="marks"><thead><tr><th>#</th><th>At</th><th>Path</th><th>Round trip (worst)</th><th>Position gap (worst)</th><th>Lost pings</th><th>Frame (worst)</th><th>Mixxx's leg (worst)</th><th>Dropouts</th><th>Mixxx warned</th><th>Scratching</th></tr></thead><tbody></tbody></table></div>
     <h2>Problems found</h2>
     <div class="scroll"><table id="issues"><thead><tr><th>At</th><th>What</th></tr></thead><tbody></tbody></table></div>
     <h2>What happened</h2>
@@ -84,13 +92,23 @@
 </main>
 <script>
 const $ = id => document.getElementById(id);
-const api = async what => { const r = await fetch(`/api/profile?${what}`); const b = await r.json().catch(() => ({})); if (!r.ok || b.ok === false) throw new Error(b.error || r.statusText); return b; };
+// The same page on a device (its hub: /api/profile) and on the computer (ZyDeck Connect: /web/profile, which asks
+// pages for X-ZyDeck; it has every linked device's lines and this computer's in one timeline)
+const CONNECT = location.port === "8771";
+const BASE = CONNECT ? "/web/profile" : "/api/profile";
+const OPTS = CONNECT ? { headers: { "X-ZyDeck": "page" } } : {};
+const api = async what => { const r = await fetch(`${BASE}?${what}`, OPTS); const b = await r.json().catch(() => ({})); if (!r.ok || b.ok === false) throw new Error(b.error || r.statusText); return b; };
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const mmss = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 const q = (a, p) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
 const fmt = v => v == null ? "–" : v >= 100 ? Math.round(v) : (+v).toFixed(1);
-const PATH_NAME = { cable: "USB cable", wifi: "Wi-Fi", local: "This device's Mixxx" };
+const maxOf = a => a.length ? Math.max(...a) : null;
+const PATH_NAME = { cable: "USB cable", wifi: "Wi-Fi", local: "Its own Mixxx" };
 const PATH_COLOR = { cable: "#4cc2ff", wifi: "#ffb347", local: "#9be37d" };
+if (CONNECT) {
+  $("back").hidden = true;
+  $("how").textContent = "Start it here or on a device: every device linked over Wi-Fi records too, and sends its lines here, beside this computer's. Tap MARK on a device's red chip (or here) when something feels off.";
+}
 let state = { on: false }, stateAt = 0;
 
 function paintState(s) {
@@ -101,9 +119,18 @@ function paintState(s) {
   $("state").textContent = state.on ? `● Recording ${mmss(t)}${state.marks ? ` · ${state.marks} marked` : ""}` : "Not recording";
 }
 setInterval(() => state.on && paintState(), 1000);
-$("start").onclick = async () => { paintState(await api("do=start")); };
+setInterval(() => api("do=status").then(paintState).catch(() => {}), 5000);   // (started or stopped elsewhere)
+$("start").onclick = async () => { paintState(await api("do=start")); list(); };
 $("stop").onclick = async () => { paintState(await api("do=stop")); await list(true); };
 $("mark").onclick = async () => { paintState(await api("do=mark")); };
+
+async function download(id) {   // (fetch, then save: the computer's needs its header)
+  const blob = await (await fetch(`${BASE}?do=get&id=${encodeURIComponent(id)}`, OPTS)).blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = `zydeck-session-${id}.jsonl`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
 
 async function list(openNewest) {
   const r = await api("do=list");
@@ -115,9 +142,10 @@ async function list(openNewest) {
     const live = state.on && s.id === state.id;
     tr.innerHTML = `<td>${esc(s.id.replace("_", " ").replace(/-(\d\d)-(\d\d)$/, ":$1:$2"))}${live ? ' <span class="bad">● recording</span>' : ""}</td>
       <td>${(s.bytes / 1024).toFixed(0)} KB</td>
-      <td><button class="small v">View</button> <a href="/api/profile?do=get&id=${encodeURIComponent(s.id)}" download>Download</a>
+      <td><button class="small v">View</button> <button class="small g">Download</button>
         ${live ? "" : '<button class="small d">Delete</button>'}</td>`;
     tr.querySelector(".v").onclick = () => show(s.id);
+    tr.querySelector(".g").onclick = () => download(s.id);
     tr.querySelector(".d")?.addEventListener("click", async () => { if (confirm("Delete this session?")) { await api(`do=delete&id=${encodeURIComponent(s.id)}`); list(); } });
     body.appendChild(tr);
   }
@@ -125,116 +153,160 @@ async function list(openNewest) {
 }
 
 async function show(id) {
-  const text = await (await fetch(`/api/profile?do=get&id=${encodeURIComponent(id)}`)).text();
+  const text = await (await fetch(`${BASE}?do=get&id=${encodeURIComponent(id)}`, OPTS)).text();
   const lines = text.split("\n").filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-  const secs = lines.filter(l => l.k === "sec"), events = lines.filter(l => l.k !== "sec"), marks = events.filter(e => e.k === "mark");
-  const start = lines.find(l => l.k === "start") || {};
+  const srcOf = l => l.src || "This device";
+  const devSecs = lines.filter(l => l.k === "sec" && l.page), macSecs = lines.filter(l => l.k === "sec" && l.mac);
+  const events = lines.filter(l => l.k !== "sec"), marks = events.filter(e => e.k === "mark");
+  const devices = [...new Set(devSecs.map(srcOf))];
+  const start = lines.find(l => l.k === "start" && (l.src === "mac" || !l.src)) || lines.find(l => l.k === "start") || {};
   const pathOf = l => l.page?.via || l.hub?.via || "local";
+  const many = devices.length > 1 || CONNECT;
   $("report").hidden = false;
-  $("rtitle").textContent = `Report · ${start.at ? new Date(start.at).toLocaleString() : id}${start.device ? ` · ${start.device}` : ""}`;
+  $("rtitle").textContent = `Report · ${start.at ? new Date(start.at).toLocaleString() : id}${start.computer ? ` · ${start.computer}` : start.device ? ` · ${start.device}` : ""}${devices.length ? ` · ${devices.join(", ")}` : ""}`;
+  document.querySelectorAll("#paths th:first-child, #gaps th:first-child, #split th:first-child").forEach(th => { th.hidden = !many; });
 
-  // per path: every round trip, every position gap, lost pings
-  const by = {};
-  for (const l of secs) {
-    const p = pathOf(l), b = by[p] || (by[p] = { rtt: [], gaps: [], lost: 0, sent: 0, secs: 0 });
-    b.secs++; b.rtt.push(...(l.page?.rttAll || [])); b.gaps.push(...(l.page?.gapsAll || []));
-    b.lost += l.page?.lost || 0; b.sent += (l.page?.rttAll || []).length + (l.page?.lost || 0);
+  // per device and path: every round trip and position gap, lost pings
+  const by = new Map();
+  for (const l of devSecs) {
+    const key = `${srcOf(l)}|${pathOf(l)}`;
+    if (!by.has(key)) by.set(key, { src: srcOf(l), path: pathOf(l), rtt: [], gaps: [], lost: 0, sent: 0, secs: 0 });
+    const b = by.get(key);
+    b.secs++; b.rtt.push(...(l.page.rttAll || [])); b.gaps.push(...(l.page.gapsAll || []));
+    b.lost += l.page.lost || 0; b.sent += (l.page.rttAll || []).length + (l.page.lost || 0);
   }
-  const xr = secs.map(l => l.page?.xruns ?? l.hub?.xruns).filter(v => v != null);
-  const dropouts = xr.length ? Math.max(0, xr[xr.length - 1] - xr[0]) : null;
-  const dur = secs.length ? secs[secs.length - 1].t : 0;
+  const mixxxAll = macSecs.flatMap(l => l.mac.mixxxAll || []);
+  const xr = devSecs.map(l => l.page?.xruns ?? l.hub?.xruns).filter(v => v != null);
+  const dropouts = xr.length ? Math.max(0, Math.max(...xr) - Math.min(...xr)) : null;
+  const warnings = macSecs.flatMap(l => (l.mac.warnings || []).map(w => [l.t, w]));
+  const dur = Math.max(0, ...lines.map(l => l.t || 0));
   const changes = events.filter(e => ["path", "wifiDown", "wifiUp", "cable"].includes(e.k)).length;
-  const allRtt = Object.values(by).flatMap(b => b.rtt);
+  const allRtt = [...by.values()].flatMap(b => b.rtt);
   const card = (v, label, cls = "") => `<div class="card"><b class="${cls}">${v}</b><span>${label}</span></div>`;
   $("cards").innerHTML = card(mmss(dur), "recorded") + card(marks.length, "marks", marks.length ? "bad" : "") +
     card(fmt(q(allRtt, .5)) + " ms", "round trip, median") + card(fmt(q(allRtt, .99)) + " ms", "round trip, 99%", q(allRtt, .99) > 40 ? "bad" : "") +
-    card(dropouts == null ? "–" : dropouts, "sound dropouts in Mixxx", dropouts ? "bad" : "ok") + card(changes, "path or link changes");
+    card(dropouts == null ? "–" : dropouts, "sound dropouts in Mixxx", dropouts ? "bad" : "ok") + card(changes, "path or link changes") +
+    (macSecs.length ? card(fmt(q(mixxxAll, .5)) + " ms", "Mixxx's leg, median") + card(warnings.length, "Mixxx log warnings", warnings.length ? "bad" : "ok") : "");
 
   const jitter = a => a.length > 1 ? Math.sqrt(a.reduce((s, v, i) => i ? s + (v - a[i - 1]) ** 2 : 0, 0) / (a.length - 1)) : null;
-  $("paths").tBodies[0].innerHTML = Object.entries(by).map(([p, b]) => `<tr><td><i class="sw" style="background:${PATH_COLOR[p] || "#888"}"></i>${PATH_NAME[p] || esc(p)}</td>
+  const dev = b => many ? `<td>${esc(b.src)}</td>` : "";
+  const pathCell = b => `<td><i class="sw" style="background:${PATH_COLOR[b.path] || "#888"}"></i>${PATH_NAME[b.path] || esc(b.path)}</td>`;
+  $("paths").tBodies[0].innerHTML = [...by.values()].map(b => `<tr>${dev(b)}${pathCell(b)}
     <td>${mmss(b.secs)}</td><td>${fmt(q(b.rtt, .5))}</td><td>${fmt(q(b.rtt, .95))}</td><td class="${q(b.rtt, .99) > 40 ? "bad" : ""}">${fmt(q(b.rtt, .99))}</td>
     <td>${fmt(q(b.rtt, 1))}</td><td>${fmt(jitter(b.rtt))}</td><td class="${b.lost ? "bad" : ""}">${b.lost}${b.sent ? ` (${(100 * b.lost / b.sent).toFixed(1)}%)` : ""}</td></tr>`).join("")
-    || `<tr><td colspan="8" class="dim">No pings recorded</td></tr>`;
-  $("gaps").tBodies[0].innerHTML = Object.entries(by).filter(([, b]) => b.gaps.length).map(([p, b]) => `<tr><td>${PATH_NAME[p] || esc(p)}</td>
+    || `<tr><td colspan="9" class="dim">No pings recorded</td></tr>`;
+  $("gaps").tBodies[0].innerHTML = [...by.values()].filter(b => b.gaps.length).map(b => `<tr>${dev(b)}<td>${PATH_NAME[b.path] || esc(b.path)}</td>
     <td>${fmt(q(b.gaps, .5))}</td><td>${fmt(q(b.gaps, .95))}</td><td>${fmt(q(b.gaps, .99))}</td><td>${fmt(q(b.gaps, 1))}</td>
     <td class="${b.gaps.some(g => g > 150) ? "bad" : ""}">${b.gaps.filter(g => g > 150).length}</td></tr>`).join("")
-    || `<tr><td colspan="6" class="dim">No deck was playing</td></tr>`;
+    || `<tr><td colspan="7" class="dim">No deck was playing</td></tr>`;
+
+  // this computer: where the time goes, Mixxx's and Connect's load, the pacing into Mixxx
+  $("macpart").hidden = !macSecs.length;
+  if (macSecs.length) {
+    const leg = q(mixxxAll, .5);
+    $("split").tBodies[0].innerHTML = [...by.values()].filter(b => b.path !== "local").map(b => `<tr>${dev(b)}<td>${PATH_NAME[b.path] || esc(b.path)}</td>
+      <td>${fmt(q(b.rtt, .5))}</td><td>${fmt(leg)}</td><td>${fmt(q(b.rtt, .5) != null && leg != null ? Math.max(0, q(b.rtt, .5) - leg) : null)}</td>
+      <td class="${q(mixxxAll, .99) > 20 ? "bad" : ""}">${fmt(q(mixxxAll, .99))}</td><td>${fmt(maxOf(mixxxAll))}</td></tr>`).join("")
+      || `<tr><td colspan="7" class="dim">No device's pings came through here</td></tr>`;
+    const col = f => macSecs.map(f).filter(v => v != null);
+    const row = (what, a, unit, bad, note = "") => `<tr><td>${what}</td><td>${a.length ? fmt(q(a, .5)) + unit : "–"}</td>
+      <td class="${a.length && maxOf(a) > bad ? "bad" : ""}">${a.length ? fmt(maxOf(a)) + unit : "–"}</td><td class="dim">${note}</td></tr>`;
+    const sum = f => macSecs.reduce((s, l) => s + (f(l) || 0), 0);
+    $("mac").tBodies[0].innerHTML = row("Mixxx's CPU", col(l => l.mac.mixxx?.cpu), " %", 90, "of one core") +
+      row("Mixxx's memory", col(l => l.mac.mixxx?.mb), " MB", 4000) + row("ZyDeck Connect's CPU", col(l => l.mac.connect?.cpu), " %", 50) +
+      row("Messages into Mixxx", col(l => l.mac.toMixxx), " a second", 2000) +
+      row("Waiting to go in (paced)", col(l => l.mac.queueMax), "", 256, `${sum(l => l.mac.paced)} waited, ${sum(l => l.mac.replaced)} replaced by a newer value`) +
+      `<tr><td>Mixxx's log</td><td colspan="3" class="${warnings.length ? "bad" : "ok"}">${warnings.length ? `${warnings.length} warning${warnings.length > 1 ? "s" : ""}: see below` : "nothing it warned of"}</td></tr>`;
+  }
 
   // around each mark: the 5 s before it and 2 after
-  const around = (t, f) => secs.filter(l => l.t >= t - 5 && l.t <= t + 2).map(f).filter(v => v != null);
+  const around = (t, from, f) => from.filter(l => l.t >= t - 5 && l.t <= t + 2).map(f).filter(v => v != null);
   $("marks").tBodies[0].innerHTML = marks.map(m => {
-    const rtt = around(m.t, l => l.page?.rtt?.[3]), gap = around(m.t, l => l.page?.gaps?.[3]), lost = around(m.t, l => l.page?.lost || 0);
-    const fr = around(m.t, l => l.page?.frameMax), x = around(m.t, l => l.page?.xruns ?? l.hub?.xruns), scr = around(m.t, l => l.page?.scratching);
-    const path = [...new Set(around(m.t, pathOf))].map(p => PATH_NAME[p] || p).join(", ");
-    return `<tr><td>${m.n}${m.note ? ` ${esc(m.note)}` : ""}</td><td>${mmss(m.t)}</td><td>${esc(path)}</td>
-      <td class="${Math.max(...rtt, 0) > 40 ? "bad" : ""}">${fmt(rtt.length ? Math.max(...rtt) : null)}</td>
-      <td class="${Math.max(...gap, 0) > 150 ? "bad" : ""}">${fmt(gap.length ? Math.max(...gap) : null)}</td>
-      <td class="${lost.reduce((a, b) => a + b, 0) ? "bad" : ""}">${lost.reduce((a, b) => a + b, 0)}</td>
-      <td class="${Math.max(...fr, 0) > 50 ? "bad" : ""}">${fmt(fr.length ? Math.max(...fr) : null)}</td>
-      <td class="${x.length && x[x.length - 1] > x[0] ? "bad" : ""}">${x.length ? x[x.length - 1] - x[0] : "–"}</td>
-      <td>${scr.some(Boolean) ? "yes" : "no"}</td></tr>`;
-  }).join("") || `<tr><td colspan="9" class="dim">No marks</td></tr>`;
+    const rtt = around(m.t, devSecs, l => l.page.rtt?.[3]), gap = around(m.t, devSecs, l => l.page.gaps?.[3]);
+    const lost = around(m.t, devSecs, l => l.page.lost || 0).reduce((a, b) => a + b, 0), fr = around(m.t, devSecs, l => l.page.frameMax);
+    const x = around(m.t, devSecs, l => l.page.xruns ?? l.hub?.xruns), scr = around(m.t, devSecs, l => l.page.scratching);
+    const leg = around(m.t, macSecs, l => l.mac.mixxxMs?.[4]), warned = warnings.filter(([t]) => t >= m.t - 5 && t <= m.t + 2).length;
+    const path = [...new Set(around(m.t, devSecs, l => `${many ? srcOf(l) + ": " : ""}${PATH_NAME[pathOf(l)] || pathOf(l)}`))].join(", ");
+    return `<tr><td>${m.n}${m.note ? ` ${esc(m.note)}` : ""}${m.src && m.src !== "mac" && many ? ` <span class="dim">(${esc(m.src)})</span>` : ""}</td><td>${mmss(m.t)}</td>
+      <td>${esc(path)}</td><td class="${maxOf(rtt) > 40 ? "bad" : ""}">${fmt(maxOf(rtt))}</td><td class="${maxOf(gap) > 150 ? "bad" : ""}">${fmt(maxOf(gap))}</td>
+      <td class="${lost ? "bad" : ""}">${lost}</td><td class="${maxOf(fr) > 50 ? "bad" : ""}">${fmt(maxOf(fr))}</td>
+      <td class="${maxOf(leg) > 20 ? "bad" : ""}">${fmt(maxOf(leg))}</td>
+      <td class="${x.length && Math.max(...x) > Math.min(...x) ? "bad" : ""}">${x.length ? Math.max(...x) - Math.min(...x) : "–"}</td>
+      <td class="${warned ? "bad" : ""}">${macSecs.length ? warned : "–"}</td><td>${scr.some(Boolean) ? "yes" : "no"}</td></tr>`;
+  }).join("") || `<tr><td colspan="11" class="dim">No marks</td></tr>`;
 
-  // problems, a line each (the same kind in a row: one line)
-  const issues = [];
-  let prevX = null;
-  for (const l of secs) {
-    const p = l.page || {}, h = l.hub || {}, d = l.dev || {}, what = [];
+  // problems, a line a second for each device and the computer
+  const issues = [], prevX = {};
+  for (const l of devSecs) {
+    const p = l.page, h = l.hub || {}, d = l.dev || {}, what = [], src = srcOf(l);
     if ((p.rtt?.[3] || 0) > 60) what.push(`a round trip of ${fmt(p.rtt[3])} ms`);
     if (p.lost) what.push(`${p.lost} ping${p.lost > 1 ? "s" : ""} lost`);
     if ((p.gaps?.[3] || 0) > 150) what.push(`positions ${fmt(p.gaps[3])} ms apart`);
     if ((p.frameMax || 0) > 60) what.push(`a frame took ${p.frameMax} ms`);
-    if ((h.lagMax || 0) > 40) what.push(`the hub ran ${h.lagMax} ms late`);
+    if ((h.lagMax || 0) > 40) what.push(`its hub ran ${h.lagMax} ms late`);
     const x = p.xruns ?? h.xruns;
-    if (x != null && prevX != null && x > prevX) what.push(`${x - prevX} sound dropout${x - prevX > 1 ? "s" : ""} in Mixxx`);
-    if (x != null) prevX = x;
-    if ((d.thermal || 0) >= 2) what.push(`the device is hot (thermal ${d.thermal})`);
+    if (x != null && prevX[src] != null && x > prevX[src]) what.push(`${x - prevX[src]} sound dropout${x - prevX[src] > 1 ? "s" : ""} in Mixxx`);
+    if (x != null) prevX[src] = x;
+    if ((d.thermal || 0) >= 2) what.push(`it's hot (thermal ${d.thermal})`);
     if (h.powerSave && pathOf(l) === "wifi") what.push("battery saver on (it overrides the Wi-Fi lock)");
     if (p.hidden) what.push("the decks page was in the background");
-    if (what.length) issues.push([l.t, what.join(", ")]);
+    if (what.length) issues.push([l.t, many ? src : "", what.join(", ")]);
   }
-  $("issues").tBodies[0].innerHTML = issues.slice(0, 300).map(([t, w]) => `<tr><td>${mmss(t)}</td><td>${esc(w)}</td></tr>`).join("")
-    + (issues.length > 300 ? `<tr><td></td><td class="dim">… and ${issues.length - 300} more seconds</td></tr>` : "")
-    || `<tr><td colspan="2" class="ok">Nothing over the limits (round trip 60 ms, positions 150 ms apart, frames 60 ms, the hub 40 ms late)</td></tr>`;
+  for (const l of macSecs) {
+    const m = l.mac, what = [];
+    if ((m.mixxxMs?.[4] || 0) > 20) what.push(`Mixxx took ${fmt(m.mixxxMs[4])} ms to answer a ping`);
+    if ((m.mixxx?.cpu || 0) > 90) what.push(`Mixxx used ${fmt(m.mixxx.cpu)} % CPU`);
+    if ((m.queueMax || 0) > 256) what.push(`${m.queueMax} messages waited to go into Mixxx`);
+    for (const w of m.warnings || []) what.push(`Mixxx's log: ${w}`);
+    if (what.length) issues.push([l.t, "This computer", what.join(" · ")]);
+  }
+  issues.sort((a, b) => a[0] - b[0]);
+  $("issues").tBodies[0].innerHTML = issues.slice(0, 400).map(([t, src, w]) => `<tr><td>${mmss(t)}</td><td>${src ? `<b>${esc(src)}</b>: ` : ""}${esc(w)}</td></tr>`).join("")
+    + (issues.length > 400 ? `<tr><td></td><td class="dim">… and ${issues.length - 400} more</td></tr>` : "")
+    || `<tr><td colspan="2" class="ok">Nothing over the limits (round trip 60 ms, positions 150 ms apart, frames 60 ms, the hub 40 ms late${macSecs.length ? ", Mixxx's leg 20 ms, Mixxx's CPU 90 %, no log warnings" : ""})</td></tr>`;
 
-  const EVENT = { start: () => "Started", stop: e => `Stopped (${e.why === "asked" ? "by you" : e.why === "time" ? "3 hours" : e.why === "size" ? "50 MB" : esc(e.why)})`,
+  const EVENT = { start: e => `Started${e.by ? ` (by ${esc(e.by)})` : ""}`,
+    stop: e => `Stopped (${e.why === "asked" ? "by you" : e.why === "time" ? "3 hours" : e.why === "size" ? "the size limit" : e.why === "computer" ? "with the computer's session" : esc(e.why)})`,
     path: e => `Controls now over ${PATH_NAME[e.via] || esc(e.via)}`, wifiDown: () => "Wi-Fi link dropped", wifiUp: () => "Wi-Fi link up",
     cable: e => `USB cable ${["out", "in (not ready)", "ready"][e.state] || e.state}`, mark: e => `Mark ${e.n}${e.note ? `: ${esc(e.note)}` : ""}` };
-  $("events").tBodies[0].innerHTML = events.map(e => `<tr><td>${mmss(e.t || 0)}</td><td>${(EVENT[e.k] || (() => esc(e.k)))(e)}</td></tr>`).join("");
-  drawn = [secs, events, pathOf];
+  $("events").tBodies[0].innerHTML = events.map(e => `<tr><td>${mmss(e.t || 0)}</td><td>${many && e.src ? `<b>${esc(e.src === "mac" ? "This computer" : e.src)}</b>: ` : ""}${(EVENT[e.k] || (() => esc(e.k)))(e)}</td></tr>`).join("");
+  drawn = [devSecs, macSecs, events, pathOf, dur];
   requestAnimationFrame(redraw);   // (once the report is laid out: the canvas has its size then)
 }
 let drawn = null;
 const redraw = () => { if (drawn && $("chart").clientWidth) chart(...drawn); };
 addEventListener("resize", redraw);
 
-// Five lanes over the session: round trip (median line, worst dots), position gaps (worst), frames (worst), the
-// app's CPU, the Wi-Fi signal; marks and changes as lines across all of them
-function chart(secs, events, pathOf) {
-  const c = $("chart"), dpr = devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+// Lanes over the session: the devices' round trips (median line, worst dots), position gaps, frames, CPU, Wi-Fi
+// signal; with the computer's lines, Mixxx's leg and Mixxx's CPU too. Marks and changes: lines across them all
+function chart(devSecs, macSecs, events, pathOf, dur) {
+  const c = $("chart"), dpr = devicePixelRatio || 1, W = c.clientWidth;
+  const lanes = [["Round trip", 80, devSecs, l => l.page.rtt?.[1], l => l.page.rtt?.[3], "ms"], ["Positions apart", 300, devSecs, null, l => l.page.gaps?.[3], "ms"],
+    ["Frame", 120, devSecs, null, l => l.page.frameMax, "ms"]];
+  if (macSecs.length) lanes.push(["Mixxx's leg", 40, macSecs, l => l.mac.mixxxMs?.[1], l => l.mac.mixxxMs?.[4], "ms"], ["Mixxx's CPU", 200, macSecs, null, l => l.mac.mixxx?.cpu, "%"]);
+  lanes.push(["Device CPU", 200, devSecs, null, l => l.hub?.cpu, "%"], ["Wi-Fi signal", 100, devSecs, null, l => l.dev?.rssi != null ? 100 + l.dev.rssi : null, "dBm"]);
+  const LH = 64, H = 8 + lanes.length * LH + 18;
+  c.style.height = H + "px";
   c.width = W * dpr; c.height = H * dpr;
   const g = c.getContext("2d");
   g.scale(dpr, dpr);
   g.font = "12px system-ui, sans-serif";
-  const L = 92, R = 10, T = 8, dur = Math.max(1, secs.length ? secs[secs.length - 1].t : 1);
-  const lanes = [["Round trip", 80, l => l.page?.rtt?.[1], l => l.page?.rtt?.[3], "ms"], ["Positions apart", 300, null, l => l.page?.gaps?.[3], "ms"],
-    ["Frame", 120, null, l => l.page?.frameMax, "ms"], ["CPU", 200, null, l => l.hub?.cpu, "%"], ["Wi-Fi signal", 100, null, l => l.dev?.rssi != null ? 100 + l.dev.rssi : null, "dBm"]];
-  const lh = (H - T - 18) / lanes.length, x = t => L + (W - L - R) * t / dur;
-  lanes.forEach(([name, max, mid, top, unit], i) => {
-    const y0 = T + i * lh, y = v => y0 + lh - 4 - (lh - 10) * Math.min(1, v / max);
+  const L = 100, R = 10, T = 8, span = Math.max(1, dur), x = t => L + (W - L - R) * t / span;
+  lanes.forEach(([name, max, from, mid, top, unit], i) => {
+    const y0 = T + i * LH, y = v => y0 + LH - 4 - (LH - 10) * Math.min(1, v / max);
     g.fillStyle = "#9a9a9a"; g.fillText(name, 6, y0 + 14);
     g.fillText(unit === "dBm" ? "0 dBm" : `${max} ${unit}`, 6, y0 + 28);   // (the signal: -100 dBm at the bottom)
-    g.strokeStyle = "#2a2a2a"; g.beginPath(); g.moveTo(L, y0 + lh - 4); g.lineTo(W - R, y0 + lh - 4); g.stroke();
-    for (const l of secs) {
+    g.strokeStyle = "#2a2a2a"; g.beginPath(); g.moveTo(L, y0 + LH - 4); g.lineTo(W - R, y0 + LH - 4); g.stroke();
+    for (const l of from) {
       const v = top(l);
       if (v == null) continue;
-      g.fillStyle = PATH_COLOR[pathOf(l)] || "#888";
+      g.fillStyle = l.mac ? "#c9a7ff" : PATH_COLOR[pathOf(l)] || "#888";
       g.fillRect(x(l.t) - 1, y(v) - 1, 2.5, 2.5);
     }
     if (mid) {
       g.strokeStyle = "#e8e8e8"; g.lineWidth = 1; g.beginPath();
       let on = false;
-      for (const l of secs) { const v = mid(l); if (v == null) { on = false; continue; } on ? g.lineTo(x(l.t), y(v)) : g.moveTo(x(l.t), y(v)); on = true; }
+      for (const l of from) { const v = mid(l); if (v == null) { on = false; continue; } on ? g.lineTo(x(l.t), y(v)) : g.moveTo(x(l.t), y(v)); on = true; }
       g.stroke();
     }
   });
@@ -245,7 +317,7 @@ function chart(secs, events, pathOf) {
     if (e.k === "mark") { g.fillStyle = "#ff3b30"; g.fillText(String(e.n), x(e.t) + 3, T + 10); }
   }
   g.fillStyle = "#9a9a9a";
-  for (let i = 0; i <= 4; i++) { const t = dur * i / 4; g.fillText(mmss(t), Math.min(W - R - 30, x(t)), H - 4); }
+  for (let i = 0; i <= 4; i++) { const t = span * i / 4; g.fillText(mmss(t), Math.min(W - R - 30, x(t)), H - 4); }
 }
 
 list().catch(e => { $("state").textContent = e.message; });

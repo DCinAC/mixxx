@@ -191,7 +191,28 @@ QStringList Midi::cables() const {
 }
 
 void Midi::fromMixxxRaw(const QByteArray& msg) {
+    if (msg.size() == 7 && static_cast<quint8>(msg[0]) == 0xF0 && msg[1] == 0x7D && msg[2] == 0x5E) {   // a ping, echoed
+        const qint64 now = m_clock.nsecsElapsed();
+        QMutexLocker pings(&m_pingMutex);
+        const auto it = m_pingsIn.constFind(msg);
+        if (it != m_pingsIn.constEnd()) {
+            const double ms = static_cast<double>(now - it.value()) / 1e6;
+            m_pingsIn.erase(it);
+            pings.unlock();
+            QMutexLocker lock(&m_mutex);
+            if (m_stats.mixxxMs.size() < 1000) {
+                m_stats.mixxxMs.append(ms);
+            }
+        }
+    }
     emit fromMixxx(msg);   // (queued to the main thread)
+}
+
+Midi::Stats Midi::takeStats() {
+    QMutexLocker lock(&m_mutex);
+    Stats out = m_stats;
+    m_stats = Stats();
+    return out;
 }
 
 namespace {
@@ -218,7 +239,15 @@ void Midi::refill() {
 }
 
 void Midi::toMixxx(const QByteArray& msg) {
+    if (msg.size() == 7 && static_cast<quint8>(msg[0]) == 0xF0 && msg[1] == 0x7D && msg[2] == 0x5E) {
+        QMutexLocker pings(&m_pingMutex);   // a ping: when it went in (its echo: fromMixxxRaw)
+        if (m_pingsIn.size() > 200) {
+            m_pingsIn.clear();   // (echoes that never came)
+        }
+        m_pingsIn.insert(msg, m_clock.nsecsElapsed());
+    }
     QMutexLocker lock(&m_mutex);
+    ++m_stats.toMixxx;
     refill();
     if (m_queue.isEmpty() && m_tokens >= events(msg)) {
         m_tokens -= events(msg);
@@ -229,11 +258,14 @@ void Midi::toMixxx(const QByteArray& msg) {
         for (QByteArray& waiting : m_queue) {
             if (setKey(waiting) == key) {
                 waiting = msg;   // (the control's newest value, where its first one was waiting)
+                ++m_stats.replaced;
                 return;
             }
         }
     }
     m_queue.append(msg);
+    ++m_stats.paced;
+    m_stats.queueMax = (std::max)(m_stats.queueMax, static_cast<int>(m_queue.size()));
     if (m_queue.size() == 1) {
         QMetaObject::invokeMethod(&m_pace, qOverload<>(&QTimer::start), Qt::QueuedConnection);
     }
