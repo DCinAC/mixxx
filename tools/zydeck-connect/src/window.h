@@ -70,6 +70,7 @@ class Window : public QWidget {
 
     void setupChanged();       // Mixxx's side moved on: the readout, the MIXXX rocker, and asking when it needs the user
     void setUpMixxx();         // the menu's Set Up Mixxx Again
+    void discordBot();         // the menu's Discord Bot...: Mixxx ZyDeck's broadcast to it (its stream key typed here)
     void say(const QString& title, const QString& text, bool warning = false);
 
     Core* m_core;

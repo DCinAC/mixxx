@@ -105,6 +105,10 @@ class Hub : public QObject {
     int m_audioDownSeconds = 0;
     int m_audioTick = 0;
     void checkAudioOutput();
+    // Controller mode: this device's own sound is closed (the computer's Mixxx plays; the engine here would run on
+    // for nothing, about a quarter of a core) and opened again when it ends
+    void pauseOwnAudio(bool pause);
+    bool m_ownAudioPaused = false;
     // One-tap audio optimisation: plays a heavy load on all four decks with the main output silent (two
     // stems tracks when there are some, key lock, +4 %), tries buffers from the smallest until one has no
     // dropouts, keeps that one, puts the decks and the volume back and measures the output again.

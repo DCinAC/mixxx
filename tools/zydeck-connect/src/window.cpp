@@ -1,6 +1,15 @@
 #include "window.h"
 
 #include <QAction>
+#include <QJsonObject>
+#include <QJsonDocument>
+#include <QSettings>
+#include <QLineEdit>
+#include <QLabel>
+#include <QFormLayout>
+#include <QFile>
+#include <QDialogButtonBox>
+#include <QDialog>
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDateTime>
@@ -631,6 +640,7 @@ void Window::updateTray() {
     });
     m_menu->addAction(tr("Open ZyDeck Connect"), this, showIt);
     m_menu->addAction(tr("Set Up Mixxx Again"), this, [this] { setUpMixxx(); });
+    m_menu->addAction(tr("Discord Bot…"), this, [this] { discordBot(); });
     m_menu->addAction(tr("Session Profiler…"), this, [] {   // (profiler.h: its page, served here to this computer)
         QDesktopServices::openUrl(QUrl(QStringLiteral("http://127.0.0.1:%1/profile").arg(kTcpPort)));
     });
@@ -643,6 +653,96 @@ void Window::updateTray() {
     });
     m_menu->addSeparator();
     m_menu->addAction(tr("Quit ZyDeck Connect"), qApp, &QApplication::quit);
+}
+
+/// Discord Bot...: Mixxx ZyDeck's Live Broadcasting to the ZyDeck Discord bot. The bot's address (as the PC's stem
+/// server's, port 8780, at first) and its stream key, typed here; handed to Mixxx ZyDeck once, in a file only this user
+/// can read, which it takes within a second (zydeck/discordbroadcast.h in the fork), deletes, and keeps the key in
+/// the keychain. Not taken (Mixxx not running, or plain Mixxx): the file goes, so the key isn't left there
+void Window::discordBot() {
+    QSettings settings;
+    QString address = settings.value(QStringLiteral("discord/host")).toString();
+    if (address.isEmpty()) {   // the PC that makes the stems runs the bot too, as a rule
+        const QString stems = settings.value(QStringLiteral("stems/server")).toString().section(QLatin1Char('/'), -1).section(QLatin1Char(':'), 0, 0);
+        address = stems.isEmpty() ? QString() : stems + QStringLiteral(":8780");
+    }
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("ZyDeck Discord Bot"));
+    auto* form = new QFormLayout(&dialog);
+    auto* about = new QLabel(tr("Mixxx ZyDeck streams your mix to the bot with Live Broadcasting (its \"ZyDeck Discord\" "
+                                "connection). The stream key is kept by Mixxx in this computer's keychain, and nowhere else."));
+    about->setWordWrap(true);
+    form->addRow(about);
+    auto* host = new QLineEdit(address);
+    host->setPlaceholderText(QStringLiteral("192.168.0.100:8780"));
+    form->addRow(tr("The bot's address"), host);
+    auto* key = new QLineEdit;
+    key->setEchoMode(QLineEdit::Password);
+    key->setPlaceholderText(tr("STREAM_KEY, as in the bot's .env (empty: keep the one Mixxx has)"));
+    form->addRow(tr("Stream key"), key);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    form->addRow(buttons);
+    dialog.resize(520, dialog.sizeHint().height());
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    QString hostName = host->text().trimmed().remove(QRegularExpression(QStringLiteral("^[a-z]+://"))).section(QLatin1Char('/'), 0, 0);
+    int port = 8780;
+    if (hostName.contains(QLatin1Char(':'))) {
+        port = hostName.section(QLatin1Char(':'), -1).toInt();
+        hostName = hostName.section(QLatin1Char(':'), 0, -2);
+    }
+    if (hostName.isEmpty() || port <= 0 || port > 65535) {
+        QMessageBox::warning(this, tr("ZyDeck Discord Bot"), tr("That isn't an address (host, or host:port)."));
+        return;
+    }
+    settings.setValue(QStringLiteral("discord/host"), QStringLiteral("%1:%2").arg(hostName).arg(port));
+    const QString dir = mixxxDir();
+    const QString handover = dir + QStringLiteral("/zydeck-broadcast.json"), done = dir + QStringLiteral("/zydeck-broadcast-done.json");
+    QFile::remove(done);
+    {
+        QFile f(handover);
+        if (dir.isEmpty() || !f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            QMessageBox::warning(this, tr("ZyDeck Discord Bot"), tr("Couldn't hand it to Mixxx ZyDeck (its folder: %1).").arg(dir));
+            return;
+        }
+        f.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);   // (before the key goes in)
+        f.write(QJsonDocument(QJsonObject{{"host", hostName}, {"port", port}, {"key", key->text()}}).toJson(QJsonDocument::Compact));
+    }
+    key->clear();
+    // its answer (without the key), or nothing in 8 s
+    auto tries = std::make_shared<int>(0);
+    auto* poll = new QTimer(this);
+    poll->setInterval(250);
+    connect(poll, &QTimer::timeout, this, [this, poll, tries, handover, done] {
+        QFile f(done);
+        if (f.open(QIODevice::ReadOnly)) {
+            const QJsonObject answer = QJsonDocument::fromJson(f.readAll()).object();
+            f.close();
+            f.remove();
+            poll->deleteLater();
+            if (answer.value(QStringLiteral("ok")).toBool()) {
+                QMessageBox::information(this, tr("ZyDeck Discord Bot"),
+                        tr("Mixxx ZyDeck has its \"ZyDeck Discord\" connection to %1:%2%3. Switch Live Broadcasting on in Mixxx to stream to the bot.")
+                                .arg(answer.value(QStringLiteral("host")).toString())
+                                .arg(answer.value(QStringLiteral("port")).toInt())
+                                .arg(answer.value(QStringLiteral("key")).toBool() ? tr(", with the new key (in the keychain)") : QString()));
+            } else {
+                QMessageBox::warning(this, tr("ZyDeck Discord Bot"), answer.value(QStringLiteral("error")).toString(tr("Mixxx ZyDeck couldn't set it up.")));
+            }
+            return;
+        }
+        if (++*tries < 32) {
+            return;
+        }
+        QFile::remove(handover);   // (not taken: the key doesn't stay in a file)
+        poll->deleteLater();
+        QMessageBox::warning(this, tr("ZyDeck Discord Bot"),
+                tr("Mixxx ZyDeck didn't take it: is it running? (Plain Mixxx can't: this needs Mixxx ZyDeck.) Try again with it open."));
+    });
+    poll->start();
 }
 
 /// Set Mixxx up (again): the mapping, the controller on, and look whether it answers (asks first if it wasn't allowed)

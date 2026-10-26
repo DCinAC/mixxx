@@ -2511,6 +2511,12 @@ void Hub::checkAudioOutput() {
     // Every 2 s: is the main or the headphones on a device that's there? (Mixxx's own status can't say: with
     // nothing found it runs on the "Network stream" device's clock and calls that connected.) Two checks in a
     // row without: the system output becomes the main.
+    if (m_ownAudioPaused) {   // closed on purpose (controller mode); after it, open it again until that works
+        if (!m_controllerMode) {
+            pauseOwnAudio(false);
+        }
+        return;
+    }
     if (m_optimize.running || ++m_audioTick % 2) {
         return;
     }
@@ -2554,6 +2560,36 @@ void Hub::checkAudioOutput() {
     if (!now.isEmpty()) {
         qInfo() << "Zydek: no audio output was open; playing to" << now;
     }
+#endif
+}
+
+void Hub::pauseOwnAudio(bool pause) {
+#ifdef Q_OS_ANDROID
+    if (pause == m_ownAudioPaused) {
+        return;
+    }
+    const std::shared_ptr<SoundManager> pManager = mixxx::qml::QmlSoundManagerProxy::registeredManager();
+    if (!pManager) {
+        return;   // (not ready yet: remoteTick tries again)
+    }
+    bool done = false;
+    runOnMain(
+            pManager.get(),
+            [&] {
+                if (pause) {
+                    pManager->closeDevices(false);
+                    done = true;
+                } else {
+                    done = pManager->setupDevices() == SoundDeviceStatus::Ok;
+                }
+            },
+            3000);
+    if (done) {
+        m_ownAudioPaused = pause;
+        qInfo() << "Zydek: this device's own sound" << (pause ? "closed (controller mode)" : "open again");
+    }
+#else
+    Q_UNUSED(pause);
 #endif
 }
 
@@ -3696,6 +3732,7 @@ void Hub::setControllerMode(bool on) {
     }
     m_controllerMode = on;
     choosePath();   // (off: nothing to choose, and the Wi-Fi lock let go)
+    pauseOwnAudio(on);
     saveRemote();
 #ifdef Q_OS_ANDROID
     QJniObject::callStaticMethod<void>("org/mixxx/ZydekMidi", "setEnabled", "(Z)V", static_cast<jboolean>(on));
@@ -3882,6 +3919,9 @@ void Hub::remoteMessage(const QByteArray& msg, bool viaUsb) {
 void Hub::remoteTick() {
     if (!m_controllerMode) {
         return;
+    }
+    if (!m_ownAudioPaused) {
+        pauseOwnAudio(true);   // (controller mode from the start: Mixxx's sound wasn't ready to close then)
     }
     const qint64 now = m_clock.elapsed();
     choosePath();
