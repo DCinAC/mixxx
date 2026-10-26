@@ -2576,8 +2576,8 @@ void Hub::pauseOwnAudio(bool pause) {
     runOnMain(
             pManager.get(),
             [&] {
-                if (pause) {
-                    pManager->closeDevices(false);
+                if (pause) {   // (async: its cool-down after closing, for PulseAudio, doesn't hold this thread)
+                    pManager->closeActiveConfig(true);
                     done = true;
                 } else {
                     done = pManager->setupDevices() == SoundDeviceStatus::Ok;
