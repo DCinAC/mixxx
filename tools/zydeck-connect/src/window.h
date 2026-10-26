@@ -49,7 +49,7 @@ class Window : public QWidget {
     void closeEvent(QCloseEvent* e) override;
 
   private:
-    enum class Key { None, Map, Scan, Tag, Slot, Slit, Bar, BarClose, BarMin };
+    enum class Key { None, Map, Scan, Tag, Slot, Slit, Bar, BarClose, BarMin, BarMenu };
     struct Hit {
         Key key = Key::None;
         int slot = -1;

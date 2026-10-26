@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QFontDatabase>
 #include <QKeyEvent>
+#include <QDesktopServices>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
@@ -15,6 +16,7 @@
 #include <QRegularExpression>
 #include <QPointer>
 #include <QSystemTrayIcon>
+#include <QUrl>
 #include <QThreadPool>
 #include <QTimer>
 #include <QWindow>
@@ -276,9 +278,11 @@ Window::Window(Core* core, Setup* setup, Discovery* discovery)
         }
     });
 
-    if (QSystemTrayIcon::isSystemTrayAvailable()) {   // the menu bar (the tray on Windows and Linux)
+    // The menu: from the menu bar's icon (the tray on Windows and Linux), and from the bar's menu key (BarMenu), for
+    // when the icon isn't there to click (no tray, or a full menu bar hides it, behind the camera notch say)
+    m_menu = new QMenu(this);
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_tray = new QSystemTrayIcon(this);
-        m_menu = new QMenu(this);
         m_tray->setContextMenu(m_menu);
         connect(m_tray, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason r) {
 #ifndef Q_OS_MACOS   // (the Mac opens the menu on a click)
@@ -585,14 +589,13 @@ void Window::refresh() {
 }
 
 void Window::updateTray() {
-    if (!m_tray) {
-        return;
-    }
     const QList<Core::Device> devices = m_core->devices();
-    const bool problem = !m_core->midi()->problem().isEmpty();
-    m_tray->setIcon(trayIcon(problem || !devices.isEmpty(), problem ? kRed : kGreen));
-    m_tray->setToolTip(devices.isEmpty() ? tr("ZyDeck Connect: no device yet")
-                                         : tr("ZyDeck Connect: %n device(s)", nullptr, static_cast<int>(devices.size())));
+    if (m_tray) {
+        const bool problem = !m_core->midi()->problem().isEmpty();
+        m_tray->setIcon(trayIcon(problem || !devices.isEmpty(), problem ? kRed : kGreen));
+        m_tray->setToolTip(devices.isEmpty() ? tr("ZyDeck Connect: no device yet")
+                                             : tr("ZyDeck Connect: %n device(s)", nullptr, static_cast<int>(devices.size())));
+    }
     QStringList lines;
     for (const Core::Device& d : devices) {
         lines << d.name + " · " + d.how;
@@ -628,6 +631,9 @@ void Window::updateTray() {
     });
     m_menu->addAction(tr("Open ZyDeck Connect"), this, showIt);
     m_menu->addAction(tr("Set Up Mixxx Again"), this, [this] { setUpMixxx(); });
+    m_menu->addAction(tr("Session Profiler…"), this, [] {   // (profiler.h: its page, served here to this computer)
+        QDesktopServices::openUrl(QUrl(QStringLiteral("http://127.0.0.1:%1/profile").arg(kTcpPort)));
+    });
     QAction* login = m_menu->addAction(tr("Open at Login"));
     login->setCheckable(true);
     login->setChecked(openAtLogin());
@@ -714,6 +720,12 @@ void Window::press(const Hit& h) {
     case Key::BarMin:
         showMinimized();
         break;
+    case Key::BarMenu: {   // the menu bar icon's menu, under the key
+        updateTray();
+        const QRectF r = barButton(Key::BarMenu);
+        m_menu->popup(mapToGlobal(QPointF(r.left(), r.bottom() + 2).toPoint()));
+        break;
+    }
     case Key::Bar:   // (dragged: the system moves the window)
         break;
     case Key::Scan:   // look for devices now, and the tag out for one to scan (a click on the tag puts it back)
@@ -733,11 +745,14 @@ void Window::press(const Hit& h) {
 // of fixed size), elsewhere minimize and close on the right
 QRectF Window::barButton(Key k) const {
 #ifdef Q_OS_MACOS
+    if (k == Key::BarMenu) {   // (the lamps are on the left: the menu key on the right)
+        return {double(kPad + m_w - 13 - 24), kPad + kBar / 2.0 - 11, 24, 22};
+    }
     const double x = kPad + 13 + (k == Key::BarMin ? 20 : 0);
     return {x - 3, kPad + kBar / 2.0 - 9, 18, 18};
 #else
     const double w = 46;
-    return {kPad + m_w - w * (k == Key::BarClose ? 1 : 2), double(kPad), w, double(kBar)};
+    return {kPad + m_w - w * (k == Key::BarClose ? 1 : k == Key::BarMin ? 2 : 3), double(kPad), w, double(kBar)};
 #endif
 }
 
@@ -748,6 +763,9 @@ Window::Hit Window::hitAt(const QPointF& at) const {
         }
         if (barButton(Key::BarMin).contains(at)) {
             return {Key::BarMin, -1};
+        }
+        if (barButton(Key::BarMenu).contains(at)) {
+            return {Key::BarMenu, -1};
         }
         return {Key::Bar, -1};
     }
@@ -894,6 +912,19 @@ void Window::paintEvent(QPaintEvent*) {
             }
         }
 #endif
+        {   // the menu key: three lines, lit with the pointer over it
+            const QRectF r = barButton(Key::BarMenu).translated(-o);
+            if (m_hover.key == Key::BarMenu) {
+                p.setPen(Qt::NoPen);
+                p.setBrush(QColor(255, 255, 255, 25));
+                p.drawRoundedRect(r, 4, 4);
+            }
+            p.setPen(QPen(QColor(0xc8, 0xc8, 0xcb), 1.4, Qt::SolidLine, Qt::RoundCap));
+            const QPointF c = r.center();
+            for (const double dy : {-4.5, 0.0, 4.5}) {
+                p.drawLine(c + QPointF(-6, dy), c + QPointF(6, dy));
+            }
+        }
         Q_UNUSED(o);
     }
     p.translate(0, kBar);   // the unit's own coordinates from here
