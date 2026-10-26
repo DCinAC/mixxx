@@ -336,7 +336,7 @@ QJsonObject Web::effects() {
     return {{"ok", true}, {"effects", names}, {"beats", beats}};
 }
 
-QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status) {
+QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status, bool keyed) {
     *status = 200;
     const auto arg = [&query](const char* name) {
         return query.queryItemValue(QString::fromLatin1(name), QUrl::FullyDecoded);
@@ -394,17 +394,27 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
             search(j, q);
             return {{"job", j->id}};
         }
+        if (!kUrl.match(q).hasMatch() || kUrl.match(q).capturedStart() != 0) {
+            *status = 400;   // (a link: anything else would be yt-dlp's options)
+            return {{"ok", false}, {"error", "That isn't a link"}};
+        }
         Job* j = start(QStringLiteral("download"), arg("title").isEmpty() ? q : arg("title"));
         download(j, q);
         return {{"job", j->id}};
     }
     if (what == QLatin1String("stems")) {
         const QString path = arg("path");
-        if (path.isEmpty() || !QFileInfo::exists(path)) {
+        if (path.isEmpty() || !QFileInfo(path).isFile()) {
             *status = 400;
             return {{"ok", false}, {"error", "The track's file isn't on this computer"}};
         }
-        if (!arg("server").isEmpty()) {   // (the phone's setting, kept for Mixxx ZyDeck's own requests)
+        static const QStringList kAudio{"mp3", "flac", "wav", "aif", "aiff", "m4a", "mp4", "aac", "ogg", "opus", "wv", "alac", "caf"};
+        if (!kAudio.contains(QFileInfo(path).suffix().toLower())) {
+            *status = 400;   // (only a track goes to the stem server)
+            return {{"ok", false}, {"error", "That isn't a track"}};
+        }
+        if (!arg("server").isEmpty() && keyed) {   // (the phone's setting, kept for Mixxx ZyDeck's own requests; only
+                                                   // with the key: where this computer's files go)
             QSettings().setValue(QStringLiteral("stems/server"), arg("server"));
         }
         Job* j = start(QStringLiteral("stems"), QFileInfo(path).completeBaseName());
@@ -548,7 +558,7 @@ void Web::search(Job* job, const QString& query) {
 
 void Web::searchWith(Job* job, const QString& target) {
     job->message = QStringLiteral("Searching");
-    QProcess* p = run(job, {QStringLiteral("--flat-playlist"), QStringLiteral("-J"), target});
+    QProcess* p = run(job, {QStringLiteral("--flat-playlist"), QStringLiteral("-J"), QStringLiteral("--"), target});
     connect(p, &QProcess::finished, this, [this, job, p](int code) {
         const QByteArray out = p->readAllStandardOutput(), err = p->readAllStandardError();
         p->deleteLater();
@@ -612,7 +622,7 @@ void Web::download(Job* job, const QString& url) {
     } else {
         args << QStringLiteral("--fixup") << QStringLiteral("never");   // (no ffmpeg: Mixxx reads a DASH m4a as it is)
     }
-    args << url;
+    args << QStringLiteral("--") << url;   // (what follows is the link, never an option)
     job->message = QStringLiteral("Finding the audio");
     auto info = std::make_shared<QJsonObject>();
     QProcess* p = run(job, args);

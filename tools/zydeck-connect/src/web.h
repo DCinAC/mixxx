@@ -43,7 +43,7 @@ class Web : public QObject {
     ~Web() override;
 
     /// /web/<what>: the JSON answer; status gets the HTTP status. On this object's thread.
-    QJsonObject handle(const QString& what, const QUrlQuery& query, int* status);
+    QJsonObject handle(const QString& what, const QUrlQuery& query, int* status, bool keyed);   // keyed: with the pairing key
     /// Where downloads go ("" while Mixxx has no music folder).
     QString folder() const;
     /// {effects: [names]}: Mixxx's effects in its order (a slot's loaded_effect is a place in it)

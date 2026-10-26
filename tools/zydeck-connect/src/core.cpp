@@ -397,12 +397,18 @@ void Core::http(QTcpSocket* s, const QByteArray& request) {
         const QUrlQuery query(qs);
         int status = 403;
         QJsonObject out{{"ok", false}, {"error", "wrong key"}};
-        if (s->peerAddress().isLoopback() || sameKey(query.queryItemValue(QStringLiteral("k")).toLatin1(), m_key.toLatin1())) {
-            out = m_web.handle(url.path().mid(5), query, &status);
+        const bool keyed = sameKey(query.queryItemValue(QStringLiteral("k")).toLatin1(), m_key.toLatin1());
+        // without the key: Mixxx ZyDeck on this computer, which says so (X-ZyDeck: mixxx). Not just any request from
+        // here: a web page open in this computer's browser can make one (an image's address will do), but it can't
+        // add a header of its own without asking first (CORS), and isn't let
+        const bool mixxx = s->peerAddress().isLoopback() && request.toLower().contains("\r\nx-zydeck: mixxx");
+        if (keyed || mixxx) {
+            out = m_web.handle(url.path().mid(5), query, &status, keyed);
         }
         const QByteArray body = QJsonDocument(out).toJson(QJsonDocument::Compact);
         s->write("HTTP/1.1 " + QByteArray::number(status) + (status == 200 ? " OK" : " No") + "\r\nContent-Type: application/json\r\n"
-                 "Content-Length: " + QByteArray::number(body.size()) + "\r\nAccess-Control-Allow-Origin: *\r\n"
+                 "Content-Length: " + QByteArray::number(body.size()) + "\r\n" +
+                 QByteArray(keyed ? "Access-Control-Allow-Origin: *\r\n" : "") +   // (the pages, with the key)
                  "Cache-Control: no-store\r\nConnection: close\r\n\r\n" + body);
         s->disconnectFromHost();
         return;

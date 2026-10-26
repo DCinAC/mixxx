@@ -257,24 +257,30 @@ TabletPads.incomingData = function (data, length) {
 TabletPads.message = function (b) {
     if (b.length < 4 || b[0] !== 0xF0 || b[1] !== 0x7D) { return; }
     var type = b[2], nm;
+    // (a message cut short reads as NaN past its end: never into a control, nor a scratch)
     if (type === 0x50) {
         nm = TabletPads.readName(b, 4);
         var v = TabletPads.decodeValue(b, nm.end + 1);
+        if (!nm.group || !isFinite(v)) { return; }
         if (b[3] === 1) { engine.setParameter(nm.group, nm.key, v); } else { engine.setValue(nm.group, nm.key, v); }
     } else if (type === 0x51) {
         nm = TabletPads.readName(b, 4);
+        if (!nm.group || b[3] > 2) { return; }   // (an unknown control polled 30 times a second fills Mixxx's log)
         TabletPads.subscribe(nm.group, nm.key, b[3]);
     } else if (type === 0x52) {
         var deck = b[3] + 1, op = b[4];
+        if (deck > TabletPads.DECKS) { return; }
         if (op === 1) {
             engine.scratchEnable(deck, TabletPads.TICKS_PER_REV, 33 + 1 / 3, 1 / 8, 1 / 8 / 32, false);
         } else if (op === 2) {
-            engine.scratchTick(deck, (b[5] + b[6] * 128 + b[7] * 16384) - 1048576);
+            var ticks = (b[5] + b[6] * 128 + b[7] * 16384) - 1048576;
+            if (isFinite(ticks)) { engine.scratchTick(deck, ticks); }
         } else {
             engine.scratchDisable(deck, false);
         }
     } else if (type === 0x53) {
-        TabletPads.setTempo(b[3], b[4] === 1, TabletPads.decodeValue(b, 5));
+        var percent = TabletPads.decodeValue(b, 5);
+        if (b[3] < TabletPads.DECKS && isFinite(percent)) { TabletPads.setTempo(b[3], b[4] === 1, percent); }
     } else if (type === 0x54) {
         TabletPads.setSync(b[3], b[4]);
     } else if (type === 0x5E && b.length === 7) {

@@ -164,6 +164,16 @@ void HttpServer::handleRequest(QTcpSocket* pSocket, Connection& conn) {
         pSocket->disconnectFromHost();
     };
 
+    // A web page from somewhere else (a site open in this device's browser) mustn't drive the hub: this device's own
+    // requests skip pairing, and a browser makes them for any page (an image's address will do; a WebSocket isn't
+    // held back by CORS at all). A browser says where a request comes from (Origin, Sec-Fetch-Site): the ZyDeck
+    // pages, here or another device's, pass; apps (no such headers) too
+    const QByteArray site = headers.value("sec-fetch-site");
+    const bool sameOrigin = origin == "http://" + headers.value("host");
+    if (!zydeckPage && !sameOrigin && (!origin.isEmpty() || site == "cross-site" || site == "same-site")) {
+        respond({403, "text/plain", "not a ZyDeck page\n", {}});
+        return;
+    }
     if (requestLine.value(0) != "GET") {
         respond({405, "text/plain", "GET only\n", {}});
         return;
@@ -224,7 +234,8 @@ void HttpServer::handleFrames(QTcpSocket* pSocket, Connection& conn) {
             }
             pos = 10;
         }
-        if (length > kMaxMessageBytes || !masked) {   // clients must mask their frames
+        if (length < 0 || length > kMaxMessageBytes || !masked) {   // clients must mask their frames (and a length
+                                                                     // past 2^63 reads as negative: it would never be taken off)
             pSocket->abort();
             return;
         }
@@ -256,6 +267,10 @@ void HttpServer::handleFrames(QTcpSocket* pSocket, Connection& conn) {
                 conn.fragments.clear();
             }
             conn.fragments += payload;
+            if (conn.fragments.size() > kMaxMessageBytes) {   // (a message in pieces, as big as one in a piece)
+                pSocket->abort();
+                return;
+            }
             if (fin) {
                 const QByteArray message = std::move(conn.fragments);
                 conn.fragments.clear();
