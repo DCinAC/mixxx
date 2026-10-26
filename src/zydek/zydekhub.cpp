@@ -200,6 +200,7 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
         const qint64 now = m_clock.elapsed();
         if (m_lagLastMs) {
             m_lagMaxMs = std::max(m_lagMaxMs, now - m_lagLastMs - 20);
+            m_profLagMaxMs = std::max(m_profLagMaxMs, now - m_lagLastMs - 20);   // (the profiler's, apart from the log's)
         }
         m_lagLastMs = now;
     });
@@ -1221,6 +1222,12 @@ void Hub::onWsText(QTcpSocket* pClient, const QString& path, const QByteArray& t
             ping(pClient, QJsonDocument::fromJson(text).object().value(QStringLiteral("ping")).toArray());
             return;
         }
+        if (text.startsWith("{\"prof\"")) {   // the session profiler's second, from a page that pings (/api/profile)
+            if (m_profOn) {
+                profileSecond(QJsonDocument::fromJson(text).object().value(QStringLiteral("prof")).toObject());
+            }
+            return;
+        }
         if (text.startsWith("{\"clk\"")) {   // a page matching its clock to the hub's: answered at once, to the ms fraction
             const double c = QJsonDocument::fromJson(text).object().value(QStringLiteral("clk")).toDouble();
             m_server.sendText(pClient, QJsonDocument(QJsonObject{{"t", "clk"}, {"c", c},
@@ -1246,16 +1253,8 @@ void Hub::onWsText(QTcpSocket* pClient, const QString& path, const QByteArray& t
                 sendCtl(it.key(), {{"type", "settings"}, {"settings", m_ctlSettings}});
             }
         }
-    } else if (type == QLatin1String("latency")) {
-        if (m_profOn) {
-            profileSecond(m);
-        }
-        if (m.value(QStringLiteral("profOnly")).toBool()) {   // (no telemetry: the session only)
-            m_lagMaxMs = 0;
-            m_slowRequests = QJsonArray();
-        } else {
-            logLatency(m);
-        }
+    } else if (type == QLatin1String("latency")) {   // (telemetry's log; the profiler's seconds come over /ws: {"prof"})
+        logLatency(m);
     } else if (type == QLatin1String("telemetry")) {
         for (auto it = m_ctlRoles.cbegin(); it != m_ctlRoles.cend(); ++it) {
             if (it.value() == QLatin1String("debug")) {
@@ -2752,7 +2751,9 @@ void Hub::profileSecond(const QJsonObject& page) {
             : -1;
     m_profCpuTicks = cpu;
     m_profCpuAtMs = now;
-    QJsonObject hub{{"lagMax", static_cast<double>(m_lagMaxMs)}, {"slow", m_slowRequests.size()}, {"pending", m_pings.size()},
+    const qint64 lagMax = m_profLagMaxMs;
+    m_profLagMaxMs = 0;
+    QJsonObject hub{{"lagMax", static_cast<double>(lagMax)}, {"slow", m_slowRequests.size()}, {"pending", m_pings.size()},
             {"cpu", std::round(cpuPct * 10) / 10}, {"via", !m_controllerMode ? "local" : m_viaCable ? "cable" : "wifi"},
             {"wifiUp", m_linkUp}, {"cable", m_usbState}, {"powerSave", m_powerSave}};
     if (!m_controllerMode) {   // (this device's own Mixxx: its sound)

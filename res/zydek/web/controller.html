@@ -1676,6 +1676,14 @@ function paintPad(s, k) {
       // No stems in the file: live stems make them, on the PC's stem server when one's set (Settings › Stem server),
       // else on the phone; pad 5 says where, shows how far, then switches to them
       const ls = d.lstem || {};
+      if (k === 4 && live && !d.sc && REMOTE.on) {   // controller mode: the computer's Mixxx makes them (remoteStems)
+        const rs = d.rstem || {};
+        if (rs.s === "making") setPad(el, "tint", `STEMS<small>PC · ${Math.round((rs.p || 0) * 100)} %</small>`, "var(--play)");
+        else if (rs.s === "done") setPad(el, "lit", `STEMS READY<small>Mixxx: ZyDeck Web</small>`, "var(--play)", "#071a0e");
+        else if (rs.s === "failed") setPad(el, "off", `STEMS<small>${(rs.e || "failed").replace(/</g, "&lt;")}</small>`);
+        else setPad(el, "tint", `MAKE STEMS<small>for Mixxx, on the PC</small>`, "var(--play)");
+        break;
+      }
       if (k === 4 && live && !d.sc && !REMOTE.on) {
         if (ls.s === "making") setPad(el, "tint", `STEMS<small>${ls.pc ? "PC · " : ""}${Math.round((ls.p || 0) * 100)} %</small>`, "var(--play)");
         else if (ls.s === "ready") setPad(el, "lit", `USE STEMS<small>short gap</small>`, "var(--play)", "#071a0e");
@@ -2084,6 +2092,10 @@ function padPress(s, k, down, e, el) {
   }
   if (live) {
     if (d.mode === "smpl") return samplerPress(d, (d.n % 2 ? 0 : 8) + k, down, ui.sides[s].pads[k]);
+    if (d.mode === "stem" && k === 4 && !d.sc && REMOTE.on) {   // controller mode: the computer's Mixxx gets them
+      if (down) remoteStems(d);
+      return;
+    }
     if (d.mode === "stem" && k === 4 && !d.sc && !REMOTE.on) {   // live stems: make them, or switch to them
       if (down) fetch(`/api/livestems/${d.lstem?.s === "ready" ? "swap" : "make"}?deck=${d.n}`).catch(() => {});
       return;
@@ -2845,6 +2857,31 @@ function setFxNames(list, beats) {
   fxNames = list;
   schedulePaint(); fxPrewarm();
 }
+// Controller mode's MAKE STEMS: ZyDeck Connect has the PC's stem server make them for the deck's track (by its id in
+// Mixxx's library), as Mixxx ZyDeck's own "Make Stems" does; Mixxx ZyDeck takes the stem file in (the ZyDeck Web
+// crate) with the track's cues and beat grid. The pad shows how far it is
+async function remoteStems(d) {
+  if (d.rstem?.s === "making") return;
+  const id = d.wfFor;
+  if (!REMOTE.http || id == null) { toast("The computer hasn't said which track this is yet"); return; }
+  const k = `k=${encodeURIComponent(REMOTE.key || "")}`;
+  const set = v => { if (d.wfFor === id) { d.rstem = v; markDirty("deck", d); } };
+  set({ s: "making", p: 0 });
+  try {
+    const r = await (await fetch(`${REMOTE.http}/web/stems?id=${id}&${k}`)).json();
+    if (!r.job) throw new Error(r.error || "ZyDeck Connect said no");
+    for (;;) {
+      await new Promise(res => setTimeout(res, 1500));
+      const j = await (await fetch(`${REMOTE.http}/web/job?id=${encodeURIComponent(r.job)}&${k}`)).json();
+      if (j.state === "done") { set({ s: "done" }); toast("Stems ready: in Mixxx's ZyDeck Web crate, with the cues and beat grid"); return; }
+      if (j.state === "error" || j.ok === false) throw new Error(j.error || "failed");
+      set({ s: "making", p: j.progress || 0 });
+    }
+  } catch (e) {
+    set({ s: "failed", e: e.message });
+  }
+}
+
 function loadFxNames() {
   if (REMOTE.on) {
     try { const c = JSON.parse(localStorage.getItem(fxCacheKey()) || "null"); if (Array.isArray(c)) setFxNames(c); else if (c?.effects) setFxNames(c.effects, c.beats); } catch {}
@@ -3188,7 +3225,7 @@ function onMixxx(m) {
     case "sn": if (m.i < samplers.length) samplers[m.i].name = m.n ? m.n.t : `Sample ${m.i + 1}`; break;
     case "wf": wfReady(m.id); return;   // a deck's waveform is analysed
     case "dn": d.title = m.n ? m.n.t : `Deck ${d.n}`; d.artist = m.n ? m.n.a : ""; if (REMOTE.on) d.cueLabels = m.n?.l || null; loadCueLabels(d);
-      if ((m.n ? m.n.id : null) !== d.wfFor) { loadWaveform(d, m.n ? m.n.id : null); loadBeats(d, m.n ? m.n.id : null); }
+      if ((m.n ? m.n.id : null) !== d.wfFor) { d.rstem = null; loadWaveform(d, m.n ? m.n.id : null); loadBeats(d, m.n ? m.n.id : null); }
       return markDirty("deck", d);
     case "sc": d.sc = m.v; return markDirty("deck", d);
     case "cue": d.cues[m.k] = m.v ? { c: m.v - 1 } : null; loadCueLabels(d); return markDirty("deck", d);
@@ -3327,14 +3364,18 @@ addEventListener("pointermove", latInput, { capture: true, passive: true });
 let latLoopT = performance.now();
 setInterval(() => { const now = performance.now(); lat.loopMax = Math.max(lat.loopMax, now - latLoopT - 50); latLoopT = now; }, 50);
 setInterval(() => {
-  if (!prof.on && (!(+S.pingHz > 0) || document.hidden || !sharing())) return;
-  ctlSend({ type: "latency", ...(prof.on ? { profOnly: !sharing() || !(+S.pingHz > 0), gaps: latStats(lat.gaps), xruns: remoteXruns,
+  const tele = +S.pingHz > 0 && !document.hidden && sharing();
+  if (!prof.on && !tele) return;
+  const summary = { ...(prof.on ? { gaps: latStats(lat.gaps), xruns: remoteXruns,
     rttAll: lat.rtt.map(v => +v.toFixed(1)), gapsAll: lat.gaps.map(v => Math.round(v)),   // (the whole set's percentiles)
     via: !REMOTE.on ? "local" : REMOTE.via === "usb" ? "cable" : REMOTE.via, playing: decks.filter(d => d.playing).length, scratching: [0, 1].some(s => deckOf(s).grabbed),
     hidden: document.hidden } : {}), n: lat.rtt.length, rtt: latStats(lat.rtt), up: latStats(lat.up), down: latStats(lat.down),
     js: latStats(lat.js), lost: lat.lost, direct: lat.direct, input: latStats(lat.input), frameMax: Math.round(lat.frameMax),
     loopMax: Math.round(lat.loopMax), bufMax: lat.bufMax, sends: lat.sends, touches: active.size, page: sidePage.join("/"), live,
-    spikes: lat.spikes, ...(lat.trace.length ? { strip: lat.trace } : {}) });
+    spikes: lat.spikes, ...(lat.trace.length ? { strip: lat.trace } : {}) };
+  // the session over /ws (every page that pings has it: the phone's deck view has no /ctl), telemetry's log over /ctl
+  if (prof.on && mxWs && mxWs.readyState === 1) mxWs.send(JSON.stringify({ prof: summary }));
+  if (tele) ctlSend({ type: "latency", ...summary });
   Object.assign(lat, { trace: [], t0: performance.now(), rtt: [], up: [], down: [], js: [], spikes: [], lost: 0, direct: 0, input: [], frameMax: 0, loopMax: 0, bufMax: 0, sends: 0, gaps: [] });
 }, 1000);
 

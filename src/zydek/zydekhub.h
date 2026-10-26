@@ -442,6 +442,7 @@ class Hub : public QObject {
     qint64 m_profStartMs = 0;
     int m_profMarks = 0;
     qint64 m_profCpuTicks = -1, m_profCpuAtMs = 0;   // the app's CPU time when last looked at
+    qint64 m_profLagMaxMs = 0;                       // the most this thread ran late since the profiler's last second
 };
 
 } // namespace zydek

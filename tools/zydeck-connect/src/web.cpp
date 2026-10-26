@@ -362,7 +362,8 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
         return {{"job", j->id}};
     }
     if (what == QLatin1String("stems")) {
-        const QString path = arg("path");
+        // the track's file, or its id in Mixxx's library (a controller only knows that: the deck's track)
+        const QString path = arg("path").isEmpty() && !arg("id").isEmpty() ? m_library->location(arg("id").toInt()) : arg("path");
         if (path.isEmpty() || !QFileInfo(path).isFile()) {
             *status = 400;
             return {{"ok", false}, {"error", "The track's file isn't on this computer"}};
