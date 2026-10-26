@@ -25,7 +25,7 @@ namespace zydeck {
 
 namespace {
 
-// ZyDeck Connect on this computer (it answers this computer without its pairing key)
+// ZyDeck Connect on this computer (it answers this computer's Mixxx ZyDeck without its pairing key: X-ZyDeck)
 const QString kConnect = QStringLiteral("http://127.0.0.1:8771/web/");
 
 QNetworkAccessManager* net() {
@@ -39,6 +39,7 @@ void ask(const QString& what, const QUrlQuery& query, std::function<void(const Q
     url.setQuery(query);
     QNetworkRequest r(url);
     r.setTransferTimeout(15000);
+    r.setRawHeader("X-ZyDeck", "mixxx");
     QNetworkReply* reply = net()->get(r);
     QObject::connect(reply, &QNetworkReply::finished, reply, [reply, done] {
         reply->deleteLater();
