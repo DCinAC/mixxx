@@ -55,6 +55,6 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 | `src/widget/wtrackmenu.cpp` | "Make Stems (ZyDeck)" after the Analyze menu (and its include) |
 | `src/effects/backends/builtin/builtinbackend.cpp` | registers the Sidechain effect (`src/zydeck/sidechaineffect.*`, the same as ZyDeck on Android) |
 | `src/engine/readaheadmanager.cpp`, `src/engine/cachingreader/cachingreader.cpp` | read further ahead, with a bigger cache (network music folders) |
-| `src/coreservices.cpp` | writes the effects list and the decks' tracks for ZyDeck Connect once effects are set up (`src/zydeck/effectlist.*`, `decklist.*`), and loads a track into a deck when Connect asks (a device's "download and load to deck": `loadrequest.*`) |
+| `src/coreservices.cpp` | writes the effects list and the decks' tracks for ZyDeck Connect once effects are set up (`src/zydeck/effectlist.*`, `decklist.*`), loads a track into a deck when Connect asks (a device's "download and load to deck": `loadrequest.*`), and sets up the Live Broadcasting connection to the ZyDeck Discord bot that Connect hands over (`discordbroadcast.*`) |
 
 Based on upstream `main` at 2086fe0 (2026-10-22, 2.7.0-alpha).
