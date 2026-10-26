@@ -56,8 +56,12 @@ void watchDecks(UserSettingsPointer pConfig) {
                     Track* const pTrack = pNew.get();
                     g_cueWatch.insert(group, QObject::connect(pTrack, &Track::cuesUpdated, &PlayerInfo::instance(), [path, group, pTrack] {
                         const TrackPointer pNow = PlayerInfo::instance().getTrackInfo(group);
-                        if (pNow.get() == pTrack) {
-                            g_decks.insert(group, entry(pNow));
+                        if (pNow.get() != pTrack) {
+                            return;
+                        }
+                        const QJsonObject now = entry(pNow);
+                        if (g_decks.value(group) != now) {   // (only a hot cue's name: moving cues changes nothing here)
+                            g_decks.insert(group, now);
                             write(path);
                         }
                     }));

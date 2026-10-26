@@ -32,7 +32,9 @@ constexpr int kPollMs = 15000;
 WebFolder::WebFolder(Library* pLibrary, UserSettingsPointer pConfig)
         : QObject(pLibrary),
           m_pLibrary(pLibrary),
-          m_set(pConfig->getValueString(ConfigKey(kGroup, QStringLiteral("WebFolder")))) {
+          m_set(pConfig->getValueString(ConfigKey(kGroup, QStringLiteral("WebFolder")))),
+          m_stems(pConfig->getSettingsPath() + QStringLiteral("/zydeck-stems")) {
+    endSession(true);   // (and what a session left: its library entries now, its files if they're still there)
     m_soon.setSingleShot(true);
     m_soon.setInterval(kSoonMs);
     connect(&m_soon, &QTimer::timeout, this, &WebFolder::look);
@@ -44,6 +46,28 @@ WebFolder::WebFolder(Library* pLibrary, UserSettingsPointer pConfig)
 }
 
 WebFolder::~WebFolder() {
+    endSession(false);
+}
+
+// (the files go as Mixxx closes, the library going too then: their library entries go at the next start)
+void WebFolder::endSession(bool library) {
+    const QDir session(m_stems + QStringLiteral("/session"));
+    if (!session.exists()) {
+        return;
+    }
+    if (library) {
+        m_pLibrary->trackCollectionManager()->purgeAllTracks(session);
+    }
+    for (const QFileInfo& n : QDir(m_stems).entryInfoList({QStringLiteral(".*.json")}, QDir::Files | QDir::Hidden)) {
+        QFile f(n.absoluteFilePath());
+        if (f.open(QIODevice::ReadOnly) && QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("session")).toBool()) {
+            f.close();
+            f.remove();
+        }
+    }
+    for (const QFileInfo& f : session.entryInfoList(QDir::Files | QDir::Hidden)) {
+        QFile::remove(f.absoluteFilePath());
+    }
 }
 
 // The folder: [ZyDeck] WebFolder if it's set and there; else "ZyDeck Web" in whichever music folder has one
@@ -63,25 +87,31 @@ QString WebFolder::folder() const {
 }
 
 void WebFolder::watch() {
+    QStringList want;
+    for (const QString& d : {m_folder, m_stems}) {
+        if (!d.isEmpty() && QFileInfo(d).isDir()) {
+            want.append(d);
+        }
+    }
     const QStringList now = m_watcher.directories();
-    if (now != QStringList{m_folder}) {
+    if (QSet<QString>(now.cbegin(), now.cend()) != QSet<QString>(want.cbegin(), want.cend())) {
         if (!now.isEmpty()) {
             m_watcher.removePaths(now);
         }
-        m_watcher.addPath(m_folder);
+        if (!want.isEmpty()) {
+            m_watcher.addPaths(want);
+        }
     }
 }
 
 void WebFolder::look() {
     m_folder = folder();
-    if (m_folder.isEmpty()) {
-        return;
-    }
     watch();
-    const QDir dir(m_folder);
+    const QDir dir(m_folder.isEmpty() ? m_stems : m_folder);   // (no folder yet: stems can still come, to the NAS)
     QStringList settled;
     QHash<QString, qint64> sizes;
-    const QFileInfoList files = dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot);   // (no hidden ones: .incoming)
+    const QFileInfoList files = m_folder.isEmpty() ? QFileInfoList()
+                                                   : dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot);   // (no hidden ones: .incoming)
     for (const QFileInfo& f : files) {
         const QString path = f.absoluteFilePath();
         if (m_done.contains(path) || !SoundSourceProxy::isFileNameSupported(f.fileName())) {
@@ -95,19 +125,37 @@ void WebFolder::look() {
         }
     }
     m_sizes = sizes;
-    // Connect's notes on stems it made: each names its stem file, which is in a "stem" folder beside its original (one
-    // on the NAS) or here in the folder (found above)
+    // Connect's notes on stems it made (in m_stems; older ones in the folder): each names its stem file, which is in
+    // a "stem" folder beside its original (one on the NAS), in m_stems/session, or here in the folder (found above)
     m_notes.clear();
-    for (const QFileInfo& n : dir.entryInfoList({QStringLiteral(".*.json")}, QDir::Files | QDir::Hidden)) {
-        QFile f(n.absoluteFilePath());
-        if (!f.open(QIODevice::ReadOnly)) {
-            continue;
-        }
-        const QString stem = QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("stem")).toString();
-        const QString path = stem.isEmpty() ? dir.filePath(n.fileName().mid(1).chopped(5)) : stem;   // (older notes: no "stem")
-        m_notes.insert(path, n.absoluteFilePath());
-        if (!stem.isEmpty() && QFileInfo(stem).dir() != dir && !m_done.contains(stem) && QFileInfo::exists(stem)) {
-            settled.append(stem);   // (complete: Connect moves it there finished)
+    m_session.clear();
+    QList<QDir> notes{QDir(m_stems)};
+    if (!m_folder.isEmpty()) {
+        notes.prepend(dir);
+    }
+    for (const QDir& in : std::as_const(notes)) {
+        for (const QFileInfo& n : in.entryInfoList({QStringLiteral(".*.json")}, QDir::Files | QDir::Hidden)) {
+            QFile f(n.absoluteFilePath());
+            if (!f.open(QIODevice::ReadOnly)) {
+                continue;
+            }
+            const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+            f.close();
+            const QString stem = o.value(QStringLiteral("stem")).toString();
+            const QString path = stem.isEmpty() ? in.filePath(n.fileName().mid(1).chopped(5)) : stem;   // (older notes: no "stem")
+            if (!QFileInfo::exists(path)) {
+                if (n.lastModified().secsTo(QDateTime::currentDateTime()) > 60) {
+                    f.remove();   // (its stem never came: Connect couldn't save it there)
+                }
+                continue;   // (Connect writes the note just before the stem)
+            }
+            m_notes.insert(path, n.absoluteFilePath());
+            if (o.value(QStringLiteral("session")).toBool()) {
+                m_session.insert(path);
+            }
+            if ((m_folder.isEmpty() || QFileInfo(path).dir() != dir) && !m_done.contains(path)) {
+                settled.append(path);   // (complete: Connect gives it its name finished)
+            }
         }
     }
     if (!m_sizes.isEmpty()) {
@@ -140,7 +188,7 @@ void WebFolder::add(const QStringList& paths) {
             const QString original = QJsonDocument::fromJson(note.readAll()).object().value(QStringLiteral("original")).toString();
             note.close();
             if (const TrackPointer pOriginal = pManager->getTrackByRef(TrackRef::fromFilePath(original))) {
-                takeOver(pManager, pTrack, pOriginal);
+                takeOver(pManager, pTrack, pOriginal, m_session.contains(path));
             }
             note.remove();
         }

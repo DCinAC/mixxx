@@ -100,6 +100,21 @@ void makeStems(const TrackPointer& pTrack) {
                 if (state == QLatin1String("done")) {
                     pPoll->stop();
                     pDialog->setValue(100);
+                    const QJsonObject r = s.value(QStringLiteral("result")).toObject();
+                    if (r.value(QStringLiteral("session")).toBool()) {   // (Connect couldn't save them where they belong)
+                        pDialog->close();
+                        auto* pBox = new QMessageBox(QMessageBox::Warning, QObject::tr("Making stems"),
+                                QObject::tr("The stems for %1 couldn't be saved (%2).\n\nYou can still use them now: they're "
+                                            "in the ZyDeck Web crate, with the original's cues and beat grid. But they'll be "
+                                            "gone when you close Mixxx.\n\nTo keep them, make the stems again once %3 can "
+                                            "be written to.")
+                                        .arg(title,
+                                                r.value(QStringLiteral("why")).toString(),
+                                                r.value(QStringLiteral("dir")).toString(QObject::tr("the folder"))));
+                        pBox->setAttribute(Qt::WA_DeleteOnClose);
+                        pBox->show();
+                        return;
+                    }
                     pDialog->setLabelText(QObject::tr("Stems: %1\nDone: in the ZyDeck Web crate, with its cues and beat grid").arg(title));
                     QTimer::singleShot(4000, pDialog, &QWidget::close);
                 } else if (state == QLatin1String("error") || s.contains(QStringLiteral("error"))) {
@@ -134,7 +149,7 @@ void addStemsAction(QMenu* pMenu, std::function<TrackPointerList()> tracks) {
     });
 }
 
-void takeOver(TrackCollectionManager* pManager, const TrackPointer& pStem, const TrackPointer& pOriginal) {
+void takeOver(TrackCollectionManager* pManager, const TrackPointer& pStem, const TrackPointer& pOriginal, bool session) {
     if (!pStem || !pOriginal || pStem == pOriginal) {
         return;
     }
@@ -158,7 +173,7 @@ void takeOver(TrackCollectionManager* pManager, const TrackPointer& pStem, const
     // and the original says it has stems: "stem available" in its comment (before what was there, if anything)
     const QString kNote = QStringLiteral("stem available");
     const QString comment = pOriginal->getComment().trimmed();
-    if (!comment.startsWith(kNote)) {
+    if (!session && !comment.startsWith(kNote)) {
         pOriginal->setComment(comment.isEmpty() ? kNote : kNote + QStringLiteral(", ") + comment);
     }
     TrackCollection* const pCollection = pManager->internalCollection();

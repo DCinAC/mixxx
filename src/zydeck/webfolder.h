@@ -17,7 +17,9 @@ namespace zydeck {
 // crate "ZyDeck Web" and is analysed: no rescan. Connect writes into the hidden ".incoming" folder inside it and
 // moves a file in when it's complete, so what shows up is finished; a file copied in some other way waits until its
 // size has stopped changing. Files that arrived while Mixxx was closed join at start. Stems Connect made come with a
-// note of their original, whose cues, beat grid and the rest they take over (stems.h).
+// note of their original, whose cues, beat grid and the rest they take over (stems.h). The notes are in
+// "zydeck-stems" in Mixxx's own folder, where Connect makes the stems before copying them where they belong; ones it
+// couldn't copy stay there, in "session", for this session only: removed (from the library too) as Mixxx closes.
 class WebFolder final : public QObject {
     Q_OBJECT
   public:
@@ -29,16 +31,19 @@ class WebFolder final : public QObject {
     void add(const QStringList& paths);
     void watch();
     QString folder() const;
+    void endSession(bool library);   // this session's stems (zydeck-stems/session) gone; and from the library
 
     Library* const m_pLibrary;
     const QString m_set;               // [ZyDeck] WebFolder, if it's set
+    const QString m_stems;             // zydeck-stems in Mixxx's folder: Connect's notes on stems, and "session"
     QString m_folder;                  // the one found (folder())
     QFileSystemWatcher m_watcher;
     QTimer m_soon;                     // a burst of changes looked at once, a moment after
     QTimer m_poll;                     // a network share doesn't always say when something changed: looked at now and then
     QSet<QString> m_done;              // files already taken in (or found in the library)
     QHash<QString, qint64> m_sizes;    // files not settled yet: their size when last looked at
-    QHash<QString, QString> m_notes;   // stem file -> Connect's note on it (in the folder, hidden)
+    QHash<QString, QString> m_notes;   // stem file -> Connect's note on it (hidden: in m_stems, or the folder)
+    QSet<QString> m_session;           // stem files that are this session's only
 };
 
 } // namespace zydeck
