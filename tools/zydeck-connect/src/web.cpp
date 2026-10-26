@@ -16,6 +16,7 @@
 #include <QSettings>
 #include <QStorageInfo>
 #include <QStandardPaths>
+#include <QThreadPool>
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
@@ -23,6 +24,10 @@
 #include <memory>
 
 #include "library.h"
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 namespace zc {
 
@@ -79,20 +84,36 @@ QString safeFileName(QString s) {
     return s.isEmpty() ? QStringLiteral("untitled") : s;
 }
 
-// "name.ext" in dir, or "name (2).ext", "name (3).ext"... whichever isn't taken
 // Whether a file is on a network drive (the NAS), not this computer's own disk
 bool onNetwork(const QString& path) {
+#ifdef Q_OS_WIN
+    if (path.size() > 1 && path[1] == QLatin1Char(':')) {   // a drive letter: a mapped share says so itself
+        const std::wstring root = path.left(2).toStdWString() + L"\\";
+        if (GetDriveTypeW(root.c_str()) == DRIVE_REMOTE) {
+            return true;
+        }
+    }
+#endif
     const QByteArray fs = QStorageInfo(path).fileSystemType().toLower();
     return fs.contains("smb") || fs.contains("cifs") || fs.contains("nfs") || fs.contains("afp") || fs.contains("webdav") ||
-            path.startsWith(QLatin1String("//")) || path.startsWith(QLatin1String("\\\\"));
+            fs.contains("sshfs") || path.startsWith(QLatin1String("//")) || path.startsWith(QLatin1String("\\\\"));
 }
 
+// "name.ext" in dir, or "name (2).ext", "name (3).ext"... whichever isn't taken
 QString freePath(const QString& dir, const QString& name, const QString& ext) {
     QString path = QDir(dir).filePath(name + ext);
     for (int n = 2; QFileInfo::exists(path); ++n) {
         path = QDir(dir).filePath(QStringLiteral("%1 (%2)%3").arg(name).arg(n).arg(ext));
     }
     return path;
+}
+
+// Stems are made here first, on this computer's own disk (in Mixxx's folder, which Mixxx ZyDeck can read, even
+// sandboxed on macOS): the download can't fail half-way on a slow or read-only NAS. The notes go here too.
+// "session" inside: stems that couldn't be saved where they belong, in the library until Mixxx closes
+QString stemsDir() {
+    const QString mixxx = mixxxDir();
+    return mixxx.isEmpty() ? QString() : mixxx + QStringLiteral("/zydeck-stems");   // ("": Mixxx's folder isn't known)
 }
 
 // Artist and title for the file and its tags: the site's own (YouTube Music), else "Artist - Title" in the video's
@@ -726,8 +747,9 @@ void Web::stems(Job* job, const QString& path, const QString& preset) {
         fail(job, QStringLiteral("Set the stem server's address first (on the phone: Settings › PC servers)"));
         return;
     }
-    if (folder().isEmpty() || !QDir().mkpath(folder() + QStringLiteral("/.incoming"))) {
-        fail(job, QStringLiteral("Can't write to the downloads folder (is the network drive connected?)"));
+    if (stemsDir().isEmpty() || !QDir().mkpath(stemsDir())) {
+        fail(job, stemsDir().isEmpty() ? QStringLiteral("Mixxx's folder wasn't found (has Mixxx been started once?)")
+                                       : QStringLiteral("Can't write to %1").arg(stemsDir()));
         return;
     }
     auto* file = new QFile(path);
@@ -811,23 +833,20 @@ void Web::stemsPoll(Job* job) {
     });
 }
 
-// The .stem.mp4, downloaded beside where it goes, then moved there; the PC keeps nothing after. Where: a track on a
-// network drive (the NAS), into a "stem" folder in its own folder (its album's); one on this computer's disk, into
-// the downloads folder. A note in the downloads folder names both (hidden: Mixxx ZyDeck takes the stems into the
-// library from it, gives them the original's cues, beat grid and the rest, and marks the original "stem available")
+// The .stem.mp4: downloaded here (stemsDir), then copied to where it belongs and the PC told to forget it. Where: a
+// track on a network drive (the NAS), a "stem" folder in its own folder (its album's); one on this computer's disk,
+// the downloads folder. Then a note (hidden, in stemsDir) names the stem and its original: Mixxx ZyDeck takes the
+// stems into the library from it, gives them the original's cues, beat grid and the rest, and marks the original
+// "stem available". When it can't be copied there, the stem stays here for this session ("session": Mixxx ZyDeck
+// removes it as it closes), and the job says so
 void Web::stemsFetch(Job* job) {
     job->message = QStringLiteral("Downloading the stems");
-    const bool beside = onNetwork(job->original);
-    const QString dir = beside ? QFileInfo(job->original).dir().filePath(QStringLiteral("stem")) : folder();
-    if (!QDir().mkpath(dir)) {
-        fail(job, QStringLiteral("Can't make the folder %1").arg(dir));
-        return;
-    }
-    const QString part = QDir(dir).filePath(QLatin1Char('.') + job->outName + QStringLiteral(".stem.mp4.part"));
+    const QString part = QDir(stemsDir()).filePath(QLatin1Char('.') + job->outName + QStringLiteral(".stem.mp4.part"));
     auto* out = new QFile(part, this);
     if (!out->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         delete out;
-        fail(job, QStringLiteral("Can't write to %1").arg(dir));
+        forget(stemRequest(QStringLiteral("DELETE"), QStringLiteral("/jobs/") + job->remoteId));
+        fail(job, QStringLiteral("Can't write to %1").arg(stemsDir()));
         return;
     }
     QNetworkReply* reply = stemRequest(QStringLiteral("GET"), QStringLiteral("/jobs/%1/file").arg(job->remoteId));
@@ -835,39 +854,108 @@ void Web::stemsFetch(Job* job) {
     connect(reply, &QNetworkReply::readyRead, this, [reply, out] { out->write(reply->readAll()); });
     connect(reply, &QNetworkReply::downloadProgress, this, [job](qint64 got, qint64 total) {
         if (total > 0) {
-            job->progress = 0.85 + 0.15 * static_cast<double>(got) / static_cast<double>(total);
+            job->progress = 0.85 + 0.1 * static_cast<double>(got) / static_cast<double>(total);
         }
     });
-    connect(reply, &QNetworkReply::finished, this, [this, job, reply, out, part, dir] {
+    connect(reply, &QNetworkReply::finished, this, [this, job, reply, out, part] {
         reply->deleteLater();
         out->write(reply->readAll());
+        const bool written = out->flush() && out->error() == QFileDevice::NoError;
         out->close();
         out->deleteLater();
         forget(stemRequest(QStringLiteral("DELETE"), QStringLiteral("/jobs/") + job->remoteId));
-        if (job->cancelled || reply->error() != QNetworkReply::NoError) {
+        if (job->cancelled || reply->error() != QNetworkReply::NoError || !written) {
             QFile::remove(part);
             if (!job->cancelled) {
-                fail(job, stemError(reply, {}));
+                fail(job, written ? stemError(reply, {}) : QStringLiteral("Couldn't write the stems to %1").arg(stemsDir()));
             }
             return;
         }
-        const QString to = freePath(dir, job->outName, QStringLiteral(".stem.mp4"));
-        if (!QFile::rename(part, to)) {
+        const QString local = freePath(stemsDir(), job->outName, QStringLiteral(".stem.mp4"));
+        if (!QFile::rename(part, local)) {
             QFile::remove(part);
-            fail(job, QStringLiteral("Couldn't move the stems into %1").arg(dir));
+            fail(job, QStringLiteral("Couldn't write the stems to %1").arg(stemsDir()));
             return;
         }
-        // (a stem file in the downloads folder itself is found there; one elsewhere, by the note's "stem")
-        QFile note(freePath(folder(), QLatin1Char('.') + QFileInfo(to).fileName(), QStringLiteral(".json")));   // (any name: it says)
-        if (note.open(QIODevice::WriteOnly)) {
-            note.write(QJsonDocument(QJsonObject{{"original", job->original}, {"stem", to}}).toJson(QJsonDocument::Compact));
-            note.close();
-        }
-        QJsonObject r = job->result.toObject();
-        r.insert(QStringLiteral("path"), to);
-        r.insert(QStringLiteral("original"), job->original);
-        finish(job, r);
+        job->message = QStringLiteral("Saving the stems");
+        job->progress = 0.95;
+        const QString dir = onNetwork(job->original) ? QFileInfo(job->original).dir().filePath(QStringLiteral("stem")) : folder();
+        // (the copy, to a NAS perhaps, off the main thread: Connect keeps relaying meanwhile)
+        QThreadPool::globalInstance()->start([this, job, local, dir, original = job->original, name = job->outName] {
+            QString error;
+            const QString placed = placeStem(local, dir, name, original, &error);
+            QMetaObject::invokeMethod(this, [this, job, local, dir, placed, error] { stemPlaced(job, local, dir, placed, error); },
+                    Qt::QueuedConnection);
+        });
     });
+}
+
+namespace {
+// The note on a stem (hidden, in stemsDir): its file and its original
+bool writeNote(const QString& stem, const QString& original, bool session) {
+    QFile note(freePath(stemsDir(), QLatin1Char('.') + QFileInfo(stem).fileName(), QStringLiteral(".json")));   // (any name: it says)
+    QJsonObject o{{"original", original}, {"stem", stem}};
+    if (session) {
+        o.insert(QStringLiteral("session"), true);
+    }
+    return note.open(QIODevice::WriteOnly) && note.write(QJsonDocument(o).toJson(QJsonDocument::Compact)) > 0 && note.flush();
+}
+} // namespace
+
+// (a worker thread) The stem copied into dir: hidden as it goes, then given its name (what shows up there is
+// complete), the note written first. Its path, or "" and why
+QString Web::placeStem(const QString& local, const QString& dir, const QString& name, const QString& original, QString* error) {
+    if (dir.isEmpty() || !QDir().mkpath(dir)) {
+        *error = dir.isEmpty() ? QStringLiteral("there's no downloads folder") : QStringLiteral("can't make the folder %1").arg(dir);
+        return {};
+    }
+    const QString part = QDir(dir).filePath(QLatin1Char('.') + name + QStringLiteral(".stem.mp4.part"));
+    QFile::remove(part);
+    if (!QFile::copy(local, part) || QFileInfo(part).size() != QFileInfo(local).size()) {
+        QFile::remove(part);
+        *error = QStringLiteral("can't write to %1").arg(dir);
+        return {};
+    }
+    const QString to = freePath(dir, name, QStringLiteral(".stem.mp4"));
+    // (the note before the stem: Mixxx ZyDeck never sees the stem without it; one naming a file not there yet waits)
+    if (!writeNote(to, original, false)) {
+        QFile::remove(part);
+        *error = QStringLiteral("can't write the note to %1").arg(stemsDir());
+        return {};
+    }
+    if (!QFile::rename(part, to)) {
+        QFile::remove(part);
+        *error = QStringLiteral("can't save it in %1").arg(dir);
+        return {};   // (the note names a file that isn't there: Mixxx ZyDeck drops it)
+    }
+    QFile::remove(local);
+    return to;
+}
+
+// Copied (placed), or not: then it's this session's, from stemsDir/session
+void Web::stemPlaced(Job* job, const QString& local, const QString& dir, const QString& placed, const QString& error) {
+    QJsonObject r = job->result.toObject();
+    r.insert(QStringLiteral("original"), job->original);
+    if (!placed.isEmpty()) {
+        r.insert(QStringLiteral("path"), placed);
+        finish(job, r);
+        return;
+    }
+    const QString sessionDir = stemsDir() + QStringLiteral("/session");
+    QDir().mkpath(sessionDir);
+    const QString kept = freePath(sessionDir, QFileInfo(local).completeBaseName().chopped(5), QStringLiteral(".stem.mp4"));
+    if (!QFile::rename(local, kept) || !writeNote(kept, job->original, true)) {
+        QFile::remove(local);
+        QFile::remove(kept);
+        fail(job, QStringLiteral("Couldn't save the stems: %1").arg(error));
+        return;
+    }
+    r.insert(QStringLiteral("path"), kept);
+    r.insert(QStringLiteral("session"), true);
+    r.insert(QStringLiteral("why"), error);
+    r.insert(QStringLiteral("dir"), dir);
+    job->message = QStringLiteral("Couldn't save the stems (%1): they're in the library until Mixxx closes").arg(error);
+    finish(job, r);
 }
 
 } // namespace zc

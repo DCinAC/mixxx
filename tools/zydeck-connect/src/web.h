@@ -76,6 +76,8 @@ class Web : public QObject {
     void stems(Job* job, const QString& path, const QString& preset);
     void stemsPoll(Job* job);
     void stemsFetch(Job* job);
+    static QString placeStem(const QString& local, const QString& dir, const QString& name, const QString& original, QString* error);
+    void stemPlaced(Job* job, const QString& local, const QString& dir, const QString& placed, const QString& error);
     QNetworkReply* stemRequest(const QString& method, const QString& path, QIODevice* body = nullptr);
     void prune();
 
