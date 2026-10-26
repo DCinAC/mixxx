@@ -309,6 +309,11 @@ Hub::~Hub() {
     // its worker first, while everything it reports to is still here
     delete m_pLiveStems;
     m_pLiveStems = nullptr;
+    // its own sockets (the link to ZyDeck Connect, the bot's status) close after its members are gone, and say so
+    // (disconnected): not to here then
+    for (QAbstractSocket* pSocket : findChildren<QAbstractSocket*>(Qt::FindDirectChildrenOnly)) {
+        pSocket->disconnect(this);
+    }
 }
 
 void Hub::start() {

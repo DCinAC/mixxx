@@ -54,8 +54,15 @@ HttpServer::HttpServer(QObject* pParent)
     connect(&m_server, &QTcpServer::newConnection, this, &HttpServer::onNewConnection);
 }
 
+// The clients' sockets would close after m_connections is gone (they go with m_server), and a closing socket says
+// so (disconnected): they mustn't call back in here then (the crash as the app closed). ZyDeck Connect's ~Core likewise
 HttpServer::~HttpServer() {
     m_server.close();
+    for (auto it = m_connections.cbegin(); it != m_connections.cend(); ++it) {
+        it.key()->disconnect(this);
+        delete it.key();
+    }
+    m_connections.clear();
 }
 
 bool HttpServer::listen(quint16 port) {
