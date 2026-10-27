@@ -41,6 +41,10 @@ public class ZydekMidi {
     private static MidiOutputPort s_fromComputer;
     private static int s_state = -1;
     private static boolean s_usbPlugged;
+    // An open on its way (Android answers later): plugging in brings two calls at once (the USB state and the MIDI
+    // device), and a second open of the port gets nothing (only one may hold it), which then stood for the cable
+    private static boolean s_opening;
+    private static int s_retries;
 
     static native void nativeReceive(byte[] data);
     static native void nativeState(int state);
@@ -123,7 +127,7 @@ public class ZydekMidi {
     }
 
     private static void findPort() {
-        if (!s_enabled || s_device != null) {
+        if (!s_enabled || s_device != null || s_opening) {
             report();
             return;
         }
@@ -138,14 +142,38 @@ public class ZydekMidi {
     }
 
     private static void open(MidiDeviceInfo info) {
+        s_opening = true;
         s_manager.openDevice(info, device -> {
+            s_opening = false;
             if (device == null || !s_enabled) {
                 report();
                 return;
             }
+            MidiInputPort in = device.openInputPort(0);
+            MidiOutputPort out = device.openOutputPort(0);
+            if (in == null || out == null) {   // held (an open that hasn't let go yet): again in a moment, a few times
+                try {
+                    if (in != null) {
+                        in.close();
+                    }
+                    if (out != null) {
+                        out.close();
+                    }
+                    device.close();
+                } catch (IOException e) {
+                    // closing anyway
+                }
+                Log.w(TAG, "USB MIDI port busy" + (s_retries < 5 ? ", trying again" : ""));
+                if (s_retries++ < 5) {
+                    s_handler.postDelayed(ZydekMidi::findPort, 1000);
+                }
+                report();
+                return;
+            }
+            s_retries = 0;
             s_device = device;
-            s_toComputer = device.openInputPort(0);
-            s_fromComputer = device.openOutputPort(0);
+            s_toComputer = in;
+            s_fromComputer = out;
             if (s_fromComputer != null) {
                 s_fromComputer.connect(new MidiReceiver() {
                     @Override
@@ -211,6 +239,7 @@ public class ZydekMidi {
             s_usbPlugged = intent.getBooleanExtra("connected", false);
             if (!s_usbPlugged) {
                 close();
+                s_retries = 0;
             }
             findPort();
         }
