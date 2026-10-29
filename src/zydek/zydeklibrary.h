@@ -34,8 +34,8 @@ class Library {
     QJsonArray tracks(const QString& q, const QString& view, const QString& sort, int limit, int offset,
             const QString& genre = QString());
     /// The library's genres, most tracks first: {genres: [{name, count}], none: tracks without one}. A track's genre
-    /// field can hold several ("House; Tech House", "Disco, Funk", "Pop / Rock": ; , | and a spaced /), and counts
-    /// under each; spelt differently ("hip hop", "Hip Hop"): one genre, under its most used spelling.
+    /// field can hold several ("House; Tech House", "Disco, Funk", "Classical/Trance": ; , | and /), and counts
+    /// under each; spelt differently ("J-Trance", "jtrance"): one genre, under its most used spelling.
     QJsonObject genres();
     static inline const QString kNoGenre = QStringLiteral(":none");
     QJsonObject track(int trackId);

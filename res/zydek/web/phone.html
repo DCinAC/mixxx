@@ -1350,22 +1350,26 @@ async function loadViews() {
 // Genres (the hub splits "House; Tech House" into both): a filter beside the sort, on top of any view (a crate's
 // house tracks), and shown on each track. genre "" is all of them, ":none" the tracks without one.
 const NO_GENRE = ":none";
-let genre = store.get("genre", ""), genreList = [];
+let genre = store.get("genre", "");
 // a genre's hue, from its name (the same genre, the same colour, everywhere)
-function genreHue(name) { let x = 0; for (const c of name.toLowerCase()) x = (x * 31 + c.codePointAt(0)) >>> 0; return x % 360; }
+function genreHue(name) { let x = 0; for (const c of genreKey(name)) x = (x * 31 + c.codePointAt(0)) >>> 0; return x % 360; }
 const genreColor = name => `hsl(${genreHue(name)} 55% 66%)`;
-// as the hub splits a genre field: ; , | and a spaced / ("Hip-Hop/Rap" is one genre)
-const splitGenres = f => (f || "").split(/\s*[;,|]\s*|\s+\/\s+/).map(g => g.trim().replace(/\s+/g, " ")).filter(Boolean);
+// as the hub splits a genre field: ; , | and / ("Classical/Trance"), but not a store genre that's one name ("Hip-Hop/Rap")
+const splitGenres = f => (f || "").replace(/(hip[ -]?hop|r&b|singer)\s*\/\s*(rap|soul|songwriter)/gi, "$1\u2215$2")
+  .split(/\s*[;,|/]\s*/).map(g => g.trim().replace(/\s+/g, " ").replace(/\u2215/g, "/")).filter(Boolean);
+// one genre however it's spelt: case, spaces, hyphens and dots aside ("J-Trance", "jtrance"), as the hub groups them
+const genreKey = g => g.toLowerCase().replace(/[\s\-_.'’]/g, "");
+const optionFor = g => [...$("#genre").options].find(o => o.value && genreKey(o.value) === genreKey(g));
 async function loadGenres() {
   let g;
   try { g = await api("/api/library/genres"); } catch { return; }
-  genreList = g.genres;
   const sel = $("#genre");
   sel.innerHTML = `<option value="">All genres</option>` +
     g.genres.map(x => `<option value="${esc(x.name)}">${esc(x.name)} (${x.count})</option>`).join("") +
     (g.none ? `<option value="${NO_GENRE}">No genre (${g.none})</option>` : "");
-  if (genre && genre !== NO_GENRE && !g.genres.some(x => x.name.toLowerCase() === genre.toLowerCase())) setGenre("", false);
-  else { const o = [...sel.options].find(o => o.value.toLowerCase() === genre.toLowerCase()); sel.value = o ? o.value : ""; paintGenre(); }
+  if (genre === NO_GENRE && g.none) { sel.value = NO_GENRE; paintGenre(); }
+  else if (genre && genre !== NO_GENRE && optionFor(genre)) { genre = optionFor(genre).value; sel.value = genre; paintGenre(); }
+  else if (genre) setGenre("");   // (gone from the library: all of them again)
 }
 function paintGenre() {
   const sel = $("#genre");
@@ -1374,8 +1378,8 @@ function paintGenre() {
 }
 function setGenre(g, reload = true) {
   genre = g; store.set("genre", g);
-  const sel = $("#genre"), o = [...sel.options].find(o => o.value.toLowerCase() === g.toLowerCase());
-  sel.value = o ? o.value : "";
+  const sel = $("#genre"), o = g === NO_GENRE ? null : g && optionFor(g);
+  sel.value = g === NO_GENRE ? NO_GENRE : o ? o.value : "";
   paintGenre();
   if (reload) loadTracks();
 }
@@ -1711,7 +1715,7 @@ async function openSheet(t) {
   s.innerHTML = `<div class="grip"></div><div class="t">${esc(t.title)}</div>` +
     `<div class="a">${esc(t.artist || "Unknown artist")}${t.album ? " · " + esc(t.album) : ""}</div>` +
     (splitGenres(t.genre).length ? `<div class="gen">${splitGenres(t.genre).map(g => `<button data-g="${esc(g)}" style="--g:${genreColor(g)}"` +
-      ` class="${g.toLowerCase() === genre.toLowerCase() ? "on" : ""}">${esc(g)}</button>`).join("")}</div>` : "") +
+      ` class="${genre && genreKey(g) === genreKey(genre) ? "on" : ""}">${esc(g)}</button>`).join("")}</div>` : "") +
     `<div class="facts"><div><b>${t.bpm ? t.bpm.toFixed(1) : "—"}</b>BPM</div><div><b>${esc(keyText(t) || "—")}</b>Key</div>` +
     `<div><b>${fmtTime(t.duration)}</b>Length</div><div><b>${t.played || 0}</b>Played</div></div>` +
     `<div class="loads"></div><div class="more"><button class="pv">Preview (headphones)</button><button class="smp">Load to sampler</button></div>` +
@@ -1747,12 +1751,12 @@ async function openSheet(t) {
   s.querySelector(".smp").addEventListener("click", () => load(t, "sampler"));
   // a genre: the library shows only that genre (tapped again: all of them)
   s.querySelectorAll(".gen button").forEach(b => b.addEventListener("click", () => {
-    const g = b.dataset.g, same = g.toLowerCase() === genre.toLowerCase();
+    const g = b.dataset.g;
     closeSheet();
-    if (same) return setGenre("");
+    if (genre && genreKey(g) === genreKey(genre)) return setGenre("");
     // (a genre the picker doesn't have yet, e.g. the track was just tagged: the list again first)
-    if (![...$("#genre").options].some(o => o.value.toLowerCase() === g.toLowerCase())) loadGenres().then(() => setGenre(g));
-    else setGenre(g);
+    if (!optionFor(g)) loadGenres().then(() => setGenre(optionFor(g) ? optionFor(g).value : g));
+    else setGenre(optionFor(g).value);
   }));
   s.querySelector(".mkstems")?.addEventListener("click", () => { closeSheet(); makeStems(t); });
   // The Stems crate (like Serato's): stems made ahead, in the background; taking it out deletes them

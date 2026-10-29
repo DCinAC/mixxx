@@ -63,18 +63,30 @@ constexpr int kHistory = 2;
 constexpr int kMaxSamplers = 64;
 const QString kExcludedFile = QStringLiteral("zydek-excluded.json");
 
-// A track's genres from its genre field: "House; Tech House", "Disco, Funk", "Pop / Rock" (; , | and a spaced /,
-// not "Hip-Hop/Rap", one genre)
+// A track's genres from its genre field: "House; Tech House", "Disco, Funk", "Pop / Rock", "Classical/Trance" (; , |
+// and /), except the store genres that are one name with a / in it ("Hip-Hop/Rap": as phone.html's splitGenres)
 QStringList splitGenres(const QString& field) {
-    static const QRegularExpression separator(QStringLiteral(R"(\s*[;,|]\s*|\s+/\s+)"));
+    static const QRegularExpression oneName(
+            QStringLiteral(R"((hip[ -]?hop|r&b|singer)\s*/\s*(rap|soul|songwriter))"),
+            QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression separator(QStringLiteral(R"(\s*[;,|/]\s*)"));
+    const QChar keep(0x2215);   // (∕, kept apart from a separator while splitting)
+    QString f = field;
+    f.replace(oneName, QStringLiteral("\\1") + keep + QStringLiteral("\\2"));
     QStringList out;
-    for (const QString& g : field.split(separator, Qt::SkipEmptyParts)) {
-        const QString name = g.simplified();
-        if (!name.isEmpty()) {
-            out.append(name);
+    for (QString g : f.split(separator, Qt::SkipEmptyParts)) {
+        g = g.simplified().replace(keep, QLatin1Char('/'));
+        if (!g.isEmpty()) {
+            out.append(g);
         }
     }
     return out;
+}
+
+// What makes two genre names one genre: case, spaces, hyphens and dots aside ("J-Trance", "jtrance", "J Trance")
+QString genreKey(const QString& name) {
+    static const QRegularExpression ignored(QStringLiteral(R"([\s\-_.'’])"));
+    return name.toLower().remove(ignored);
 }
 
 const QStringList kAudioSuffixes = {"mp3", "flac", "wav", "aiff", "aif", "m4a", "mp4", "ogg", "opus", "wv", "alac"};
@@ -292,22 +304,21 @@ QList<QPair<QString, int>> Library::genreFields() {
 }
 
 QJsonObject Library::genres() {
-    struct Genre {
+    struct Genre {   // (its spellings: the most used one is shown)
         int count = 0;
         QHash<QString, int> spellings;
     };
-    QHash<QString, Genre> found;   // by its lower case name
+    QHash<QString, Genre> found;   // by its genreKey
     int none = 0;
     for (const auto& [field, n] : genreFields()) {
-        QStringList names = splitGenres(field);
-        names.removeDuplicates();
+        const QStringList names = splitGenres(field);
         if (names.isEmpty()) {
             none += n;
             continue;
         }
         QSet<QString> seen;   // ("House; house": once)
         for (const QString& name : std::as_const(names)) {
-            const QString k = name.toLower();
+            const QString k = genreKey(name);
             if (seen.contains(k)) {
                 continue;
             }
@@ -410,13 +421,13 @@ QJsonArray Library::tracks(const QString& search, const QString& view, const QSt
     where.append(notExcluded(&args));
     if (!genre.trimmed().isEmpty()) {
         // the genre fields that hold it, as genres() splits them (SQLite's lower() is only for A-Z: not in SQL)
-        const QString wanted = genre.simplified();
+        const QString wanted = genreKey(genre);
         QStringList marks;
         for (const auto& [field, n] : genreFields()) {
             const QStringList names = splitGenres(field);
             if (genre == kNoGenre ? names.isEmpty()
                                   : std::any_of(names.cbegin(), names.cend(), [&](const QString& g) {
-                                        return g.compare(wanted, Qt::CaseInsensitive) == 0;
+                                        return genreKey(g) == wanted;
                                     })) {
                 marks.append(QStringLiteral("?"));
                 args.append(field);
