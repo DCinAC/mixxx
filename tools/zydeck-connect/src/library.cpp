@@ -516,4 +516,14 @@ QJsonObject Library::track(int trackId) {
     return d.isValid() ? zydeck::library::track(d, trackId) : QJsonObject();
 }
 
+QList<int> Library::pick(const zydeck::library::Pool& pool, int count) {
+    QSqlDatabase d = db();
+    return d.isValid() ? zydeck::library::pick(d, {}, pool, count) : QList<int>();
+}
+
+int Library::autoDjQueueLength() {
+    QSqlDatabase d = db();
+    return d.isValid() ? zydeck::library::autoDjQueueLength(d) : 0;
+}
+
 } // namespace zc

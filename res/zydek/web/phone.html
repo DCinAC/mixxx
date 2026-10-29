@@ -119,6 +119,14 @@
   #adj .srcs button { min-height: 32px; border-radius: 16px; padding: 0 12px; font-size: 13px; }
   #adj .srcs button.on { background: #2a1f36; border-color: #b07ee0; color: #e6ccff; }
   #adj button.armed { border-color: var(--warn, #e0a000); color: var(--warn, #e0a000); }
+  /* autoplay: the whole library through Auto DJ, within limits */
+  #adj .ap { flex: 1 1 100% !important; font-weight: 700; }
+  #adj .ap.on { background: #14301c; border-color: var(--play); color: var(--play); }
+  #adj .apg { display: flex; flex-wrap: wrap; gap: 6px; }
+  #adj .apg button { min-height: 30px; border-radius: 15px; padding: 0 11px; font-size: 13px; }
+  #adj .apg button.in { background: #14301c; border-color: var(--play); color: var(--play); }
+  #adj .apg button.out { background: #301414; border-color: var(--err); color: var(--err); text-decoration: line-through; }
+  #adj input[type=number] { width: 76px; height: 36px; border-radius: 10px; border: 1px solid #333; background: #181818; color: var(--text); padding: 0 8px; }
   /* crate sheet */
   #sheet .crates { display: grid; gap: 6px; margin-top: 12px; }
   #sheet .crates button { min-height: 46px; text-align: left; padding: 0 14px; display: flex; align-items: center; gap: 10px; }
@@ -1555,11 +1563,26 @@ async function adjDo(path, okMsg) {
 }
 function paintAdj() {
   const box = $("#adj"), a = adj;
-  if (!a || box.contains(document.activeElement) && document.activeElement.tagName === "SELECT") return;   // (not under a finger)
+  if (!a || box.contains(document.activeElement) && /^(SELECT|INPUT)$/.test(document.activeElement.tagName)) return;   // (not under a finger)
   const secs = [-10, -5, -2, 0, 2, 4, 6, 8, 10, 12, 15, 20, 25, 30];
   if (!secs.includes(a.transition.seconds)) secs.push(a.transition.seconds), secs.sort((x, y) => x - y);
   const sources = a.crates.filter(c => c.source);
+  // Autoplay: its limits, a genre tapped through in (green), out (red) and no limit; the library's 24 biggest genres
+  // and any already chosen
+  const ap = a.autoplay || { on: false, genres: [], skip: [], bpmMin: 0, bpmMax: 0 };
+  const has = (list, g) => (list || []).some(x => genreKey(x) === genreKey(g));
+  const names = [...$("#genre").options].map(o => o.value).filter(v => v && v !== NO_GENRE);
+  const shown = [...new Set([...names.slice(0, 24), ...(ap.genres || []), ...(ap.skip || [])])];
+  const apSummary = [ap.genres?.length ? ap.genres.join(", ") : "every genre", ap.skip?.length ? `not ${ap.skip.join(", ")}` : "",
+    ap.bpmMin || ap.bpmMax ? `${ap.bpmMin || "any"}–${ap.bpmMax || "any"} BPM` : ""].filter(Boolean).join(" · ");
   box.innerHTML =
+    `<div class="row"><button class="ap${ap.on ? " on" : ""}">${ap.on ? "Autoplay on" : "Autoplay the library"}` +
+    `<small style="display:block;font-weight:400;font-size:12px;color:var(--dim)">${esc(apSummary)} · at random, none twice a session</small></button></div>` +
+    `<details class="apd"${store.get("adjap", false) ? " open" : ""}><summary>Autoplay's limits</summary>` +
+    `<div class="sub">Genres: tap once to play only those, twice to leave one out</div>` +
+    `<div class="apg">${shown.map(g => `<button data-g="${esc(g)}" class="${has(ap.genres, g) ? "in" : has(ap.skip, g) ? "out" : ""}">${esc(g)}</button>`).join("")}</div>` +
+    `<div class="row"><label>BPM from <input type="number" class="bmin" min="0" max="300" inputmode="numeric" value="${ap.bpmMin || ""}" placeholder="any"></label>` +
+    `<label>to <input type="number" class="bmax" min="0" max="300" inputmode="numeric" value="${ap.bpmMax || ""}" placeholder="any"></label></div></details>` +
     `<div class="row"><button class="onoff${a.on ? " on" : ""}">${a.on ? "Auto DJ on" : "Auto DJ off"}</button>` +
     `<button class="fade"${a.on ? "" : " disabled"}>Fade now</button><button class="skip"${a.on ? "" : " disabled"}>Skip next</button></div>` +
     `<div class="st"><b>${ADJ_STATE[a.state] || a.state}</b> · ${a.queue.count} in the queue · decks 1 and 2, by the crossfader` +
@@ -1579,7 +1602,21 @@ function paintAdj() {
       `<span class="sub">No crates yet: make one with + Crate.</span>`}</div></details>` +
     `<div class="row"><button class="rand">+ Random track</button><button class="shuf">Shuffle</button><button class="clr">Clear queue</button></div>`;
   const q = sel => box.querySelector(sel);
-  q("details").ontoggle = e => store.set("adjcfg", e.target.open);
+  q("details:not(.apd)").ontoggle = e => store.set("adjcfg", e.target.open);
+  q(".apd").ontoggle = e => store.set("adjap", e.target.open);
+  const setAutoplay = (on, pool) => adjDo(`/api/autodj/autoplay?${qs({ on: on ? 1 : 0, pool: JSON.stringify(pool) })}`,
+    on && !ap.on ? "Autoplay on: Auto DJ plays the library" : null);
+  const poolNow = () => ({ genres: ap.genres || [], skip: ap.skip || [], bpmMin: ap.bpmMin || 0, bpmMax: ap.bpmMax || 0 });
+  q(".ap").onclick = () => setAutoplay(!ap.on, poolNow());
+  box.querySelectorAll(".apg button").forEach(b => b.onclick = () => {
+    const g = b.dataset.g, p = poolNow(), drop = list => list.filter(x => genreKey(x) !== genreKey(g));
+    if (b.classList.contains("in")) { p.genres = drop(p.genres); p.skip = [...drop(p.skip), g]; }   // in → out
+    else if (b.classList.contains("out")) p.skip = drop(p.skip);                                   // out → no limit
+    else p.genres = [...drop(p.genres), g];                                                        // → in
+    setAutoplay(ap.on, p);
+  });
+  const bpm = () => { const p = poolNow(); p.bpmMin = +q(".bmin").value || 0; p.bpmMax = +q(".bmax").value || 0; q(".bmin").blur(); q(".bmax").blur(); setAutoplay(ap.on, p); };
+  q(".bmin").onchange = bpm; q(".bmax").onchange = bpm;
   q(".onoff").onclick = () => adjDo(`/api/autodj/on?on=${a.on ? 0 : 1}`);
   q(".fade").onclick = () => adjDo("/api/autodj/act?do=fade");
   q(".skip").onclick = () => adjDo("/api/autodj/act?do=skip", "Skipped the next track");

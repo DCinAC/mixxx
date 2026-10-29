@@ -23,7 +23,8 @@
 //                                      outcome comes in done): /web/autodj/on?on=, act?do=fade|skip|random|shuffle,
 //                                      transition?seconds=&mode=, options?random=&min=&requeue=, source?crate=&on=,
 //                                      add?id=&where=bottom|top|replace, remove?id=, clear (Mixxx ZyDeck carries them
-//                                      out: its zydeck/autodjrequest.h)
+//                                      out: its zydeck/autodjrequest.h); autoplay?on=&pool= (the whole library through
+//                                      Auto DJ, within limits: {genres, skip, bpmMin, bpmMax})
 // The same shapes as the phone's own downloader (res/zydek/python/zydek_web.py), so a page needs only the address.
 // The downloads folder is "ZyDeck Web" in Mixxx's first music folder (settings: web/folder), which Mixxx ZyDeck
 // watches: a file is written into its hidden ".incoming" folder and moved in when it's finished, so Mixxx only ever
@@ -40,6 +41,7 @@
 
 class QNetworkReply;
 class QProcess;
+class QTimer;
 class QUrlQuery;
 
 namespace zc {
@@ -88,7 +90,11 @@ class Web : public QObject {
     void downloaded(Job* job, const QJsonObject& info);
     void stems(Job* job, const QString& path, const QString& preset);
     void loadToDeck(Job* job, QJsonObject result);   // (finishes the job when Mixxx ZyDeck has, or hasn't)
-    QJsonObject askAutoDj(QJsonObject request);      // (handed to Mixxx ZyDeck: {asked: id})
+    static QJsonObject askAutoDj(QJsonObject request);   // (handed to Mixxx ZyDeck: {asked: id}; any thread)
+    // Autoplay (as the phone's hub's, zydek/zydekautodj.h): the queue kept two tracks ahead with random tracks from
+    // the pool, while Auto DJ plays; picked on a worker (the database), every few seconds
+    static int autoplayTopUp(Library* library);   // tracks asked for
+    QTimer* m_autoplay = nullptr;
     void stemsPoll(Job* job);
     void stemsFetch(Job* job);
     static QString placeStem(const QString& local, const QString& dir, const QString& name, const QString& original, QString* error);

@@ -375,6 +375,9 @@ void Hub::start() {
         });
     }
     m_lastSessionTimer.setSingleShot(true);
+    m_autoplayTimer.setInterval(4000);
+    connect(&m_autoplayTimer, &QTimer::timeout, this, [this] { m_autoDj.autoplayTick(); });
+    m_autoplayTimer.start();
     m_lastSessionTimer.setInterval(2000);
     connect(&m_lastSessionTimer, &QTimer::timeout, this, [this] { saveKit(kLastSession); });
     QTimer::singleShot(5000, this, [this] { restoreLastSession(0); });
@@ -736,6 +739,9 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     }
     if (path == QLatin1String("/api/autodj/clear")) {
         return result(m_autoDj.clear());
+    }
+    if (path == QLatin1String("/api/autodj/autoplay")) {   // ?on=1|0[&pool={genres, skip, bpmMin, bpmMax}]
+        return result(m_autoDj.setAutoplay(arg("on") == QLatin1String("1"), QJsonDocument::fromJson(arg("pool").toUtf8()).object()));
     }
     if (path.startsWith(QLatin1String("/api/library/track/"))) {
         const QJsonObject t = m_library.track(path.section(QLatin1Char('/'), 4).toInt());

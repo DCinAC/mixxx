@@ -150,6 +150,14 @@ QJsonArray Library::tracks(const QString& search, const QString& view, const QSt
     return zydeck::library::tracks(m_db, only(), search, view, sort, limit, offset, genre, m_loaded);
 }
 
+QList<int> Library::pick(const zydeck::library::Pool& pool, int count) {
+    return open() ? zydeck::library::pick(m_db, only(), pool, count) : QList<int>();
+}
+
+int Library::autoDjQueueLength() {
+    return open() ? zydeck::library::autoDjQueueLength(m_db) : 0;
+}
+
 QJsonObject Library::track(int trackId) {
     if (!open()) {
         return {};

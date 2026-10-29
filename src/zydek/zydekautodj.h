@@ -4,6 +4,7 @@
 #include <QString>
 
 #include "preferences/usersettings.h"
+#include "zydek/zydecklibraryquery.h"
 
 namespace zydek {
 
@@ -38,9 +39,23 @@ class AutoDj {
     QJsonObject remove(int trackId);
     QJsonObject clear();
 
+    /// Autoplay: the whole library through Auto DJ, at random, within limits (genres in and out, a BPM range), none
+    /// twice in a session; the queue is kept two tracks ahead. pool: {genres, skip, bpmMin, bpmMax}; on: start Auto DJ
+    /// too (and take over Mixxx's own top-up from crates), off: stop topping up (Auto DJ plays on to the queue's end).
+    QJsonObject setAutoplay(bool on, const QJsonObject& pool);
+    /// Every few seconds (the hub's timer): tops the queue up while autoplay is on and Auto DJ plays
+    void autoplayTick();
+
   private:
+    void topUp();
+    void readPool();
+    QJsonObject autoplayJson() const;
+
     UserSettingsPointer m_pConfig;
     Library* m_pLibrary;
+    bool m_autoplay = false;
+    zydeck::library::Pool m_pool;
+    bool m_poolRead = false;
 };
 
 } // namespace zydek

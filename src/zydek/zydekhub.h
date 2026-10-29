@@ -258,6 +258,7 @@ class Hub : public QObject {
     // "Last session": the pads as they are, saved as a kit a moment after they change and loaded again when
     // ZyDeck starts (Mixxx on Android doesn't keep its samplers between runs)
     QTimer m_lastSessionTimer;
+    QTimer m_autoplayTimer;   // autoplay's top-up (zydekautodj.h)
     bool m_lastSessionRestored = false;
     void restoreLastSession(int tries);
     ZydekController* m_pController = nullptr;

@@ -1,8 +1,10 @@
 #include "zydek/zydekautodj.h"
 
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <algorithm>
 
+#include "control/controlobject.h"
 #include "library/autodj/autodjprocessor.h"
 #include "library/dao/playlistdao.h"
 #include "library/library.h"
@@ -17,6 +19,8 @@ namespace zydek {
 namespace {
 
 const QString kPrefs = QStringLiteral("[Auto DJ]");   // Mixxx's Auto DJ preferences (the controls are [AutoDJ])
+const QString kZyDeck = QStringLiteral("[ZyDeck]");    // autoplay's pool
+constexpr int kAhead = 2;                             // tracks autoplay keeps queued
 // Mixxx's TransitionMode, in its order
 const QStringList kModes = {QStringLiteral("intro-outro"),
         QStringLiteral("outro-start"),
@@ -81,7 +85,22 @@ AutoDj::AutoDj(UserSettingsPointer pConfig, Library* pLibrary)
           m_pLibrary(pLibrary) {
 }
 
+QJsonObject AutoDj::autoplayJson() const {
+    QJsonObject o = m_pool.toJson();
+    o.insert(QStringLiteral("on"), m_autoplay);
+    return o;
+}
+
+void AutoDj::readPool() {
+    if (!m_poolRead) {   // (the pool as it was last set; autoplay itself starts off)
+        m_poolRead = true;
+        m_pool = zydeck::library::Pool::fromJson(
+                QJsonDocument::fromJson(m_pConfig->getValueString(ConfigKey(kZyDeck, QStringLiteral("AutoplayPool"))).toUtf8()).object());
+    }
+}
+
 QJsonObject AutoDj::status() {
+    readPool();
     ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
     QString state = QStringLiteral("off");
     double seconds = 10;
@@ -108,7 +127,8 @@ QJsonObject AutoDj::status() {
                     {"on", m_pConfig->getValueString(ConfigKey(kPrefs, QStringLiteral("EnableRandomQueue"))).toInt() == 1},
                     {"min", m_pConfig->getValue(ConfigKey(kPrefs, QStringLiteral("RandomQueueMinimumAllowed")), 5)}}},
             {"requeue", m_pConfig->getValueString(ConfigKey(kPrefs, QStringLiteral("Requeue"))).toInt() == 1},
-            {"crates", crates}};
+            {"crates", crates},
+            {"autoplay", autoplayJson()}};
 }
 
 QJsonObject AutoDj::setOn(bool on) {
@@ -264,6 +284,46 @@ QJsonObject AutoDj::clear() {
         }
     });
     return ok ? QJsonObject{{"ok", true}} : error(QStringLiteral("Mixxx isn't ready"));
+}
+
+QJsonObject AutoDj::setAutoplay(bool on, const QJsonObject& pool) {
+    readPool();
+    if (!pool.isEmpty()) {
+        m_pool = zydeck::library::Pool::fromJson(pool);
+        m_pConfig->setValue(ConfigKey(kZyDeck, QStringLiteral("AutoplayPool")),
+                QString::fromUtf8(QJsonDocument(m_pool.toJson()).toJson(QJsonDocument::Compact)));
+    }
+    m_autoplay = on;
+    if (!on) {
+        return {{"ok", true}};
+    }
+    // autoplay picks: Mixxx's own top-up from the crates would add others
+    m_pConfig->setValue(ConfigKey(kPrefs, QStringLiteral("EnableRandomQueue")), 0);
+    topUp();
+    if (m_pLibrary->autoDjQueueLength() == 0) {
+        m_autoplay = false;
+        return error(QStringLiteral("Nothing in the library fits (or its files aren't there)"));
+    }
+    if (ControlObject::get(ConfigKey(QStringLiteral("[AutoDJ]"), QStringLiteral("enabled"))) > 0) {
+        return {{"ok", true}};
+    }
+    return setOn(true);   // (it says why not: decks 1 and 2 both playing, say; autoplay stays on for when it starts)
+}
+
+void AutoDj::topUp() {
+    const int queued = m_pLibrary->autoDjQueueLength();
+    if (queued >= kAhead) {
+        return;
+    }
+    for (int id : m_pLibrary->pick(m_pool, kAhead - queued)) {
+        add(id, QStringLiteral("bottom"));
+    }
+}
+
+void AutoDj::autoplayTick() {
+    if (m_autoplay && ControlObject::get(ConfigKey(QStringLiteral("[AutoDJ]"), QStringLiteral("enabled"))) > 0) {
+        topUp();
+    }
 }
 
 } // namespace zydek

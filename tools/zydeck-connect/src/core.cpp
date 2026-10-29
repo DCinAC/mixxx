@@ -483,7 +483,8 @@ void Core::http(QTcpSocket* s, const QByteArray& request) {
                 s->disconnectFromHost();
                 return;
             }
-        } else if ((keyed || mixxx) && (url.path().startsWith(QLatin1String("/web/library/")) || url.path() == QLatin1String("/web/autodj"))) {
+        } else if ((keyed || mixxx) && (url.path().startsWith(QLatin1String("/web/library/")) || url.path() == QLatin1String("/web/autodj") ||
+                                  url.path() == QLatin1String("/web/autodj/autoplay"))) {
             // the library page's lists: read on a worker, as the waveforms are (a big library, a NAS's files looked
             // for: the MIDI and the devices' link, on this thread, go on meanwhile)
             QPointer<QTcpSocket> guard(s);

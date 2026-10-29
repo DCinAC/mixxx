@@ -51,6 +51,21 @@ QJsonObject track(const QSqlDatabase& db, int trackId);
 /// ("J-Trance", "jtrance"): one genre, under its most used spelling.
 QJsonObject genres(const QSqlDatabase& db, const Where& only);
 
+/// Autoplay's pool: the whole library, or what fits these (any of them empty or 0: no limit there)
+struct Pool {
+    QStringList genres;       // any of these (as genres() names them)
+    QStringList skipGenres;   // none of these
+    double bpmMin = 0;
+    double bpmMax = 0;
+    static Pool fromJson(const QJsonObject& o);
+    QJsonObject toJson() const;
+};
+/// Up to count random tracks from the pool, ids: not in the Auto DJ queue, not played this session (Mixxx's newest
+/// history list), their files there. Every track of the library in turn, at random, as it plays.
+QList<int> pick(const QSqlDatabase& db, const Where& only, const Pool& pool, int count);
+/// The Auto DJ queue's length
+int autoDjQueueLength(const QSqlDatabase& db);
+
 /// A row of kTrackColumns as the pages read a track
 QJsonObject trackJson(const QSqlQuery& query);
 /// A genre field's genres, and what makes two names one genre (as phone.html's splitGenres and genreKey)

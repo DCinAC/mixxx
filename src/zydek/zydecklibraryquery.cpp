@@ -364,4 +364,98 @@ QJsonObject track(const QSqlDatabase& db, int trackId) {
     return t;
 }
 
+Pool Pool::fromJson(const QJsonObject& o) {
+    Pool p;
+    for (const QJsonValue& g : o.value(QStringLiteral("genres")).toArray()) {
+        p.genres.append(g.toString());
+    }
+    for (const QJsonValue& g : o.value(QStringLiteral("skip")).toArray()) {
+        p.skipGenres.append(g.toString());
+    }
+    p.bpmMin = std::max(0.0, o.value(QStringLiteral("bpmMin")).toDouble());
+    p.bpmMax = std::max(0.0, o.value(QStringLiteral("bpmMax")).toDouble());
+    return p;
+}
+
+QJsonObject Pool::toJson() const {
+    return {{"genres", QJsonArray::fromStringList(genres)},
+            {"skip", QJsonArray::fromStringList(skipGenres)},
+            {"bpmMin", bpmMin},
+            {"bpmMax", bpmMax}};
+}
+
+QList<int> pick(const QSqlDatabase& db, const Where& only, const Pool& pool, int count) {
+    QList<int> out;
+    if (count <= 0) {
+        return out;
+    }
+    QStringList where{QStringLiteral("l.mixxx_deleted = 0"), QStringLiteral("tl.fs_deleted = 0"), only.sql,
+            // not queued already, not played this session (Mixxx's newest set history: hidden = 2)
+            QStringLiteral("l.id NOT IN (SELECT pt.track_id FROM PlaylistTracks pt JOIN Playlists p ON p.id = pt.playlist_id "
+                           "WHERE p.hidden = 1 OR p.id = (SELECT max(id) FROM Playlists WHERE hidden = 2))")};
+    QVariantList args = only.args;
+    // genres: the genre fields that hold one of them (as tracks() matches a genre)
+    const auto fieldsWith = [&db, &only](const QStringList& genres, QVariantList* pArgs) {
+        QSet<QString> keys;
+        for (const QString& g : genres) {
+            keys.insert(genreKey(g));
+        }
+        QStringList marks;
+        for (const auto& [field, n] : genreFields(db, only)) {
+            const QStringList names = splitGenres(field);
+            if (std::any_of(names.cbegin(), names.cend(), [&keys](const QString& g) { return keys.contains(genreKey(g)); })) {
+                marks.append(QStringLiteral("?"));
+                pArgs->append(field);
+            }
+        }
+        return marks;
+    };
+    if (!pool.genres.isEmpty()) {
+        const QStringList marks = fieldsWith(pool.genres, &args);
+        if (marks.isEmpty()) {
+            return out;   // (none of those genres in the library)
+        }
+        where.append(QStringLiteral("l.genre IN (%1)").arg(marks.join(QLatin1Char(','))));
+    }
+    if (!pool.skipGenres.isEmpty()) {
+        const QStringList marks = fieldsWith(pool.skipGenres, &args);
+        if (!marks.isEmpty()) {
+            where.append(QStringLiteral("(l.genre IS NULL OR l.genre NOT IN (%1))").arg(marks.join(QLatin1Char(','))));
+        }
+    }
+    if (pool.bpmMin > 0) {
+        where.append(QStringLiteral("l.bpm >= ?"));
+        args.append(pool.bpmMin);
+    }
+    if (pool.bpmMax > 0) {
+        where.append(QStringLiteral("l.bpm > 0 AND l.bpm <= ?"));
+        args.append(pool.bpmMax);
+    }
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("SELECT l.id, tl.location FROM %1 WHERE %2 ORDER BY random() LIMIT ?")
+                      .arg(kTrackFrom, where.join(QStringLiteral(" AND "))));
+    for (const QVariant& a : std::as_const(args)) {
+        q.addBindValue(a);
+    }
+    q.addBindValue(count * 4 + 4);   // (more than needed: a file can be gone, a network drive away)
+    if (!q.exec()) {
+        qWarning() << "ZyDeck: autoplay's query failed:" << q.lastError().text();
+        return out;
+    }
+    while (q.next() && out.size() < count) {
+        if (QFileInfo::exists(q.value(1).toString())) {
+            out.append(q.value(0).toInt());
+        }
+    }
+    return out;
+}
+
+int autoDjQueueLength(const QSqlDatabase& db) {
+    QSqlQuery q(db);
+    return q.exec(QStringLiteral("SELECT count(*) FROM PlaylistTracks pt JOIN Playlists p ON p.id = pt.playlist_id WHERE p.hidden = 1")) &&
+                    q.next()
+            ? q.value(0).toInt()
+            : 0;
+}
+
 } // namespace zydeck::library

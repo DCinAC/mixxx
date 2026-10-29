@@ -5,6 +5,8 @@
 
 #include <QByteArray>
 #include <QJsonArray>
+
+#include "zydecklibraryquery.h"
 #include <QJsonObject>
 #include <QList>
 #include <QMutex>
@@ -46,6 +48,9 @@ class Library {
     QJsonArray tracks(const QString& search, const QString& view, const QString& sort, int limit, int offset, const QString& genre);
     QJsonObject genres();
     QJsonObject track(int trackId);
+    /// Autoplay's (zydecklibraryquery.h): random tracks of the pool, and the Auto DJ queue's length
+    QList<int> pick(const zydeck::library::Pool& pool, int count);
+    int autoDjQueueLength();
 
   private:
     struct Row {

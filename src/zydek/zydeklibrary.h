@@ -80,6 +80,9 @@ class Library {
     /// clears its beat grid and key first (refused while the grid is locked).
     QJsonObject analyzeTrack(int trackId, bool fresh);
     QJsonObject analysisStatus();
+    /// Autoplay: up to count random tracks of the pool (zydecklibraryquery.h's pick), and the Auto DJ queue's length
+    QList<int> pick(const zydeck::library::Pool& pool, int count);
+    int autoDjQueueLength();
     /// The beat grid editor's "Analyze range": Mixxx's beat tracker on [start, end) seconds of what pTrack's file
     /// has (a long beatless intro, a live drummer, a drifting tempo: only that stretch counts), and a steady grid
     /// through what it finds, anchored there. Slow (it decodes the stretch): for a worker thread; pCancel stops it.

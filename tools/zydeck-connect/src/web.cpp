@@ -180,6 +180,22 @@ QString stemBase(QString server) {
 Web::Web(Library* library, QObject* parent)
         : QObject(parent),
           m_library(library) {
+    QSettings().setValue(QStringLiteral("autoplay/on"), false);   // (it starts off, as Auto DJ does)
+    m_autoplay = new QTimer(this);
+    m_autoplay->setInterval(4000);
+    connect(m_autoplay, &QTimer::timeout, this, [this] {
+        if (!QSettings().value(QStringLiteral("autoplay/on")).toBool()) {
+            return;
+        }
+        Library* library = m_library;
+        QThreadPool::globalInstance()->start([library] {
+            QFile f(mixxxDir() + QStringLiteral("/zydeck-autodj-state.json"));   // (only while Auto DJ plays)
+            if (f.open(QIODevice::ReadOnly) && QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("on")).toBool()) {
+                autoplayTopUp(library);
+            }
+        });
+    });
+    m_autoplay->start();
 }
 
 Web::~Web() {
@@ -336,10 +352,48 @@ QJsonObject Web::library(Library* library, const QString& what, const QUrlQuery&
         const QJsonObject queue = views.value(QStringLiteral("autodj")).toObject();
         out.insert(QStringLiteral("queue"), QJsonObject{{"id", queue.value(QStringLiteral("id")).toInt()}, {"count", queue.value(QStringLiteral("count")).toInt()}});
         out.insert(QStringLiteral("crates"), views.value(QStringLiteral("crates")));
+        QJsonObject autoplay = QJsonDocument::fromJson(QSettings().value(QStringLiteral("autoplay/pool")).toByteArray()).object();
+        autoplay.insert(QStringLiteral("on"), QSettings().value(QStringLiteral("autoplay/on")).toBool());
+        out.insert(QStringLiteral("autoplay"), autoplay);
         return out;
+    }
+    if (what == QLatin1String("autodj/autoplay")) {
+        QSettings settings;
+        const QJsonObject pool = QJsonDocument::fromJson(arg("pool").toUtf8()).object();
+        if (!pool.isEmpty()) {
+            settings.setValue(QStringLiteral("autoplay/pool"),
+                    QJsonDocument(zydeck::library::Pool::fromJson(pool).toJson()).toJson(QJsonDocument::Compact));
+        }
+        const bool on = arg("on") == QLatin1String("1");
+        settings.setValue(QStringLiteral("autoplay/on"), on);
+        if (!on) {
+            return {{"ok", true}};
+        }
+        askAutoDj({{"do", "options"}, {"random", 0}});   // (autoplay picks: Mixxx's own top-up from crates would add others)
+        if (autoplayTopUp(library) == 0 && library->autoDjQueueLength() == 0) {
+            settings.setValue(QStringLiteral("autoplay/on"), false);
+            *status = 409;
+            return {{"ok", false}, {"error", "Nothing in the library fits (or its files aren't on this computer)"}};
+        }
+        QFile state(mixxxDir() + QStringLiteral("/zydeck-autodj-state.json"));
+        if (state.open(QIODevice::ReadOnly) && QJsonDocument::fromJson(state.readAll()).object().value(QStringLiteral("on")).toBool()) {
+            return {{"ok", true}};   // (playing already: the queue just follows the pool from now on)
+        }
+        return askAutoDj({{"do", "on"}});   // (after the tracks: Mixxx ZyDeck takes them in order; it says if it can't)
     }
     *status = 404;
     return {{"ok", false}, {"error", "No such thing"}};
+}
+
+int Web::autoplayTopUp(Library* library) {
+    constexpr int kAhead = 2;
+    const zydeck::library::Pool pool = zydeck::library::Pool::fromJson(
+            QJsonDocument::fromJson(QSettings().value(QStringLiteral("autoplay/pool")).toByteArray()).object());
+    const QList<int> ids = library->pick(pool, kAhead - library->autoDjQueueLength());
+    for (int id : ids) {
+        askAutoDj({{"do", "add"}, {"track", id}, {"where", "bottom"}});
+    }
+    return static_cast<int>(ids.size());
 }
 
 QJsonObject Web::askAutoDj(QJsonObject request) {
