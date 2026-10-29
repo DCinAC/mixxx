@@ -82,6 +82,8 @@ class Library {
     QJsonObject analysisStatus();
     /// Autoplay: up to count random tracks of the pool (zydecklibraryquery.h's pick), and the Auto DJ queue's length
     QList<int> pick(const zydeck::library::Pool& pool, int count);
+    /// The tracks in ids, in that order (autoplay's history), searched, sorted and filtered as tracks()
+    QJsonArray tracksIn(const QList<int>& ids, const QString& q, const QString& sort, int limit, int offset, const QString& genre);
     int autoDjQueueLength();
     /// The beat grid editor's "Analyze range": Mixxx's beat tracker on [start, end) seconds of what pTrack's file
     /// has (a long beatless intro, a live drummer, a drifting tempo: only that stretch counts), and a steady grid

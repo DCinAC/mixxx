@@ -294,6 +294,20 @@ QJsonArray tracks(const QSqlDatabase& db, const Where& only, const QString& sear
                             .arg(key)
                             .arg(bpm > 0 ? bpm : 0);
         }
+    } else if (kind == QLatin1String("ids")) {   // the tracks in loaded, in its order (autoplay's history)
+        if (loaded.isEmpty()) {
+            return out;
+        }
+        QStringList marks;
+        QString rank = QStringLiteral("CASE l.id");
+        for (int i = 0; i < loaded.size(); ++i) {
+            marks.append(QString::number(loaded[i]));
+            rank += QStringLiteral(" WHEN %1 THEN %2").arg(loaded[i]).arg(i);
+        }
+        where.append(QStringLiteral("l.id IN (%1)").arg(marks.join(QLatin1Char(','))));
+        if (sort == QLatin1String("added")) {
+            order = rank + QStringLiteral(" END");
+        }
     } else if (kind == QLatin1String("crate") && viewId > 0) {
         join = QStringLiteral("JOIN crate_tracks ct ON ct.track_id = l.id");
         where.append(QStringLiteral("ct.crate_id = ?"));

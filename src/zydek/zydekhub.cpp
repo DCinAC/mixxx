@@ -378,6 +378,9 @@ void Hub::start() {
     m_autoplayTimer.setInterval(4000);
     connect(&m_autoplayTimer, &QTimer::timeout, this, [this] { m_autoDj.autoplayTick(); });
     m_autoplayTimer.start();
+    m_beatmatchTimer.setInterval(250);
+    connect(&m_beatmatchTimer, &QTimer::timeout, this, [this] { m_autoDj.beatmatchTick(); });
+    m_beatmatchTimer.start();
     m_lastSessionTimer.setInterval(2000);
     connect(&m_lastSessionTimer, &QTimer::timeout, this, [this] { saveKit(kLastSession); });
     QTimer::singleShot(5000, this, [this] { restoreLastSession(0); });
@@ -685,10 +688,17 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         return json(QJsonObject{{"zydeck", true}, {"name", name}});
     }
     if (path == QLatin1String("/api/library/views")) {
-        return json(m_library.views());
+        QJsonObject v = m_library.views();
+        v.insert(QStringLiteral("autoplayHistory"), static_cast<int>(m_autoDj.autoplayHistory().size()));
+        return json(v);
     }
     if (path == QLatin1String("/api/library/tracks")) {
         QString view = arg("view").isEmpty() ? QStringLiteral("all") : arg("view");
+        if (view == QLatin1String("autoplay")) {   // what autoplay has picked, newest first
+            return json(m_library.tracksIn(m_autoDj.autoplayHistory(), arg("q"),
+                    arg("sort").isEmpty() ? QStringLiteral("added") : arg("sort"),
+                    arg("limit").isEmpty() ? 200 : arg("limit").toInt(), arg("offset").toInt(), arg("genre")));
+        }
         static const QRegularExpression fitsDeck(QStringLiteral(R"(^fits:([1-4])$)"));
         if (const QRegularExpressionMatch m = fitsDeck.match(view); m.hasMatch()) {
             // what fits deck N now: its current key (key shift included) and tempo
@@ -719,14 +729,14 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/autodj/on")) {   // ?on=1|0
         return result(m_autoDj.setOn(arg("on") != QLatin1String("0")));
     }
-    if (path == QLatin1String("/api/autodj/act")) {   // ?do=fade|skip|random|shuffle
+    if (path == QLatin1String("/api/autodj/act")) {   // ?do=fade|skip|skiptrack|random|shuffle
         return result(m_autoDj.act(arg("do")));
     }
     if (path == QLatin1String("/api/autodj/transition")) {   // ?seconds=&mode=
         return result(m_autoDj.setTransition(arg("seconds"), arg("mode")));
     }
-    if (path == QLatin1String("/api/autodj/options")) {   // ?random=1|0&min=&requeue=1|0
-        return result(m_autoDj.setOptions(arg("random"), arg("min"), arg("requeue")));
+    if (path == QLatin1String("/api/autodj/options")) {   // ?random=1|0&min=&requeue=1|0&beatmatch=1|0
+        return result(m_autoDj.setOptions(arg("random"), arg("min"), arg("requeue"), arg("beatmatch")));
     }
     if (path == QLatin1String("/api/autodj/source")) {   // ?crate=&on=1|0
         return result(m_autoDj.setSource(arg("crate").toInt(), arg("on") != QLatin1String("0")));

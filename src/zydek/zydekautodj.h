@@ -24,14 +24,16 @@ class AutoDj {
     QJsonObject status();
     /// on: Mixxx's Auto DJ on or off. It says why it won't: an empty queue, both decks playing, deck 3 or 4 playing.
     QJsonObject setOn(bool on);
-    /// fade (now, to the next track) | skip (the next track) | random (one random track to the queue) | shuffle
+    /// fade (now, to the next track) | skip (the next track) | skiptrack (the playing one, gracefully: to 16 beats
+    /// before its transition, which then goes as usual) | random (one random track to the queue) | shuffle
     QJsonObject act(const QString& action);
     /// seconds: the crossfade's length (negative: a gap); mode: intro-outro | outro-start | full-track |
     /// skip-silence | skip-silence-full (Mixxx's Auto DJ "Transition" choices, in that order). Either may be empty.
     QJsonObject setTransition(const QString& seconds, const QString& mode);
     /// random: refill the queue from the source crates when it's shorter than min (Preferences › Auto DJ);
     /// requeue: a played track goes back to the end of the queue. Each may be empty (unchanged).
-    QJsonObject setOptions(const QString& random, const QString& min, const QString& requeue);
+    /// beatmatch: Auto DJ's transitions synced when the tempos are near (zydekautodj.cpp's Beatmatch)
+    QJsonObject setOptions(const QString& random, const QString& min, const QString& requeue, const QString& beatmatch = QString());
     /// crate is (or isn't) one of the crates random tracks come from.
     QJsonObject setSource(int crateId, bool source);
     /// where: bottom | top (next, after the one loaded) | replace (the queue becomes this track)
@@ -45,6 +47,10 @@ class AutoDj {
     QJsonObject setAutoplay(bool on, const QJsonObject& pool);
     /// Every few seconds (the hub's timer): tops the queue up while autoplay is on and Auto DJ plays
     void autoplayTick();
+    /// What autoplay has picked, newest first (the last 500, kept between sessions: zydeck-autoplay-history.json)
+    QList<int> autoplayHistory();
+    /// Four times a second (the hub's timer): the beatmatching, while it's on and Auto DJ plays
+    void beatmatchTick();
 
   private:
     void topUp();
@@ -56,6 +62,8 @@ class AutoDj {
     bool m_autoplay = false;
     zydeck::library::Pool m_pool;
     bool m_poolRead = false;
+    QList<int> m_history;
+    bool m_historyRead = false;
 };
 
 } // namespace zydek

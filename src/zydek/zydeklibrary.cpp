@@ -154,6 +154,10 @@ QList<int> Library::pick(const zydeck::library::Pool& pool, int count) {
     return open() ? zydeck::library::pick(m_db, only(), pool, count) : QList<int>();
 }
 
+QJsonArray Library::tracksIn(const QList<int>& ids, const QString& search, const QString& sort, int limit, int offset, const QString& genre) {
+    return open() ? zydeck::library::tracks(m_db, only(), search, QStringLiteral("ids"), sort, limit, offset, genre, ids) : QJsonArray();
+}
+
 int Library::autoDjQueueLength() {
     return open() ? zydeck::library::autoDjQueueLength(m_db) : 0;
 }

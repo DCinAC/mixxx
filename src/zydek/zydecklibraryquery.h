@@ -31,7 +31,8 @@ inline const QString kNoGenre = QStringLiteral(":none");
 /// {total, stems, recent, crates: [{id, name, count, source (an Auto DJ source)}], playlists, autodj: {id, name,
 /// count}, history: [the last 20 sets with tracks]}
 QJsonObject views(const QSqlDatabase& db, const Where& only);
-/// view: all | stems | recent | crate:<id> | playlist:<id> | fits:<key id>:<bpm>:<track to leave out> (keys that mix
+/// view: all | stems | recent | ids (the tracks in loaded, in its order) | crate:<id> | playlist:<id> |
+/// fits:<key id>:<bpm>:<track to leave out> (keys that mix
 /// with it, within 6 % of the tempo or at half or double). Every word of search must be in artist, title, album, genre
 /// or key. sort: added | artist | title | bpm | key (Camelot order) | played | loaded (loaded's order first).
 /// genre: tracks with it among theirs (genres()), or kNoGenre.

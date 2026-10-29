@@ -51,6 +51,8 @@ class Library {
     /// Autoplay's (zydecklibraryquery.h): random tracks of the pool, and the Auto DJ queue's length
     QList<int> pick(const zydeck::library::Pool& pool, int count);
     int autoDjQueueLength();
+    /// The tracks in ids, in that order (autoplay's history), searched, sorted and filtered as tracks()
+    QJsonArray tracksIn(const QList<int>& ids, const QString& search, const QString& sort, int limit, int offset, const QString& genre);
 
   private:
     struct Row {

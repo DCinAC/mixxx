@@ -318,12 +318,18 @@ QJsonObject Web::library(Library* library, const QString& what, const QUrlQuery&
         return query.queryItemValue(QString::fromLatin1(name), QUrl::FullyDecoded);
     };
     if (what == QLatin1String("library/views")) {
-        return library->views();
+        QJsonObject v = library->views();
+        v.insert(QStringLiteral("autoplayHistory"), static_cast<int>(autoplayHistory().size()));
+        return v;
     }
     if (what == QLatin1String("library/tracks")) {
         const QString view = arg("view").isEmpty() ? QStringLiteral("all") : arg("view");
         if (view.startsWith(QLatin1String("fits:"))) {   // (what fits a deck: the device's own decks only)
             return {{"tracks", QJsonArray()}};
+        }
+        if (view == QLatin1String("autoplay")) {   // what autoplay has picked, newest first
+            return {{"tracks", library->tracksIn(autoplayHistory(), arg("q"), arg("sort").isEmpty() ? QStringLiteral("added") : arg("sort"),
+                                       arg("limit").isEmpty() ? 200 : arg("limit").toInt(), arg("offset").toInt(), arg("genre"))}};
         }
         return {{"tracks", library->tracks(arg("q"), view, arg("sort").isEmpty() ? QStringLiteral("added") : arg("sort"),
                                    arg("limit").isEmpty() ? 200 : arg("limit").toInt(), arg("offset").toInt(), arg("genre"))}};
@@ -385,13 +391,34 @@ QJsonObject Web::library(Library* library, const QString& what, const QUrlQuery&
     return {{"ok", false}, {"error", "No such thing"}};
 }
 
+namespace {
+// What autoplay has picked, newest first (the last 500)
+QList<int> autoplayHistory() {
+    QList<int> ids;
+    for (const QJsonValue& v : QJsonDocument::fromJson(QSettings().value(QStringLiteral("autoplay/history")).toByteArray()).array()) {
+        ids.append(v.toInt());
+    }
+    return ids;
+}
+} // namespace
+
 int Web::autoplayTopUp(Library* library) {
     constexpr int kAhead = 2;
     const zydeck::library::Pool pool = zydeck::library::Pool::fromJson(
             QJsonDocument::fromJson(QSettings().value(QStringLiteral("autoplay/pool")).toByteArray()).object());
     const QList<int> ids = library->pick(pool, kAhead - library->autoDjQueueLength());
+    QList<int> history = autoplayHistory();
     for (int id : ids) {
         askAutoDj({{"do", "add"}, {"track", id}, {"where", "bottom"}});
+        history.removeAll(id);
+        history.prepend(id);
+    }
+    if (!ids.isEmpty()) {
+        QJsonArray kept;
+        for (int i = 0; i < history.size() && i < 500; ++i) {
+            kept.append(history[i]);
+        }
+        QSettings().setValue(QStringLiteral("autoplay/history"), QJsonDocument(kept).toJson(QJsonDocument::Compact));
     }
     return static_cast<int>(ids.size());
 }
@@ -537,7 +564,7 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
         if (act == QLatin1String("on")) {
             ask = {{"do", arg("on") == QLatin1String("0") ? "off" : "on"}};
         } else if (act == QLatin1String("act")) {
-            static const QStringList kActs{"fade", "skip", "random", "shuffle"};
+            static const QStringList kActs{"fade", "skip", "skiptrack", "random", "shuffle"};
             if (!kActs.contains(arg("do"))) {
                 *status = 400;
                 return {{"ok", false}, {"error", "Unknown Auto DJ action"}};
@@ -553,7 +580,7 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
             }
         } else if (act == QLatin1String("options")) {
             ask = {{"do", "options"}};
-            for (const char* name : {"random", "min", "requeue"}) {
+            for (const char* name : {"random", "min", "requeue", "beatmatch"}) {
                 if (!arg(name).isEmpty()) {
                     ask.insert(QString::fromLatin1(name), number(name));
                 }

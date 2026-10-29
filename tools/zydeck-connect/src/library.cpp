@@ -521,6 +521,11 @@ QList<int> Library::pick(const zydeck::library::Pool& pool, int count) {
     return d.isValid() ? zydeck::library::pick(d, {}, pool, count) : QList<int>();
 }
 
+QJsonArray Library::tracksIn(const QList<int>& ids, const QString& search, const QString& sort, int limit, int offset, const QString& genre) {
+    QSqlDatabase d = db();
+    return d.isValid() ? zydeck::library::tracks(d, {}, search, QStringLiteral("ids"), sort, limit, offset, genre, ids) : QJsonArray();
+}
+
 int Library::autoDjQueueLength() {
     QSqlDatabase d = db();
     return d.isValid() ? zydeck::library::autoDjQueueLength(d) : 0;
