@@ -706,6 +706,34 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/library/genres")) {
         return json(m_library.genres());
     }
+    // Auto DJ (Mixxx's): its state, and what changes it
+    if (path == QLatin1String("/api/autodj")) {
+        return json(m_autoDj.status());
+    }
+    if (path == QLatin1String("/api/autodj/on")) {   // ?on=1|0
+        return result(m_autoDj.setOn(arg("on") != QLatin1String("0")));
+    }
+    if (path == QLatin1String("/api/autodj/act")) {   // ?do=fade|skip|random|shuffle
+        return result(m_autoDj.act(arg("do")));
+    }
+    if (path == QLatin1String("/api/autodj/transition")) {   // ?seconds=&mode=
+        return result(m_autoDj.setTransition(arg("seconds"), arg("mode")));
+    }
+    if (path == QLatin1String("/api/autodj/options")) {   // ?random=1|0&min=&requeue=1|0
+        return result(m_autoDj.setOptions(arg("random"), arg("min"), arg("requeue")));
+    }
+    if (path == QLatin1String("/api/autodj/source")) {   // ?crate=&on=1|0
+        return result(m_autoDj.setSource(arg("crate").toInt(), arg("on") != QLatin1String("0")));
+    }
+    if (path == QLatin1String("/api/autodj/add")) {   // ?id=&where=bottom|top|replace
+        return result(m_autoDj.add(arg("id").toInt(), arg("where")));
+    }
+    if (path == QLatin1String("/api/autodj/remove")) {   // ?id=
+        return result(m_autoDj.remove(arg("id").toInt()));
+    }
+    if (path == QLatin1String("/api/autodj/clear")) {
+        return result(m_autoDj.clear());
+    }
     if (path.startsWith(QLatin1String("/api/library/track/"))) {
         const QJsonObject t = m_library.track(path.section(QLatin1Char('/'), 4).toInt());
         return t.isEmpty() ? HttpServer::Response{404, "text/plain", "no such track\n", {}} : json(t);

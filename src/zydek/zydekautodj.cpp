@@ -1,0 +1,269 @@
+#include "zydek/zydekautodj.h"
+
+#include <QJsonArray>
+#include <algorithm>
+
+#include "library/autodj/autodjprocessor.h"
+#include "library/dao/playlistdao.h"
+#include "library/library.h"
+#include "library/trackcollection.h"
+#include "library/trackcollectionmanager.h"
+#include "qml/qmllibraryproxy.h"
+#include "zydek/zydeklibrary.h"
+#include "zydek/zydekmain.h"
+
+namespace zydek {
+
+namespace {
+
+const QString kPrefs = QStringLiteral("[Auto DJ]");   // Mixxx's Auto DJ preferences (the controls are [AutoDJ])
+// Mixxx's TransitionMode, in its order
+const QStringList kModes = {QStringLiteral("intro-outro"),
+        QStringLiteral("outro-start"),
+        QStringLiteral("full-track"),
+        QStringLiteral("skip-silence"),
+        QStringLiteral("skip-silence-full")};
+
+QJsonObject error(const QString& message) {
+    return {{"ok", false}, {"error", message}};
+}
+
+QString errorText(AutoDJProcessor::AutoDJError e) {
+    switch (e) {
+    case AutoDJProcessor::ADJ_OK:
+        return {};
+    case AutoDJProcessor::ADJ_IS_INACTIVE:
+        return QStringLiteral("Auto DJ is off");
+    case AutoDJProcessor::ADJ_QUEUE_EMPTY:
+        return QStringLiteral("The Auto DJ queue is empty: add tracks, or a source crate");
+    case AutoDJProcessor::ADJ_BOTH_DECKS_PLAYING:
+        return QStringLiteral("Decks 1 and 2 are both playing: stop one first");
+    case AutoDJProcessor::ADJ_UNUSED_DECK_PLAYING:
+        return QStringLiteral("Deck 3 or 4 is playing: Auto DJ uses decks 1 and 2");
+    case AutoDJProcessor::ADJ_NOT_TWO_DECKS:
+        return QStringLiteral("Auto DJ needs decks 1 and 2 on opposite sides of the crossfader");
+    }
+    return QStringLiteral("Auto DJ couldn't do that");
+}
+
+QString stateName(AutoDJProcessor::AutoDJState s) {
+    switch (s) {
+    case AutoDJProcessor::ADJ_DISABLED:
+        return QStringLiteral("off");
+    case AutoDJProcessor::ADJ_ENABLE_P1LOADED:
+    case AutoDJProcessor::ADJ_ENABLE_P1PLAYING:
+        return QStringLiteral("starting");
+    case AutoDJProcessor::ADJ_IDLE:
+        return QStringLiteral("playing");
+    case AutoDJProcessor::ADJ_LEFT_FADING:
+    case AutoDJProcessor::ADJ_RIGHT_FADING:
+        return QStringLiteral("fading");
+    }
+    return QStringLiteral("off");
+}
+
+// Mixxx's Auto DJ, which its Library made (Library › AutoDJFeature › AutoDJProcessor): found, not kept, as Mixxx
+// may make a new one
+AutoDJProcessor* processor() {
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    return pLibrary ? pLibrary->findChild<AutoDJProcessor*>() : nullptr;
+}
+
+TrackCollection* collection() {
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    return pLibrary && pLibrary->trackCollectionManager() ? pLibrary->trackCollectionManager()->internalCollection() : nullptr;
+}
+
+} // namespace
+
+AutoDj::AutoDj(UserSettingsPointer pConfig, Library* pLibrary)
+        : m_pConfig(pConfig),
+          m_pLibrary(pLibrary) {
+}
+
+QJsonObject AutoDj::status() {
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    QString state = QStringLiteral("off");
+    double seconds = 10;
+    int mode = 0;
+    const bool ready = runOnMain(pLibrary, [&] {
+        if (AutoDJProcessor* p = processor()) {
+            state = stateName(p->getState());
+            seconds = p->getTransitionTime();
+            mode = static_cast<int>(p->getTransitionMode());
+        }
+    }, 3000);
+    const QJsonObject views = m_pLibrary->views();
+    QJsonArray crates;
+    for (const QJsonValue& c : views.value(QStringLiteral("crates")).toArray()) {
+        crates.append(c);
+    }
+    const QJsonObject queue = views.value(QStringLiteral("autodj")).toObject();
+    return {{"ok", ready},
+            {"on", state != QLatin1String("off")},
+            {"state", state},
+            {"queue", QJsonObject{{"id", queue.value(QStringLiteral("id")).toInt()}, {"count", queue.value(QStringLiteral("count")).toInt()}}},
+            {"transition", QJsonObject{{"seconds", seconds}, {"mode", kModes.value(mode, kModes.first())}}},
+            {"random", QJsonObject{
+                    {"on", m_pConfig->getValueString(ConfigKey(kPrefs, QStringLiteral("EnableRandomQueue"))).toInt() == 1},
+                    {"min", m_pConfig->getValue(ConfigKey(kPrefs, QStringLiteral("RandomQueueMinimumAllowed")), 5)}}},
+            {"requeue", m_pConfig->getValueString(ConfigKey(kPrefs, QStringLiteral("Requeue"))).toInt() == 1},
+            {"crates", crates}};
+}
+
+QJsonObject AutoDj::setOn(bool on) {
+    AutoDJProcessor::AutoDJError e = AutoDJProcessor::ADJ_OK;
+    bool found = false;
+    if (!runOnMain(mixxx::qml::QmlLibraryProxy::get(), [&] {
+            if (AutoDJProcessor* p = processor()) {
+                found = true;
+                e = p->toggleAutoDJ(on);
+            }
+        }) || !found) {
+        return error(QStringLiteral("Mixxx's Auto DJ isn't ready"));
+    }
+    if (e != AutoDJProcessor::ADJ_OK) {
+        return error(errorText(e));
+    }
+    return {{"ok", true}};
+}
+
+QJsonObject AutoDj::act(const QString& action) {
+    AutoDJProcessor::AutoDJError e = AutoDJProcessor::ADJ_OK;
+    bool found = false, known = true;
+    if (!runOnMain(mixxx::qml::QmlLibraryProxy::get(), [&] {
+            AutoDJProcessor* p = processor();
+            if (!p) {
+                return;
+            }
+            found = true;
+            if (action == QLatin1String("fade")) {
+                if (p->getState() == AutoDJProcessor::ADJ_DISABLED) {
+                    e = AutoDJProcessor::ADJ_IS_INACTIVE;
+                } else {
+                    p->fadeNow();   // (does nothing while it's already fading)
+                }
+            } else if (action == QLatin1String("skip")) {
+                e = p->skipNext();
+            } else if (action == QLatin1String("random")) {   // as its add_random_track: it asks its feature for one
+                emit p->randomTrackRequested(1);
+            } else if (action == QLatin1String("shuffle")) {
+                e = p->shufflePlaylist(QModelIndexList());   // (all of it but the track that's loaded next)
+            } else {
+                known = false;
+            }
+        }) || !found) {
+        return error(QStringLiteral("Mixxx's Auto DJ isn't ready"));
+    }
+    if (!known) {
+        return error(QStringLiteral("Unknown Auto DJ action"));
+    }
+    if (e != AutoDJProcessor::ADJ_OK) {
+        return error(errorText(e));
+    }
+    return {{"ok", true}};
+}
+
+QJsonObject AutoDj::setTransition(const QString& seconds, const QString& mode) {
+    const int m = kModes.indexOf(mode);
+    if (!mode.isEmpty() && m < 0) {
+        return error(QStringLiteral("Unknown transition"));
+    }
+    bool ok = false;
+    const int s = seconds.toInt(&ok);
+    if (!seconds.isEmpty() && (!ok || s < -30 || s > 60)) {
+        return error(QStringLiteral("A transition is -30 to 60 seconds"));
+    }
+    bool found = false;
+    if (!runOnMain(mixxx::qml::QmlLibraryProxy::get(), [&] {
+            if (AutoDJProcessor* p = processor()) {
+                found = true;
+                if (!mode.isEmpty()) {
+                    p->setTransitionMode(static_cast<AutoDJProcessor::TransitionMode>(m));
+                }
+                if (!seconds.isEmpty()) {
+                    p->setTransitionTime(s);
+                }
+            }
+        }) || !found) {
+        return error(QStringLiteral("Mixxx's Auto DJ isn't ready"));
+    }
+    return {{"ok", true}};
+}
+
+QJsonObject AutoDj::setOptions(const QString& random, const QString& min, const QString& requeue) {
+    // (Mixxx reads these each time it takes a track from the queue)
+    if (!random.isEmpty()) {
+        m_pConfig->setValue(ConfigKey(kPrefs, QStringLiteral("EnableRandomQueue")), random == QLatin1String("1") ? 1 : 0);
+    }
+    if (!min.isEmpty()) {
+        m_pConfig->setValue(ConfigKey(kPrefs, QStringLiteral("RandomQueueMinimumAllowed")), std::clamp(min.toInt(), 1, 50));
+    }
+    if (!requeue.isEmpty()) {
+        m_pConfig->setValue(ConfigKey(kPrefs, QStringLiteral("Requeue")), requeue == QLatin1String("1") ? 1 : 0);
+    }
+    if (random == QLatin1String("1")) {   // a short queue fills now, not only when the next track is taken
+        const int count = m_pLibrary->views().value(QStringLiteral("autodj")).toObject().value(QStringLiteral("count")).toInt();
+        const int wanted = m_pConfig->getValue(ConfigKey(kPrefs, QStringLiteral("RandomQueueMinimumAllowed")), 5);
+        if (count < wanted) {
+            runOnMain(mixxx::qml::QmlLibraryProxy::get(), [&] {
+                if (AutoDJProcessor* p = processor()) {
+                    emit p->randomTrackRequested(wanted - count);
+                }
+            });
+        }
+    }
+    return {{"ok", true}};
+}
+
+QJsonObject AutoDj::setSource(int crateId, bool source) {
+    bool ok = false;
+    runOnMain(mixxx::qml::QmlLibraryProxy::get(), [&] {   // (Mixxx's Auto DJ hears of it: its crate list follows)
+        if (TrackCollection* pTracks = collection()) {
+            ok = pTracks->updateAutoDjCrate(CrateId(QVariant(crateId)), source);
+        }
+    });
+    return ok ? QJsonObject{{"ok", true}} : error(QStringLiteral("Couldn't change the crate"));
+}
+
+QJsonObject AutoDj::add(int trackId, const QString& where) {
+    const PlaylistDAO::AutoDJSendLoc loc = where == QLatin1String("top") ? PlaylistDAO::AutoDJSendLoc::TOP
+            : where == QLatin1String("replace")                           ? PlaylistDAO::AutoDJSendLoc::REPLACE
+                                                                          : PlaylistDAO::AutoDJSendLoc::BOTTOM;
+    bool ok = false;
+    runOnMain(mixxx::qml::QmlLibraryProxy::get(), [&] {
+        if (TrackCollection* pTracks = collection()) {
+            pTracks->getPlaylistDAO().addTracksToAutoDJQueue({TrackId(QVariant(trackId))}, loc);
+            ok = true;
+        }
+    });
+    return ok ? QJsonObject{{"ok", true}} : error(QStringLiteral("Mixxx isn't ready"));
+}
+
+QJsonObject AutoDj::remove(int trackId) {
+    bool ok = false;
+    runOnMain(mixxx::qml::QmlLibraryProxy::get(), [&] {
+        if (TrackCollection* pTracks = collection()) {
+            PlaylistDAO& dao = pTracks->getPlaylistDAO();
+            const QList<QPair<int, QString>> queue = dao.getPlaylists(PlaylistDAO::PLHT_AUTO_DJ);
+            if (!queue.isEmpty()) {
+                dao.removeTracksFromPlaylistById(queue.first().first, TrackId(QVariant(trackId)));
+                ok = true;
+            }
+        }
+    });
+    return ok ? QJsonObject{{"ok", true}} : error(QStringLiteral("Mixxx isn't ready"));
+}
+
+QJsonObject AutoDj::clear() {
+    bool ok = false;
+    runOnMain(mixxx::qml::QmlLibraryProxy::get(), [&] {
+        if (TrackCollection* pTracks = collection()) {
+            pTracks->getPlaylistDAO().clearAutoDJQueue();
+            ok = true;
+        }
+    });
+    return ok ? QJsonObject{{"ok", true}} : error(QStringLiteral("Mixxx isn't ready"));
+}
+
+} // namespace zydek

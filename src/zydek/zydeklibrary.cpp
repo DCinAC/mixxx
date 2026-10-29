@@ -255,10 +255,11 @@ QJsonObject Library::views() {
 
     QJsonArray crates;
     q.exec(QStringLiteral(
-            "SELECT c.id, c.name, count(ct.track_id) FROM crates c LEFT JOIN crate_tracks ct ON ct.crate_id = c.id "
+            "SELECT c.id, c.name, count(ct.track_id), c.autodj_source FROM crates c LEFT JOIN crate_tracks ct ON ct.crate_id = c.id "
             "WHERE c.show = 1 GROUP BY c.id ORDER BY c.name COLLATE NOCASE"));
-    while (q.next()) {
-        crates.append(QJsonObject{{"id", q.value(0).toInt()}, {"name", q.value(1).toString()}, {"count", q.value(2).toInt()}});
+    while (q.next()) {   // (source: one of the crates Auto DJ takes random tracks from)
+        crates.append(QJsonObject{{"id", q.value(0).toInt()}, {"name", q.value(1).toString()}, {"count", q.value(2).toInt()},
+                {"source", q.value(3).toInt() == 1}});
     }
     QJsonArray playlists, history;
     QJsonValue autodj;
