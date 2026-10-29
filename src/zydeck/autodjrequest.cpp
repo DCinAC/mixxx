@@ -10,7 +10,9 @@
 #include <QSaveFile>
 #include <QTimer>
 #include <algorithm>
+#include <cmath>
 
+#include "control/controlobject.h"
 #include "library/autodj/autodjprocessor.h"
 #include "library/dao/playlistdao.h"
 #include "library/library.h"
@@ -48,6 +50,117 @@ QString errorText(AutoDJProcessor::AutoDJError e) {
     return QStringLiteral("Auto DJ couldn't do that");
 }
 
+// Where Auto DJ's transition starts on group (seconds), as Mixxx works it out: the outro's start (intro + outro and
+// outro start modes, when the track has one), else the transition's length before the end (the audible end, when
+// silence is skipped or the outro ends earlier). -1: nothing loaded.
+double transitionStart(const QString& group, AutoDJProcessor::TransitionMode mode, double seconds) {
+    const double samples = ControlObject::get(ConfigKey(group, QStringLiteral("track_samples")));
+    const double duration = ControlObject::get(ConfigKey(group, QStringLiteral("duration")));
+    if (samples <= 0 || duration <= 0) {
+        return -1;
+    }
+    const auto at = [&](const char* key) {
+        const double v = ControlObject::get(ConfigKey(group, QString::fromLatin1(key)));
+        return v >= 0 ? v / samples * duration : -1.0;
+    };
+    const bool outroMode = mode == AutoDJProcessor::TransitionMode::FullIntroOutro ||
+            mode == AutoDJProcessor::TransitionMode::FadeAtOutroStart;
+    double end = duration;
+    if (mode != AutoDJProcessor::TransitionMode::FixedFullTrack && at("outro_end_position") > 0) {
+        end = at("outro_end_position");
+    }
+    if (outroMode && at("outro_start_position") > 0) {
+        return at("outro_start_position");
+    }
+    return std::max(0.0, end - std::max(0.0, seconds));
+}
+
+// Beatmatching for Auto DJ (its own crossfades don't): while it plays, the next track syncs to the playing one (Mixxx's
+// sync: tempo and phase, key lock on) when their tempos are within 8 % (or at half or double); further apart, a
+// plain crossfade. After a synced transition the deck left playing glides back to its own tempo over 16 beats, so a
+// set doesn't stay at its first track's tempo. Every quarter of a second; only the sync it turned on is turned off.
+struct Beatmatch {
+    bool ours = false;        // sync turned on by this
+    bool wasMixing = false;   // both decks played at the last look
+    bool synced = false;      // the next transition is a synced one
+    QString gliding;          // the deck going back to its own tempo ("": none)
+    double step = 0;
+
+    static double get(const QString& group, const char* key) {
+        return ControlObject::get(ConfigKey(group, QString::fromLatin1(key)));
+    }
+    static void set(const QString& group, const char* key, double value) {
+        if (get(group, key) != value) {
+            ControlObject::set(ConfigKey(group, QString::fromLatin1(key)), value);
+        }
+    }
+
+    void tick(bool on) {
+        const QString d1 = QStringLiteral("[Channel1]"), d2 = QStringLiteral("[Channel2]");
+        if (!on || get(QStringLiteral("[AutoDJ]"), "enabled") <= 0) {
+            if (ours) {
+                set(d1, "sync_enabled", 0);
+                set(d2, "sync_enabled", 0);
+                ours = false;
+            }
+            gliding.clear();
+            wasMixing = false;
+            return;
+        }
+        const bool p1 = get(d1, "play") > 0, p2 = get(d2, "play") > 0;
+        if (p1 && p2) {   // mixing
+            wasMixing = true;
+            gliding.clear();
+            return;
+        }
+        if (!p1 && !p2) {
+            return;
+        }
+        const QString from = p1 ? d1 : d2, to = p1 ? d2 : d1;
+        if (wasMixing) {   // the transition just ended: the deck left playing goes back to its own tempo
+            wasMixing = false;
+            if (synced && std::abs(get(from, "rate")) > 1e-4) {
+                gliding = from;
+                const double bpm = get(from, "bpm");
+                step = std::abs(get(from, "rate")) / std::max(1.0, (bpm > 0 ? 16 * 60.0 / bpm : 8.0) / 0.25);
+                set(from, "sync_enabled", 0);   // (its own tempo now, not the last track's)
+                set(from, "keylock", 1);
+            }
+            synced = false;
+        }
+        if (gliding == from) {
+            const double r = get(from, "rate");
+            const double next = std::abs(r) <= step ? 0.0 : r - std::copysign(step, r);
+            set(from, "rate", next);
+            if (next == 0.0) {
+                gliding.clear();
+            }
+            return;   // (the next track syncs to it once it's back)
+        }
+        // the next track, waiting: synced to this one when their tempos are near
+        if (get(to, "track_loaded") > 0 && get(to, "play") <= 0) {
+            const double a = get(from, "bpm"), b = get(to, "file_bpm");
+            double r = a > 0 && b > 0 ? b / a : 0;
+            while (r > 0 && r < 0.75) {
+                r *= 2;
+            }
+            while (r > 1.5) {
+                r /= 2;
+            }
+            synced = r > 0 && std::abs(r - 1) <= 0.08;
+            if (synced) {
+                set(to, "keylock", 1);
+                set(to, "quantize", 1);
+                set(from, "sync_enabled", 1);   // (the playing one leads: its tempo doesn't change)
+                set(to, "sync_enabled", 1);
+                ours = true;
+            } else if (ours) {
+                set(to, "sync_enabled", 0);
+            }
+        }
+    }
+};
+
 QString stateName(AutoDJProcessor::AutoDJState s) {
     switch (s) {
     case AutoDJProcessor::ADJ_DISABLED:
@@ -71,6 +184,7 @@ struct Watch {
     QJsonArray done;   // the last few requests' outcomes
     QByteArray written;   // the state as last written (it's written again only when it changes)
     QPointer<AutoDJProcessor> processor;   // (found once: Library › AutoDJFeature › AutoDJProcessor)
+    Beatmatch beatmatch;
 
     AutoDJProcessor* autoDj() {
         if (!processor) {
@@ -103,6 +217,34 @@ struct Watch {
         }
         if (what == QLatin1String("skip")) {
             return errorText(p->skipNext());
+        }
+        if (what == QLatin1String("skiptrack")) {   // the playing one, gracefully: 16 beats before its transition
+            if (p->getState() == AutoDJProcessor::ADJ_DISABLED) {
+                return errorText(AutoDJProcessor::ADJ_IS_INACTIVE);
+            }
+            if (p->getState() != AutoDJProcessor::ADJ_IDLE) {
+                return {};   // (it's mixing already)
+            }
+            QString group;
+            for (const QString& g : {QStringLiteral("[Channel1]"), QStringLiteral("[Channel2]")}) {
+                if (ControlObject::get(ConfigKey(g, QStringLiteral("play"))) > 0) {
+                    group = g;
+                }
+            }
+            const double start = group.isEmpty() ? -1 : transitionStart(group, p->getTransitionMode(), p->getTransitionTime());
+            const double duration = group.isEmpty() ? 0 : ControlObject::get(ConfigKey(group, QStringLiteral("duration")));
+            if (start < 0 || duration <= 0) {
+                return QStringLiteral("Nothing playing to skip");
+            }
+            const double bpm = ControlObject::get(ConfigKey(group, QStringLiteral("bpm")));
+            const double lead = bpm > 0 ? 16 * 60.0 / bpm : 8.0;
+            const double now = ControlObject::get(ConfigKey(group, QStringLiteral("playposition"))) * duration;
+            if (start - lead <= now + 1) {
+                p->fadeNow();   // (that close already: the transition now)
+            } else {
+                ControlObject::set(ConfigKey(group, QStringLiteral("playposition")), (start - lead) / duration);
+            }
+            return {};
         }
         if (what == QLatin1String("random")) {   // as its add_random_track: it asks its feature for one
             emit p->randomTrackRequested(1);
@@ -140,6 +282,9 @@ struct Watch {
             if (ask.contains(QStringLiteral("min"))) {
                 config->setValue(ConfigKey(kPrefs, QStringLiteral("RandomQueueMinimumAllowed")),
                         std::clamp(ask.value(QStringLiteral("min")).toInt(), 1, 50));
+            }
+            if (ask.contains(QStringLiteral("beatmatch"))) {
+                config->setValue(ConfigKey(QStringLiteral("[ZyDeck]"), QStringLiteral("AutoDjBeatmatch")), ask.value(QStringLiteral("beatmatch")).toInt() ? 1 : 0);
             }
             if (ask.contains(QStringLiteral("requeue"))) {
                 config->setValue(ConfigKey(kPrefs, QStringLiteral("Requeue")), ask.value(QStringLiteral("requeue")).toInt() ? 1 : 0);
@@ -190,6 +335,7 @@ struct Watch {
                 {"random", QJsonObject{{"on", config->getValue(ConfigKey(kPrefs, QStringLiteral("EnableRandomQueue")), 0) == 1},
                                    {"min", config->getValue(ConfigKey(kPrefs, QStringLiteral("RandomQueueMinimumAllowed")), 5)}}},
                 {"requeue", config->getValue(ConfigKey(kPrefs, QStringLiteral("Requeue")), 0) == 1},
+                {"beatmatch", config->getValue(ConfigKey(QStringLiteral("[ZyDeck]"), QStringLiteral("AutoDjBeatmatch")), 0) == 1},
                 {"done", done}};
         const QByteArray json = QJsonDocument(out).toJson(QJsonDocument::Compact);
         if (json == written) {
@@ -223,6 +369,7 @@ struct Watch {
                 done.removeFirst();
             }
         }
+        beatmatch.tick(config->getValue(ConfigKey(QStringLiteral("[ZyDeck]"), QStringLiteral("AutoDjBeatmatch")), 0) == 1);
         writeState();
     }
 };
