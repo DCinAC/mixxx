@@ -1,5 +1,6 @@
 #include "zydeck/loadrequest.h"
 
+#include <QApplication>
 #include <QCoreApplication>
 #include <QFile>
 #include <QFileInfo>
@@ -34,7 +35,13 @@ void watchLoadRequests(const std::shared_ptr<PlayerManager>& pPlayerManager, Use
     const std::weak_ptr<PlayerManager> pWeak = pPlayerManager;
     auto* pTimer = new QTimer(QCoreApplication::instance());   // (a quarter of a second: a person's waiting for it)
     pTimer->setInterval(250);
-    QObject::connect(pTimer, &QTimer::timeout, pTimer, [pWeak, pConfig, request, done] {
+    const QString quit = pConfig->getSettingsPath() + QStringLiteral("/zydeck-quit.json");
+    QFile::remove(quit);
+    QObject::connect(pTimer, &QTimer::timeout, pTimer, [pWeak, pConfig, request, done, quit] {
+        if (QFile::exists(quit)) {   // Mixxx closes as its window would (it asks if a deck is playing), and so saves
+            QFile::remove(quit);     // its settings: macOS's own quit (AppleScript's) ends it before it does
+            QMetaObject::invokeMethod(qApp, &QApplication::closeAllWindows, Qt::QueuedConnection);
+        }
         QFile f(request);
         if (!f.exists() || !f.open(QIODevice::ReadOnly)) {
             return;

@@ -13,6 +13,8 @@ namespace zydeck {
 // with Mixxx's own loader, unless the deck is playing and Mixxx isn't set to allow that (Preferences › Decks), and
 // answers in zydeck-load-done.json, {"id", "ok", "error"}. Plain Mixxx never answers: Connect says so.
 // "[PreviewDeck1]": the library's preview, in the headphones: loaded and played at once; {"stop": true} stops it.
+// zydeck-quit.json (any content): Mixxx closes as from its window, saving its settings (ZyDeck's scripts quit it so:
+// AppleScript's quit ends it without).
 void watchLoadRequests(const std::shared_ptr<PlayerManager>& pPlayerManager, UserSettingsPointer pConfig);
 
 } // namespace zydeck
