@@ -312,6 +312,17 @@ QJsonObject Web::effects() {
     return {{"ok", true}, {"effects", names}, {"beats", beats}};
 }
 
+namespace {
+// What autoplay has picked, newest first (the last 500)
+QList<int> autoplayHistory() {
+    QList<int> ids;
+    for (const QJsonValue& v : QJsonDocument::fromJson(QSettings().value(QStringLiteral("autoplay/history")).toByteArray()).array()) {
+        ids.append(v.toInt());
+    }
+    return ids;
+}
+} // namespace
+
 QJsonObject Web::library(Library* library, const QString& what, const QUrlQuery& query, int* status) {
     *status = 200;
     const auto arg = [&query](const char* name) {
@@ -390,17 +401,6 @@ QJsonObject Web::library(Library* library, const QString& what, const QUrlQuery&
     *status = 404;
     return {{"ok", false}, {"error", "No such thing"}};
 }
-
-namespace {
-// What autoplay has picked, newest first (the last 500)
-QList<int> autoplayHistory() {
-    QList<int> ids;
-    for (const QJsonValue& v : QJsonDocument::fromJson(QSettings().value(QStringLiteral("autoplay/history")).toByteArray()).array()) {
-        ids.append(v.toInt());
-    }
-    return ids;
-}
-} // namespace
 
 int Web::autoplayTopUp(Library* library) {
     constexpr int kAhead = 2;
