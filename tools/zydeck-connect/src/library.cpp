@@ -1,4 +1,5 @@
 #include "library.h"
+#include "zydecklibraryquery.h"
 
 #include <QCache>
 #include <QCoreApplication>
@@ -493,6 +494,26 @@ QJsonObject Library::beats(int trackId) {
     }
     return decodeBeats(q.value(0).toByteArray(), q.value(1).toString(), q.value(2).toInt(), q.value(3).toDouble(),
             q.value(4).toBool());
+}
+
+QJsonObject Library::views() {
+    QSqlDatabase d = db();
+    return d.isValid() ? zydeck::library::views(d, {}) : QJsonObject{{"total", 0}, {"crates", QJsonArray()}, {"playlists", QJsonArray()}, {"history", QJsonArray()}};
+}
+
+QJsonArray Library::tracks(const QString& search, const QString& view, const QString& sort, int limit, int offset, const QString& genre) {
+    QSqlDatabase d = db();
+    return d.isValid() ? zydeck::library::tracks(d, {}, search, view, sort, limit, offset, genre) : QJsonArray();
+}
+
+QJsonObject Library::genres() {
+    QSqlDatabase d = db();
+    return d.isValid() ? zydeck::library::genres(d, {}) : QJsonObject{{"genres", QJsonArray()}, {"none", 0}};
+}
+
+QJsonObject Library::track(int trackId) {
+    QSqlDatabase d = db();
+    return d.isValid() ? zydeck::library::track(d, trackId) : QJsonObject();
 }
 
 } // namespace zc

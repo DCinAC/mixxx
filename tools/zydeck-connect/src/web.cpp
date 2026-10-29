@@ -296,6 +296,64 @@ QJsonObject Web::effects() {
     return {{"ok", true}, {"effects", names}, {"beats", beats}};
 }
 
+QJsonObject Web::library(Library* library, const QString& what, const QUrlQuery& query, int* status) {
+    *status = 200;
+    const auto arg = [&query](const char* name) {
+        return query.queryItemValue(QString::fromLatin1(name), QUrl::FullyDecoded);
+    };
+    if (what == QLatin1String("library/views")) {
+        return library->views();
+    }
+    if (what == QLatin1String("library/tracks")) {
+        const QString view = arg("view").isEmpty() ? QStringLiteral("all") : arg("view");
+        if (view.startsWith(QLatin1String("fits:"))) {   // (what fits a deck: the device's own decks only)
+            return {{"tracks", QJsonArray()}};
+        }
+        return {{"tracks", library->tracks(arg("q"), view, arg("sort").isEmpty() ? QStringLiteral("added") : arg("sort"),
+                                   arg("limit").isEmpty() ? 200 : arg("limit").toInt(), arg("offset").toInt(), arg("genre"))}};
+    }
+    if (what == QLatin1String("library/genres")) {
+        return library->genres();
+    }
+    if (what == QLatin1String("library/track")) {
+        const QJsonObject t = library->track(arg("id").toInt());
+        if (t.isEmpty()) {
+            *status = 404;
+            return {{"ok", false}, {"error", "Not in the library"}};
+        }
+        return t;
+    }
+    if (what == QLatin1String("autodj")) {
+        // the queue and the crates from the database; the rest as Mixxx ZyDeck last wrote it (none: plain Mixxx, or
+        // Mixxx ZyDeck from before it could)
+        const QJsonObject views = library->views();
+        QFile f(mixxxDir() + QStringLiteral("/zydeck-autodj-state.json"));
+        QJsonObject out = f.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(f.readAll()).object() : QJsonObject();
+        if (out.isEmpty()) {
+            out = {{"ready", false}, {"on", false}, {"state", "off"}};
+        }
+        out.insert(QStringLiteral("ok"), true);
+        const QJsonObject queue = views.value(QStringLiteral("autodj")).toObject();
+        out.insert(QStringLiteral("queue"), QJsonObject{{"id", queue.value(QStringLiteral("id")).toInt()}, {"count", queue.value(QStringLiteral("count")).toInt()}});
+        out.insert(QStringLiteral("crates"), views.value(QStringLiteral("crates")));
+        return out;
+    }
+    *status = 404;
+    return {{"ok", false}, {"error", "No such thing"}};
+}
+
+QJsonObject Web::askAutoDj(QJsonObject request) {
+    const QString dir = mixxxDir();
+    const QString id = QString::number(QRandomGenerator::global()->generate64() & 0xffffffffffffULL, 16);
+    request.insert(QStringLiteral("id"), id);
+    // one file each, named in order (Mixxx ZyDeck carries them out in name order: a time, then the id)
+    QSaveFile f(QStringLiteral("%1/zydeck-autodj-%2-%3.json").arg(dir).arg(QDateTime::currentMSecsSinceEpoch(), 14, 10, QLatin1Char('0')).arg(id));
+    if (dir.isEmpty() || !f.open(QIODevice::WriteOnly) || f.write(QJsonDocument(request).toJson(QJsonDocument::Compact)) < 0 || !f.commit()) {
+        return {{"ok", false}, {"error", "Couldn't ask Mixxx"}};
+    }
+    return {{"ok", true}, {"asked", id}};
+}
+
 QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status, bool keyed) {
     *status = 200;
     const auto arg = [&query](const char* name) {
@@ -384,6 +442,81 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
         Job* j = start(QStringLiteral("stems"), QFileInfo(path).completeBaseName());
         stems(j, path, arg("preset").isEmpty() ? QStringLiteral("best") : arg("preset"));
         return {{"job", j->id}};
+    }
+    if (what == QLatin1String("load")) {   // a library track (id) or a stems job's file (job) into a deck, or a preview
+        const QString target = arg("target");
+        const QRegularExpressionMatch deck = QRegularExpression(QStringLiteral(R"(^deck([1-4])$)")).match(target);
+        if (!deck.hasMatch() && target != QLatin1String("preview")) {
+            *status = 400;
+            return {{"ok", false}, {"error", "Load it where?"}};
+        }
+        QString path;
+        if (!arg("job").isEmpty()) {
+            const Job* made = m_jobs.value(arg("job"));
+            path = made && made->state == QLatin1String("done") ? made->result.toObject().value(QStringLiteral("path")).toString() : QString();
+        } else {
+            path = m_library->location(arg("id").toInt());
+        }
+        if (path.isEmpty() || !QFileInfo(path).isFile()) {
+            *status = 400;
+            return {{"ok", false}, {"error", "The track's file isn't on this computer"}};
+        }
+        Job* j = start(QStringLiteral("load"), QFileInfo(path).completeBaseName());
+        j->deck = deck.hasMatch() ? QStringLiteral("[Channel%1]").arg(deck.captured(1)) : QStringLiteral("[PreviewDeck1]");
+        loadToDeck(j, {{"path", path}});
+        return {{"job", j->id}};
+    }
+    if (what == QLatin1String("preview/stop")) {
+        const QString dir = mixxxDir();
+        QSaveFile ask(dir + QStringLiteral("/zydeck-load.json"));
+        if (dir.isEmpty() || !ask.open(QIODevice::WriteOnly) ||
+                ask.write(QJsonDocument(QJsonObject{{"id", QStringLiteral("stop")}, {"group", "[PreviewDeck1]"}, {"stop", true}}).toJson()) < 0 ||
+                !ask.commit()) {
+            return {{"ok", false}, {"error", "Couldn't ask Mixxx"}};
+        }
+        return {{"ok", true}};
+    }
+    if (what.startsWith(QLatin1String("autodj/"))) {   // Mixxx's Auto DJ, changed (zydeck/autodjrequest.h)
+        const QString act = what.mid(7);
+        const auto number = [&](const char* name) { return arg(name).toInt(); };
+        QJsonObject ask;
+        if (act == QLatin1String("on")) {
+            ask = {{"do", arg("on") == QLatin1String("0") ? "off" : "on"}};
+        } else if (act == QLatin1String("act")) {
+            static const QStringList kActs{"fade", "skip", "random", "shuffle"};
+            if (!kActs.contains(arg("do"))) {
+                *status = 400;
+                return {{"ok", false}, {"error", "Unknown Auto DJ action"}};
+            }
+            ask = {{"do", arg("do")}};
+        } else if (act == QLatin1String("transition")) {
+            ask = {{"do", "transition"}};
+            if (!arg("mode").isEmpty()) {
+                ask.insert(QStringLiteral("mode"), arg("mode"));
+            }
+            if (!arg("seconds").isEmpty()) {
+                ask.insert(QStringLiteral("seconds"), number("seconds"));
+            }
+        } else if (act == QLatin1String("options")) {
+            ask = {{"do", "options"}};
+            for (const char* name : {"random", "min", "requeue"}) {
+                if (!arg(name).isEmpty()) {
+                    ask.insert(QString::fromLatin1(name), number(name));
+                }
+            }
+        } else if (act == QLatin1String("source")) {
+            ask = {{"do", "source"}, {"crate", number("crate")}, {"on", arg("on") == QLatin1String("0") ? 0 : 1}};
+        } else if (act == QLatin1String("add")) {
+            ask = {{"do", "add"}, {"track", number("id")}, {"where", arg("where")}};
+        } else if (act == QLatin1String("remove")) {
+            ask = {{"do", "remove"}, {"track", number("id")}};
+        } else if (act == QLatin1String("clear")) {
+            ask = {{"do", "clear"}};
+        } else {
+            *status = 404;
+            return {{"ok", false}, {"error", "No such thing"}};
+        }
+        return askAutoDj(ask);
     }
     *status = 404;
     return {{"ok", false}, {"error", "No such thing"}};

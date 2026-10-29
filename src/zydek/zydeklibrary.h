@@ -12,6 +12,7 @@
 #include <memory>
 
 #include "preferences/usersettings.h"
+#include "zydek/zydecklibraryquery.h"
 #include "track/track_decl.h"
 #include "track/trackid.h"
 
@@ -37,7 +38,7 @@ class Library {
     /// field can hold several ("House; Tech House", "Disco, Funk", "Classical/Trance": ; , | and /), and counts
     /// under each; spelt differently ("J-Trance", "jtrance"): one genre, under its most used spelling.
     QJsonObject genres();
-    static inline const QString kNoGenre = QStringLiteral(":none");
+    static inline const QString kNoGenre = zydeck::library::kNoGenre;
     QJsonObject track(int trackId);
     QString location(int trackId);
     /// A deck loaded the track: it goes to the top of "Recently loaded" (zydek-loaded.json).
@@ -108,15 +109,14 @@ class Library {
     static void setSamplerOptions(const QString& group, bool sync, bool repeat, bool keylock = true);
 
   private:
-    /// Each different genre field in the library (what the phone shows), with its number of tracks.
-    QList<QPair<QString, int>> genreFields();
     QJsonObject schedule(const QList<int>& ids, bool add);
     QList<TrackId> trackIdsUnder(const QString& dir, const QString& except, bool hidden);
     QJsonObject renderSample(const TrackPointer& pTrack, double firstFrame, double lastFrame, uint mask, int slot, bool sync, bool keylock);
     bool open();
-    QJsonObject trackJson(const class QSqlQuery& query) const;
     /// SQL condition leaving out the excluded folders; its values are appended to pArgs.
     QString notExcluded(QVariantList* pArgs);
+    /// That, for the shared queries (zydecklibraryquery.h)
+    zydeck::library::Where only();
     void loadExcluded();
     void saveExcluded();
 

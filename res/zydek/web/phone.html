@@ -101,7 +101,7 @@
   /* Auto DJ (Mixxx's): its controls above its queue, when the Auto DJ chip is chosen */
   #adj { display: none; margin: 8px 10px 4px; padding: 10px; border: 1px solid #3c2d4a; border-radius: 12px; background: #141019; }
   body.adjview #adj { display: grid; gap: 8px; }
-  body.remote #adj { display: none; }
+  body.remote:not(.remotelib) #adj { display: none; }
   #adj .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   #adj .row > button { flex: 1 1 90px; min-height: 44px; }
   #adj .onoff { flex: 2 1 140px !important; font-weight: 700; }
@@ -166,6 +166,12 @@
   #ctlmode { display: none; margin: 12px; padding: 14px; border: 1px solid #3a6ea5; border-radius: 12px; background: #0f1824; line-height: 1.45; }
   body.remote #ctlmode { display: block; }
   body.remote #p-lib .bar, body.remote #tracks, body.remote #libnote, body.remote #perm-lib { display: none; }
+  /* controller mode with ZyDeck Connect: the computer's library (search, load, preview, stems, Auto DJ) */
+  body.remote.remotelib #p-lib .bar { display: grid; }
+  body.remote.remotelib #tracks, body.remote.remotelib #libnote { display: block; }
+  body.remotelib #ctlmode { padding: 8px 12px; margin: 8px 10px 0; }
+  body.remotelib #ctlmode summary { cursor: pointer; font-size: 13px; color: var(--play); }
+  body.remotelib #ctlmode .row { margin-top: 8px; }
   #ctlmode h3 { margin: 0 0 6px; font-size: 16px; }
   #ctlmode .st { font-size: 15px; color: var(--text); }
   #ctlmode .st.ok { color: var(--play); }
@@ -749,8 +755,39 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const store = { get(k, d) { try { const v = localStorage.getItem("zphone." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
                 set(k, v) { try { localStorage.setItem("zphone." + k, JSON.stringify(v)); } catch {} } };
 const qs = o => Object.entries(o).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+// Controller mode with ZyDeck Connect: the library page's calls go to the computer's (its /web/..., the same answers;
+// a load or preview there is a job, followed to its end: the computer's Mixxx ZyDeck does it)
+function routed(path) {
+  if (!onComputer()) return path;
+  const u = new URL(path, location.href), p = u.pathname, q = u.searchParams;
+  let to = null;
+  if (p.startsWith("/api/library/track/")) { to = "/web/library/track"; q.set("id", p.split("/").pop()); }
+  else if (/^\/api\/library\/(views|tracks|genres)$/.test(p) || /^\/api\/autodj(\/|$)/.test(p)) to = p.replace("/api/", "/web/");
+  else if (p === "/api/load" || p === "/api/preview") {
+    to = "/web/load"; q.set("id", q.get("track_id")); q.delete("track_id");
+    if (p === "/api/preview") q.set("target", "preview");
+  } else if (p === "/api/preview/stop") to = "/web/preview/stop";
+  if (!to) return path;
+  q.set("k", remote.key || "");
+  return `${remote.http}${to}?${q}`;
+}
 async function api(path) {   // the hub's answer, or an Error with its message (as the menu's api(), zydeck-menu.js)
-  const r = await fetch(path);
+  const routedTo = routed(path), r = await fetch(routedTo);
+  if (routedTo !== path && r.ok) {   // (the computer's: a load is a job to follow)
+    const body = await r.json();
+    if (body && body.job && /\/web\/load\?/.test(routedTo)) {
+      for (;;) {
+        await new Promise(res => setTimeout(res, 300));
+        const j = await webApi(`/api/web/job?${qs({ id: body.job })}`);
+        if (j.state === "error") throw new Error(j.error);
+        if (j.state !== "done") continue;
+        if (j.result && j.result.loadError) throw new Error(j.result.loadError);
+        return { ok: true, group: j.result.loaded || "" };
+      }
+    }
+    if (body && body.ok === false) throw new Error(body.error);
+    return body;
+  }
   let body = null; try { body = await r.json(); } catch {}
   if (!r.ok || (body && body.ok === false)) throw new Error((body && body.error) || r.statusText);
   return body;
@@ -945,6 +982,9 @@ function onRemote(r) {
   const was = remote;
   remote = r;
   document.body.classList.toggle("remote", !!r.on);
+  const lib = !!r.on && !!r.http, hadLib = !!was.on && !!was.http;
+  document.body.classList.toggle("remotelib", lib);
+  if (lib !== hadLib || (lib && was.http !== r.http)) { loadViews(); loadTracks(); }   // (another library now)
   showLink();
   if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`, "ok");
   if (!!was.on !== !!r.on || was.http !== r.http) decks.forEach(d => { loadWaveform(d, d.wfFor); loadBeats(d, d.beatsFor); });
@@ -968,12 +1008,13 @@ function paintCtlMode() {
       : `<li>In Mixxx: Preferences › Controllers › ${r.via === "wifi" ? "<b>ZyDeck Connect</b>" : "this phone"} › load <b>ZyDeck</b> and tick Enabled. ` +
         `Mixxx only finds MIDI devices when it starts: restart it if the phone isn't listed.</li>`) +
     `<li>Optional: run <b>ZyDeck Connect</b> on the computer for track names, waveforms and the wireless link.</li></ol>`;
-  box.innerHTML = `<h3>Controller mode</h3><div class="st${ok ? " ok" : ""}">${st}</div>${steps}` +
-    (r.live ? `<div class="hint" style="margin-top:8px;color:var(--dim);font-size:13px">Turn the phone sideways for the decks.</div>` : "") +
+  const lib = r.on && r.http;   // (the computer's library below: this folds into a line)
+  box.innerHTML = (lib ? `<details><summary>${st}</summary>` : `<h3>Controller mode</h3><div class="st${ok ? " ok" : ""}">${st}</div>`) + steps +
+    (r.live && !lib ? `<div class="hint" style="margin-top:8px;color:var(--dim);font-size:13px">Turn the phone sideways for the decks.</div>` : "") +
     `<div class="row">${r.offer ? `<button class="go link">Link to ${comp} over Wi-Fi</button>` : ""}` +
     (r.via === "wifi" ? `<button class="usb">Back to the cable</button>` : "") +
     (r.saved && r.via !== "wifi" ? `<button class="forget">Forget ${esc(r.saved)}</button>` : "") +
-    `<button class="off">Turn controller mode off</button></div>`;
+    `<button class="off">Turn controller mode off</button></div>` + (lib ? `</details>` : "");
   box.querySelector(".link")?.addEventListener("click", () => api("/api/controller?link=1").catch(e => toast(e.message, "bad")));
   box.querySelector(".usb")?.addEventListener("click", () => api("/api/controller?link=0").catch(() => {}));
   box.querySelector(".forget")?.addEventListener("click", () => api("/api/controller?forget=1").catch(() => {}));
@@ -1417,7 +1458,7 @@ async function loadViews() {
     ...v.history.slice(0, 6).map(p => [`playlist:${p.id}`, `Set ${p.name}`, p.count])];
   // What fits next: tracks in a key that mixes with the deck's (as it plays now, key shift included) and
   // within 6 % of its tempo (or half / double time). One chip per loaded deck.
-  const fits = decks.filter(d => (d.n <= 2 || four) && (d.loaded || view === `fits:${d.n}`)).map(d => [`fits:${d.n}`, `Fits deck ${d.n}`, ""]);
+  const fits = remote.on ? [] : decks.filter(d => (d.n <= 2 || four) && (d.loaded || view === `fits:${d.n}`)).map(d => [`fits:${d.n}`, `Fits deck ${d.n}`, ""]);
   chips.splice(1, 0, ...fits, ...(v.autodj ? [[`playlist:${v.autodj.id}`, "Auto DJ", v.autodj.count]] : []));
   adjView = v.autodj ? `playlist:${v.autodj.id}` : null;
   if (!chips.some(c => c[0] === view)) view = "all";
@@ -1429,9 +1470,11 @@ async function loadViews() {
     b.addEventListener("click", () => { view = id; store.set("view", id); box.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c === b)); loadTracks(); });
     box.appendChild(b);
   });
-  const add = h("button", "chip add", "+ Crate");
-  add.addEventListener("click", () => openCrateSheet(null));
-  box.appendChild(add);
+  if (!remote.on) {   // (the computer's crates: changed in Mixxx there)
+    const add = h("button", "chip add", "+ Crate");
+    add.addEventListener("click", () => openCrateSheet(null));
+    box.appendChild(add);
+  }
   crateList = v.crates;
   loadGenres();
 }
@@ -1493,8 +1536,21 @@ async function adjPoll() {
   // (while it's in view, or on: every 2 s; otherwise it's looked at when its chip is)
   if (view === adjView || (adj && adj.on)) adjTimer = setTimeout(adjPoll, view === adjView ? 2000 : 8000);
 }
+// An Auto DJ request: the hub answers it; the computer's Mixxx ZyDeck carries it out a moment later and says how it
+// went in Auto DJ's status ({asked: id}, then done: [{id, ok, error}])
+async function adjAsk(path) {
+  const r = await api(path);
+  if (!r || !r.asked) return r;
+  for (let i = 0; i < 12; i++) {
+    await new Promise(res => setTimeout(res, 300));
+    const st = await api("/api/autodj");
+    const d = (st.done || []).find(x => x.id === r.asked);
+    if (d) { if (!d.ok) throw new Error(d.error); return d; }
+  }
+  throw new Error("Mixxx didn't answer (Auto DJ from here needs Mixxx ZyDeck, running)");
+}
 async function adjDo(path, okMsg) {
-  try { await api(path); if (okMsg) toast(okMsg, "ok"); } catch (e) { toast(e.message, "bad"); }
+  try { await adjAsk(path); if (okMsg) toast(okMsg, "ok"); } catch (e) { toast(e.message, "bad"); }
   adjPoll();
 }
 function paintAdj() {
@@ -1506,7 +1562,8 @@ function paintAdj() {
   box.innerHTML =
     `<div class="row"><button class="onoff${a.on ? " on" : ""}">${a.on ? "Auto DJ on" : "Auto DJ off"}</button>` +
     `<button class="fade"${a.on ? "" : " disabled"}>Fade now</button><button class="skip"${a.on ? "" : " disabled"}>Skip next</button></div>` +
-    `<div class="st"><b>${ADJ_STATE[a.state] || a.state}</b> · ${a.queue.count} in the queue · decks 1 and 2, by the crossfader</div>` +
+    `<div class="st"><b>${ADJ_STATE[a.state] || a.state}</b> · ${a.queue.count} in the queue · decks 1 and 2, by the crossfader` +
+    `${a.ready === false ? " · <b>Mixxx ZyDeck isn't answering</b> (plain Mixxx can't be driven from here)" : ""}</div>` +
     `<details${store.get("adjcfg", false) ? " open" : ""}><summary>${esc(ADJ_MODES.find(m => m[0] === a.transition.mode)?.[1] || "Transition")}, ` +
     `${a.transition.seconds < 0 ? `${-a.transition.seconds} s gap` : `${a.transition.seconds} s`} · ` +
     `${a.random.on ? `tops up from ${sources.length ? sources.map(c => esc(c.name)).join(", ") : "the whole library"}` : "no top-up"}</summary>` +
@@ -1552,7 +1609,7 @@ async function loadTracks(more = false) {
   const seq = more ? libSeq : ++libSeq, q = $("#q").value.trim(), sort = queue ? "added" : $("#sort").value, offset = more ? libShown : 0;
   let list;
   libBusy = true;
-  try { list = await api(`/api/library/tracks?${qs({ q, view, sort, limit: PAGE, offset, genre: queue ? "" : genre })}`); }
+  try { list = await api(`/api/library/tracks?${qs({ q, view, sort, limit: PAGE, offset, genre: queue ? "" : genre })}`); list = Array.isArray(list) ? list : list.tracks || []; }
   catch (e) { $("#libnote").innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
   finally { libBusy = false; }
   if (seq !== libSeq) return;
@@ -1865,7 +1922,9 @@ async function openSheet(t) {
   sheetTrack = t;
   const s = $("#sheet");
   const analyzed = t.bpm > 0 && t.keyId > 0;
-  const tools = !t.missing ? `<button class="mksample">Make a sample<small>cut it into a pad</small></button>` +
+  const far = remote.on;   // (the computer's track, in controller mode: what's done over there)
+  const tools = far ? (stemServer && !t.stems && !t.missing ? `<button class="mkstems wide">Make stems on the PC<small>for Mixxx on the computer · ${esc(STEM_MODELS[stemPreset] || stemPreset)}</small></button>` : "") :
+    !t.missing ? `<button class="mksample">Make a sample<small>cut it into a pad</small></button>` +
     `<button class="editgrid">Edit beat grid<small>in your headphones</small></button>` +
     `<button class="analyze${stemServer && !t.stems ? "" : " wide"}">${analyzed ? "Analyze again<small>new beat grid and key</small>" : "Analyze<small>BPM, key and waveform</small>"}</button>` +
     (stemServer && !t.stems ? `<button class="mkstems">Make stems on the PC<small>${esc(STEM_MODELS[stemPreset] || stemPreset)}</small></button>` : "") +
@@ -1879,16 +1938,16 @@ async function openSheet(t) {
       ` class="${genre && genreKey(g) === genreKey(genre) ? "on" : ""}">${esc(g)}</button>`).join("")}</div>` : "") +
     `<div class="facts"><div><b>${t.bpm ? t.bpm.toFixed(1) : "—"}</b>BPM</div><div><b>${esc(keyText(t) || "—")}</b>Key</div>` +
     `<div><b>${fmtTime(t.duration)}</b>Length</div><div><b>${t.played || 0}</b>Played</div></div>` +
-    `<div class="loads"></div><div class="more"><button class="pv">Preview (headphones)</button><button class="smp">Load to sampler</button></div>` +
-    (adjView && !remote.on ? `<div class="more adjrow">${view === adjView
+    `<div class="loads"></div><div class="more"><button class="pv${far ? " wide" : ""}">Preview (headphones)</button>${far ? "" : `<button class="smp">Load to sampler</button>`}</div>` +
+    (adjView ? `<div class="more adjrow">${view === adjView
       ? `<button class="adjrm wide">Take out of the Auto DJ queue</button>`
       : `<button class="adjadd">Auto DJ: add<small>to the end of the queue</small></button><button class="adjnext">Auto DJ: next<small>after the one loaded</small></button>`}</div>` : "") +
-    (!t.missing ? `<div class="pvn"><canvas></canvas><div class="played"></div><div class="ph"></div><span class="tm"></span>` +
+    (!t.missing && !far ? `<div class="pvn"><canvas></canvas><div class="played"></div><div class="ph"></div><span class="tm"></span>` +
       `<span class="hint">Touch the waveform to preview from there</span></div>` : "") +
     `<hr>${tools ? `<div class="more">${tools}</div>` : ""}` +
-    `<div class="more">${removal}</div>` +
-    `<div class="sub">Crates · tap one to add or remove</div><div class="crates"></div>` +
-    `<div class="newcrate"><input placeholder="New crate name" enterkeyhint="done"><button>Make crate</button></div>`;
+    (far ? "" : `<div class="more">${removal}</div>` +
+      `<div class="sub">Crates · tap one to add or remove</div><div class="crates"></div>` +
+      `<div class="newcrate"><input placeholder="New crate name" enterkeyhint="done"><button>Make crate</button></div>`);
   // Menu UI (the deck page's Look setting): Hardware lays the sheet out as a mixer strip (the deck keys stacked
   // 3 1 2 4 as on the decks, beside the facts' display and the preview); Element keeps it as it was
   const hw = menuHw();
@@ -1905,16 +1964,16 @@ async function openSheet(t) {
     facts.after(top);
     top.append(s.querySelector(".loads"), right);
     right.append(facts, ...[s.querySelector(".pvn"), s.querySelector(".more")].filter(Boolean));
-    s.querySelector(".pv").textContent = "Preview"; s.querySelector(".smp").textContent = "To sampler";
+    s.querySelector(".pv").textContent = "Preview"; if (s.querySelector(".smp")) s.querySelector(".smp").textContent = "To sampler";
     s.querySelector(".loads").prepend(h("div", "lt", "Load to:"));
   }
   s.querySelector(".pv").disabled = t.missing;
   s.querySelector(".pv").addEventListener("click", () => previewing(t) ? stopPreview() : preview(t, true));
-  if (!t.missing) previewNeedle(s.querySelector(".pvn"), t);
-  s.querySelector(".smp").disabled = t.missing;
-  s.querySelector(".smp").addEventListener("click", () => load(t, "sampler"));
+  if (!t.missing && s.querySelector(".pvn")) previewNeedle(s.querySelector(".pvn"), t);
+  const smp = s.querySelector(".smp");
+  if (smp) { smp.disabled = t.missing; smp.addEventListener("click", () => load(t, "sampler")); }
   const adjBtn = (cls, path, msg) => { const b = s.querySelector(cls); if (b) b.addEventListener("click", async () => {
-    try { await api(path); toast(msg, "ok"); closeSheet(); if (view === adjView) loadTracks(); adjPoll(); } catch (e) { toast(e.message, "bad"); }
+    try { await adjAsk(path); toast(msg, "ok"); closeSheet(); if (view === adjView) loadTracks(); adjPoll(); } catch (e) { toast(e.message, "bad"); }
   }); };
   adjBtn(".adjadd", `/api/autodj/add?${qs({ id: t.id, where: "bottom" })}`, "Added to the Auto DJ queue");
   adjBtn(".adjnext", `/api/autodj/add?${qs({ id: t.id, where: "top" })}`, "Auto DJ plays it next");
@@ -1947,7 +2006,7 @@ async function openSheet(t) {
     });
   }
   // Removing: asks first (and whether the file goes too), in plain words whatever the look
-  s.querySelector(".remove").addEventListener("click", async () => {
+  s.querySelector(".remove")?.addEventListener("click", async () => {
     const del = await askRemove(t);
     if (del === null) return;
     try {
@@ -1994,7 +2053,7 @@ async function openSheet(t) {
     }
     closeSheet(); analyzeTrack(t, analyzed);
   });
-  fillCrates(s, t);
+  if (!far) fillCrates(s, t);   // (the computer's crates aren't changed from here)
   $("#scrim").classList.add("on"); s.classList.add("on");
 }
 // Remove from the library: a plain question (Element's look in either Menu UI, for reading it right), with

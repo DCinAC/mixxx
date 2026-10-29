@@ -36,6 +36,8 @@ jobs:
             tools/zydeck-connect
             tools/zydeck-shared-tests
             src/zydek/zydeckshared.h
+            src/zydek/zydecklibraryquery.h
+            src/zydek/zydecklibraryquery.cpp
             res/controllers/Zydek-Tablet.midi.xml
             res/controllers/Zydek-Tablet.script.js
             res/zydek/python/zydek_web.py

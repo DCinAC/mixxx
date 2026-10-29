@@ -436,6 +436,16 @@ void Core::line(QTcpSocket* s, Client& c, const QByteArray& l) {
     }
 }
 
+namespace {
+// A /web/ answer: JSON, for the pages too when they have the key
+QByteArray jsonReply(int status, const QByteArray& body, bool keyed) {
+    return "HTTP/1.1 " + QByteArray::number(status) + (status == 200 ? " OK" : " No") + "\r\nContent-Type: application/json\r\n"
+           "Content-Length: " + QByteArray::number(body.size()) + "\r\n" +
+           QByteArray(keyed ? "Access-Control-Allow-Origin: *\r\n" : "") +   // (the pages, with the key)
+           "Cache-Control: no-store\r\nConnection: close\r\n\r\n" + body;
+}
+} // namespace
+
 /// GET /waveform/<id>?k=<key> and /beats/<id>?k=<key>. The waveform goes deflated (as Mixxx's own files are:
 /// qCompress is zlib's format, which is HTTP's "deflate").
 void Core::http(QTcpSocket* s, const QByteArray& request) {
@@ -473,14 +483,26 @@ void Core::http(QTcpSocket* s, const QByteArray& request) {
                 s->disconnectFromHost();
                 return;
             }
+        } else if ((keyed || mixxx) && (url.path().startsWith(QLatin1String("/web/library/")) || url.path() == QLatin1String("/web/autodj"))) {
+            // the library page's lists: read on a worker, as the waveforms are (a big library, a NAS's files looked
+            // for: the MIDI and the devices' link, on this thread, go on meanwhile)
+            QPointer<QTcpSocket> guard(s);
+            const QString what = url.path().mid(5);
+            QThreadPool::globalInstance()->start([this, guard, what, query, keyed] {
+                int st = 200;
+                const QByteArray body = QJsonDocument(Web::library(&m_library, what, query, &st)).toJson(QJsonDocument::Compact);
+                QMetaObject::invokeMethod(this, [guard, st, body, keyed] {
+                    if (guard) {
+                        guard->write(jsonReply(st, body, keyed));
+                        guard->disconnectFromHost();
+                    }
+                });
+            });
+            return;
         } else if (keyed || mixxx) {
             out = m_web.handle(url.path().mid(5), query, &status, keyed);
         }
-        const QByteArray body = QJsonDocument(out).toJson(QJsonDocument::Compact);
-        s->write("HTTP/1.1 " + QByteArray::number(status) + (status == 200 ? " OK" : " No") + "\r\nContent-Type: application/json\r\n"
-                 "Content-Length: " + QByteArray::number(body.size()) + "\r\n" +
-                 QByteArray(keyed ? "Access-Control-Allow-Origin: *\r\n" : "") +   // (the pages, with the key)
-                 "Cache-Control: no-store\r\nConnection: close\r\n\r\n" + body);
+        s->write(jsonReply(status, QJsonDocument(out).toJson(QJsonDocument::Compact), keyed));
         s->disconnectFromHost();
         return;
     }

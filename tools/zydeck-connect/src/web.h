@@ -14,6 +14,16 @@
 //   GET /web/fx                        Mixxx's effects as a unit's slots number them: {effects: [name, ...], beats:
 //                                      [{knob, min, max} or null, ...] (the knob in beats, for the BEAT keys)} (Mixxx
 //                                      ZyDeck's live list, else effects.xml, which Mixxx writes as it quits)
+// The phone's library page in controller mode, on this computer's Mixxx (the same answers as its hub's /api/...):
+//   GET /web/library/views | tracks?q=&view=&sort=&limit=&offset=&genre= ({tracks: [...]}) | genres | track?id=
+//   GET /web/load?id=&target=deck1..4|preview   (or job=: a stems job's file) a job: Mixxx ZyDeck loads it there
+//                                      (a preview plays in the headphones); GET /web/preview/stop
+//   GET /web/autodj                    Mixxx's Auto DJ: {ready, on, state, transition, random, requeue, queue, crates,
+//                                      done: [{id, ok, error}]}; and what changes it, each answering {asked: id} (its
+//                                      outcome comes in done): /web/autodj/on?on=, act?do=fade|skip|random|shuffle,
+//                                      transition?seconds=&mode=, options?random=&min=&requeue=, source?crate=&on=,
+//                                      add?id=&where=bottom|top|replace, remove?id=, clear (Mixxx ZyDeck carries them
+//                                      out: its zydeck/autodjrequest.h)
 // The same shapes as the phone's own downloader (res/zydek/python/zydek_web.py), so a page needs only the address.
 // The downloads folder is "ZyDeck Web" in Mixxx's first music folder (settings: web/folder), which Mixxx ZyDeck
 // watches: a file is written into its hidden ".incoming" folder and moved in when it's finished, so Mixxx only ever
@@ -44,6 +54,8 @@ class Web : public QObject {
 
     /// /web/<what>: the JSON answer; status gets the HTTP status. On this object's thread.
     QJsonObject handle(const QString& what, const QUrlQuery& query, int* status, bool keyed);   // keyed: with the pairing key
+    /// /web/library/... and /web/autodj (the reading ones): safe on any thread (a worker's: they read the database)
+    static QJsonObject library(Library* library, const QString& what, const QUrlQuery& query, int* status);
     /// Where downloads go ("" while Mixxx has no music folder).
     QString folder() const;
     /// {effects: [names]}: Mixxx's effects in its order (a slot's loaded_effect is a place in it)
@@ -76,6 +88,7 @@ class Web : public QObject {
     void downloaded(Job* job, const QJsonObject& info);
     void stems(Job* job, const QString& path, const QString& preset);
     void loadToDeck(Job* job, QJsonObject result);   // (finishes the job when Mixxx ZyDeck has, or hasn't)
+    QJsonObject askAutoDj(QJsonObject request);      // (handed to Mixxx ZyDeck: {asked: id})
     void stemsPoll(Job* job);
     void stemsFetch(Job* job);
     static QString placeStem(const QString& local, const QString& dir, const QString& name, const QString& original, QString* error);

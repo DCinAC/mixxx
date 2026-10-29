@@ -4,6 +4,7 @@
 // Safe from any thread (a database connection per thread).
 
 #include <QByteArray>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
 #include <QMutex>
@@ -39,6 +40,12 @@ class Library {
     QString location(int trackId);
     /// The tracks most likely to be loaded next, {id, file}: played last, added last, played most (a third each).
     QList<QPair<int, QString>> likelyTracks(int count);
+    // The phone's library page in controller mode (/web/library/...): the same answers as its hub's own, from the
+    // same queries (zydecklibraryquery.h), on this computer's library
+    QJsonObject views();
+    QJsonArray tracks(const QString& search, const QString& view, const QString& sort, int limit, int offset, const QString& genre);
+    QJsonObject genres();
+    QJsonObject track(int trackId);
 
   private:
     struct Row {
