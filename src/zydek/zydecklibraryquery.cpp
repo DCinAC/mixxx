@@ -388,6 +388,7 @@ Pool Pool::fromJson(const QJsonObject& o) {
     }
     p.bpmMin = std::max(0.0, o.value(QStringLiteral("bpmMin")).toDouble());
     p.bpmMax = std::max(0.0, o.value(QStringLiteral("bpmMax")).toDouble());
+    p.tempo = std::clamp(o.value(QStringLiteral("tempo")).toDouble(p.tempo), 0.0, 50.0);
     return p;
 }
 
@@ -395,10 +396,11 @@ QJsonObject Pool::toJson() const {
     return {{"genres", QJsonArray::fromStringList(genres)},
             {"skip", QJsonArray::fromStringList(skipGenres)},
             {"bpmMin", bpmMin},
-            {"bpmMax", bpmMax}};
+            {"bpmMax", bpmMax},
+            {"tempo", tempo}};
 }
 
-QList<int> pick(const QSqlDatabase& db, const Where& only, const Pool& pool, int count) {
+QList<int> pick(const QSqlDatabase& db, const Where& only, const Pool& pool, int count, double after) {
     QList<int> out;
     if (count <= 0) {
         return out;
@@ -445,23 +447,77 @@ QList<int> pick(const QSqlDatabase& db, const Where& only, const Pool& pool, int
         where.append(QStringLiteral("l.bpm > 0 AND l.bpm <= ?"));
         args.append(pool.bpmMax);
     }
-    QSqlQuery q(db);
-    q.prepare(QStringLiteral("SELECT l.id, tl.location FROM %1 WHERE %2 ORDER BY random() LIMIT ?")
-                      .arg(kTrackFrom, where.join(QStringLiteral(" AND "))));
-    for (const QVariant& a : std::as_const(args)) {
-        q.addBindValue(a);
-    }
-    q.addBindValue(count * 4 + 4);   // (more than needed: a file can be gone, a network drive away)
-    if (!q.exec()) {
-        qWarning() << "ZyDeck: autoplay's query failed:" << q.lastError().text();
+    const auto run = [&](const QString& extra, const QVariantList& extraArgs, const QString& order, int limit,
+                             QList<std::pair<int, double>>* pFound) {
+        QSqlQuery q(db);
+        q.prepare(QStringLiteral("SELECT l.id, tl.location, l.bpm FROM %1 WHERE %2%3 ORDER BY %4 LIMIT ?")
+                          .arg(kTrackFrom, where.join(QStringLiteral(" AND ")), extra, order));
+        for (const QVariant& a : std::as_const(args)) {
+            q.addBindValue(a);
+        }
+        for (const QVariant& a : extraArgs) {
+            q.addBindValue(a);
+        }
+        q.addBindValue(limit);
+        if (!q.exec()) {
+            qWarning() << "ZyDeck: autoplay's query failed:" << q.lastError().text();
+            return;
+        }
+        while (q.next() && pFound->size() < limit) {
+            const int id = q.value(0).toInt();
+            if (!out.contains(id) && QFileInfo::exists(q.value(1).toString())) {   // (a network drive can be away)
+                pFound->append({id, q.value(2).toDouble()});
+            }
+        }
+    };
+    if (pool.tempo <= 0 || after <= 0) {
+        QList<std::pair<int, double>> found;
+        run(QString(), {}, QStringLiteral("random()"), count * 4 + 4, &found);
+        for (int i = 0; i < found.size() && out.size() < count; ++i) {
+            out.append(found[i].first);
+        }
         return out;
     }
-    while (q.next() && out.size() < count) {
-        if (QFileInfo::exists(q.value(1).toString())) {
-            out.append(q.value(0).toInt());
+    // a tempo limit: one at a time, each within it of the one before (at the same, half or double tempo)
+    double tempo = after;
+    const double l = pool.tempo / 100;
+    for (int n = 0; n < count; ++n) {
+        QVariantList near;
+        for (const double k : {1.0, 2.0, 0.5}) {
+            near << tempo * k * (1 - l) << tempo * k * (1 + l);
+        }
+        QStringList skip;
+        for (int id : std::as_const(out)) {
+            skip.append(QString::number(id));
+        }
+        const QString notPicked = skip.isEmpty() ? QString() : QStringLiteral(" AND l.id NOT IN (%1)").arg(skip.join(QLatin1Char(',')));
+        QList<std::pair<int, double>> found;
+        run(notPicked + QStringLiteral(" AND (l.bpm BETWEEN ? AND ? OR l.bpm BETWEEN ? AND ? OR l.bpm BETWEEN ? AND ?)"),
+                near, QStringLiteral("random()"), 4, &found);
+        if (found.isEmpty()) {   // (none that near: the nearest there is)
+            const QString t = QString::number(tempo, 'f', 3);
+            run(notPicked + QStringLiteral(" AND l.bpm > 0"), {},
+                    QStringLiteral("min(abs(l.bpm - %1) / %1, abs(l.bpm - 2 * %1) / (2 * %1), abs(l.bpm - %1 / 2) / (%1 / 2))").arg(t),
+                    4, &found);
+        }
+        if (found.isEmpty()) {
+            break;
+        }
+        out.append(found.first().first);
+        if (found.first().second > 0) {
+            tempo = found.first().second;
         }
     }
     return out;
+}
+
+double autoDjQueueTailBpm(const QSqlDatabase& db) {
+    QSqlQuery q(db);
+    return q.exec(QStringLiteral("SELECT l.bpm FROM PlaylistTracks pt JOIN Playlists p ON p.id = pt.playlist_id "
+                                 "JOIN library l ON l.id = pt.track_id WHERE p.hidden = 1 ORDER BY pt.position DESC LIMIT 1")) &&
+                    q.next()
+            ? q.value(0).toDouble()
+            : 0;
 }
 
 int autoDjQueueLength(const QSqlDatabase& db) {

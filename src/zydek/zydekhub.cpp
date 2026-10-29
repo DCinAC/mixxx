@@ -387,9 +387,6 @@ void Hub::start() {
     });
     m_autoDj.startMixing();
     m_autoplayTimer.start();
-    m_beatmatchTimer.setInterval(250);
-    connect(&m_beatmatchTimer, &QTimer::timeout, this, [this] { m_autoDj.beatmatchTick(); });
-    m_beatmatchTimer.start();
     m_lastSessionTimer.setInterval(2000);
     connect(&m_lastSessionTimer, &QTimer::timeout, this, [this] { saveKit(kLastSession); });
     QTimer::singleShot(5000, this, [this] { restoreLastSession(0); });

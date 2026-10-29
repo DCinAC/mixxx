@@ -516,9 +516,14 @@ QJsonObject Library::track(int trackId) {
     return d.isValid() ? zydeck::library::track(d, trackId) : QJsonObject();
 }
 
-QList<int> Library::pick(const zydeck::library::Pool& pool, int count) {
+QList<int> Library::pick(const zydeck::library::Pool& pool, int count, double after) {
     QSqlDatabase d = db();
-    return d.isValid() ? zydeck::library::pick(d, {}, pool, count) : QList<int>();
+    return d.isValid() ? zydeck::library::pick(d, {}, pool, count, after) : QList<int>();
+}
+
+double Library::autoDjQueueTailBpm() {
+    QSqlDatabase d = db();
+    return d.isValid() ? zydeck::library::autoDjQueueTailBpm(d) : 0;
 }
 
 QJsonArray Library::tracksIn(const QList<int>& ids, const QString& search, const QString& sort, int limit, int offset, const QString& genre) {

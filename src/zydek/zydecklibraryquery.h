@@ -58,14 +58,18 @@ struct Pool {
     QStringList skipGenres;   // none of these
     double bpmMin = 0;
     double bpmMax = 0;
+    double tempo = 8;         // each next track within this many % of the one before it (half / double too); 0: any
     static Pool fromJson(const QJsonObject& o);
     QJsonObject toJson() const;
 };
 /// Up to count random tracks from the pool, ids: not in the Auto DJ queue, not played this session (Mixxx's newest
-/// history list), their files there. Every track of the library in turn, at random, as it plays.
-QList<int> pick(const QSqlDatabase& db, const Where& only, const Pool& pool, int count);
-/// The Auto DJ queue's length
+/// history list), their files there. Every track of the library in turn, at random, as it plays. after: the tempo
+/// they follow (the queue's last track's, or the playing one's; 0: unknown): with the pool's tempo limit, each is
+/// within it of the one before (the closest tempo there is, when none is).
+QList<int> pick(const QSqlDatabase& db, const Where& only, const Pool& pool, int count, double after = 0);
+/// The Auto DJ queue's length, and its last track's tempo (0: none)
 int autoDjQueueLength(const QSqlDatabase& db);
+double autoDjQueueTailBpm(const QSqlDatabase& db);
 
 /// A row of kTrackColumns as the pages read a track
 QJsonObject trackJson(const QSqlQuery& query);

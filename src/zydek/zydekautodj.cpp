@@ -90,16 +90,21 @@ double transitionStart(const QString& group, AutoDJProcessor::TransitionMode mod
     return std::max(0.0, end - std::max(0.0, seconds));
 }
 
-// Beatmatching for Auto DJ (its own crossfades don't): while it plays, the next track syncs to the playing one (Mixxx's
-// sync: tempo and phase, key lock on) when their tempos are within 8 % (or at half or double); further apart, a
-// plain crossfade. After a synced transition the deck left playing glides back to its own tempo over 16 beats, so a
-// set doesn't stay at its first track's tempo. Every quarter of a second; only the sync it turned on is turned off.
+// Beatmatching for Auto DJ (its own crossfades don't): when the next track's tempo is within 8 % of the playing one's
+// (or at half or double), the playing one goes to the next one's tempo before the mix (from 32 beats before it, over
+// 16 beats: the old track to the new one, so the new one plays at its own tempo, in the mix and after), and once
+// they match the two sync for the mix (Mixxx's sync: tempo and phase; key lock on). Further apart: a plain crossfade.
+// A mix that comes before the old track got there (fade now, a slider whose range won't reach): synced anyway, and
+// the track left playing goes back to its own tempo after, over 16 beats. Every quarter of a second; only the sync it
+// turned on is turned off. transitionAt: where the mix starts, seconds into the playing track (-1: not known).
 struct Beatmatch {
     bool ours = false;        // sync turned on by this
     bool wasMixing = false;   // both decks played at the last look
-    bool synced = false;      // the next transition is a synced one
-    QString gliding;          // the deck going back to its own tempo ("": none)
+    bool synced = false;      // this pair mixes synced
+    QString gliding;          // after a mix: the deck going back to its own tempo ("": none)
     double step = 0;
+    QString heading;          // before a mix: the playing deck going to the next one's tempo
+    double headStep = 0, target = 0;
 
     static double get(const QString& group, const char* key) {
         return ControlObject::get(ConfigKey(group, QString::fromLatin1(key)));
@@ -109,8 +114,16 @@ struct Beatmatch {
             ControlObject::set(ConfigKey(group, QString::fromLatin1(key)), value);
         }
     }
+    // the rate slider's value for a tempo (as far as its range goes)
+    static double rateFor(const QString& group, double bpm) {
+        const double file = get(group, "file_bpm"), range = get(group, "rateRange"), dir = get(group, "rate_dir");
+        if (file <= 0 || range <= 0) {
+            return get(group, "rate");
+        }
+        return std::clamp((bpm / file - 1) / (range * (dir < 0 ? -1 : 1)), -1.0, 1.0);
+    }
 
-    void tick(bool on) {
+    void tick(bool on, double transitionAt) {
         const QString d1 = QStringLiteral("[Channel1]"), d2 = QStringLiteral("[Channel2]");
         if (!on || get(QStringLiteral("[AutoDJ]"), "enabled") <= 0) {
             if (ours) {
@@ -119,6 +132,7 @@ struct Beatmatch {
                 ours = false;
             }
             gliding.clear();
+            heading.clear();
             wasMixing = false;
             return;
         }
@@ -126,52 +140,87 @@ struct Beatmatch {
         if (p1 && p2) {   // mixing
             wasMixing = true;
             gliding.clear();
+            heading.clear();
             return;
         }
         if (!p1 && !p2) {
             return;
         }
         const QString from = p1 ? d1 : d2, to = p1 ? d2 : d1;
-        if (wasMixing) {   // the transition just ended: the deck left playing goes back to its own tempo
+        if (wasMixing) {   // the mix is over: each at its own tempo from here
             wasMixing = false;
-            if (synced && std::abs(get(from, "rate")) > 1e-4) {
-                gliding = from;
+            if (ours) {
+                set(d1, "sync_enabled", 0);
+                set(d2, "sync_enabled", 0);
+                ours = false;
+            }
+            if (synced && std::abs(get(from, "rate") - rateFor(from, get(from, "file_bpm"))) > 0.002) {
+                gliding = from;   // (it came in stretched: back to its own tempo)
                 const double bpm = get(from, "bpm");
-                step = std::abs(get(from, "rate")) / std::max(1.0, (bpm > 0 ? 16 * 60.0 / bpm : 8.0) / 0.25);
-                set(from, "sync_enabled", 0);   // (its own tempo now, not the last track's)
-                set(from, "keylock", 1);
+                step = std::abs(get(from, "rate") - rateFor(from, get(from, "file_bpm"))) /
+                        std::max(1.0, (bpm > 0 ? 16 * 60.0 / bpm : 8.0) / 0.25);
             }
             synced = false;
+            target = 0;
         }
         if (gliding == from) {
-            const double r = get(from, "rate");
-            const double next = std::abs(r) <= step ? 0.0 : r - std::copysign(step, r);
+            const double r = get(from, "rate"), goal = rateFor(from, get(from, "file_bpm"));
+            const double next = std::abs(r - goal) <= step ? goal : r - std::copysign(step, r - goal);
             set(from, "rate", next);
-            if (next == 0.0) {
+            if (next == goal) {
                 gliding.clear();
             }
-            return;   // (the next track syncs to it once it's back)
+            return;
         }
-        // the next track, waiting: synced to this one when their tempos are near
-        if (get(to, "track_loaded") > 0 && get(to, "play") <= 0) {
-            const double a = get(from, "bpm"), b = get(to, "file_bpm");
-            double r = a > 0 && b > 0 ? b / a : 0;
-            while (r > 0 && r < 0.75) {
-                r *= 2;
-            }
-            while (r > 1.5) {
-                r /= 2;
-            }
-            synced = r > 0 && std::abs(r - 1) <= 0.08;
-            if (synced) {
-                set(to, "keylock", 1);
-                set(to, "quantize", 1);
-                set(from, "sync_enabled", 1);   // (the playing one leads: its tempo doesn't change)
-                set(to, "sync_enabled", 1);
-                ours = true;
-            } else if (ours) {
+        if (get(to, "track_loaded") <= 0 || get(to, "play") > 0) {
+            return;
+        }
+        // the next track's tempo, at the playing one's (half or double counted)
+        const double a = get(from, "bpm");
+        double want = get(to, "file_bpm");
+        while (want > 0 && a > 0 && want < a * 0.75) {
+            want *= 2;
+        }
+        while (a > 0 && want > a * 1.5) {
+            want /= 2;
+        }
+        synced = a > 0 && want > 0 && std::abs(want / a - 1) <= 0.08;
+        if (!synced) {
+            if (ours) {
                 set(to, "sync_enabled", 0);
             }
+            heading.clear();
+            return;
+        }
+        set(to, "keylock", 1);
+        set(to, "quantize", 1);
+        set(from, "keylock", 1);
+        const double duration = get(from, "duration"), now = get(from, "playposition") * duration;
+        const double fileFrom = get(from, "file_bpm");
+        const double beat = fileFrom > 0 ? 60 / fileFrom : 0.5;   // (in the playing track's own seconds)
+        const bool there = std::abs(a - want) < 0.05;
+        if (!there && heading.isEmpty() && target != want && (transitionAt < 0 || now >= transitionAt - 32 * beat)) {
+            heading = from;   // to the next one's tempo, over 16 beats
+            target = want;
+            headStep = (rateFor(from, want) - get(from, "rate")) / std::max(1.0, 16 * 60.0 / a / 0.25);
+            set(from, "sync_enabled", 0);
+        }
+        if (heading == from) {
+            const double goal = rateFor(from, target);
+            double r = get(from, "rate") + headStep;
+            if ((headStep >= 0 && r >= goal) || (headStep < 0 && r <= goal)) {
+                r = goal;
+                heading.clear();   // (there, or as near as its slider goes)
+            }
+            set(from, "rate", r);
+            return;
+        }
+        // matched (or the mix about to start): the two synced, the playing one leading, so the next one starts at its
+        // own tempo, its beats on the playing one's
+        if (there || (transitionAt >= 0 && now >= transitionAt - 2 * beat)) {
+            set(from, "sync_enabled", 1);
+            set(to, "sync_enabled", 1);
+            ours = true;
         }
     }
 };
@@ -325,6 +374,11 @@ class MixPlanner {
                 pp->fadeNow();
             }
         });
+    }
+
+    // Where the planned mix starts, seconds into the playing track (-1: none planned: Mixxx's own)
+    double exitAt() const {
+        return m_planned && !m_fired ? m_exit : -1;
     }
 
     // The next transition as planned, for the pages: {out, outAt, in, inAt, style, bars}
@@ -579,7 +633,7 @@ std::shared_ptr<MixHolder>& mixHolder() {
     return holder;
 }
 
-Beatmatch& beatmatch() {   // (one Auto DJ: the hub's thread's)
+Beatmatch& beatmatch() {   // (one Auto DJ: on Mixxx's main thread, with the phrase mixing)
     static Beatmatch b;
     return b;
 }
@@ -879,7 +933,14 @@ void AutoDj::topUp() {
     if (queued >= kAhead) {
         return;
     }
-    const QList<int> picked = m_pLibrary->pick(m_pool, kAhead - queued);
+    // the tempo they follow: the queue's last track's, else the playing deck's
+    double after = m_pLibrary->autoDjQueueTailBpm();
+    for (const QString group : {QStringLiteral("[Channel1]"), QStringLiteral("[Channel2]")}) {
+        if (after <= 0 && ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0) {
+            after = ControlObject::get(ConfigKey(group, QStringLiteral("file_bpm")));
+        }
+    }
+    const QList<int> picked = m_pLibrary->pick(m_pool, kAhead - queued, after);
     if (picked.isEmpty()) {
         return;
     }
@@ -924,9 +985,6 @@ void AutoDj::autoplayTick() {
     }
 }
 
-void AutoDj::beatmatchTick() {
-    beatmatch().tick(m_pConfig->getValue(ConfigKey(kZyDeck, QStringLiteral("AutoDjBeatmatch")), 0) == 1);
-}
 
 void AutoDj::startMixing() {
     if (mixHolder()) {
@@ -947,6 +1005,16 @@ void AutoDj::startMixing() {
                 QFile f(structures.arg(id));
                 return f.open(QIODevice::ReadOnly) ? mixSections(QJsonDocument::fromJson(f.readAll()).object()) : QList<MixSection>();
             }, QCoreApplication::instance());
+            // the beatmatching, with where the mix starts: the planned exit, else where Mixxx's Auto DJ will start it
+            double at = holder->planner.exitAt();
+            if (AutoDJProcessor* p = holder->processor; at < 0 && p) {
+                for (const QString g : {QStringLiteral("[Channel1]"), QStringLiteral("[Channel2]")}) {
+                    if (ControlObject::get(ConfigKey(g, QStringLiteral("play"))) > 0) {
+                        at = transitionStart(g, p->getTransitionMode(), p->getTransitionTime());
+                    }
+                }
+            }
+            beatmatch().tick(holder->config->getValue(ConfigKey(kZyDeck, QStringLiteral("AutoDjBeatmatch")), 0) == 1, at);
         });
         timer->start();
     });

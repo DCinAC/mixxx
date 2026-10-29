@@ -150,8 +150,12 @@ QJsonArray Library::tracks(const QString& search, const QString& view, const QSt
     return zydeck::library::tracks(m_db, only(), search, view, sort, limit, offset, genre, m_loaded);
 }
 
-QList<int> Library::pick(const zydeck::library::Pool& pool, int count) {
-    return open() ? zydeck::library::pick(m_db, only(), pool, count) : QList<int>();
+QList<int> Library::pick(const zydeck::library::Pool& pool, int count, double after) {
+    return open() ? zydeck::library::pick(m_db, only(), pool, count, after) : QList<int>();
+}
+
+double Library::autoDjQueueTailBpm() {
+    return open() ? zydeck::library::autoDjQueueTailBpm(m_db) : 0;
 }
 
 QJsonArray Library::tracksIn(const QList<int>& ids, const QString& search, const QString& sort, int limit, int offset, const QString& genre) {

@@ -406,7 +406,15 @@ int Web::autoplayTopUp(Library* library) {
     constexpr int kAhead = 2;
     const zydeck::library::Pool pool = zydeck::library::Pool::fromJson(
             QJsonDocument::fromJson(QSettings().value(QStringLiteral("autoplay/pool")).toByteArray()).object());
-    const QList<int> ids = library->pick(pool, kAhead - library->autoDjQueueLength());
+    // the tempo they follow: the queue's last track's, else the playing deck's (as Mixxx ZyDeck says)
+    double after = library->autoDjQueueTailBpm();
+    if (after <= 0) {
+        QFile f(mixxxDir() + QStringLiteral("/zydeck-autodj-state.json"));
+        if (f.open(QIODevice::ReadOnly)) {
+            after = QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("bpm")).toDouble();
+        }
+    }
+    const QList<int> ids = library->pick(pool, kAhead - library->autoDjQueueLength(), after);
     QList<int> history = autoplayHistory();
     for (int id : ids) {
         askAutoDj({{"do", "add"}, {"track", id}, {"where", "bottom"}});

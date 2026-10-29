@@ -259,7 +259,6 @@ class Hub : public QObject {
     // ZyDeck starts (Mixxx on Android doesn't keep its samplers between runs)
     QTimer m_lastSessionTimer;
     QTimer m_autoplayTimer;   // autoplay's top-up (zydekautodj.h)
-    QTimer m_beatmatchTimer;  // Auto DJ's beatmatching (likewise)
     bool m_lastSessionRestored = false;
     void restoreLastSession(int tries);
     ZydekController* m_pController = nullptr;

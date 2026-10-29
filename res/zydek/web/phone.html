@@ -1586,7 +1586,8 @@ function paintAdj() {
   const names = [...$("#genre").options].map(o => o.value).filter(v => v && v !== NO_GENRE);
   const shown = [...new Set([...names.slice(0, 24), ...(ap.genres || []), ...(ap.skip || [])])];
   const apSummary = [ap.genres?.length ? ap.genres.join(", ") : "every genre", ap.skip?.length ? `not ${ap.skip.join(", ")}` : "",
-    ap.bpmMin || ap.bpmMax ? `${ap.bpmMin || "any"}–${ap.bpmMax || "any"} BPM` : ""].filter(Boolean).join(" · ");
+    ap.bpmMin || ap.bpmMax ? `${ap.bpmMin || "any"}–${ap.bpmMax || "any"} BPM` : "",
+    (ap.tempo ?? 8) ? `tempos within ${ap.tempo ?? 8} %` : ""].filter(Boolean).join(" · ");
   box.innerHTML =
     `<div class="row"><button class="ap${ap.on ? " on" : ""}">${ap.on ? "Autoplay on" : "Autoplay the library"}` +
     `<small style="display:block;font-weight:400;font-size:12px;color:var(--dim)">${esc(apSummary)} · at random, none twice a session</small></button></div>` +
@@ -1594,7 +1595,9 @@ function paintAdj() {
     `<div class="sub">Genres: tap once to play only those, twice to leave one out</div>` +
     `<div class="apg">${shown.map(g => `<button data-g="${esc(g)}" class="${has(ap.genres, g) ? "in" : has(ap.skip, g) ? "out" : ""}">${esc(g)}</button>`).join("")}</div>` +
     `<div class="row"><label>BPM from <input type="number" class="bmin" min="0" max="300" inputmode="numeric" value="${ap.bpmMin || ""}" placeholder="any"></label>` +
-    `<label>to <input type="number" class="bmax" min="0" max="300" inputmode="numeric" value="${ap.bpmMax || ""}" placeholder="any"></label></div></details>` +
+    `<label>to <input type="number" class="bmax" min="0" max="300" inputmode="numeric" value="${ap.bpmMax || ""}" placeholder="any"></label></div>` +
+    `<div class="row"><label>Each next track within <select class="tempo">${[0, 4, 6, 8, 10, 12].map(t =>
+      `<option value="${t}"${t === (ap.tempo ?? 8) ? " selected" : ""}>${t ? `${t} %` : "any"}</option>`).join("")}</select> of the one before's tempo (half / double too)</label></div></details>` +
     `<div class="row"><button class="onoff${a.on ? " on" : ""}">${a.on ? "Auto DJ on" : "Auto DJ off"}</button>` +
     `<button class="fade"${a.on ? "" : " disabled"}>Fade now</button></div>` +
     `<div class="row"><button class="skiptrack"${a.on ? "" : " disabled"}>Skip this track<small style="display:block;font-size:11px;color:var(--dim)">to its transition</small></button>` +
@@ -1617,7 +1620,7 @@ function paintAdj() {
       `<label>Out <select class="mxout">${MIX_OUT.map(([k, n]) => `<option value="${k}"${k === a.mix.exit ? " selected" : ""}>${n}</option>`).join("")}</select></label></div>` +
       `<div class="row"><label>Over <select class="mxbars">${[4, 8, 16, 32].map(b => `<option value="${b}"${b === a.mix.bars ? " selected" : ""}>${b} bars</option>`).join("")}</select></label>` +
       `<label>Style <select class="mxstyle">${MIX_STYLE.map(([k, n]) => `<option value="${k}"${k === a.mix.style ? " selected" : ""}>${n}</option>`).join("")}</select></label></div>` : "") +
-    `<div class="row"><label><input type="checkbox" class="bm"${a.beatmatch ? " checked" : ""}> Beatmatch: sync the transition when the tempos are within 8 %, then back to the track's own tempo</label></div>` +
+    `<div class="row"><label><input type="checkbox" class="bm"${a.beatmatch ? " checked" : ""}> Beatmatch: when the tempos are within 8 %, the old track goes to the new one's tempo before the mix, then the two sync (the new one plays at its own tempo)</label></div>` +
     `<div class="row"><label><input type="checkbox" class="rq"${a.requeue ? " checked" : ""}> Played tracks go back to the end</label></div>` +
     `<div class="sub">Source crates (random tracks come from these; none: the whole library)</div>` +
     `<div class="srcs">${a.crates.map(c => `<button data-c="${c.id}" class="${c.source ? "on" : ""}">${esc(c.name)} <small>${c.count}</small></button>`).join("") ||
@@ -1628,7 +1631,7 @@ function paintAdj() {
   q(".apd").ontoggle = e => store.set("adjap", e.target.open);
   const setAutoplay = (on, pool) => adjDo(`/api/autodj/autoplay?${qs({ on: on ? 1 : 0, pool: JSON.stringify(pool) })}`,
     on && !ap.on ? "Autoplay on: Auto DJ plays the library" : null);
-  const poolNow = () => ({ genres: ap.genres || [], skip: ap.skip || [], bpmMin: ap.bpmMin || 0, bpmMax: ap.bpmMax || 0 });
+  const poolNow = () => ({ genres: ap.genres || [], skip: ap.skip || [], bpmMin: ap.bpmMin || 0, bpmMax: ap.bpmMax || 0, tempo: ap.tempo ?? 8 });
   q(".ap").onclick = () => setAutoplay(!ap.on, poolNow());
   box.querySelectorAll(".apg button").forEach(b => b.onclick = () => {
     const g = b.dataset.g, p = poolNow(), drop = list => list.filter(x => genreKey(x) !== genreKey(g));
@@ -1639,6 +1642,7 @@ function paintAdj() {
   });
   const bpm = () => { const p = poolNow(); p.bpmMin = +q(".bmin").value || 0; p.bpmMax = +q(".bmax").value || 0; q(".bmin").blur(); q(".bmax").blur(); setAutoplay(ap.on, p); };
   q(".bmin").onchange = bpm; q(".bmax").onchange = bpm;
+  q(".tempo").onchange = e => { const p = poolNow(); p.tempo = +e.target.value; setAutoplay(ap.on, p); };
   q(".onoff").onclick = () => adjDo(`/api/autodj/on?on=${a.on ? 0 : 1}`);
   q(".fade").onclick = () => adjDo("/api/autodj/act?do=fade");
   q(".skip").onclick = () => adjDo("/api/autodj/act?do=skip", "Skipped the next track");
