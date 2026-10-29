@@ -1269,6 +1269,7 @@ add_library(
   src/zydek/zydekhttpserver.cpp
   src/zydek/zydekautodj.cpp
   src/zydek/zydeckstructure.cpp
+  src/zydek/zydecklibraryquery.cpp
   src/zydek/zydekstructurecache.cpp
   src/zydek/zydekdiscordrelay.cpp
   src/zydek/zydekhub.cpp
