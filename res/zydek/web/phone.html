@@ -77,13 +77,14 @@
   /* ---- pages ---- */
   main { padding-bottom: calc(var(--tabbar) + var(--safe-b) + 64px); }
   .page { display: none; } .page.on { display: block; }
-  .bar { padding: 8px 10px 6px; display: grid; gap: 8px; position: sticky; top: var(--decks-h, 0px); z-index: 4;
+  .bar { padding: 8px 10px 6px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; position: sticky; top: var(--decks-h, 0px); z-index: 4;
     background: rgba(11,11,11,.96); border-bottom: 1px solid var(--edge); }
   .search { display: flex; gap: 8px; }
   .search input { flex: 1; min-width: 0; height: 42px; border-radius: 12px; border: 1px solid #333; background: #181818; padding: 0 14px; outline: none; }
   .search select { height: 42px; border-radius: 12px; border: 1px solid #333; background: #181818; padding: 0 8px; }
   /* genres: one hue each (from its name), on the track rows, the genre picker and the track sheet */
-  #genre { max-width: 34vw; }
+  .search select { flex: 0 1 auto; min-width: 0; max-width: 30%; }
+  .search input { min-width: 96px; }
   #genre.on { border-color: var(--g, #555); color: var(--g, var(--text)); }
   .meta .a .g { color: var(--g); }
   #sheet .gen { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
@@ -95,6 +96,29 @@
   .chip small { color: var(--dim); margin-left: 4px; }
   .chip.add { color: var(--deck34); border-color: #1f4a63; }
   .chip.fits { border-color: #3d5a2a; color: #b9e08f; }
+  .chip.adj { border-color: #5a3d6e; color: #d6b4f0; }
+  .chip.adj.live::before { content: "● "; color: var(--play); }
+  /* Auto DJ (Mixxx's): its controls above its queue, when the Auto DJ chip is chosen */
+  #adj { display: none; margin: 8px 10px 4px; padding: 10px; border: 1px solid #3c2d4a; border-radius: 12px; background: #141019; }
+  body.adjview #adj { display: grid; gap: 8px; }
+  body.remote #adj { display: none; }
+  #adj .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #adj .row > button { flex: 1 1 90px; min-height: 44px; }
+  #adj .onoff { flex: 2 1 140px !important; font-weight: 700; }
+  #adj .onoff.on { background: #2a1f36; border-color: #b07ee0; color: #e6ccff; }
+  #adj .st { font-size: 13px; color: var(--dim); }
+  #adj .st b { color: var(--text); }
+  #adj label { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--dim); }
+  #adj select { height: 38px; border-radius: 10px; border: 1px solid #333; background: #181818; padding: 0 6px; }
+  #adj .sub { font-size: 12px; color: var(--dim); }
+  #adj details { display: grid; gap: 8px; }
+  #adj details[open] { padding-top: 2px; }
+  #adj details > :not(summary) { margin-top: 8px; }
+  #adj summary { font-size: 13px; color: #c9a8e6; cursor: pointer; }
+  #adj .srcs { display: flex; flex-wrap: wrap; gap: 6px; }
+  #adj .srcs button { min-height: 32px; border-radius: 16px; padding: 0 12px; font-size: 13px; }
+  #adj .srcs button.on { background: #2a1f36; border-color: #b07ee0; color: #e6ccff; }
+  #adj button.armed { border-color: var(--warn, #e0a000); color: var(--warn, #e0a000); }
   /* crate sheet */
   #sheet .crates { display: grid; gap: 6px; margin-top: 12px; }
   #sheet .crates button { min-height: 46px; text-align: left; padding: 0 14px; display: flex; align-items: center; gap: 10px; }
@@ -594,6 +618,7 @@
       <div class="chips" id="views"></div>
     </div>
     <div id="ctlmode"></div>
+    <div id="adj"></div>
     <div class="perm" id="perm-lib"></div>
     <ul class="list" id="tracks"></ul>
     <div class="note" id="libnote"></div>
@@ -1328,16 +1353,18 @@ async function loadViews() {
   const chips = [["all", "All", v.total], ["recent", "Recently played", v.recent || 0], ["stems", "Stems", v.stems],
     ...v.crates.map(c => [`crate:${c.id}`, c.name, c.count]),
     ...v.playlists.map(p => [`playlist:${p.id}`, p.name, p.count]),
-    ...(v.autodj && v.autodj.count ? [[`playlist:${v.autodj.id}`, "Auto DJ", v.autodj.count]] : []),
     ...v.history.slice(0, 6).map(p => [`playlist:${p.id}`, `Set ${p.name}`, p.count])];
   // What fits next: tracks in a key that mixes with the deck's (as it plays now, key shift included) and
   // within 6 % of its tempo (or half / double time). One chip per loaded deck.
   const fits = decks.filter(d => (d.n <= 2 || four) && (d.loaded || view === `fits:${d.n}`)).map(d => [`fits:${d.n}`, `Fits deck ${d.n}`, ""]);
-  chips.splice(1, 0, ...fits);
+  chips.splice(1, 0, ...fits, ...(v.autodj ? [[`playlist:${v.autodj.id}`, "Auto DJ", v.autodj.count]] : []));
+  adjView = v.autodj ? `playlist:${v.autodj.id}` : null;
   if (!chips.some(c => c[0] === view)) view = "all";
   const box = $("#views"); box.innerHTML = "";
   chips.forEach(([id, name, n]) => {
-    const b = h("button", "chip" + (id === view ? " on" : "") + (id.startsWith("fits:") ? " fits" : ""), `${esc(name)}${n === "" ? "" : `<small>${n}</small>`}`);
+    const b = h("button", "chip" + (id === view ? " on" : "") + (id.startsWith("fits:") ? " fits" : "") +
+      (id === adjView ? " adj" + (adj && adj.on ? " live" : "") : ""), `${esc(name)}${n === "" ? "" : `<small>${n}</small>`}`);
+    if (id === adjView) b.id = "adjchip";
     b.addEventListener("click", () => { view = id; store.set("view", id); box.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c === b)); loadTracks(); });
     box.appendChild(b);
   });
@@ -1384,15 +1411,87 @@ function setGenre(g, reload = true) {
   if (reload) loadTracks();
 }
 $("#genre").addEventListener("change", () => setGenre($("#genre").value));
+// ---------------------------------------------------------------------------------------------------
+// Auto DJ: Mixxx's own (the hub's /api/autodj): decks 1 and 2, crossfading down its queue, which random tracks
+// from the source crates (or the whole library, with none) top up. Its controls sit above the queue.
+// ---------------------------------------------------------------------------------------------------
+let adjView = null, adj = null, adjTimer = 0, adjCount = -1;
+const ADJ_MODES = [["intro-outro", "Full intro + outro"], ["outro-start", "Fade at outro start"], ["full-track", "Full track"],
+  ["skip-silence", "Skip silence"], ["skip-silence-full", "Skip silence, start full volume"]];
+const ADJ_STATE = { off: "Off", starting: "Starting deck 1…", playing: "Playing", fading: "Crossfading" };
+async function adjPoll() {
+  clearTimeout(adjTimer);
+  try { adj = await api("/api/autodj"); } catch (e) { adj = null; }
+  if (adj) {
+    paintAdj();
+    if (adjCount >= 0 && adj.queue.count !== adjCount && view === adjView) loadTracks();   // a track was taken, or added
+    adjCount = adj.queue.count;
+    const chip = $("#adjchip");
+    if (chip) { chip.classList.toggle("live", adj.on); const n = chip.querySelector("small"); if (n) n.textContent = adj.queue.count; }
+  }
+  // (while it's in view, or on: every 2 s; otherwise it's looked at when its chip is)
+  if (view === adjView || (adj && adj.on)) adjTimer = setTimeout(adjPoll, view === adjView ? 2000 : 8000);
+}
+async function adjDo(path, okMsg) {
+  try { await api(path); if (okMsg) toast(okMsg, "ok"); } catch (e) { toast(e.message, "bad"); }
+  adjPoll();
+}
+function paintAdj() {
+  const box = $("#adj"), a = adj;
+  if (!a || box.contains(document.activeElement) && document.activeElement.tagName === "SELECT") return;   // (not under a finger)
+  const secs = [-10, -5, -2, 0, 2, 4, 6, 8, 10, 12, 15, 20, 25, 30];
+  if (!secs.includes(a.transition.seconds)) secs.push(a.transition.seconds), secs.sort((x, y) => x - y);
+  const sources = a.crates.filter(c => c.source);
+  box.innerHTML =
+    `<div class="row"><button class="onoff${a.on ? " on" : ""}">${a.on ? "Auto DJ on" : "Auto DJ off"}</button>` +
+    `<button class="fade"${a.on ? "" : " disabled"}>Fade now</button><button class="skip"${a.on ? "" : " disabled"}>Skip next</button></div>` +
+    `<div class="st"><b>${ADJ_STATE[a.state] || a.state}</b> · ${a.queue.count} in the queue · decks 1 and 2, by the crossfader</div>` +
+    `<details${store.get("adjcfg", false) ? " open" : ""}><summary>${esc(ADJ_MODES.find(m => m[0] === a.transition.mode)?.[1] || "Transition")}, ` +
+    `${a.transition.seconds < 0 ? `${-a.transition.seconds} s gap` : `${a.transition.seconds} s`} · ` +
+    `${a.random.on ? `tops up from ${sources.length ? sources.map(c => esc(c.name)).join(", ") : "the whole library"}` : "no top-up"}</summary>` +
+    `<div class="row"><label>Transition <select class="mode">${ADJ_MODES.map(([k, n]) =>
+      `<option value="${k}"${k === a.transition.mode ? " selected" : ""}>${n}</option>`).join("")}</select></label>` +
+    `<label><select class="secs">${secs.map(x => `<option value="${x}"${x === a.transition.seconds ? " selected" : ""}>${x < 0 ? `${-x} s gap` : `${x} s`}</option>`).join("")}</select></label></div>` +
+    `<div class="row"><label><input type="checkbox" class="rnd"${a.random.on ? " checked" : ""}> Top up to</label>` +
+    `<select class="min">${[1, 2, 3, 5, 10, 20].map(x => `<option${x === a.random.min ? " selected" : ""}>${x}</option>`).join("")}</select>` +
+    `<label>tracks, at random</label></div>` +
+    `<div class="row"><label><input type="checkbox" class="rq"${a.requeue ? " checked" : ""}> Played tracks go back to the end</label></div>` +
+    `<div class="sub">Source crates (random tracks come from these; none: the whole library)</div>` +
+    `<div class="srcs">${a.crates.map(c => `<button data-c="${c.id}" class="${c.source ? "on" : ""}">${esc(c.name)} <small>${c.count}</small></button>`).join("") ||
+      `<span class="sub">No crates yet: make one with + Crate.</span>`}</div></details>` +
+    `<div class="row"><button class="rand">+ Random track</button><button class="shuf">Shuffle</button><button class="clr">Clear queue</button></div>`;
+  const q = sel => box.querySelector(sel);
+  q("details").ontoggle = e => store.set("adjcfg", e.target.open);
+  q(".onoff").onclick = () => adjDo(`/api/autodj/on?on=${a.on ? 0 : 1}`);
+  q(".fade").onclick = () => adjDo("/api/autodj/act?do=fade");
+  q(".skip").onclick = () => adjDo("/api/autodj/act?do=skip", "Skipped the next track");
+  q(".mode").onchange = e => adjDo(`/api/autodj/transition?${qs({ mode: e.target.value })}`);
+  q(".secs").onchange = e => adjDo(`/api/autodj/transition?${qs({ seconds: e.target.value })}`);
+  q(".rnd").onchange = e => adjDo(`/api/autodj/options?${qs({ random: e.target.checked ? 1 : 0 })}`);
+  q(".min").onchange = e => adjDo(`/api/autodj/options?${qs({ min: e.target.value, random: a.random.on ? 1 : "" })}`);
+  q(".rq").onchange = e => adjDo(`/api/autodj/options?${qs({ requeue: e.target.checked ? 1 : 0 })}`);
+  box.querySelectorAll(".srcs button").forEach(b => b.onclick = () =>
+    adjDo(`/api/autodj/source?${qs({ crate: b.dataset.c, on: b.classList.contains("on") ? 0 : 1 })}`));
+  q(".rand").onclick = () => adjDo("/api/autodj/act?do=random");
+  q(".shuf").onclick = () => adjDo("/api/autodj/act?do=shuffle", "Shuffled");
+  q(".clr").onclick = e => {
+    const b = e.currentTarget;
+    if (!b.classList.contains("armed")) { b.classList.add("armed"); b.textContent = "Clear it?"; setTimeout(() => { if (b.isConnected) { b.classList.remove("armed"); b.textContent = "Clear queue"; } }, 3000); return; }
+    adjDo("/api/autodj/clear", "Queue cleared");
+  };
+}
 // The list loads 300 tracks at a time; scrolling to its end loads the next 300.
 const PAGE = 300;
 let libShown = 0, libMore = false, libBusy = false;
 async function loadTracks(more = false) {
   if (more && (!libMore || libBusy)) return;
-  const seq = more ? libSeq : ++libSeq, q = $("#q").value.trim(), sort = $("#sort").value, offset = more ? libShown : 0;
+  const queue = view === adjView;   // (the Auto DJ queue: in its order, all of it, whatever the genre)
+  document.body.classList.toggle("adjview", queue);
+  if (queue && !more) adjPoll();
+  const seq = more ? libSeq : ++libSeq, q = $("#q").value.trim(), sort = queue ? "added" : $("#sort").value, offset = more ? libShown : 0;
   let list;
   libBusy = true;
-  try { list = await api(`/api/library/tracks?${qs({ q, view, sort, limit: PAGE, offset, genre })}`); }
+  try { list = await api(`/api/library/tracks?${qs({ q, view, sort, limit: PAGE, offset, genre: queue ? "" : genre })}`); }
   catch (e) { $("#libnote").innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
   finally { libBusy = false; }
   if (seq !== libSeq) return;
@@ -1412,6 +1511,7 @@ async function loadTracks(more = false) {
     ul.appendChild(li);
   });
   $("#libnote").textContent = libShown ? (libMore ? "Loading more…" : `${libShown} tracks`) :
+    queue ? "The queue is empty: add tracks from their menu (Auto DJ: add), or let a source crate fill it." :
     q || genre ? "Nothing matches." : "No tracks yet: add a music folder on the Folders tab.";
 }
 new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) loadTracks(true); }, { rootMargin: "600px" }).observe($("#libnote"));
@@ -1719,6 +1819,9 @@ async function openSheet(t) {
     `<div class="facts"><div><b>${t.bpm ? t.bpm.toFixed(1) : "—"}</b>BPM</div><div><b>${esc(keyText(t) || "—")}</b>Key</div>` +
     `<div><b>${fmtTime(t.duration)}</b>Length</div><div><b>${t.played || 0}</b>Played</div></div>` +
     `<div class="loads"></div><div class="more"><button class="pv">Preview (headphones)</button><button class="smp">Load to sampler</button></div>` +
+    (adjView && !remote.on ? `<div class="more adjrow">${view === adjView
+      ? `<button class="adjrm wide">Take out of the Auto DJ queue</button>`
+      : `<button class="adjadd">Auto DJ: add<small>to the end of the queue</small></button><button class="adjnext">Auto DJ: next<small>after the one loaded</small></button>`}</div>` : "") +
     (!t.missing ? `<div class="pvn"><canvas></canvas><div class="played"></div><div class="ph"></div><span class="tm"></span>` +
       `<span class="hint">Touch the waveform to preview from there</span></div>` : "") +
     `<hr>${tools ? `<div class="more">${tools}</div>` : ""}` +
@@ -1749,6 +1852,12 @@ async function openSheet(t) {
   if (!t.missing) previewNeedle(s.querySelector(".pvn"), t);
   s.querySelector(".smp").disabled = t.missing;
   s.querySelector(".smp").addEventListener("click", () => load(t, "sampler"));
+  const adjBtn = (cls, path, msg) => { const b = s.querySelector(cls); if (b) b.addEventListener("click", async () => {
+    try { await api(path); toast(msg, "ok"); closeSheet(); if (view === adjView) loadTracks(); adjPoll(); } catch (e) { toast(e.message, "bad"); }
+  }); };
+  adjBtn(".adjadd", `/api/autodj/add?${qs({ id: t.id, where: "bottom" })}`, "Added to the Auto DJ queue");
+  adjBtn(".adjnext", `/api/autodj/add?${qs({ id: t.id, where: "top" })}`, "Auto DJ plays it next");
+  adjBtn(".adjrm", `/api/autodj/remove?${qs({ id: t.id })}`, "Taken out of the queue");
   // a genre: the library shows only that genre (tapped again: all of them)
   s.querySelectorAll(".gen button").forEach(b => b.addEventListener("click", () => {
     const g = b.dataset.g;
