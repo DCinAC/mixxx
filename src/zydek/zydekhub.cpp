@@ -700,7 +700,11 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
                 view,
                 arg("sort").isEmpty() ? QStringLiteral("added") : arg("sort"),
                 arg("limit").isEmpty() ? 200 : arg("limit").toInt(),
-                arg("offset").toInt()));
+                arg("offset").toInt(),
+                arg("genre")));
+    }
+    if (path == QLatin1String("/api/library/genres")) {
+        return json(m_library.genres());
     }
     if (path.startsWith(QLatin1String("/api/library/track/"))) {
         const QJsonObject t = m_library.track(path.section(QLatin1Char('/'), 4).toInt());

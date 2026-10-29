@@ -82,6 +82,13 @@
   .search { display: flex; gap: 8px; }
   .search input { flex: 1; min-width: 0; height: 42px; border-radius: 12px; border: 1px solid #333; background: #181818; padding: 0 14px; outline: none; }
   .search select { height: 42px; border-radius: 12px; border: 1px solid #333; background: #181818; padding: 0 8px; }
+  /* genres: one hue each (from its name), on the track rows, the genre picker and the track sheet */
+  #genre { max-width: 34vw; }
+  #genre.on { border-color: var(--g, #555); color: var(--g, var(--text)); }
+  .meta .a .g { color: var(--g); }
+  #sheet .gen { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  #sheet .gen button { min-height: 30px; border-radius: 15px; padding: 0 12px; font-size: 13px; color: var(--g); border-color: var(--g); background: #151515; }
+  #sheet .gen button.on { background: var(--g); color: #0b0b0b; }
   .chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
   .chips::-webkit-scrollbar { display: none; }
   .chip { flex: none; min-height: 32px; border-radius: 16px; padding: 0 12px; font-size: 13px; background: #181818; color: #cfcfcf; }
@@ -582,7 +589,8 @@
       <div class="search"><input id="q" type="search" placeholder="Search library" autocomplete="off" enterkeyhint="search">
         <select id="sort" aria-label="Sort"><option value="added">Newest</option><option value="artist">Artist</option>
           <option value="title">Title</option><option value="bpm">BPM</option><option value="key">Key</option><option value="played">Most played</option>
-          <option value="loaded">Recently loaded</option></select></div>
+          <option value="loaded">Recently loaded</option></select>
+        <select id="genre" aria-label="Genre"><option value="">All genres</option></select></div>
       <div class="chips" id="views"></div>
     </div>
     <div id="ctlmode"></div>
@@ -1337,7 +1345,41 @@ async function loadViews() {
   add.addEventListener("click", () => openCrateSheet(null));
   box.appendChild(add);
   crateList = v.crates;
+  loadGenres();
 }
+// Genres (the hub splits "House; Tech House" into both): a filter beside the sort, on top of any view (a crate's
+// house tracks), and shown on each track. genre "" is all of them, ":none" the tracks without one.
+const NO_GENRE = ":none";
+let genre = store.get("genre", ""), genreList = [];
+// a genre's hue, from its name (the same genre, the same colour, everywhere)
+function genreHue(name) { let x = 0; for (const c of name.toLowerCase()) x = (x * 31 + c.codePointAt(0)) >>> 0; return x % 360; }
+const genreColor = name => `hsl(${genreHue(name)} 55% 66%)`;
+// as the hub splits a genre field: ; , | and a spaced / ("Hip-Hop/Rap" is one genre)
+const splitGenres = f => (f || "").split(/\s*[;,|]\s*|\s+\/\s+/).map(g => g.trim().replace(/\s+/g, " ")).filter(Boolean);
+async function loadGenres() {
+  let g;
+  try { g = await api("/api/library/genres"); } catch { return; }
+  genreList = g.genres;
+  const sel = $("#genre");
+  sel.innerHTML = `<option value="">All genres</option>` +
+    g.genres.map(x => `<option value="${esc(x.name)}">${esc(x.name)} (${x.count})</option>`).join("") +
+    (g.none ? `<option value="${NO_GENRE}">No genre (${g.none})</option>` : "");
+  if (genre && genre !== NO_GENRE && !g.genres.some(x => x.name.toLowerCase() === genre.toLowerCase())) setGenre("", false);
+  else { const o = [...sel.options].find(o => o.value.toLowerCase() === genre.toLowerCase()); sel.value = o ? o.value : ""; paintGenre(); }
+}
+function paintGenre() {
+  const sel = $("#genre");
+  sel.classList.toggle("on", !!genre);
+  sel.style.setProperty("--g", genre && genre !== NO_GENRE ? genreColor(genre) : "");
+}
+function setGenre(g, reload = true) {
+  genre = g; store.set("genre", g);
+  const sel = $("#genre"), o = [...sel.options].find(o => o.value.toLowerCase() === g.toLowerCase());
+  sel.value = o ? o.value : "";
+  paintGenre();
+  if (reload) loadTracks();
+}
+$("#genre").addEventListener("change", () => setGenre($("#genre").value));
 // The list loads 300 tracks at a time; scrolling to its end loads the next 300.
 const PAGE = 300;
 let libShown = 0, libMore = false, libBusy = false;
@@ -1346,7 +1388,7 @@ async function loadTracks(more = false) {
   const seq = more ? libSeq : ++libSeq, q = $("#q").value.trim(), sort = $("#sort").value, offset = more ? libShown : 0;
   let list;
   libBusy = true;
-  try { list = await api(`/api/library/tracks?${qs({ q, view, sort, limit: PAGE, offset })}`); }
+  try { list = await api(`/api/library/tracks?${qs({ q, view, sort, limit: PAGE, offset, genre })}`); }
   catch (e) { $("#libnote").innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
   finally { libBusy = false; }
   if (seq !== libSeq) return;
@@ -1358,14 +1400,15 @@ async function loadTracks(more = false) {
     if (t.color != null) li.style.borderLeftColor = `#${(t.color & 0xffffff).toString(16).padStart(6, "0")}`;
     li.appendChild(h("div", "art", esc((t.title || "?").trim().charAt(0).toUpperCase())));
     li.appendChild(h("div", "meta", `<div class="t">${esc(t.title)}</div><div class="a">${t.stems ? '<span class="badge stem">STEMS</span>' : ""}` +
-      `${t.missing ? '<span class="badge miss">MISSING</span>' : ""}${esc(t.artist || "Unknown artist")}</div>`));
+      `${t.missing ? '<span class="badge miss">MISSING</span>' : ""}${esc(t.artist || "Unknown artist")}` +
+      splitGenres(t.genre).map(g => ` · <span class="g" style="--g:${genreColor(g)}">${esc(g)}</span>`).join("") + `</div>`));
     li.appendChild(h("div", "num", `<div class="bpm">${t.bpm ? t.bpm.toFixed(t.bpm % 1 ? 1 : 0) : "—"}${keyChip(t)}</div><div>${fmtTime(t.duration)}</div>`));
     li.addEventListener("click", () => { if (!li._long) openSheet(t); li._long = false; });
     onLongPress(li, () => { li._long = true; openSheet(t); });
     ul.appendChild(li);
   });
   $("#libnote").textContent = libShown ? (libMore ? "Loading more…" : `${libShown} tracks`) :
-    q ? "Nothing matches." : "No tracks yet: add a music folder on the Folders tab.";
+    q || genre ? "Nothing matches." : "No tracks yet: add a music folder on the Folders tab.";
 }
 new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) loadTracks(true); }, { rootMargin: "600px" }).observe($("#libnote"));
 let qT;
@@ -1667,6 +1710,8 @@ async function openSheet(t) {
   const removal = `<button class="remove wide">Remove file from library<small>asks first; the file stays unless you say</small></button>`;
   s.innerHTML = `<div class="grip"></div><div class="t">${esc(t.title)}</div>` +
     `<div class="a">${esc(t.artist || "Unknown artist")}${t.album ? " · " + esc(t.album) : ""}</div>` +
+    (splitGenres(t.genre).length ? `<div class="gen">${splitGenres(t.genre).map(g => `<button data-g="${esc(g)}" style="--g:${genreColor(g)}"` +
+      ` class="${g.toLowerCase() === genre.toLowerCase() ? "on" : ""}">${esc(g)}</button>`).join("")}</div>` : "") +
     `<div class="facts"><div><b>${t.bpm ? t.bpm.toFixed(1) : "—"}</b>BPM</div><div><b>${esc(keyText(t) || "—")}</b>Key</div>` +
     `<div><b>${fmtTime(t.duration)}</b>Length</div><div><b>${t.played || 0}</b>Played</div></div>` +
     `<div class="loads"></div><div class="more"><button class="pv">Preview (headphones)</button><button class="smp">Load to sampler</button></div>` +
@@ -1700,6 +1745,15 @@ async function openSheet(t) {
   if (!t.missing) previewNeedle(s.querySelector(".pvn"), t);
   s.querySelector(".smp").disabled = t.missing;
   s.querySelector(".smp").addEventListener("click", () => load(t, "sampler"));
+  // a genre: the library shows only that genre (tapped again: all of them)
+  s.querySelectorAll(".gen button").forEach(b => b.addEventListener("click", () => {
+    const g = b.dataset.g, same = g.toLowerCase() === genre.toLowerCase();
+    closeSheet();
+    if (same) return setGenre("");
+    // (a genre the picker doesn't have yet, e.g. the track was just tagged: the list again first)
+    if (![...$("#genre").options].some(o => o.value.toLowerCase() === g.toLowerCase())) loadGenres().then(() => setGenre(g));
+    else setGenre(g);
+  }));
   s.querySelector(".mkstems")?.addEventListener("click", () => { closeSheet(); makeStems(t); });
   // The Stems crate (like Serato's): stems made ahead, in the background; taking it out deletes them
   const sc = s.querySelector(".scrate");

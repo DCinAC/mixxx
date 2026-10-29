@@ -2,11 +2,14 @@
 #include "zydek/zydeckshared.h"
 #include "zydek/zydekmain.h"
 
+#include <algorithm>
+
 #include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonDocument>
 #include <QMetaObject>
 #include <QMutex>
@@ -59,6 +62,20 @@ constexpr int kAutoDj = 1;
 constexpr int kHistory = 2;
 constexpr int kMaxSamplers = 64;
 const QString kExcludedFile = QStringLiteral("zydek-excluded.json");
+
+// A track's genres from its genre field: "House; Tech House", "Disco, Funk", "Pop / Rock" (; , | and a spaced /,
+// not "Hip-Hop/Rap", one genre)
+QStringList splitGenres(const QString& field) {
+    static const QRegularExpression separator(QStringLiteral(R"(\s*[;,|]\s*|\s+/\s+)"));
+    QStringList out;
+    for (const QString& g : field.split(separator, Qt::SkipEmptyParts)) {
+        const QString name = g.simplified();
+        if (!name.isEmpty()) {
+            out.append(name);
+        }
+    }
+    return out;
+}
 
 const QStringList kAudioSuffixes = {"mp3", "flac", "wav", "aiff", "aif", "m4a", "mp4", "ogg", "opus", "wv", "alac"};
 
@@ -252,7 +269,78 @@ QJsonObject Library::views() {
     return {{"total", total}, {"stems", stems}, {"recent", recent}, {"crates", crates}, {"playlists", playlists}, {"autodj", autodj}, {"history", history}};
 }
 
-QJsonArray Library::tracks(const QString& search, const QString& view, const QString& sort, int limit, int offset) {
+QList<QPair<QString, int>> Library::genreFields() {
+    QList<QPair<QString, int>> out;
+    if (!open()) {
+        return out;
+    }
+    QVariantList args;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT l.genre, count(*) FROM %1 WHERE l.mixxx_deleted = 0 AND %2 GROUP BY l.genre")
+                      .arg(kTrackFrom, notExcluded(&args)));
+    for (const QVariant& a : std::as_const(args)) {
+        q.addBindValue(a);
+    }
+    if (!q.exec()) {
+        qWarning() << "Zydek: genre query failed:" << q.lastError().text();
+        return out;
+    }
+    while (q.next()) {
+        out.append({q.value(0).toString(), q.value(1).toInt()});
+    }
+    return out;
+}
+
+QJsonObject Library::genres() {
+    struct Genre {
+        int count = 0;
+        QHash<QString, int> spellings;
+    };
+    QHash<QString, Genre> found;   // by its lower case name
+    int none = 0;
+    for (const auto& [field, n] : genreFields()) {
+        QStringList names = splitGenres(field);
+        names.removeDuplicates();
+        if (names.isEmpty()) {
+            none += n;
+            continue;
+        }
+        QSet<QString> seen;   // ("House; house": once)
+        for (const QString& name : std::as_const(names)) {
+            const QString k = name.toLower();
+            if (seen.contains(k)) {
+                continue;
+            }
+            seen.insert(k);
+            Genre& g = found[k];
+            g.count += n;
+            g.spellings[name] += n;
+        }
+    }
+    QList<QPair<QString, int>> list;
+    for (auto it = found.cbegin(); it != found.cend(); ++it) {
+        QString shown;
+        int most = -1;
+        for (auto s = it->spellings.cbegin(); s != it->spellings.cend(); ++s) {
+            if (s.value() > most || (s.value() == most && s.key() < shown)) {
+                shown = s.key();
+                most = s.value();
+            }
+        }
+        list.append({shown, it->count});
+    }
+    std::sort(list.begin(), list.end(), [](const auto& a, const auto& b) {
+        return a.second != b.second ? a.second > b.second : a.first.compare(b.first, Qt::CaseInsensitive) < 0;
+    });
+    QJsonArray out;
+    for (const auto& [name, count] : std::as_const(list)) {
+        out.append(QJsonObject{{"name", name}, {"count", count}});
+    }
+    return {{"genres", out}, {"none", none}};
+}
+
+QJsonArray Library::tracks(const QString& search, const QString& view, const QString& sort, int limit, int offset,
+        const QString& genre) {
     QJsonArray out;
     if (!open()) {
         return out;
@@ -320,6 +408,23 @@ QJsonArray Library::tracks(const QString& search, const QString& view, const QSt
         }
     }
     where.append(notExcluded(&args));
+    if (!genre.trimmed().isEmpty()) {
+        // the genre fields that hold it, as genres() splits them (SQLite's lower() is only for A-Z: not in SQL)
+        const QString wanted = genre.simplified();
+        QStringList marks;
+        for (const auto& [field, n] : genreFields()) {
+            const QStringList names = splitGenres(field);
+            if (genre == kNoGenre ? names.isEmpty()
+                                  : std::any_of(names.cbegin(), names.cend(), [&](const QString& g) {
+                                        return g.compare(wanted, Qt::CaseInsensitive) == 0;
+                                    })) {
+                marks.append(QStringLiteral("?"));
+                args.append(field);
+            }
+        }
+        const QString in = marks.isEmpty() ? QStringLiteral("0") : QStringLiteral("l.genre IN (%1)").arg(marks.join(QLatin1Char(',')));
+        where.append(genre == kNoGenre ? QStringLiteral("(l.genre IS NULL OR %1)").arg(in) : in);
+    }
     const QStringList words = search.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     for (const QString& word : words) {
         where.append(QStringLiteral(

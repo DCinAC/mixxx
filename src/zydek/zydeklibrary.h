@@ -2,6 +2,8 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QList>
+#include <QPair>
 #include <QSqlDatabase>
 #include <QString>
 #include <QStringList>
@@ -28,7 +30,14 @@ class Library {
     QJsonObject views();
     /// view: all | stems | crate:<id> | playlist:<id>. Every word of q must appear in artist/title/album/genre.
     /// sort: added | artist | title | bpm | key | played | loaded (recently loaded on a deck first).
-    QJsonArray tracks(const QString& q, const QString& view, const QString& sort, int limit, int offset);
+    /// genre: only tracks with that genre among theirs (see genres()), or kNoGenre: those with none.
+    QJsonArray tracks(const QString& q, const QString& view, const QString& sort, int limit, int offset,
+            const QString& genre = QString());
+    /// The library's genres, most tracks first: {genres: [{name, count}], none: tracks without one}. A track's genre
+    /// field can hold several ("House; Tech House", "Disco, Funk", "Pop / Rock": ; , | and a spaced /), and counts
+    /// under each; spelt differently ("hip hop", "Hip Hop"): one genre, under its most used spelling.
+    QJsonObject genres();
+    static inline const QString kNoGenre = QStringLiteral(":none");
     QJsonObject track(int trackId);
     QString location(int trackId);
     /// A deck loaded the track: it goes to the top of "Recently loaded" (zydek-loaded.json).
@@ -99,6 +108,8 @@ class Library {
     static void setSamplerOptions(const QString& group, bool sync, bool repeat, bool keylock = true);
 
   private:
+    /// Each different genre field in the library (what the phone shows), with its number of tracks.
+    QList<QPair<QString, int>> genreFields();
     QJsonObject schedule(const QList<int>& ids, bool add);
     QList<TrackId> trackIdsUnder(const QString& dir, const QString& except, bool hidden);
     QJsonObject renderSample(const TrackPointer& pTrack, double firstFrame, double lastFrame, uint mask, int slot, bool sync, bool keylock);
