@@ -46,7 +46,12 @@ void watchLoadRequests(const std::shared_ptr<PlayerManager>& pPlayerManager, Use
         const QString group = ask.value(QStringLiteral("group")).toString();
         const QString path = ask.value(QStringLiteral("path")).toString();
         const auto fail = [&](const QString& why) { answer(done, {{"id", id}, {"ok", false}, {"error", why}}); };
-        static const QRegularExpression player(QStringLiteral(R"(^\[(Channel|Sampler)\d+\]$)"));
+        static const QRegularExpression player(QStringLiteral(R"(^\[(Channel|Sampler|PreviewDeck)\d+\]$)"));
+        const bool preview = group.startsWith(QLatin1String("[PreviewDeck"));
+        if (preview && ask.value(QStringLiteral("stop")).toBool()) {   // the preview stops
+            ControlObject::set(ConfigKey(group, QStringLiteral("play")), 0);
+            return answer(done, {{"id", id}, {"ok", true}});
+        }
         const std::shared_ptr<PlayerManager> pPlayers = pWeak.lock();
         if (!pPlayers || !player.match(group).hasMatch() || !ControlObject::exists(ConfigKey(group, QStringLiteral("play")))) {
             return fail(QStringLiteral("No such deck"));
@@ -54,11 +59,11 @@ void watchLoadRequests(const std::shared_ptr<PlayerManager>& pPlayerManager, Use
         if (!QFileInfo(path).isFile()) {
             return fail(QStringLiteral("The file isn't there"));
         }
-        if (ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0 &&
+        if (!preview && ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0 &&
                 !pConfig->getValue<bool>(kConfigKeyAllowTrackLoadToPlayingDeck)) {
             return fail(QStringLiteral("That deck is playing"));   // (as Mixxx's own loading: not into a playing deck)
         }
-        pPlayers->slotLoadLocationToPlayer(path, group, false);
+        pPlayers->slotLoadLocationToPlayer(path, group, preview);   // (a preview plays at once, in the headphones)
         answer(done, {{"id", id}, {"ok", true}});
     });
     pTimer->start();

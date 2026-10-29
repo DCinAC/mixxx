@@ -6,6 +6,7 @@
 #include "zydeck/effectlist.h"
 #include "zydeck/prefetch.h"
 #include "zydeck/loadrequest.h"
+#include "zydeck/autodjrequest.h"
 #include "zydeck/discordbroadcast.h"
 #endif
 #include <QFileDialog>
@@ -654,6 +655,9 @@ void CoreServices::initialize(QApplication* pApp) {
     // been created. Otherwise Mixxx might hang when accessing
     // the uninitialized singleton instance!
     m_pPlayerManager->bindToLibrary(m_pLibrary.get());
+#ifdef __ZYDECK__   // ZyDeck: a device's Auto DJ controls, through ZyDeck Connect (zydeck/autodjrequest.h)
+    zydeck::watchAutoDj(m_pLibrary, pConfig);
+#endif
 
     bool musicDirAdded = false;
 

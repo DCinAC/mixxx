@@ -12,6 +12,7 @@ target_sources(
     src/zydeck/decklist.cpp
     src/zydeck/prefetch.cpp
     src/zydeck/loadrequest.cpp
+    src/zydeck/autodjrequest.cpp
     src/zydeck/discordbroadcast.cpp
 )
 target_compile_definitions(mixxx-lib PUBLIC __ZYDECK__)

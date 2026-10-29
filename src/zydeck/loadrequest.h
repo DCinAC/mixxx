@@ -12,6 +12,7 @@ namespace zydeck {
 // Connect writes zydeck-load.json in the settings folder, {"id", "group": "[Channel1]", "path"}; this loads that file
 // with Mixxx's own loader, unless the deck is playing and Mixxx isn't set to allow that (Preferences › Decks), and
 // answers in zydeck-load-done.json, {"id", "ok", "error"}. Plain Mixxx never answers: Connect says so.
+// "[PreviewDeck1]": the library's preview, in the headphones: loaded and played at once; {"stop": true} stops it.
 void watchLoadRequests(const std::shared_ptr<PlayerManager>& pPlayerManager, UserSettingsPointer pConfig);
 
 } // namespace zydeck
