@@ -19,13 +19,13 @@
 #include "track/track.h"
 #include "util/samplebuffer.h"
 #include "zydek/zydeckstructure.h"
+#include "zydek/zydeckstructurejson.h"
 #include "zydek/zydekmain.h"
 
 namespace zydek {
 
 namespace {
 
-constexpr int kVersion = 2;   // (a new algorithm: worked out again)
 constexpr double kRate = 22050;   // about this (the file's rate over a whole number)
 
 QJsonObject error(const QString& message) {
@@ -53,14 +53,7 @@ Grid gridOf(const TrackPointer& pTrack) {
         grid.beats.push_back(it->value() / rate);
     }
     grid.bar = ((firstIndex % 4) + 4) % 4;
-    if (!grid.beats.empty()) {
-        grid.signature = QStringLiteral("%1:%2:%3:%4:%5")
-                                 .arg(kVersion)
-                                 .arg(grid.beats.size())
-                                 .arg(grid.beats.front(), 0, 'f', 3)
-                                 .arg(grid.beats.back(), 0, 'f', 3)
-                                 .arg(grid.bar);
-    }
+    grid.signature = zydeck::structure::signature(grid.beats, grid.bar);
     return grid;
 }
 
@@ -104,29 +97,6 @@ bool decode(const TrackPointer& pTrack, std::vector<float>* pMono, double* pRate
         at = read.frameIndexRange().end();
     }
     return !pMono->empty();
-}
-
-QJsonObject toJson(const zydeck::structure::Result& r, const Grid& grid) {
-    QJsonArray sections;
-    const auto seconds = [&grid](int beat) {
-        return beat < static_cast<int>(grid.beats.size()) ? grid.beats[beat]
-                                                          : grid.beats.back() + (grid.beats.back() - grid.beats[grid.beats.size() - 2]);
-    };
-    for (const auto& s : r.sections) {
-        sections.append(QJsonObject{{"b0", s.startBeat},
-                {"b1", s.endBeat},
-                {"s", std::round(seconds(s.startBeat) * 1000) / 1000},
-                {"e", std::round(seconds(s.endBeat) * 1000) / 1000},
-                {"letter", QString(QChar(s.letter))},
-                {"label", QString::fromStdString(s.label)},
-                {"energy", std::round(s.energy * 100) / 100}});
-    }
-    return {{"ok", true},
-            {"sig", grid.signature},
-            {"bar", r.bar},
-            {"gridBar", grid.bar},
-            {"confidence", std::round(r.confidence * 100) / 100},
-            {"sections", sections}};
 }
 
 } // namespace
@@ -194,7 +164,7 @@ QJsonObject StructureCache::get(int trackId, bool fresh) {
             QDir().mkpath(QFileInfo(file).absolutePath());
             QSaveFile f(file);
             if (f.open(QIODevice::WriteOnly)) {
-                f.write(QJsonDocument(toJson(r, grid)).toJson(QJsonDocument::Compact));
+                f.write(QJsonDocument(zydeck::structure::toJson(r, grid.beats, grid.bar)).toJson(QJsonDocument::Compact));
                 f.commit();
             }
         }

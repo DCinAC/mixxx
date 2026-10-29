@@ -376,7 +376,16 @@ void Hub::start() {
     }
     m_lastSessionTimer.setSingleShot(true);
     m_autoplayTimer.setInterval(4000);
-    connect(&m_autoplayTimer, &QTimer::timeout, this, [this] { m_autoDj.autoplayTick(); });
+    connect(&m_autoplayTimer, &QTimer::timeout, this, [this] {
+        m_autoDj.autoplayTick();
+        // the decks' tracks' sections, for Auto DJ's phrase mixing (worked out once, then kept)
+        for (const QString group : {QStringLiteral("[Channel1]"), QStringLiteral("[Channel2]")}) {
+            if (const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group)) {
+                m_structure.get(pTrack->getId().toVariant().toInt(), false);
+            }
+        }
+    });
+    m_autoDj.startMixing();
     m_autoplayTimer.start();
     m_beatmatchTimer.setInterval(250);
     connect(&m_beatmatchTimer, &QTimer::timeout, this, [this] { m_autoDj.beatmatchTick(); });
@@ -749,6 +758,9 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     }
     if (path == QLatin1String("/api/autodj/clear")) {
         return result(m_autoDj.clear());
+    }
+    if (path == QLatin1String("/api/autodj/mix")) {   // ?entry=&exit=&bars=&style=
+        return result(m_autoDj.setMix({{"entry", arg("entry")}, {"exit", arg("exit")}, {"bars", arg("bars").toInt()}, {"style", arg("style")}}));
     }
     if (path == QLatin1String("/api/autodj/autoplay")) {   // ?on=1|0[&pool={genres, skip, bpmMin, bpmMax}]
         return result(m_autoDj.setAutoplay(arg("on") == QLatin1String("1"), QJsonDocument::fromJson(arg("pool").toUtf8()).object()));

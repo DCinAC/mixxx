@@ -51,6 +51,10 @@ class AutoDj {
     QList<int> autoplayHistory();
     /// Four times a second (the hub's timer): the beatmatching, while it's on and Auto DJ plays
     void beatmatchTick();
+    /// The phrase mixing (zydekautodj.cpp's MixPlanner: by the tracks' sections, zydekstructurecache.h's files), on
+    /// Mixxx's main thread from now on; setMix: its choices, {entry, exit, bars, style} (each given: changed)
+    void startMixing();
+    QJsonObject setMix(const QJsonObject& change);
 
   private:
     void topUp();

@@ -37,6 +37,7 @@ qt_add_executable(zydeck-connect WIN32 MACOSX_BUNDLE
   src/web.cpp src/web.h
   src/profiler.cpp src/profiler.h
   ../../src/zydek/zydecklibraryquery.cpp ../../src/zydek/zydecklibraryquery.h
+  ../../src/zydek/zydeckstructure.cpp ../../src/zydek/zydeckstructure.h ../../src/zydek/zydeckstructurejson.h
   third_party/rtmidi/RtMidi.cpp third_party/rtmidi/RtMidi.h
   third_party/qrcodegen/qrcodegen.cpp third_party/qrcodegen/qrcodegen.hpp
 )

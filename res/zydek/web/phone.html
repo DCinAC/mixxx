@@ -775,6 +775,7 @@ function routed(path) {
     to = "/web/load"; q.set("id", q.get("track_id")); q.delete("track_id");
     if (p === "/api/preview") q.set("target", "preview");
   } else if (p === "/api/preview/stop") to = "/web/preview/stop";
+  else if (p === "/api/structure") to = "/web/structure";
   if (!to) return path;
   q.set("k", remote.key || "");
   return `${remote.http}${to}?${q}`;
@@ -883,7 +884,7 @@ const SECTION_COLORS = { Intro: "#3fbf6f", Verse: "#4a90e2", "Pre-Chorus": "#e0b
   Interlude: "#9b6bd6", Bridge: "#2fb7b0", Outro: "#3fbf6f" };
 async function loadStructure(d, id) {
   d.strFor = id; d.sections = null; d.strVer = (d.strVer || 0) + 1;
-  if (!id || remote.on) return;   // (controller mode: the computer's tracks; not there yet)
+  if (!id || (remote.on && !remote.http)) return;   // (controller mode: the computer's tracks, from ZyDeck Connect)
   for (let tries = 0; d.strFor === id && tries < 100; tries++) {
     let r;
     try { r = await api(`/api/structure?${qs({ id })}`); } catch { return; }   // (it can't: no grid, a file it can't read)
@@ -1533,6 +1534,15 @@ let adjView = null, adj = null, adjTimer = 0, adjCount = -1;
 const ADJ_MODES = [["intro-outro", "Full intro + outro"], ["outro-start", "Fade at outro start"], ["full-track", "Full track"],
   ["skip-silence", "Skip silence"], ["skip-silence-full", "Skip silence, start full volume"]];
 const ADJ_STATE = { off: "Off", starting: "Starting deck 1…", playing: "Playing", fading: "Crossfading" };
+// Phrase mixing (by the tracks' sections): where the next track comes in, where the playing one goes out, how long
+// and how it's mixed
+const MIX_IN = [["land-chorus", "Lands on its chorus"], ["land-verse", "Lands on its verse"], ["chorus", "Starts at its chorus"],
+  ["intro", "At its intro (Mixxx's)"], ["adaptive", "Adaptive (by the energy)"]];
+const MIX_OUT = [["outro", "At the outro"], ["last-chorus", "After the last chorus"], ["second-chorus", "After the second chorus"],
+  ["minutes:3", "After 3 minutes"], ["minutes:4", "After 4 minutes"]];
+const MIX_STYLE = [["adaptive", "Adaptive (by tempo and key)"], ["bassswap", "Bass swap"], ["blend", "Blend"],
+  ["filter", "Filter out"], ["cut", "Cut on the downbeat"]];
+const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 async function adjPoll() {
   clearTimeout(adjTimer);
   try { adj = await api("/api/autodj"); } catch (e) { adj = null; }
@@ -1591,6 +1601,8 @@ function paintAdj() {
     `<button class="skip"${a.on ? "" : " disabled"}>Skip next<small style="display:block;font-size:11px;color:var(--dim)">the queued one</small></button></div>` +
     `<div class="st"><b>${ADJ_STATE[a.state] || a.state}</b> · ${a.queue.count} in the queue · decks 1 and 2, by the crossfader` +
     `${a.ready === false ? " · <b>Mixxx ZyDeck isn't answering</b> (plain Mixxx can't be driven from here)" : ""}</div>` +
+    (a.on && a.plan && a.plan.out ? `<div class="st">Next: out ${esc(a.plan.out)}${a.plan.outAt >= 0 ? ` (${mmss(a.plan.outAt)})` : ""} → in ` +
+      `${esc(a.plan.in)}${a.plan.inAt >= 0 ? ` (${mmss(a.plan.inAt)})` : ""} · ${esc(a.plan.style)}${a.plan.bars ? `, ${a.plan.bars} bars` : ""}</div>` : "") +
     `<details${store.get("adjcfg", false) ? " open" : ""}><summary>${esc(ADJ_MODES.find(m => m[0] === a.transition.mode)?.[1] || "Transition")}, ` +
     `${a.transition.seconds < 0 ? `${-a.transition.seconds} s gap` : `${a.transition.seconds} s`} · ` +
     `${a.random.on ? `tops up from ${sources.length ? sources.map(c => esc(c.name)).join(", ") : "the whole library"}` : "no top-up"}</summary>` +
@@ -1600,6 +1612,11 @@ function paintAdj() {
     `<div class="row"><label><input type="checkbox" class="rnd"${a.random.on ? " checked" : ""}> Top up to</label>` +
     `<select class="min">${[1, 2, 3, 5, 10, 20].map(x => `<option${x === a.random.min ? " selected" : ""}>${x}</option>`).join("")}</select>` +
     `<label>tracks, at random</label></div>` +
+    (a.mix ? `<div class="sub">Mixing, by the tracks' sections</div>` +
+      `<div class="row"><label>In <select class="mxin">${MIX_IN.map(([k, n]) => `<option value="${k}"${k === a.mix.entry ? " selected" : ""}>${n}</option>`).join("")}</select></label>` +
+      `<label>Out <select class="mxout">${MIX_OUT.map(([k, n]) => `<option value="${k}"${k === a.mix.exit ? " selected" : ""}>${n}</option>`).join("")}</select></label></div>` +
+      `<div class="row"><label>Over <select class="mxbars">${[4, 8, 16, 32].map(b => `<option value="${b}"${b === a.mix.bars ? " selected" : ""}>${b} bars</option>`).join("")}</select></label>` +
+      `<label>Style <select class="mxstyle">${MIX_STYLE.map(([k, n]) => `<option value="${k}"${k === a.mix.style ? " selected" : ""}>${n}</option>`).join("")}</select></label></div>` : "") +
     `<div class="row"><label><input type="checkbox" class="bm"${a.beatmatch ? " checked" : ""}> Beatmatch: sync the transition when the tempos are within 8 %, then back to the track's own tempo</label></div>` +
     `<div class="row"><label><input type="checkbox" class="rq"${a.requeue ? " checked" : ""}> Played tracks go back to the end</label></div>` +
     `<div class="sub">Source crates (random tracks come from these; none: the whole library)</div>` +
@@ -1627,6 +1644,13 @@ function paintAdj() {
   q(".skip").onclick = () => adjDo("/api/autodj/act?do=skip", "Skipped the next track");
   q(".skiptrack").onclick = () => adjDo("/api/autodj/act?do=skiptrack", "To this track's transition");
   q(".bm").onchange = e => adjDo(`/api/autodj/options?${qs({ beatmatch: e.target.checked ? 1 : 0 })}`);
+  const mix = (k, v) => adjDo(`/api/autodj/mix?${qs({ [k]: v })}`);
+  if (q(".mxin")) {
+    q(".mxin").onchange = e => mix("entry", e.target.value);
+    q(".mxout").onchange = e => mix("exit", e.target.value);
+    q(".mxbars").onchange = e => mix("bars", e.target.value);
+    q(".mxstyle").onchange = e => mix("style", e.target.value);
+  }
   q(".mode").onchange = e => adjDo(`/api/autodj/transition?${qs({ mode: e.target.value })}`);
   q(".secs").onchange = e => adjDo(`/api/autodj/transition?${qs({ seconds: e.target.value })}`);
   q(".rnd").onchange = e => adjDo(`/api/autodj/options?${qs({ random: e.target.checked ? 1 : 0 })}`);

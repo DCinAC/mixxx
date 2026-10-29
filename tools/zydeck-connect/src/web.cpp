@@ -585,6 +585,8 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
                     ask.insert(QString::fromLatin1(name), number(name));
                 }
             }
+        } else if (act == QLatin1String("mix")) {   // the phrase mixing's choices
+            ask = {{"do", "mix"}, {"entry", arg("entry")}, {"exit", arg("exit")}, {"bars", number("bars")}, {"style", arg("style")}};
         } else if (act == QLatin1String("source")) {
             ask = {{"do", "source"}, {"crate", number("crate")}, {"on", arg("on") == QLatin1String("0") ? 0 : 1}};
         } else if (act == QLatin1String("add")) {

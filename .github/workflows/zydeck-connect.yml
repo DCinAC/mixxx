@@ -38,6 +38,9 @@ jobs:
             src/zydek/zydeckshared.h
             src/zydek/zydecklibraryquery.h
             src/zydek/zydecklibraryquery.cpp
+            src/zydek/zydeckstructure.h
+            src/zydek/zydeckstructure.cpp
+            src/zydek/zydeckstructurejson.h
             res/controllers/Zydek-Tablet.midi.xml
             res/controllers/Zydek-Tablet.script.js
             res/zydek/python/zydek_web.py

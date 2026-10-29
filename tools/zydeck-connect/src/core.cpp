@@ -175,6 +175,10 @@ void Core::decksChanged() {
             continue;   // (an empty slot: the device sees the length go to 0 itself)
         }
         m_decksSent.insert(it.key(), it.value());
+        if (m.captured(1) == QLatin1String("Channel")) {   // its sections, for Mixxx ZyDeck's Auto DJ (and the pages)
+            const int id = t.value(QStringLiteral("id")).toInt();
+            QThreadPool::globalInstance()->start([this, id] { m_waveforms.structure(id); });
+        }
         const QJsonObject n{{"s", m.captured(1) == QLatin1String("Sampler")}, {"i", m.captured(2).toInt() - 1},
                 {"ms", std::round(t.value(QStringLiteral("seconds")).toDouble() * 1000)},
                 {"n", QJsonObject{{"t", t.value(QStringLiteral("title")).toString()},
@@ -483,6 +487,21 @@ void Core::http(QTcpSocket* s, const QByteArray& request) {
                 s->disconnectFromHost();
                 return;
             }
+        } else if ((keyed || mixxx) && url.path() == QLatin1String("/web/structure")) {   // a track's sections (waveforms.h)
+            QPointer<QTcpSocket> guard(s);
+            const int id = query.queryItemValue(QStringLiteral("id")).toInt();
+            QThreadPool::globalInstance()->start([this, guard, id, keyed] {
+                const QJsonObject answer = m_waveforms.structure(id);
+                const QByteArray body = QJsonDocument(answer).toJson(QJsonDocument::Compact);
+                const int st = answer.value(QStringLiteral("ok")).toBool(true) ? 200 : 409;
+                QMetaObject::invokeMethod(this, [guard, st, body, keyed] {
+                    if (guard) {
+                        guard->write(jsonReply(st, body, keyed));
+                        guard->disconnectFromHost();
+                    }
+                });
+            });
+            return;
         } else if ((keyed || mixxx) && (url.path().startsWith(QLatin1String("/web/library/")) || url.path() == QLatin1String("/web/autodj") ||
                                   url.path() == QLatin1String("/web/autodj/autoplay"))) {
             // the library page's lists: read on a worker, as the waveforms are (a big library, a NAS's files looked

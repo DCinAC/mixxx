@@ -20,6 +20,8 @@
 #include <memory>
 
 class QAudioDecoder;
+#include <QJsonObject>
+#include <vector>
 
 namespace zc {
 
@@ -36,12 +38,18 @@ class Waveforms : public QObject {
     /// made now, ahead of everything else. done runs on any thread, with an empty array when the file can't be read
     /// (or this build has no decoder). Safe from any thread.
     void get(int trackId, Done done);
+    /// Track id's structure (zydeckstructure.h: its sections, for the pages and Mixxx ZyDeck's Auto DJ), as the hub's
+    /// /api/structure answers: the file (zydeck-structure/<id>.json in Mixxx's folder) when it's up to date with the
+    /// track's beat grid, else {ok, pending} while it's worked out (from the same decoding as a waveform, ahead of the
+    /// tracks made ahead), or {ok: false, error}. Safe from any thread (it reads the database: not the window's).
+    QJsonObject structure(int trackId);
 
   private:
     struct Job {
         int id = 0;
         QString file, cacheFile;
         QList<Done> done;   // empty: made ahead, nobody waiting
+        bool structure = false;   // its structure wanted (decoded for it even when its waveform's cached)
     };
     struct Analysis;
 
@@ -53,6 +61,7 @@ class Waveforms : public QObject {
     void finish(const QByteArray& packed);
     void planAhead();
     void trimCache();
+    void writeStructure(int trackId, const std::vector<float>& mono);   // (on m_thread)
 
     Library* m_library;
     QString m_cacheDir;

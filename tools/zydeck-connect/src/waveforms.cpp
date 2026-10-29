@@ -1,10 +1,13 @@
 #include "waveforms.h"
+#include "zydeckstructurejson.h"
 
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QUrl>
@@ -127,12 +130,21 @@ struct Waveforms::Analysis {
     int drop = 0;         // frames still to leave out (an MP3's start, as Mixxx has it)
     bool bad = false;     // it didn't come at 44.1 kHz
     QByteArray points;    // all/low/mid/high, a byte each
+    std::vector<float> mono;   // the track, one channel at 22 050 Hz (its structure: zydeckstructure.h)
+    float pair = 0;
+    bool odd = false;
 
     void frame(float left, float right) {
         if (drop > 0) {
             --drop;
             return;
         }
+        if (odd) {   // (two frames averaged: half the rate)
+            mono.push_back((pair + 0.5f * (left + right)) * 0.5f);
+        } else {
+            pair = 0.5f * (left + right);
+        }
+        odd = !odd;
         for (int ch = 0; ch < 2; ++ch) {
             const float s = ch ? right : left;
             peak[0] = std::max(peak[0], std::fabs(s));
@@ -243,24 +255,102 @@ void Waveforms::get(int trackId, Done done) {
 #endif
 }
 
+namespace {
+// The track's beat grid as the structure takes it (Library::beats: from the track's start, and its bar)
+std::vector<double> gridOf(Library* library, int trackId, int* pBar) {
+    const QJsonObject b = library->beats(trackId);
+    std::vector<double> beats;
+    for (const QJsonValue& v : b.value(QStringLiteral("beats")).toArray()) {
+        beats.push_back(v.toDouble());
+    }
+    *pBar = b.value(QStringLiteral("bar")).toInt();
+    return beats;
+}
+QString structureFile(int trackId) {
+    const QString dir = mixxxDir();
+    return dir.isEmpty() ? QString() : QStringLiteral("%1/zydeck-structure/%2.json").arg(dir).arg(trackId);
+}
+} // namespace
+
+QJsonObject Waveforms::structure(int trackId) {
+    int bar = 0;
+    const std::vector<double> beats = gridOf(m_library, trackId, &bar);
+    if (beats.size() < 64) {
+        return {{"ok", false}, {"error", "No beat grid yet: analyze the track in Mixxx first"}};
+    }
+    QFile f(structureFile(trackId));
+    if (f.open(QIODevice::ReadOnly)) {
+        const QJsonObject kept = QJsonDocument::fromJson(f.readAll()).object();
+        if (kept.value(QStringLiteral("sig")).toString() == zydeck::structure::signature(beats, bar)) {
+            return kept;
+        }
+    }
 #ifdef ZC_DECODE
+    const QString file = m_library->location(trackId);
+    const QString cached = cacheFileFor(trackId, file);
+    if (cached.isEmpty()) {
+        return {{"ok", false}, {"error", "The track's file isn't on this computer"}};
+    }
+    Job job;
+    job.id = trackId;
+    job.file = file;
+    job.cacheFile = cached;
+    job.structure = true;
+    QMetaObject::invokeMethod(m_context, [this, job] { enqueue(job); });
+    return {{"ok", true}, {"pending", true}};
+#else
+    return {{"ok", false}, {"error", "This build can't decode tracks"}};
+#endif
+}
+
+#ifdef ZC_DECODE
+
+void Waveforms::writeStructure(int trackId, const std::vector<float>& mono) {
+    int bar = 0;
+    const std::vector<double> beats = gridOf(m_library, trackId, &bar);
+    const QString path = structureFile(trackId);
+    if (beats.size() < 64 || path.isEmpty() || mono.empty()) {
+        return;
+    }
+    QFile f(path);
+    if (f.open(QIODevice::ReadOnly) &&
+            QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("sig")).toString() == zydeck::structure::signature(beats, bar)) {
+        return;   // (up to date already)
+    }
+    f.close();
+    const zydeck::structure::Result r = zydeck::structure::analyse(mono, kRate / 2.0, beats, bar);
+    if (!r.ok) {
+        qWarning() << "structure: none for track" << trackId << QString::fromStdString(r.error);
+        return;
+    }
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QSaveFile out(path);
+    if (out.open(QIODevice::WriteOnly)) {
+        out.write(QJsonDocument(zydeck::structure::toJson(r, beats, bar)).toJson(QJsonDocument::Compact));
+        out.commit();
+    }
+}
 
 /// A track asked for goes ahead of those made ahead (after the others asked for); one already waiting joins it
 void Waveforms::enqueue(Job job) {
     if (m_current && m_current->cacheFile == job.cacheFile) {
         m_current->done += job.done;
+        m_current->structure = m_current->structure || job.structure;
         return;
     }
     for (int i = 0; i < m_queue.size(); ++i) {
         if (m_queue[i].cacheFile == job.cacheFile) {
-            job.done = m_queue.takeAt(i).done + job.done;
+            const Job was = m_queue.takeAt(i);
+            job.done = was.done + job.done;
+            job.structure = job.structure || was.structure;
             break;
         }
     }
+    const auto wanted = [](const Job& j) { return !j.done.isEmpty() || j.structure; };   // (asked for, not made ahead)
     int at = m_queue.size();
-    if (!job.done.isEmpty()) {
+    if (wanted(job)) {
         at = 0;
-        while (at < m_queue.size() && !m_queue[at].done.isEmpty()) {
+        while (at < m_queue.size() && wanted(m_queue[at])) {
             ++at;
         }
     }
@@ -272,7 +362,7 @@ void Waveforms::next() {
     if (m_current || m_queue.isEmpty()) {
         return;
     }
-    const bool asked = !m_queue.first().done.isEmpty();
+    const bool asked = !m_queue.first().done.isEmpty() || m_queue.first().structure;
     if (!asked && m_aheadTimer->isActive()) {
         return;   // (a pause between tracks made ahead: it calls again)
     }
@@ -355,6 +445,7 @@ void Waveforms::finish(const QByteArray& packed) {
     m_decoder = nullptr;
     const Job job = *m_current;
     m_current.reset();
+    const std::vector<float> mono = m_analysis && !m_analysis->bad && !packed.isEmpty() ? std::move(m_analysis->mono) : std::vector<float>();
     m_analysis.reset();
     if (decoder) {
         decoder->stop();
@@ -377,7 +468,10 @@ void Waveforms::finish(const QByteArray& packed) {
     for (const Done& done : job.done) {
         done(ok ? packed : QByteArray());
     }
-    if (job.done.isEmpty()) {
+    if (ok) {   // its structure too, from the same decoding (any track with a beat grid: made ahead, it's there in time)
+        writeStructure(job.id, mono);
+    }
+    if (job.done.isEmpty() && !job.structure) {
         m_aheadTimer->start();
     }
     QTimer::singleShot(0, m_context, [this] { next(); });
