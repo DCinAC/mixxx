@@ -16,9 +16,12 @@ namespace zydeck {
 //   options {random: 0|1, min, requeue: 0|1 (Preferences › Auto DJ's), beatmatch: 0|1 (synced transitions, when the
 //   tempos are near: its Beatmatch)}   source {crate, on: 0|1}
 //   add {track, where: bottom | top | replace}   remove {track}
+//   mix {entry, exit, bars, style}: the phrase mixing (its MixPlanner: where the next track comes in and the playing
+//   one goes out, by their sections, which ZyDeck Connect works out into zydeck-structure/<id>.json here)
 // This carries them out as Mixxx's own Auto DJ view would (its processor, the queue's playlist, the crates), in order,
 // and keeps zydeck-autodj-state.json up to date: {on, state: off | starting | playing | fading, transition, random,
-// requeue, done: [{id, ok, error}] (the last few)}. Connect reads the queue and crates from the database itself.
+// requeue, beatmatch, mix, plan (the next transition), done: [{id, ok, error}] (the last few)}. Connect reads the queue
+// and crates from the database itself.
 void watchAutoDj(const std::shared_ptr<Library>& pLibrary, UserSettingsPointer pConfig);
 
 } // namespace zydeck
