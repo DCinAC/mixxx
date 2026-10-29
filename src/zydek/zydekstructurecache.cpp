@@ -25,7 +25,7 @@ namespace zydek {
 
 namespace {
 
-constexpr int kVersion = 1;   // (a new algorithm: worked out again)
+constexpr int kVersion = 2;   // (a new algorithm: worked out again)
 constexpr double kRate = 22050;   // about this (the file's rate over a whole number)
 
 QJsonObject error(const QString& message) {

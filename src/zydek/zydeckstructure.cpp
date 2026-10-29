@@ -404,6 +404,84 @@ Segmented segmentBars(const Bars& in) {
     return out;
 }
 
+// The sections fitted to the standard song form, one label per kind (letter): the intro; the chorus; the verse (the
+// first other kind); a pre-chorus (the kind that most often leads into the chorus, when it isn't the verse); a bridge
+// (a kind first heard after the second chorus); the intro's music coming back, and stretches without the low end:
+// interludes; the end: the outro. What's left: a pre-chorus when it leads into the chorus, else a verse.
+void standardForm(std::vector<Section>& secs) {
+    const size_t n = secs.size();
+    const bool intro = secs.front().label == "Intro";
+    const bool outro = n > 1 && secs.back().label == "Outro";
+    const char introKind = intro ? secs.front().letter : 0;
+    char chorus = 0;
+    for (const Section& s : secs) {
+        if (s.label == "Chorus") {
+            chorus = s.letter;
+        }
+    }
+    // (an intro or outro of two phrases or more alike: all of it)
+    size_t introEnd = intro ? 1 : 0, outroStart = outro ? n - 1 : n;
+    while (intro && introEnd < n - 1 && secs[introEnd].letter == introKind) {
+        ++introEnd;
+    }
+    while (outro && outroStart > introEnd + 1 && secs[outroStart - 1].letter == secs.back().letter) {
+        --outroStart;
+    }
+    const auto inner = [&](size_t i) { return i >= introEnd && i < outroStart; };
+    const auto melodic = [&](size_t i) { return inner(i) && secs[i].letter != chorus && secs[i].letter != introKind; };
+    char verse = 0, pre = 0, bridge = 0;
+    std::map<char, int> leadsIn, total, quiet;
+    int choruses = 0;
+    for (size_t i = 0; i < n; ++i) {
+        const char k = secs[i].letter;
+        if (k == chorus && (i == 0 || secs[i - 1].letter != chorus)) {
+            ++choruses;
+        }
+        if (!melodic(i)) {
+            continue;
+        }
+        if (!verse) {
+            verse = k;
+        }
+        ++total[k];
+        quiet[k] += secs[i].label == "Break";
+        if (i + 1 < n && secs[i + 1].letter == chorus) {
+            ++leadsIn[k];
+        }
+        if (!bridge && choruses >= 2 && total[k] == 1 && k != verse) {   // (heard for the first time just now)
+            bridge = k;
+        }
+    }
+    int most = 0;
+    for (const auto& [k, count] : leadsIn) {
+        if (count > most && k != verse && k != bridge) {
+            most = count;
+            pre = k;
+        }
+    }
+    for (size_t i = 0; i < n; ++i) {
+        Section& s = secs[i];
+        const char k = s.letter;
+        if (i < introEnd) {
+            s.label = "Intro";
+        } else if (i >= outroStart) {
+            s.label = "Outro";
+        } else if (k == chorus) {
+            s.label = "Chorus";
+        } else if (k == introKind || (k != verse && quiet[k] * 2 > total[k])) {
+            s.label = "Interlude";
+        } else if (k == verse) {
+            s.label = "Verse";
+        } else if (k == pre) {
+            s.label = "Pre-Chorus";
+        } else if (k == bridge) {
+            s.label = "Bridge";
+        } else {
+            s.label = i + 1 < n && secs[i + 1].letter == chorus && pre ? "Pre-Chorus" : "Verse";
+        }
+    }
+}
+
 } // namespace
 
 Result analyse(const std::vector<float>& mono, double rate, const std::vector<double>& beats, int gridBar,
@@ -550,6 +628,7 @@ Result analyse(const std::vector<float>& mono, double rate, const std::vector<do
         s.energy = eHigh > eLow ? (best.energy[i] - eLow) / (eHigh - eLow) : 0.5;
         result.sections.push_back(s);
     }
+    standardForm(result.sections);
     result.bar = (4 - bestFirst) % 4;
     result.confidence = best.score;
     result.ok = true;

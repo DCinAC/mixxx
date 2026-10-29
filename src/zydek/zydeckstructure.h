@@ -1,12 +1,12 @@
 #pragma once
-// ZyDeck: a track's structure, as rekordbox's phrase analysis shows it: sections on the bar grid (intro, verse, build,
-// chorus, break, bridge, outro), each with a letter that repeats where the music does (A B B C ... : the chorus comes
-// back as the same letter). Plain C++ (no Qt, no Mixxx), shared by the hub and ZyDeck Connect, tested by itself.
+// ZyDeck: a track's structure, as rekordbox's phrase analysis shows it: sections on the bar grid, each with a letter
+// that repeats where the music does (A B B C ...: the chorus comes back as the same letter) and its part in the
+// standard song form (intro, verse, pre-chorus, chorus, bridge, interlude, outro). Plain C++ (no Qt, no Mixxx), shared by the hub and ZyDeck Connect, tested by itself.
 //
 // How: per beat, the sound's spectrum in three ways (4 energy bands, 24 timbre bands, a 12-note chroma), averaged per
 // bar; bars compared with each other (a self-similarity matrix); where the music changes (novelty along its diagonal)
 // sections start, on lengths of 4, 8, 16 or 32 bars by preference; sections that sound alike bar for bar share a
-// letter; the loudest letter that comes back is the chorus, a stretch without its low end is a break, and so on.
+// letter; the loudest letter that comes back is the chorus, what leads into it most is the pre-chorus, and so on.
 // Mixxx doesn't know which beat starts a bar (its grid's first beat is taken as one), so each of the four is tried
 // and the one where the sections change most cleanly wins.
 
@@ -19,8 +19,10 @@ namespace zydeck::structure {
 struct Section {
     int startBeat = 0;   // index into the beats given (its first beat), and one past its last
     int endBeat = 0;
-    char letter = 'A';
-    std::string label;   // Intro | Verse | Build | Chorus | Break | Bridge | Outro
+    char letter = 'A';   // its kind: sections with the same letter sound alike (A first, in order of first use)
+    // the standard song form, one per kind: Intro | Verse | Pre-Chorus | Chorus | Bridge | Interlude | Outro
+    // (in English: pages may show them in another language)
+    std::string label;
     double energy = 0;   // its loudness, 0 (the track's quietest section) .. 1 (its loudest)
 };
 

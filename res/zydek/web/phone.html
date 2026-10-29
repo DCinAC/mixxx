@@ -831,11 +831,11 @@ async function loadBeats(d, id) {
     await untilWf(id, wait);
   }
 }
-// The track's structure (the hub's /api/structure): sections on the bar grid, intro, verse, build, chorus, break,
-// bridge, outro, each with a letter that repeats where the music does. Worked out in the background once the track
+// The track's structure (the hub's /api/structure): sections on the bar grid, intro, verse, pre-chorus, chorus,
+// bridge, interlude, outro, each with a letter that repeats where the music does. Worked out in the background once the track
 // has a beat grid (a few seconds; then kept), so asked again until it's there.
-const SECTION_COLORS = { Intro: "#3fbf6f", Verse: "#4a90e2", Build: "#e0b020", Chorus: "#e5484d", Break: "#9b6bd6",
-  Bridge: "#2fb7b0", Outro: "#3fbf6f" };
+const SECTION_COLORS = { Intro: "#3fbf6f", Verse: "#4a90e2", "Pre-Chorus": "#e0b020", Chorus: "#e5484d",
+  Interlude: "#9b6bd6", Bridge: "#2fb7b0", Outro: "#3fbf6f" };
 async function loadStructure(d, id) {
   d.strFor = id; d.sections = null; d.strVer = (d.strVer || 0) + 1;
   if (!id || remote.on) return;   // (controller mode: the computer's tracks; not there yet)
@@ -847,7 +847,7 @@ async function loadStructure(d, id) {
     await new Promise(res => setTimeout(res, 3000));
   }
 }
-// A section's letter (and its name, when there's room) where it starts; a run of the same letter and name: once
+// A section's letter where it starts (zoomed in: with its part, "B Pre-Chorus"); a run of the same one: once
 const sectionTag = (secs, i) => i === 0 || secs[i].letter !== secs[i - 1].letter || secs[i].label !== secs[i - 1].label;
 function drawSectionTint(g, d, pxPerSec, left, W, H) {
   if (!d.sections) return;
