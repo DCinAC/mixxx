@@ -20,6 +20,7 @@
 #include "track/beats.h"
 #include "zydek/zydekautodj.h"
 #include "zydek/zydekhttpserver.h"
+#include "zydek/zydekstructurecache.h"
 #include "zydek/zydeklibrary.h"
 
 class QTcpSocket;
@@ -252,6 +253,7 @@ class Hub : public QObject {
     HttpServer m_server;
     Library m_library;   // the phone page's library API (/api/...)
     AutoDj m_autoDj{m_pConfig, &m_library};   // its Auto DJ (Mixxx's), /api/autodj...
+    StructureCache m_structure{m_pConfig};    // tracks' sections (intro, verse, chorus...), /api/structure
     QStringList m_samplerModes;   // per sampler, 1..64 at 0..63 (empty until read from the file)
     // "Last session": the pads as they are, saved as a kit a moment after they change and loaded again when
     // ZyDeck starts (Mixxx on Android doesn't keep its samplers between runs)

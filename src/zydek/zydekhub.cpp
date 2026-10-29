@@ -706,6 +706,9 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/library/genres")) {
         return json(m_library.genres());
     }
+    if (path == QLatin1String("/api/structure")) {   // ?id=[&fresh=1]: the track's sections, or {pending} (ask again)
+        return result(m_structure.get(arg("id").toInt(), arg("fresh") == QLatin1String("1")));
+    }
     // Auto DJ (Mixxx's): its state, and what changes it
     if (path == QLatin1String("/api/autodj")) {
         return json(m_autoDj.status());

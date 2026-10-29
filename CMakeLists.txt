@@ -1268,6 +1268,8 @@ add_library(
   src/controllers/zydek/zydekcontroller.cpp
   src/zydek/zydekhttpserver.cpp
   src/zydek/zydekautodj.cpp
+  src/zydek/zydeckstructure.cpp
+  src/zydek/zydekstructurecache.cpp
   src/zydek/zydekdiscordrelay.cpp
   src/zydek/zydekhub.cpp
   src/zydek/zydeklibrary.cpp

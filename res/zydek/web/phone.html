@@ -802,7 +802,7 @@ const wsSend = m => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m));
 function onDeckName(d, n) {
   d.title = n ? n.t : ""; d.artist = n ? n.a : "";
   const id = n ? n.id : null;
-  if (id !== d.wfFor) { loadWaveform(d, id); loadBeats(d, id); }
+  if (id !== d.wfFor) { loadWaveform(d, id); loadStructure(d, null); loadBeats(d, id); }   // (its structure follows its beats)
 }
 // The hub answers a deck's waveform and beats with 200, 202 while Mixxx is still analysing the track (as long as that
 // takes: after a restart there can be a queue; a "wf" push says when it's done) or 404 when it's not on a deck; ZyDeck
@@ -826,10 +826,61 @@ async function loadBeats(d, id) {
       const r = await deckAsset(`/beats/${id}`, tries);
       if (r === "stop") return;
       if (typeof r === "number") wait = r;
-      else { const j = await r.json(); if (d.beatsFor !== id) return; d.beats = Float64Array.from(j.beats); d.bar = j.bar; d.beatsVer++; return; }
+      else { const j = await r.json(); if (d.beatsFor !== id) return; d.beats = Float64Array.from(j.beats); d.bar = j.bar; d.beatsVer++; loadStructure(d, id); return; }
     } catch {}
     await untilWf(id, wait);
   }
+}
+// The track's structure (the hub's /api/structure): sections on the bar grid, intro, verse, build, chorus, break,
+// bridge, outro, each with a letter that repeats where the music does. Worked out in the background once the track
+// has a beat grid (a few seconds; then kept), so asked again until it's there.
+const SECTION_COLORS = { Intro: "#3fbf6f", Verse: "#4a90e2", Build: "#e0b020", Chorus: "#e5484d", Break: "#9b6bd6",
+  Bridge: "#2fb7b0", Outro: "#3fbf6f" };
+async function loadStructure(d, id) {
+  d.strFor = id; d.sections = null; d.strVer = (d.strVer || 0) + 1;
+  if (!id || remote.on) return;   // (controller mode: the computer's tracks; not there yet)
+  for (let tries = 0; d.strFor === id && tries < 100; tries++) {
+    let r;
+    try { r = await api(`/api/structure?${qs({ id })}`); } catch { return; }   // (it can't: no grid, a file it can't read)
+    if (d.strFor !== id) return;
+    if (!r.pending) { d.sections = r.sections; d.strVer++; return; }
+    await new Promise(res => setTimeout(res, 3000));
+  }
+}
+// A section's letter (and its name, when there's room) where it starts; a run of the same letter and name: once
+const sectionTag = (secs, i) => i === 0 || secs[i].letter !== secs[i - 1].letter || secs[i].label !== secs[i - 1].label;
+function drawSectionTint(g, d, pxPerSec, left, W, H) {
+  if (!d.sections) return;
+  g.globalAlpha = .2;
+  for (const s of d.sections) {
+    const x0 = Math.round(s.s * pxPerSec) - left, x1 = Math.round(s.e * pxPerSec) - left;
+    if (x1 < 0 || x0 > W) continue;
+    g.fillStyle = SECTION_COLORS[s.label] || "#888";
+    g.fillRect(x0, 0, x1 - x0, H);
+  }
+  g.globalAlpha = 1;
+}
+function drawSectionTags(g, d, pxPerSec, left, W, H, names) {
+  const secs = d.sections;
+  if (!secs) return;
+  const dpr = devicePixelRatio || 1, bar = Math.max(2, Math.round(2 * dpr)), fs = Math.max(Math.round(9 * dpr), Math.round(H * .3));
+  g.font = `bold ${fs}px sans-serif`; g.textBaseline = "top"; g.textAlign = "left";
+  secs.forEach((s, i) => {
+    const x0 = Math.round(s.s * pxPerSec) - left, x1 = Math.round(s.e * pxPerSec) - left;
+    if (x1 < 0 || x0 > W) return;
+    const col = SECTION_COLORS[s.label] || "#888";
+    g.fillStyle = col;
+    g.fillRect(x0, H - bar, x1 - x0, bar);   // a strip along the bottom, in the section's colour
+    if (!sectionTag(secs, i)) return;
+    g.fillStyle = "rgba(0,0,0,.65)";
+    g.fillRect(x0, 0, Math.max(1, Math.round(dpr)), H);   // where it starts
+    const text = names ? `${s.letter} ${s.label}` : s.letter, w = g.measureText(text).width + fs * .5;
+    if (!names && x1 - x0 < w) return;
+    g.fillStyle = col;
+    g.fillRect(x0 + dpr, H - bar - fs * 1.15, w, fs * 1.15);
+    g.fillStyle = "#101010";
+    g.fillText(text, x0 + dpr + fs * .25, H - bar - fs * 1.1);
+  });
 }
 async function loadWaveform(d, id) {
   d.wfFor = id; d.wf = null; d.wfVer++;
@@ -1205,13 +1256,14 @@ function colorFor(a, i) {   // like Mixxx's RGB waveform: red lows, green mids, 
 }
 // Needle search: the whole track, drawn once per track and size.
 function drawOverview(p, d) {
-  const c = p.nCanvas, resized = sizeCanvas(c), key = `${d.n}|${d.wfVer}|${c.width}|${cueSig(d)}`;
+  const c = p.nCanvas, resized = sizeCanvas(c), key = `${d.n}|${d.wfVer}|${d.strVer || 0}|${c.width}|${cueSig(d)}`;
   if (p.nKey === key && !resized) return;
   p.nKey = key;
   const g = c.getContext("2d"), W = c.width, H = c.height;
   g.clearRect(0, 0, W, H);
   const wf = d.wf;
   if (!wf) return;
+  if (d.dur > 0) drawSectionTint(g, d, W / d.dur, 0, W, H);
   const per = wf.n / W, a = wf.data;
   for (let x = 0; x < W; x++) {
     const i0 = Math.floor(x * per), i1 = Math.max(i0 + 1, Math.floor((x + 1) * per));
@@ -1233,6 +1285,7 @@ function drawOverview(p, d) {
     g.fillStyle = inkOn(m.color);
     g.fillText(label, Math.min(x, W - w) + w / 2, y + tag / 2 + dpr / 2);
   }
+  if (d.dur > 0) drawSectionTags(g, d, W / d.dur, 0, W, H, false);
 }
 // Cue marks as Mixxx draws them: the main cue red with "CUE" at the top, hot cues in their own colour
 // (#00d9ff when they have none) with their number at the bottom; dark text unless the colour is dark.
@@ -1270,12 +1323,13 @@ function drawZoom(p, d) {
   const c = p.zCanvas;
   sizeCanvas(c);
   const W = c.width, H = c.height, wf = d.wf, pxPerSec = W / ZOOM_SECONDS;
-  const left = Math.round((d.pos - ZOOM_SECONDS / 2) * pxPerSec), key = `${d.n}|${d.wfVer}|${d.beatsVer || 0}|${cueSig(d)}|${left}|${W}|${H}`;
+  const left = Math.round((d.pos - ZOOM_SECONDS / 2) * pxPerSec), key = `${d.n}|${d.wfVer}|${d.beatsVer || 0}|${d.strVer || 0}|${cueSig(d)}|${left}|${W}|${H}`;
   if (p.zKey === key) return;
   p.zKey = key;
   const g = c.getContext("2d");
   g.clearRect(0, 0, W, H);
   if (!wf) { drawBeats(g, d, pxPerSec, left, ZOOM_SECONDS * pxPerSec, H); drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H); return; }
+  drawSectionTint(g, d, pxPerSec, left, W, H);
   const tkey = `${d.n}|${d.wfVer}|${W}|${H}`;
   if (p.tileKey !== tkey) { p.tileKey = tkey; p.tiles = new Map(); }
   for (let t = Math.floor(left / TILE); t * TILE < left + W; t++) {
@@ -1300,6 +1354,7 @@ function drawZoom(p, d) {
   }
   drawBeats(g, d, pxPerSec, left, ZOOM_SECONDS * pxPerSec, H);
   drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H);
+  drawSectionTags(g, d, pxPerSec, left, W, H, true);
 }
 // Beat grid: bar lines across, the other beats as ticks top and bottom.
 // Play position between Mixxx's updates, and where to draw it: zydeck-position.js (the same as the deck page and
