@@ -53,6 +53,10 @@ class AutoDj {
     /// Mixxx's main thread from now on; setMix: its choices, {entry, exit, bars, style} (each given: changed)
     void startMixing();
     QJsonObject setMix(const QJsonObject& change);
+    /// Player mode's buttons (the notification's, the lock screen's, a headset's): toggle | play | pause | next |
+    /// stop. Pausing turns Auto DJ off (a deck paused under it confuses it) and playing turns it on again; play with
+    /// player mode off starts it.
+    QJsonObject player(const QString& what);
 
   private:
     void topUp();
@@ -65,6 +69,7 @@ class AutoDj {
     zydeck::library::Pool m_pool;
     bool m_poolRead = false;
     QList<int> m_history;
+    int m_pausedDeck = 0;   // the deck player mode paused (0: none)
     bool m_historyRead = false;
 };
 

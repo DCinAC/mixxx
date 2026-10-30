@@ -756,6 +756,9 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/autodj/clear")) {
         return result(m_autoDj.clear());
     }
+    if (path == QLatin1String("/api/player")) {   // ?do=toggle|play|pause|next|stop: player mode's buttons
+        return result(m_autoDj.player(arg("do")));
+    }
     if (path == QLatin1String("/api/autodj/mix")) {   // ?entry=&exit=&bars=&style=
         return result(m_autoDj.setMix({{"entry", arg("entry")}, {"exit", arg("exit")}, {"bars", arg("bars").toInt()}, {"style", arg("style")}}));
     }

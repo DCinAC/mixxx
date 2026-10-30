@@ -1,6 +1,9 @@
 #include "zydek/zydekautodj.h"
 
 #include <QJsonArray>
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#endif
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
@@ -10,6 +13,7 @@
 #include <QRegularExpression>
 #include <QTimer>
 #include <functional>
+#include <atomic>
 #include <memory>
 #include <QFile>
 #include <QJsonDocument>
@@ -627,7 +631,44 @@ struct MixHolder {
     UserSettingsPointer config;
     MixPlanner planner;
     QPointer<AutoDJProcessor> processor;
+    // player mode's notification (ZydekRunningService.player): what it was last told, and which deck it shows (the
+    // one playing; in a mix, the one coming in)
+    std::atomic<bool> playerOn{false};
+    std::atomic<int> current{1};
+    int playingBefore = 0;
+    QString told;
 };
+
+// Player mode's state to the notification (Android), as it changes
+void tellPlayer(MixHolder& h) {
+    const auto get = [](int deck, const char* key) {
+        return ControlObject::get(ConfigKey(QStringLiteral("[Channel%1]").arg(deck), QString::fromLatin1(key)));
+    };
+    const bool p1 = get(1, "play") > 0, p2 = get(2, "play") > 0;
+    if (p1 != p2) {
+        h.current = p1 ? 1 : 2;
+    } else if (p1 && p2 && h.playingBefore == 1) {
+        h.current = h.current == 1 ? 2 : 1;   // (a mix began: the track coming in)
+    }
+    h.playingBefore = p1 + p2;
+    const int deck = h.current;
+    const bool on = h.playerOn;
+    const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(QStringLiteral("[Channel%1]").arg(deck));
+    const QString title = pTrack ? pTrack->getTitle() : QString(), artist = pTrack ? pTrack->getArtist() : QString();
+    const bool playing = get(deck, "play") > 0;
+    const QString state = QStringLiteral("%1|%2|%3|%4|%5").arg(on).arg(deck).arg(title, artist).arg(playing);
+    if (state == h.told) {
+        return;
+    }
+    h.told = state;
+#ifdef Q_OS_ANDROID
+    const double duration = get(deck, "duration");
+    QJniObject::callStaticMethod<void>("org/mixxx/ZydekRunningService", "player", "(ZLjava/lang/String;Ljava/lang/String;ZJJ)V",
+            static_cast<jboolean>(on), QJniObject::fromString(title).object<jstring>(), QJniObject::fromString(artist).object<jstring>(),
+            static_cast<jboolean>(playing), static_cast<jlong>(get(deck, "playposition") * duration * 1000),
+            static_cast<jlong>(duration * 1000));
+#endif
+}
 std::shared_ptr<MixHolder>& mixHolder() {
     static std::shared_ptr<MixHolder> holder;
     return holder;
@@ -912,6 +953,9 @@ QJsonObject AutoDj::setAutoplay(bool on, const QJsonObject& pool) {
                 QString::fromUtf8(QJsonDocument(m_pool.toJson()).toJson(QJsonDocument::Compact)));
     }
     m_autoplay = on;
+    if (mixHolder()) {
+        mixHolder()->playerOn = on;
+    }
     if (!on) {
         return {{"ok", true}};
     }
@@ -920,6 +964,9 @@ QJsonObject AutoDj::setAutoplay(bool on, const QJsonObject& pool) {
     topUp();
     if (m_pLibrary->autoDjQueueLength() == 0) {
         m_autoplay = false;
+        if (mixHolder()) {
+            mixHolder()->playerOn = false;
+        }
         return error(QStringLiteral("Nothing in the library fits (or its files aren't there)"));
     }
     if (ControlObject::get(ConfigKey(QStringLiteral("[AutoDJ]"), QStringLiteral("enabled"))) > 0) {
@@ -1015,6 +1062,7 @@ void AutoDj::startMixing() {
                 }
             }
             beatmatch().tick(holder->config->getValue(ConfigKey(kZyDeck, QStringLiteral("AutoDjBeatmatch")), 0) == 1, at);
+            tellPlayer(*holder);
         });
         timer->start();
     });
@@ -1023,6 +1071,45 @@ void AutoDj::startMixing() {
 QJsonObject AutoDj::setMix(const QJsonObject& change) {
     MixSettings::write(m_pConfig, change);
     return {{"ok", true}};
+}
+
+QJsonObject AutoDj::player(const QString& what) {
+    const auto deckKey = [](int deck, const char* key) {
+        return ConfigKey(QStringLiteral("[Channel%1]").arg(deck), QString::fromLatin1(key));
+    };
+    const bool playing = ControlObject::get(deckKey(1, "play")) > 0 || ControlObject::get(deckKey(2, "play")) > 0;
+    if (what == QLatin1String("next")) {   // the mix to the next track, now
+        return act(QStringLiteral("fade"));
+    }
+    if (what == QLatin1String("stop")) {   // player mode off, the music stopped
+        setAutoplay(false, {});
+        setOn(false);
+        ControlObject::set(deckKey(1, "play"), 0);
+        ControlObject::set(deckKey(2, "play"), 0);
+        m_pausedDeck = 0;
+        return {{"ok", true}};
+    }
+    if (what == QLatin1String("pause") || (what == QLatin1String("toggle") && playing)) {
+        if (!playing) {
+            return {{"ok", true}};
+        }
+        // Auto DJ off first: a deck paused under it, it takes the other one for the track that plays
+        m_pausedDeck = mixHolder() ? mixHolder()->current.load() : 1;
+        setOn(false);
+        ControlObject::set(deckKey(1, "play"), 0);
+        ControlObject::set(deckKey(2, "play"), 0);
+        return {{"ok", true}};
+    }
+    // play: player mode from scratch, or the paused track again (the one coming in, if it was paused in a mix)
+    if (!m_autoplay) {
+        readPool();
+        return setAutoplay(true, m_pool.toJson());
+    }
+    const int deck = m_pausedDeck ? m_pausedDeck : (mixHolder() ? mixHolder()->current.load() : 1);
+    m_pausedDeck = 0;
+    ControlObject::set(ConfigKey(QStringLiteral("[Master]"), QStringLiteral("crossfader")), deck == 1 ? -1.0 : 1.0);
+    ControlObject::set(deckKey(deck, "play"), 1);
+    return setOn(true);
 }
 
 } // namespace zydek

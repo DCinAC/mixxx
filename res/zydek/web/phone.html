@@ -1470,7 +1470,7 @@ async function loadViews() {
   // within 6 % of its tempo (or half / double time). One chip per loaded deck.
   const fits = remote.on ? [] : decks.filter(d => (d.n <= 2 || four) && (d.loaded || view === `fits:${d.n}`)).map(d => [`fits:${d.n}`, `Fits deck ${d.n}`, ""]);
   chips.splice(1, 0, ...fits, ...(v.autodj ? [[`playlist:${v.autodj.id}`, "Auto DJ", v.autodj.count]] : []),
-    ...(v.autoplayHistory ? [["autoplay", "Autoplay history", v.autoplayHistory]] : []));   // (what autoplay picked, newest first)
+    ...(v.autoplayHistory ? [["autoplay", "Player history", v.autoplayHistory]] : []));   // (what player mode picked, newest first)
   adjView = v.autodj ? `playlist:${v.autodj.id}` : null;
   if (!chips.some(c => c[0] === view)) view = "all";
   const box = $("#views"); box.innerHTML = "";
@@ -1589,9 +1589,10 @@ function paintAdj() {
     ap.bpmMin || ap.bpmMax ? `${ap.bpmMin || "any"}–${ap.bpmMax || "any"} BPM` : "",
     (ap.tempo ?? 8) ? `tempos within ${ap.tempo ?? 8} %` : ""].filter(Boolean).join(" · ");
   box.innerHTML =
-    `<div class="row"><button class="ap${ap.on ? " on" : ""}">${ap.on ? "Autoplay on" : "Autoplay the library"}` +
-    `<small style="display:block;font-weight:400;font-size:12px;color:var(--dim)">${esc(apSummary)} · at random, none twice a session</small></button></div>` +
-    `<details class="apd"${store.get("adjap", false) ? " open" : ""}><summary>Autoplay's limits</summary>` +
+    `<div class="row"><button class="ap${ap.on ? " on" : ""}">${ap.on ? "Player mode on" : "Player mode"}` +
+    `<small style="display:block;font-weight:400;font-size:12px;color:var(--dim)">a smart shuffle of the library: ${esc(apSummary)} · none twice a session</small></button></div>` +
+    (ap.on && !remote.on ? `<div class="row"><button class="pl-toggle">⏯ Play / pause</button><button class="pl-next">⏭ Next</button></div>` : "") +
+    `<details class="apd"${store.get("adjap", false) ? " open" : ""}><summary>Player mode's limits</summary>` +
     `<div class="sub">Genres: tap once to play only those, twice to leave one out</div>` +
     `<div class="apg">${shown.map(g => `<button data-g="${esc(g)}" class="${has(ap.genres, g) ? "in" : has(ap.skip, g) ? "out" : ""}">${esc(g)}</button>`).join("")}</div>` +
     `<div class="row"><label>BPM from <input type="number" class="bmin" min="0" max="300" inputmode="numeric" value="${ap.bpmMin || ""}" placeholder="any"></label>` +
@@ -1630,9 +1631,11 @@ function paintAdj() {
   q("details:not(.apd)").ontoggle = e => store.set("adjcfg", e.target.open);
   q(".apd").ontoggle = e => store.set("adjap", e.target.open);
   const setAutoplay = (on, pool) => adjDo(`/api/autodj/autoplay?${qs({ on: on ? 1 : 0, pool: JSON.stringify(pool) })}`,
-    on && !ap.on ? "Autoplay on: Auto DJ plays the library" : null);
+    on && !ap.on ? "Player mode on: Auto DJ shuffles the library (its controls are in the notifications too)" : null);
   const poolNow = () => ({ genres: ap.genres || [], skip: ap.skip || [], bpmMin: ap.bpmMin || 0, bpmMax: ap.bpmMax || 0, tempo: ap.tempo ?? 8 });
   q(".ap").onclick = () => setAutoplay(!ap.on, poolNow());
+  q(".pl-toggle")?.addEventListener("click", () => adjDo("/api/player?do=toggle"));
+  q(".pl-next")?.addEventListener("click", () => adjDo("/api/player?do=next"));
   box.querySelectorAll(".apg button").forEach(b => b.onclick = () => {
     const g = b.dataset.g, p = poolNow(), drop = list => list.filter(x => genreKey(x) !== genreKey(g));
     if (b.classList.contains("in")) { p.genres = drop(p.genres); p.skip = [...drop(p.skip), g]; }   // in → out
