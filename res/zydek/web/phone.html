@@ -77,13 +77,14 @@
   /* ---- pages ---- */
   main { padding-bottom: calc(var(--tabbar) + var(--safe-b) + 64px); }
   .page { display: none; } .page.on { display: block; }
-  .bar { padding: 8px 10px 6px; display: grid; gap: 8px; position: sticky; top: var(--decks-h, 0px); z-index: 4;
+  .bar { padding: 8px 10px 6px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; position: sticky; top: var(--decks-h, 0px); z-index: 4;
     background: rgba(11,11,11,.96); border-bottom: 1px solid var(--edge); }
   .search { display: flex; gap: 8px; }
   .search input { flex: 1; min-width: 0; height: 42px; border-radius: 12px; border: 1px solid #333; background: #181818; padding: 0 14px; outline: none; }
   .search select { height: 42px; border-radius: 12px; border: 1px solid #333; background: #181818; padding: 0 8px; }
   /* genres: one hue each (from its name), on the track rows, the genre picker and the track sheet */
-  #genre { max-width: 34vw; }
+  .search select { flex: 0 1 auto; min-width: 0; max-width: 30%; }
+  .search input { min-width: 96px; }
   #genre.on { border-color: var(--g, #555); color: var(--g, var(--text)); }
   .meta .a .g { color: var(--g); }
   #sheet .gen { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
