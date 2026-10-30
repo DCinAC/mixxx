@@ -177,6 +177,33 @@ QString stemBase(QString server) {
 
 } // namespace
 
+namespace {
+// Player history: what played while Auto DJ ran (player mode's picks, and tracks the user cut in), newest first,
+// the last 500
+QList<int> autoplayHistory() {
+    QList<int> ids;
+    for (const QJsonValue& v : QJsonDocument::fromJson(QSettings().value(QStringLiteral("player/history")).toByteArray()).array()) {
+        ids.append(v.toInt());
+    }
+    return ids;
+}
+
+// A track that started playing (Mixxx ZyDeck's state says which), into the player history
+void recordPlayed(int id) {
+    QList<int> ids = autoplayHistory();
+    if (id <= 0 || (!ids.isEmpty() && ids.first() == id)) {
+        return;
+    }
+    ids.removeAll(id);
+    ids.prepend(id);
+    QJsonArray kept;
+    for (int i = 0; i < ids.size() && i < 500; ++i) {
+        kept.append(ids[i]);
+    }
+    QSettings().setValue(QStringLiteral("player/history"), QJsonDocument(kept).toJson(QJsonDocument::Compact));
+}
+} // namespace
+
 Web::Web(Library* library, QObject* parent)
         : QObject(parent),
           m_library(library) {
@@ -184,13 +211,16 @@ Web::Web(Library* library, QObject* parent)
     m_autoplay = new QTimer(this);
     m_autoplay->setInterval(4000);
     connect(m_autoplay, &QTimer::timeout, this, [this] {
-        if (!QSettings().value(QStringLiteral("autoplay/on")).toBool()) {
-            return;
-        }
+        const bool player = QSettings().value(QStringLiteral("autoplay/on")).toBool();
         Library* library = m_library;
-        QThreadPool::globalInstance()->start([library] {
+        QThreadPool::globalInstance()->start([library, player] {
             QFile f(mixxxDir() + QStringLiteral("/zydeck-autodj-state.json"));   // (only while Auto DJ plays)
-            if (f.open(QIODevice::ReadOnly) && QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("on")).toBool()) {
+            const QJsonObject state = f.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(f.readAll()).object() : QJsonObject();
+            if (!state.value(QStringLiteral("on")).toBool()) {
+                return;
+            }
+            recordPlayed(state.value(QStringLiteral("playing")).toInt());
+            if (player) {
                 autoplayTopUp(library);
             }
         });
@@ -312,16 +342,6 @@ QJsonObject Web::effects() {
     return {{"ok", true}, {"effects", names}, {"beats", beats}};
 }
 
-namespace {
-// What autoplay has picked, newest first (the last 500)
-QList<int> autoplayHistory() {
-    QList<int> ids;
-    for (const QJsonValue& v : QJsonDocument::fromJson(QSettings().value(QStringLiteral("autoplay/history")).toByteArray()).array()) {
-        ids.append(v.toInt());
-    }
-    return ids;
-}
-} // namespace
 
 QJsonObject Web::library(Library* library, const QString& what, const QUrlQuery& query, int* status) {
     *status = 200;
@@ -415,18 +435,8 @@ int Web::autoplayTopUp(Library* library) {
         }
     }
     const QList<int> ids = library->pick(pool, kAhead - library->autoDjQueueLength(), after);
-    QList<int> history = autoplayHistory();
     for (int id : ids) {
         askAutoDj({{"do", "add"}, {"track", id}, {"where", "bottom"}});
-        history.removeAll(id);
-        history.prepend(id);
-    }
-    if (!ids.isEmpty()) {
-        QJsonArray kept;
-        for (int i = 0; i < history.size() && i < 500; ++i) {
-            kept.append(history[i]);
-        }
-        QSettings().setValue(QStringLiteral("autoplay/history"), QJsonDocument(kept).toJson(QJsonDocument::Compact));
     }
     return static_cast<int>(ids.size());
 }

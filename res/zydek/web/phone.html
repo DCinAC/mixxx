@@ -1470,7 +1470,7 @@ async function loadViews() {
   // within 6 % of its tempo (or half / double time). One chip per loaded deck.
   const fits = remote.on ? [] : decks.filter(d => (d.n <= 2 || four) && (d.loaded || view === `fits:${d.n}`)).map(d => [`fits:${d.n}`, `Fits deck ${d.n}`, ""]);
   chips.splice(1, 0, ...fits, ...(v.autodj ? [[`playlist:${v.autodj.id}`, "Auto DJ", v.autodj.count]] : []),
-    ...(v.autoplayHistory ? [["autoplay", "Player history", v.autoplayHistory]] : []));   // (what player mode picked, newest first)
+    ...(v.autoplayHistory ? [["autoplay", "Player history", v.autoplayHistory]] : []));   // (what played in Auto DJ, newest first)
   adjView = v.autodj ? `playlist:${v.autodj.id}` : null;
   if (!chips.some(c => c[0] === view)) view = "all";
   const box = $("#views"); box.innerHTML = "";
@@ -1591,6 +1591,7 @@ function paintAdj() {
   box.innerHTML =
     `<div class="row"><button class="ap${ap.on ? " on" : ""}">${ap.on ? "Player mode on" : "Player mode"}` +
     `<small style="display:block;font-weight:400;font-size:12px;color:var(--dim)">a smart shuffle of the library: ${esc(apSummary)} · none twice a session</small></button></div>` +
+    (ap.error ? `<div class="st" style="color:#ff8a7a">${esc(ap.error)}</div>` : "") +
     (ap.on && !remote.on ? `<div class="row"><button class="pl-toggle">⏯ Play / pause</button><button class="pl-next">⏭ Next</button></div>` : "") +
     `<details class="apd"${store.get("adjap", false) ? " open" : ""}><summary>Player mode's limits</summary>` +
     `<div class="sub">Genres: tap once to play only those, twice to leave one out</div>` +

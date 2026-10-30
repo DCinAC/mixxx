@@ -47,7 +47,8 @@ class AutoDj {
     QJsonObject setAutoplay(bool on, const QJsonObject& pool);
     /// Every few seconds (the hub's timer): tops the queue up while autoplay is on and Auto DJ plays
     void autoplayTick();
-    /// What autoplay has picked, newest first (the last 500, kept between sessions: zydeck-autoplay-history.json)
+    /// What played while Auto DJ or player mode ran, newest first: picked or cut in (the last 500, kept between
+    /// sessions: zydeck-player-history.json)
     QList<int> autoplayHistory();
     /// The phrase mixing (zydekautodj.cpp's MixPlanner: by the tracks' sections, zydekstructurecache.h's files), on
     /// Mixxx's main thread from now on; setMix: its choices, {entry, exit, bars, style} (each given: changed)
@@ -68,9 +69,9 @@ class AutoDj {
     bool m_autoplay = false;
     zydeck::library::Pool m_pool;
     bool m_poolRead = false;
-    QList<int> m_history;
     int m_pausedDeck = 0;   // the deck player mode paused (0: none)
-    bool m_historyRead = false;
+    int m_queueMisses = 0;  // top-ups whose tracks didn't stay in the queue, running
+    QString m_autoplayError;
 };
 
 } // namespace zydek

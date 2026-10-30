@@ -626,6 +626,61 @@ class MixPlanner {
     QJsonObject m_plan;
 };
 
+// Player history: what played while Auto DJ or player mode ran, newest first (the last 500, kept between sessions in
+// zydeck-player-history.json): tracks player mode picked, and ones the user cut in. Written on Mixxx's main thread
+// (as a track starts), read on the hub's.
+struct Played {
+    QMutex mutex;
+    QString file;
+    QList<int> ids;
+    bool read = false;
+
+    void load() {   // (mutex held)
+        if (read || file.isEmpty()) {
+            return;
+        }
+        read = true;
+        QFile f(file);
+        if (f.open(QIODevice::ReadOnly)) {
+            for (const QJsonValue& v : QJsonDocument::fromJson(f.readAll()).array()) {
+                if (v.toInt() > 0) {
+                    ids.append(v.toInt());
+                }
+            }
+        }
+    }
+    QList<int> list() {
+        QMutexLocker lock(&mutex);
+        load();
+        return ids;
+    }
+    void add(int id) {
+        QMutexLocker lock(&mutex);
+        load();
+        if (id <= 0 || (!ids.isEmpty() && ids.first() == id)) {
+            return;
+        }
+        ids.removeAll(id);
+        ids.prepend(id);
+        while (ids.size() > 500) {
+            ids.removeLast();
+        }
+        QJsonArray out;
+        for (int i : std::as_const(ids)) {
+            out.append(i);
+        }
+        QSaveFile f(file);
+        if (f.open(QIODevice::WriteOnly)) {
+            f.write(QJsonDocument(out).toJson(QJsonDocument::Compact));
+            f.commit();
+        }
+    }
+};
+Played& played() {
+    static Played p;
+    return p;
+}
+
 // The phrase mixing runs on Mixxx's main thread (its Auto DJ's), with what it needs: it outlives the hub's objects
 struct MixHolder {
     UserSettingsPointer config;
@@ -637,6 +692,7 @@ struct MixHolder {
     std::atomic<int> current{1};
     int playingBefore = 0;
     QString told;
+    int recorded = -1;   // the track last put in the player history
 };
 
 // Player mode's state to the notification (Android), as it changes
@@ -654,6 +710,15 @@ void tellPlayer(MixHolder& h) {
     const int deck = h.current;
     const bool on = h.playerOn;
     const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(QStringLiteral("[Channel%1]").arg(deck));
+    // the player history: a track as it starts playing, while Auto DJ or player mode runs (picked or cut in)
+    if (pTrack && get(deck, "play") > 0 &&
+            (on || ControlObject::get(ConfigKey(QStringLiteral("[AutoDJ]"), QStringLiteral("enabled"))) > 0)) {
+        const int id = pTrack->getId().toVariant().toInt();
+        if (id != h.recorded) {
+            h.recorded = id;
+            played().add(id);
+        }
+    }
     const QString title = pTrack ? pTrack->getTitle() : QString(), artist = pTrack ? pTrack->getArtist() : QString();
     const bool playing = get(deck, "play") > 0;
     const QString state = QStringLiteral("%1|%2|%3|%4|%5").arg(on).arg(deck).arg(title, artist).arg(playing);
@@ -712,11 +777,16 @@ TrackCollection* collection() {
 AutoDj::AutoDj(UserSettingsPointer pConfig, Library* pLibrary)
         : m_pConfig(pConfig),
           m_pLibrary(pLibrary) {
+    QMutexLocker lock(&played().mutex);
+    played().file = QDir(pConfig->getSettingsPath()).filePath(QStringLiteral("zydeck-player-history.json"));
 }
 
 QJsonObject AutoDj::autoplayJson() const {
     QJsonObject o = m_pool.toJson();
     o.insert(QStringLiteral("on"), m_autoplay);
+    if (!m_autoplayError.isEmpty()) {
+        o.insert(QStringLiteral("error"), m_autoplayError);
+    }
     return o;
 }
 
@@ -953,6 +1023,8 @@ QJsonObject AutoDj::setAutoplay(bool on, const QJsonObject& pool) {
                 QString::fromUtf8(QJsonDocument(m_pool.toJson()).toJson(QJsonDocument::Compact)));
     }
     m_autoplay = on;
+    m_autoplayError.clear();
+    m_queueMisses = 0;
     if (mixHolder()) {
         mixHolder()->playerOn = on;
     }
@@ -991,39 +1063,29 @@ void AutoDj::topUp() {
     if (picked.isEmpty()) {
         return;
     }
-    autoplayHistory();
     for (int id : picked) {
         add(id, QStringLiteral("bottom"));
-        m_history.removeAll(id);
-        m_history.prepend(id);
+        qInfo() << "Zydek: player mode queued" << m_pLibrary->location(id);
     }
-    while (m_history.size() > 500) {
-        m_history.removeLast();
+    // they stay in Mixxx's queue (until each is played), or something takes them out as they come (a track that
+    // won't load): three times running, and player mode stops rather than pick on and on
+    if (m_pLibrary->autoDjQueueLength() > queued) {
+        m_queueMisses = 0;
+        return;
     }
-    QJsonArray ids;
-    for (int id : std::as_const(m_history)) {
-        ids.append(id);
-    }
-    QSaveFile f(QDir(m_pConfig->getSettingsPath()).filePath(QStringLiteral("zydeck-autoplay-history.json")));
-    if (f.open(QIODevice::WriteOnly)) {
-        f.write(QJsonDocument(ids).toJson(QJsonDocument::Compact));
-        f.commit();
+    qWarning() << "Zydek: player mode's tracks didn't stay in Mixxx's Auto DJ queue";
+    if (++m_queueMisses >= 3) {
+        m_autoplay = false;
+        if (mixHolder()) {
+            mixHolder()->playerOn = false;
+        }
+        m_autoplayError = QStringLiteral("Player mode stopped: Mixxx's Auto DJ didn't keep the tracks it was given (they wouldn't load?)");
+        m_queueMisses = 0;
     }
 }
 
 QList<int> AutoDj::autoplayHistory() {
-    if (!m_historyRead) {
-        m_historyRead = true;
-        QFile f(QDir(m_pConfig->getSettingsPath()).filePath(QStringLiteral("zydeck-autoplay-history.json")));
-        if (f.open(QIODevice::ReadOnly)) {
-            for (const QJsonValue& v : QJsonDocument::fromJson(f.readAll()).array()) {
-                if (v.toInt() > 0) {
-                    m_history.append(v.toInt());
-                }
-            }
-        }
-    }
-    return m_history;
+    return played().list();
 }
 
 void AutoDj::autoplayTick() {
