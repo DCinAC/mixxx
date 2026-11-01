@@ -3303,9 +3303,25 @@ function mxConnect() {
     else onMixxx(m);
   };
   ws.onopen = () => ZydeckPos.clockStart(msg => { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); });   // the hub's clock
-  ws.onclose = () => { if (ws === mxWs) setTimeout(mxConnect, 1500); };
+  ws.onclose = () => { if (ws === mxWs) setTimeout(() => { if (ws !== mxWs) return; if (document.hidden) mxWs = null; else mxConnect(); }, 1500); };
 }
 mxConnect();
+// Away (the app in the background, the screen off), the sockets' updates pile up undelivered, and coming back the
+// page would play them all through before it's where Mixxx is: instead it lets go of them while hidden, and back,
+// starts afresh from where things are now (the hub's init, the subscriptions' current values, the settings)
+function socketsAway() {
+  for (const old of [mxWs, ctlWs]) if (old) { old.onclose = old.onmessage = null; try { old.close(); } catch {} }
+  mxWs = ctlWs = null;
+  for (const d of decks) if (d) Object.assign(d, { vp: null, hist: null, pt: undefined, shown: undefined, shownAt: undefined });
+}
+function socketsBack() {
+  if (document.hidden) return;
+  if (!mxWs) mxConnect();
+  if (!ctlWs && !PHONE) ctlConnect();
+}
+document.addEventListener("visibilitychange", () => (document.hidden ? socketsAway() : socketsBack()));
+window.addEventListener("pagehide", socketsAway);
+window.addEventListener("pageshow", socketsBack);
 // A connection that died without closing (the Wi-Fi or hotspot gone, a device asleep) would leave the decks
 // frozen and the controls going nowhere for minutes: when /ws has been quiet a while, ask the hub (it always
 // answers a ping); still nothing, start over.
@@ -3341,7 +3357,8 @@ function ctlConnect() {
     applyingRemote = false;
     if (migrated) saveSettings();   // tell the hub about the new knob default
   };
-  ctlWs.onclose = () => setTimeout(ctlConnect, 1500);
+  const sock = ctlWs;
+  ctlWs.onclose = () => { if (sock === ctlWs) setTimeout(() => { if (sock !== ctlWs) return; if (document.hidden) ctlWs = null; else ctlConnect(); }, 1500); };
 }
 if (!PHONE) ctlConnect();   // the phone's deck view keeps its own settings
 

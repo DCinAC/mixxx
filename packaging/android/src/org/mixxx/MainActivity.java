@@ -260,6 +260,38 @@ public class MainActivity extends QtActivityBase {
             return MainActivity.hasAllFilesAccess();
         }
 
+        /// The Web tab's "a link you copied: get it?": {"at": when it was copied (ms), "text"} for a clip copied
+        /// after since, "" for none (or Android won't say: ZyDeck not in front). Until there's a new one only the
+        /// clip's description is read, so Android's "ZyDeck pasted from your clipboard" shows once a copy, not at
+        /// every look.
+        @JavascriptInterface
+        public String clipboardSince(long since) {
+            java.util.concurrent.FutureTask<String> read = new java.util.concurrent.FutureTask<>(() -> {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                android.content.ClipDescription d = cm != null ? cm.getPrimaryClipDescription() : null;
+                if (d == null || d.getTimestamp() <= since
+                        || !(d.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN)
+                                || d.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_URILIST))) {
+                    return "";
+                }
+                android.content.ClipData clip = cm.getPrimaryClip();
+                CharSequence text = clip != null && clip.getItemCount() > 0 ? clip.getItemAt(0).getText() : null;
+                if (text == null) {
+                    return "";
+                }
+                JSONObject o = new JSONObject();
+                o.put("at", d.getTimestamp());
+                o.put("text", text.length() > 2000 ? text.subSequence(0, 2000).toString() : text.toString());
+                return o.toString();
+            });
+            runOnUiThread(read);
+            try {
+                return read.get(500, java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
         @JavascriptInterface
         public void openAllFilesAccess() {
             MainActivity.openAllFilesAccess(MainActivity.this);

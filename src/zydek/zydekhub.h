@@ -259,6 +259,11 @@ class Hub : public QObject {
     // ZyDeck starts (Mixxx on Android doesn't keep its samplers between runs)
     QTimer m_lastSessionTimer;
     QTimer m_autoplayTimer;   // autoplay's top-up (zydekautodj.h)
+    // the Web tab's downloads in a notification (zydekhub.cpp's tellDownloads, on a worker: one look at a time)
+    QTimer m_downloadTimer;
+    std::atomic<bool> m_downloadBusy{false};
+    QSet<QString> m_downloadsShown;
+    int m_downloadsDone = 0;
     bool m_lastSessionRestored = false;
     void restoreLastSession(int tries);
     ZydekController* m_pController = nullptr;

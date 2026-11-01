@@ -211,7 +211,8 @@
     background: #070708; box-shadow: inset 0 2px 5px rgba(0,0,0,.85), 0 1px 0 rgba(255,255,255,.06); }
   #anz:not(.on) .anz7 { display: none !important; }
   body.menuhw #anz.on .anz7 { display: flex !important; }
-  .wj .pct7 { align-items: flex-end; gap: 3px; --dh: 15px; }
+  .wj .pct7, .wj .sp7 { align-items: flex-end; gap: 3px; --dh: 15px; }
+  .wj .sp7 .silk { min-width: 30px; }
   #sheet .warn { margin: 12px 0 4px; font-size: 14px; line-height: 1.45; color: var(--text); }
   #sheet .warn small { display: block; color: var(--dim); margin-top: 8px; font-size: 13px; }
   /* keys on the track cards, coloured round the Camelot wheel */
@@ -315,6 +316,13 @@
   .wsel button { min-height: 38px; padding: 0 14px; }
   .wsel .go { border-color: #3a6ea5; color: #8cc4ff; }
   .badge.bili { color: #fb7299; } .badge.yt { color: #ff4e45; }
+  .wclip { display: none; gap: 8px; align-items: center; margin: 8px 12px 0; padding: 8px 10px 8px 12px; border: 1px solid #3a6ea5;
+    border-radius: 10px; background: #101a24; font-size: 13px; color: var(--dim); }
+  .wclip.on { display: flex; }
+  .wclip span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wclip b { color: var(--text); font-weight: 600; }
+  .wclip button { min-height: 36px; padding: 0 12px; }
+  .wclip .go { border-color: #3a6ea5; color: #8cc4ff; }
   .wj { padding: 8px 12px; border-bottom: 1px solid #1d1d1d; font-size: 13px; }
   .wj .t { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .wj .bar2 { height: 4px; border-radius: 2px; background: #222; margin-top: 6px; overflow: hidden; }
@@ -674,6 +682,7 @@
       <div class="search"><input id="wq" type="search" placeholder="Search YouTube, or paste a link or BV code" autocomplete="off"
         enterkeyhint="search"><button id="wgo">Search</button></div>
     </div>
+    <div class="wclip" id="wclip"><span>Copied: <b></b></span><button class="go">Get it</button><button class="x" aria-label="Dismiss">✕</button></div>
     <div class="note" id="wnote">Downloads go to Music/Zydek Web and into the library.</div>
     <ul class="list" id="wjobs"></ul>
     <ul class="list" id="wres"></ul>
@@ -1089,7 +1098,22 @@ function connect() {
     else if (m.t === "dn" && decks[m.d]) onDeckName(decks[m.d], m.n);
     else if (m.t === "wf") wfReady(m.id);   // a deck's waveform is analysed
   };
-  ws.onclose = () => { $("#link").textContent = "reconnecting…"; $("#link").classList.add("off"); setTimeout(connect, 1500); };
+  ws.onclose = () => {
+    if (sock !== ws) return;   // dropped on purpose (wsAway)
+    $("#link").textContent = "reconnecting…"; $("#link").classList.add("off");
+    setTimeout(() => { if (sock !== ws) return; if (document.hidden) ws = null; else connect(); }, 1500);
+  };
+}
+// Away (the app in the background, the screen off), the socket's updates pile up undelivered, and coming back the
+// page would play them all through before it's where Mixxx is: instead it lets go of the socket while hidden, and
+// back, starts afresh from where things are now (the hub's init and the subscriptions' current values)
+function wsAway() {
+  const sock = ws;
+  ws = null;
+  if (!sock) return;
+  sock.onclose = sock.onmessage = null;
+  try { sock.close(); } catch {}
+  for (const d of decks) if (d) Object.assign(d, { vp: null, hist: null, pt: undefined, shown: undefined, shownAt: undefined });
 }
 
 // Four deck panels (needle search + zoomed waveform), built once; the shown ones are painted every frame.
@@ -1856,14 +1880,22 @@ function openWebSheet(r) {
 
 // A download's speed: MB/s, or KB/s below one
 const fmtSpeed = bps => !(bps > 0) ? "" : bps >= 1e6 ? `${(bps / 1e6).toFixed(1)} MB/s` : `${Math.max(1, Math.round(bps / 1e3))} KB/s`;
+// the same on the hardware skin's 7-segment readout: [digits, unit]
+const speed7 = bps => !(bps > 0) ? ["", ""] : bps >= 1e6 ? [(bps / 1e6).toFixed(bps >= 1e8 ? 0 : 1), "MB/s"] : [String(Math.max(1, Math.round(bps / 1e3))), "KB/s"];
 // Downloads: each shows its progress at the top of the tab until it's done.
 function jobRow(title, onCancel) {
   const li = h("li", "wj", `<div class="top"><div class="t">${esc(title)}</div>` +
+    `<span class="sp7 hw7" style="visibility:hidden"><span class="s7"></span><span class="silk"></span></span>` +
     `<span class="pct7 hw7"><span class="s7"></span><span class="silk">%</span></span>${onCancel ? `<button class="x">Cancel</button>` : ""}` +
     `<span class="hpl busy"><i></i><i></i><i></i><i></i></span></div>` +
     `<div class="bar2"><i></i></div><div class="m">Starting…</div>`);
   $("#wjobs").prepend(li);
-  const show = (p, m) => {
+  const show = (p, m, bps) => {
+    if (bps !== undefined) {   // (cleared with 0)
+      const [n, unit] = speed7(bps), sp = li.querySelector(".sp7");
+      sp.style.visibility = n ? "" : "hidden";
+      if (n) { seg7(sp.querySelector(".s7"), n, 4); sp.querySelector(".silk").textContent = unit; }
+    }
     if (p != null) { const b = li.querySelector(".bar2 i"); b.style.width = `${Math.round(p * 100)}%`; li.style.setProperty("--p", p.toFixed(3)); seg7(li.querySelector(".pct7 .s7"), String(Math.round(p * 100)), 3); }
     if (m) li.querySelector(".m").textContent = m;
   };
@@ -1876,16 +1908,25 @@ function jobRow(title, onCancel) {
 async function downloadMany(list) {
   for (let i = 0; i < list.length; i++) {
     toast(`Downloading ${i + 1} of ${list.length}: ${list[i].title}`);
-    await webDownload(list[i], null, false, true);
+    if (await webDownload(list[i], null, false, true) === "cancelled") {   // (one cancelled: the rest are off too)
+      toast(`Stopped after ${i} of ${list.length}`);
+      return;
+    }
   }
   toast(`Downloaded ${list.length} track${list.length > 1 ? "s" : ""}`, "ok");
 }
 async function webDownload(r, target, stems, quiet) {
-  const { li, show, done } = jobRow(r.title);
+  let jobId = null, cancel = false;   // (Cancel before Python has said which job: as soon as it does)
+  const sendCancel = () => { if (jobId && cancel) webApi(`/api/web/cancel?${qs({ id: jobId })}`).catch(() => {}); };
+  const { li, show, done } = jobRow(r.title, () => { cancel = true; sendCancel(); });
   if (!quiet) toast(target ? `Downloading for ${target.replace("deck", "deck ")}…` : "Downloading…");
   try {
     const res = await webJob(`/api/web/download?${qs({ url: r.url, title: r.title, ...(onComputer() && target ? { deck: target.slice(4) } : {}) })}`,
-      j => show(j.progress, j.message ? `${j.message}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}${j.speed > 0 ? " · " + fmtSpeed(j.speed) : ""}` : null));
+      j => show(j.progress, j.message ? `${j.message}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}` +
+        `${j.speed > 0 && !document.body.classList.contains("menuhw") ? " · " + fmtSpeed(j.speed) : ""}` : null, j.speed || 0),
+      st => { jobId = st.job; sendCancel(); });
+    li.querySelector(".x")?.remove();
+    show(null, null, 0);
     const q = res.codec === "flac" ? "Hi-Res FLAC" : res.kbps ? `${res.kbps} kbps` : "";
     if (onComputer()) {   // (Mixxx ZyDeck takes it in from the folder, into the crate ZyDeck Web)
       show(1, `On the computer${q ? " (" + q + ")" : ""}: ${res.path.split("/").pop()}`);
@@ -1902,7 +1943,11 @@ async function webDownload(r, target, stems, quiet) {
     setTimeout(() => li.remove(), 8000);
     if (stems) stemsFor(res.path, res.title);
   } catch (e) {
-    li.classList.add("err"); show(null, e.message); done("err"); toast(e.message, "bad");
+    const cancelled = /cancelled/i.test(e.message);
+    li.querySelector(".x")?.remove();
+    li.classList.toggle("err", !cancelled); show(null, cancelled ? "Cancelled" : e.message, 0); done(cancelled ? "" : "err");
+    if (cancelled) setTimeout(() => li.remove(), 4000); else toast(e.message, "bad");
+    if (cancelled) return "cancelled";
   }
 }
 // Stems from the PC (Settings > Stem server): the phone sends the track's file, the PC separates it, the
@@ -1951,7 +1996,29 @@ async function stemsFor(path, title, trackId) {
 // (set in Settings › Stems: zydeck-menu.js tells this page through changed())
 webApi("/api/web/prefs").then(p => { if (p && !p.starting) { stemServer = p.stemServer || ""; stemPreset = p.stemPreset || "best"; store.set("stemServer", stemServer); store.set("stemPreset", stemPreset); } }).catch(() => {});
 
-function webJobs() {}   // (downloads started on this page show above; nothing to restore yet)
+function webJobs() { checkClip(); }   // (downloads started on this page show above; nothing to restore yet)
+
+// A link copied in another app (YouTube's Share › Copy link, Bilibili's), offered at the top of the Web tab while it's
+// open, downloads going or not: each copy once (clipAt: when the last one looked at was copied). Android only lets
+// ZyDeck read it while it's in front (window.ZydekAndroid.clipboardSince: MainActivity's)
+let clipAt = +store.get("clipAt", 0) || 0;
+function checkClip() {
+  if (page !== "web" || document.hidden || !window.ZydekAndroid?.clipboardSince) return;
+  let c = null;
+  try { c = JSON.parse(window.ZydekAndroid.clipboardSince(clipAt) || "null"); } catch {}
+  if (!c || !(c.at > clipAt)) return;
+  clipAt = c.at; store.set("clipAt", clipAt);
+  const link = (/https?:\/\/\S+|\bBV[0-9A-Za-z]{10}\b/.exec(c.text) || [])[0];
+  if (!link || link === $("#wq").value.trim()) return;
+  const box = $("#wclip");
+  box.querySelector("b").textContent = link;
+  box.dataset.link = link;
+  box.classList.add("on");
+}
+$("#wclip .go").addEventListener("click", () => { const box = $("#wclip"); box.classList.remove("on"); $("#wq").value = box.dataset.link; webSearch(); });
+$("#wclip .x").addEventListener("click", () => $("#wclip").classList.remove("on"));
+setInterval(checkClip, 2000);
+window.addEventListener("focus", checkClip);
 
 // Bilibili login screen: Zydek asks the site for a QR login (zydek_web.py), shows the code, and waits for the
 // confirmation from the Bilibili app: scanned from another device, scanned from Photos (Save QR code), or
@@ -2772,7 +2839,13 @@ showPage(page);
 connect();
 loadViews().then(loadTracks).finally(() => bootStep("library"));
 requestAnimationFrame(frame);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { checkPermission(); loadViews(); loadTracks(); } });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { wsAway(); return; }
+  if (!ws) connect();
+  checkPermission(); loadViews(); loadTracks();
+});
+window.addEventListener("pagehide", wsAway);
+window.addEventListener("pageshow", () => { if (!ws && !document.hidden) connect(); });
 </script>
 </body>
 </html>

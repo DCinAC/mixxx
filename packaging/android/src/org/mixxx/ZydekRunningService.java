@@ -155,6 +155,70 @@ public class ZydekRunningService extends Service {
         }
     }
 
+    // Downloads (the Web tab's, on this phone): their progress in a notification of their own, with Cancel, so they
+    // can be followed (and stopped) with ZyDeck in the background
+    private static final String DOWNLOADS = "zydek-downloads";
+    private static final int DOWNLOAD = 7203;
+    private static final String ACTION_DL_CANCEL = "org.mixxx.ZYDEK_DL_CANCEL";
+
+    /// The hub (any thread), about once a second while downloads run: state 0 running (percent: -1 not known yet;
+    /// text: how many, the speed), 1 done, 2 failed, 3 gone (cancelled: the notification goes). job: the Web tab's
+    /// job id, for Cancel.
+    public static void download(String job, String title, String text, int percent, int state) {
+        Context context = sContext;
+        if (context == null) {
+            return;
+        }
+        try {
+            NotificationManager manager = context.getSystemService(NotificationManager.class);
+            if (state == 3) {
+                manager.cancel(DOWNLOAD);
+                return;
+            }
+            NotificationChannel channel = new NotificationChannel(DOWNLOADS, "ZyDeck downloads", NotificationManager.IMPORTANCE_LOW);
+            channel.setShowBadge(false);
+            manager.createNotificationChannel(channel);
+            Intent open = new Intent(context, MainActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+            Notification.Builder b = new Notification.Builder(context, DOWNLOADS)
+                    .setContentTitle(state == 1 ? "Downloaded" : state == 2 ? "Download failed" : title)
+                    .setContentText(state == 0 ? text : title + (text == null || text.isEmpty() ? "" : " · " + text))
+                    .setContentIntent(PendingIntent.getActivity(context, 3, open, PendingIntent.FLAG_IMMUTABLE))
+                    .setOnlyAlertOnce(true)
+                    .setCategory(Notification.CATEGORY_PROGRESS);
+            if (state == 0) {
+                PendingIntent cancel = PendingIntent.getService(context, 21, new Intent(context, ZydekRunningService.class)
+                        .setAction(ACTION_DL_CANCEL).putExtra("job", job), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+                b.setSmallIcon(android.R.drawable.stat_sys_download)
+                        .setProgress(100, Math.max(percent, 0), percent < 0)
+                        .setOngoing(true)
+                        .addAction(new Notification.Action.Builder(null, "Cancel", cancel).build());
+            } else {
+                b.setSmallIcon(state == 1 ? android.R.drawable.stat_sys_download_done : android.R.drawable.stat_notify_error)
+                        .setAutoCancel(true);
+            }
+            manager.notify(DOWNLOAD, b.build());
+        } catch (RuntimeException e) {
+            Log.w(TAG, "can't show the download", e);
+        }
+    }
+
+    // Cancel (the download notification's): to the hub, as the Web tab's Cancel (off the main thread)
+    private static void cancelDownload(String job) {
+        new Thread(() -> {
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL("http://127.0.0.1:8766/api/web/cancel?id="
+                        + java.net.URLEncoder.encode(job, "UTF-8")).openConnection();
+                c.setConnectTimeout(2000);
+                c.setReadTimeout(10000);
+                c.getResponseCode();
+                c.disconnect();
+            } catch (Exception e) {
+                Log.w(TAG, "download: the hub didn't answer", e);
+            }
+        }).start();
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -182,6 +246,13 @@ public class ZydekRunningService extends Service {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
+            return START_NOT_STICKY;
+        }
+        if (intent != null && ACTION_DL_CANCEL.equals(intent.getAction())) {   // the download notification's Cancel
+            String job = intent.getStringExtra("job");
+            if (job != null) {
+                cancelDownload(job);
+            }
             return START_NOT_STICKY;
         }
         if (intent != null && ACTION_PLAYER.equals(intent.getAction())) {   // a player button

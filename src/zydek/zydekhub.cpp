@@ -179,6 +179,79 @@ const QByteArray kIndexPage = QByteArrayLiteral(
         "<a href=/phone>Library (phone)</a><a href=/controller>Controller (tablet)</a><a href=/settings>Settings and debug</a>"
         "<a href=/sizes>Size test</a>");
 
+// The Web tab's downloads on this phone (zydek_web.py's jobs), in a notification (ZydekRunningService.download):
+// the one going with its progress and speed, then what came of them. shown: the jobs told about as running, done:
+// how many of them finished well since the last time none ran. Off the main thread (Python may take a moment);
+// false once there's nothing more to tell.
+bool tellDownloads(QSet<QString>* pShown, int* pDone) {
+    const QJsonArray jobs = QJsonDocument::fromJson(python::call(QStringLiteral("jobs"), "{}"))
+                                    .object()
+                                    .value(QStringLiteral("jobs"))
+                                    .toArray();   // (newest first)
+    QJsonObject going, last;
+    int running = 0;
+    bool failed = false;
+    for (const QJsonValue& v : jobs) {
+        const QJsonObject j = v.toObject();
+        const QString id = j.value(QStringLiteral("id")).toString();
+        const QString state = j.value(QStringLiteral("state")).toString();
+        if (state == QLatin1String("running")) {
+            ++running;
+            going = j;   // (the oldest going: a batch's are one after another)
+            pShown->insert(id);
+        } else if (pShown->remove(id)) {
+            if (state == QLatin1String("done")) {
+                ++*pDone;
+            } else if (!j.value(QStringLiteral("error")).toString().contains(QLatin1String("ancelled"))) {
+                failed = true;
+            }
+            if (last.isEmpty()) {
+                last = j;
+            }
+        }
+    }
+    auto tell = [](const QString& job, const QString& title, const QString& text, int percent, int state) {
+#ifdef Q_OS_ANDROID
+        QJniObject::callStaticMethod<void>("org/mixxx/ZydekRunningService", "download",
+                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;II)V",
+                QJniObject::fromString(job).object<jstring>(), QJniObject::fromString(title).object<jstring>(),
+                QJniObject::fromString(text).object<jstring>(), static_cast<jint>(percent), static_cast<jint>(state));
+#else
+        Q_UNUSED(job); Q_UNUSED(title); Q_UNUSED(text); Q_UNUSED(percent); Q_UNUSED(state);
+#endif
+    };
+    if (running) {
+        const double p = going.value(QStringLiteral("progress")).toDouble();
+        const double bps = going.value(QStringLiteral("speed")).toDouble();
+        QStringList text{going.value(QStringLiteral("message")).toString()};
+        if (bps > 0) {   // (as the Web tab shows it: MB/s, or KB/s below one)
+            text << (bps >= 1e6 ? QStringLiteral("%1 MB/s").arg(bps / 1e6, 0, 'f', 1)
+                                : QStringLiteral("%1 KB/s").arg(std::max(1.0, std::round(bps / 1e3))));
+        }
+        if (running > 1) {
+            text << QStringLiteral("%1 more to go").arg(running - 1);
+        }
+        if (*pDone) {
+            text << QStringLiteral("%1 done").arg(*pDone);
+        }
+        text.removeAll(QString());
+        tell(going.value(QStringLiteral("id")).toString(), going.value(QStringLiteral("title")).toString(),
+                text.join(QStringLiteral(" · ")), p > 0 ? static_cast<int>(p * 100) : -1, 0);
+        return true;
+    }
+    if (!last.isEmpty()) {   // all finished: what came of them (cancelled, all: nothing to say)
+        const QString title = *pDone > 1 ? QStringLiteral("%1 tracks").arg(*pDone)
+                                         : last.value(QStringLiteral("title")).toString();
+        if (failed) {
+            tell({}, title, last.value(QStringLiteral("error")).toString(), 0, 2);
+        } else {
+            tell({}, title, {}, 0, *pDone ? 1 : 3);
+        }
+        *pDone = 0;
+    }
+    return !pShown->isEmpty();
+}
+
 } // namespace
 
 Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
@@ -387,6 +460,19 @@ void Hub::start() {
     });
     m_autoDj.startMixing();
     m_autoplayTimer.start();
+    m_downloadTimer.setInterval(1000);   // while there are downloads on this phone: their notification
+    connect(&m_downloadTimer, &QTimer::timeout, this, [this] {
+        if (m_downloadBusy.exchange(true)) {
+            return;
+        }
+        QThreadPool::globalInstance()->start([this] {
+            const bool more = tellDownloads(&m_downloadsShown, &m_downloadsDone);
+            m_downloadBusy = false;
+            if (!more) {
+                QMetaObject::invokeMethod(this, [this] { m_downloadTimer.stop(); });
+            }
+        });
+    });
     m_lastSessionTimer.setInterval(2000);
     connect(&m_lastSessionTimer, &QTimer::timeout, this, [this] { saveKit(kLastSession); });
     QTimer::singleShot(5000, this, [this] { restoreLastSession(0); });
@@ -470,6 +556,13 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         }
         const QByteArray body = python::call(path.mid(9), QJsonDocument(args).toJson(QJsonDocument::Compact));
         const bool ok = QJsonDocument::fromJson(body).object().value(QStringLiteral("ok")).toBool(true);
+        if (ok && path == QLatin1String("/api/web/download")) {   // its notification from now (any thread here)
+            QMetaObject::invokeMethod(this, [this] {
+                if (!m_downloadTimer.isActive()) {
+                    m_downloadTimer.start();
+                }
+            });
+        }
         return {ok ? 200 : 409, "application/json", body, {}};
     }
     if (path == QLatin1String("/api/audio")) {

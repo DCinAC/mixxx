@@ -344,7 +344,13 @@ def _download(url, title, client=None):
     def run(job):
         os.makedirs(_dirs["music"], exist_ok=True)
 
+        part = []   # yt-dlp's file while it downloads: gone if it's cancelled
+
         def hook(d):
+            if job.get("cancel"):   # (the page's Cancel: /api/web/cancel) yt-dlp stops with this
+                if d.get("tmpfilename"):
+                    part.append(d["tmpfilename"])
+                raise RuntimeError("Cancelled")
             if d["status"] == "downloading":
                 total = d.get("total_bytes") or d.get("total_bytes_estimate")
                 if total:
@@ -366,7 +372,19 @@ def _download(url, title, client=None):
             # client=web forces YouTube's web player, which always needs the JS challenge (to test QuickJS)
             **({"extractor_args": {"youtube": {"player_client": [client]}}} if client else {}),
         }) as ydl:
-            info = ydl.extract_info(url, download=True)
+            try:
+                info = ydl.extract_info(url, download=True)
+            except Exception:
+                if job.get("cancel"):
+                    for f in part:
+                        try:
+                            os.remove(f)
+                        except OSError:
+                            pass
+                    raise RuntimeError("Cancelled") from None
+                raise
+            if job.get("cancel"):
+                raise RuntimeError("Cancelled")
             if info.get("entries"):
                 info = next(e for e in info["entries"] if e)
             path = info["requested_downloads"][0]["filepath"]
