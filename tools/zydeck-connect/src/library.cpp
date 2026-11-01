@@ -516,9 +516,19 @@ QJsonObject Library::track(int trackId) {
     return d.isValid() ? zydeck::library::track(d, trackId) : QJsonObject();
 }
 
-QList<int> Library::pick(const zydeck::library::Pool& pool, int count, double after) {
+QList<int> Library::pick(const zydeck::library::Pool& pool, int count, double after, int afterKey) {
     QSqlDatabase d = db();
-    return d.isValid() ? zydeck::library::pick(d, {}, pool, count, after) : QList<int>();
+    return d.isValid() ? zydeck::library::pick(d, {}, pool, count, after, afterKey) : QList<int>();
+}
+
+int Library::autoDjQueueTailKey() {
+    QSqlDatabase d = db();
+    return d.isValid() ? zydeck::library::autoDjQueueTailKey(d) : 0;
+}
+
+QList<int> Library::playHistory(const QList<std::pair<int, qint64>>& ours) {
+    QSqlDatabase d = db();
+    return d.isValid() ? zydeck::library::playHistory(d, ours) : QList<int>();
 }
 
 double Library::autoDjQueueTailBpm() {

@@ -5,6 +5,7 @@
 #include <QJniObject>
 #endif
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QHash>
@@ -626,13 +627,13 @@ class MixPlanner {
     QJsonObject m_plan;
 };
 
-// Player history: what played while Auto DJ or player mode ran, newest first (the last 500, kept between sessions in
-// zydeck-player-history.json): tracks player mode picked, and ones the user cut in. Written on Mixxx's main thread
-// (as a track starts), read on the hub's.
+// The play history's own record (zydecklibraryquery.h's playHistory adds Mixxx's): a track as it starts playing on a
+// deck, or as the user loads it to one, with when (ms since 1970), newest first, the last 500, kept between sessions
+// in zydeck-play-history.json. Written on Mixxx's main thread and the hub's, read on the hub's.
 struct Played {
     QMutex mutex;
     QString file;
-    QList<int> ids;
+    QList<std::pair<int, qint64>> list;   // (track, when)
     bool read = false;
 
     void load() {   // (mutex held)
@@ -643,31 +644,33 @@ struct Played {
         QFile f(file);
         if (f.open(QIODevice::ReadOnly)) {
             for (const QJsonValue& v : QJsonDocument::fromJson(f.readAll()).array()) {
-                if (v.toInt() > 0) {
-                    ids.append(v.toInt());
+                const QJsonObject o = v.toObject();
+                if (o.value(QStringLiteral("id")).toInt() > 0) {
+                    list.append({o.value(QStringLiteral("id")).toInt(), static_cast<qint64>(o.value(QStringLiteral("at")).toDouble())});
                 }
             }
         }
     }
-    QList<int> list() {
+    QList<std::pair<int, qint64>> all() {
         QMutexLocker lock(&mutex);
         load();
-        return ids;
+        return list;
     }
     void add(int id) {
         QMutexLocker lock(&mutex);
         load();
-        if (id <= 0 || (!ids.isEmpty() && ids.first() == id)) {
+        if (id <= 0) {
             return;
         }
-        ids.removeAll(id);
-        ids.prepend(id);
-        while (ids.size() > 500) {
-            ids.removeLast();
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        list.erase(std::remove_if(list.begin(), list.end(), [id](const auto& e) { return e.first == id; }), list.end());
+        list.prepend({id, now});
+        while (list.size() > 500) {
+            list.removeLast();
         }
         QJsonArray out;
-        for (int i : std::as_const(ids)) {
-            out.append(i);
+        for (const auto& [track, at] : std::as_const(list)) {
+            out.append(QJsonObject{{"id", track}, {"at", static_cast<double>(at)}});
         }
         QSaveFile f(file);
         if (f.open(QIODevice::WriteOnly)) {
@@ -692,8 +695,22 @@ struct MixHolder {
     std::atomic<int> current{1};
     int playingBefore = 0;
     QString told;
-    int recorded = -1;   // the track last put in the player history
+    bool was[5] = {};    // decks 1-4 playing at the last look
 };
+
+// The play history: a track as a deck starts playing it (any deck; picked by player mode, queued, or the user's)
+void notePlays(MixHolder& h) {
+    for (int deck = 1; deck <= 4; ++deck) {
+        const QString group = QStringLiteral("[Channel%1]").arg(deck);
+        const bool playing = ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0;
+        if (playing && !h.was[deck]) {
+            if (const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group)) {
+                played().add(pTrack->getId().toVariant().toInt());
+            }
+        }
+        h.was[deck] = playing;
+    }
+}
 
 // Player mode's state to the notification (Android), as it changes
 void tellPlayer(MixHolder& h) {
@@ -710,15 +727,6 @@ void tellPlayer(MixHolder& h) {
     const int deck = h.current;
     const bool on = h.playerOn;
     const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(QStringLiteral("[Channel%1]").arg(deck));
-    // the player history: a track as it starts playing, while Auto DJ or player mode runs (picked or cut in)
-    if (pTrack && get(deck, "play") > 0 &&
-            (on || ControlObject::get(ConfigKey(QStringLiteral("[AutoDJ]"), QStringLiteral("enabled"))) > 0)) {
-        const int id = pTrack->getId().toVariant().toInt();
-        if (id != h.recorded) {
-            h.recorded = id;
-            played().add(id);
-        }
-    }
     const QString title = pTrack ? pTrack->getTitle() : QString(), artist = pTrack ? pTrack->getArtist() : QString();
     const bool playing = get(deck, "play") > 0;
     const QString state = QStringLiteral("%1|%2|%3|%4|%5").arg(on).arg(deck).arg(title, artist).arg(playing);
@@ -778,7 +786,7 @@ AutoDj::AutoDj(UserSettingsPointer pConfig, Library* pLibrary)
         : m_pConfig(pConfig),
           m_pLibrary(pLibrary) {
     QMutexLocker lock(&played().mutex);
-    played().file = QDir(pConfig->getSettingsPath()).filePath(QStringLiteral("zydeck-player-history.json"));
+    played().file = QDir(pConfig->getSettingsPath()).filePath(QStringLiteral("zydeck-play-history.json"));
 }
 
 QJsonObject AutoDj::autoplayJson() const {
@@ -1031,6 +1039,25 @@ QJsonObject AutoDj::setAutoplay(bool on, const QJsonObject& pool) {
     if (!on) {
         return {{"ok", true}};
     }
+    // decks 1 and 2: one has to be free (Auto DJ won't take a playing deck); a track the user cued on the free one
+    // stays, as the next to play, and the picks follow on from the one playing
+    const auto deck = [](int n, const char* key) {
+        return ControlObject::get(ConfigKey(QStringLiteral("[Channel%1]").arg(n), QString::fromLatin1(key)));
+    };
+    const bool p1 = deck(1, "play") > 0, p2 = deck(2, "play") > 0;
+    if (p1 && p2 && ControlObject::get(ConfigKey(QStringLiteral("[AutoDJ]"), QStringLiteral("enabled"))) <= 0) {
+        m_autoplay = false;
+        if (mixHolder()) {
+            mixHolder()->playerOn = false;
+        }
+        return error(QStringLiteral("Decks 1 and 2 are both playing: player mode needs one of them free"));
+    }
+    if (p1 != p2 && ControlObject::get(ConfigKey(QStringLiteral("[AutoDJ]"), QStringLiteral("enabled"))) <= 0) {
+        const QString free = QStringLiteral("[Channel%1]").arg(p1 ? 2 : 1);
+        if (const TrackPointer pCued = PlayerInfo::instance().getTrackInfo(free)) {
+            add(pCued->getId().toVariant().toInt(), QStringLiteral("top"));
+        }
+    }
     // autoplay picks: Mixxx's own top-up from the crates would add others
     m_pConfig->setValue(ConfigKey(kPrefs, QStringLiteral("EnableRandomQueue")), 0);
     topUp();
@@ -1052,14 +1079,20 @@ void AutoDj::topUp() {
     if (queued >= kAhead) {
         return;
     }
-    // the tempo they follow: the queue's last track's, else the playing deck's
+    // the tempo and key they follow: the queue's last track's, else the playing deck's
     double after = m_pLibrary->autoDjQueueTailBpm();
+    int afterKey = m_pLibrary->autoDjQueueTailKey();
     for (const QString group : {QStringLiteral("[Channel1]"), QStringLiteral("[Channel2]")}) {
-        if (after <= 0 && ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0) {
-            after = ControlObject::get(ConfigKey(group, QStringLiteral("file_bpm")));
+        if (ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0) {
+            if (after <= 0) {
+                after = ControlObject::get(ConfigKey(group, QStringLiteral("file_bpm")));
+            }
+            if (afterKey <= 0) {
+                afterKey = static_cast<int>(std::lround(ControlObject::get(ConfigKey(group, QStringLiteral("key")))));
+            }
         }
     }
-    const QList<int> picked = m_pLibrary->pick(m_pool, kAhead - queued, after);
+    const QList<int> picked = m_pLibrary->pick(m_pool, kAhead - queued, after, afterKey);
     if (picked.isEmpty()) {
         return;
     }
@@ -1084,8 +1117,12 @@ void AutoDj::topUp() {
     }
 }
 
-QList<int> AutoDj::autoplayHistory() {
-    return played().list();
+QList<int> AutoDj::playHistory() {
+    return m_pLibrary->playHistory(played().all());
+}
+
+void notePlayHistory(int trackId) {
+    played().add(trackId);
 }
 
 void AutoDj::autoplayTick() {
@@ -1125,6 +1162,7 @@ void AutoDj::startMixing() {
             }
             beatmatch().tick(holder->config->getValue(ConfigKey(kZyDeck, QStringLiteral("AutoDjBeatmatch")), 0) == 1, at);
             tellPlayer(*holder);
+            notePlays(*holder);
         });
         timer->start();
     });

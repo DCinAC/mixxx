@@ -59,17 +59,24 @@ struct Pool {
     double bpmMin = 0;
     double bpmMax = 0;
     double tempo = 8;         // each next track within this many % of the one before it (half / double too); 0: any
+    bool keys = true;         // in a key that mixes with the one before's, where there's one
     static Pool fromJson(const QJsonObject& o);
     QJsonObject toJson() const;
 };
 /// Up to count random tracks from the pool, ids: not in the Auto DJ queue, not played this session (Mixxx's newest
-/// history list), their files there. Every track of the library in turn, at random, as it plays. after: the tempo
-/// they follow (the queue's last track's, or the playing one's; 0: unknown): with the pool's tempo limit, each is
-/// within it of the one before (the closest tempo there is, when none is).
-QList<int> pick(const QSqlDatabase& db, const Where& only, const Pool& pool, int count, double after = 0);
-/// The Auto DJ queue's length, and its last track's tempo (0: none)
+/// history list), their files there. Every track of the library in turn, at random, as it plays. after, afterKey: the
+/// tempo and key (Mixxx's key id) they follow, the queue's last track's or the playing one's (0: unknown): each fits
+/// the one before, as near as the library allows: within the pool's tempo limit and in a key that mixes, then within
+/// the limit, then the nearest tempo there is.
+QList<int> pick(const QSqlDatabase& db, const Where& only, const Pool& pool, int count, double after = 0, int afterKey = 0);
+/// The Auto DJ queue's length, and its last track's tempo and key id (0: none)
 int autoDjQueueLength(const QSqlDatabase& db);
 double autoDjQueueTailBpm(const QSqlDatabase& db);
+int autoDjQueueTailKey(const QSqlDatabase& db);
+/// Play history: what played and what the user loaded to a deck, newest first, up to limit track ids: ZyDeck's own
+/// record (track id, when: ms since 1970) together with Mixxx's (each track's last play), the later of the two
+/// counting for a track in both. Never a track only queued: one counts once it plays (or the user loads it).
+QList<int> playHistory(const QSqlDatabase& db, const QList<std::pair<int, qint64>>& ours, int limit = 500);
 
 /// A row of kTrackColumns as the pages read a track
 QJsonObject trackJson(const QSqlQuery& query);

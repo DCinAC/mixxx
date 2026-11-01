@@ -10,6 +10,9 @@ namespace zydek {
 
 class Library;
 
+/// The user loaded this track to a deck: in the play history from now (as one that plays is)
+void notePlayHistory(int trackId);
+
 /// The phone page's Auto DJ: Mixxx's own (its processor, queue and settings, as its Auto DJ view uses them), so what
 /// it does is what Mixxx does: decks 1 and 2, a crossfade by the crossfader, the queue played top down, and when it
 /// runs low, random tracks from the crates marked as its source (or the whole library when none is).
@@ -47,9 +50,9 @@ class AutoDj {
     QJsonObject setAutoplay(bool on, const QJsonObject& pool);
     /// Every few seconds (the hub's timer): tops the queue up while autoplay is on and Auto DJ plays
     void autoplayTick();
-    /// What played while Auto DJ or player mode ran, newest first: picked or cut in (the last 500, kept between
-    /// sessions: zydeck-player-history.json)
-    QList<int> autoplayHistory();
+    /// The play history, newest first: each track as it started playing on a deck, or as the user loaded it to one
+    /// (zydeck-play-history.json), with Mixxx's own record of what played. A track only queued isn't in it.
+    QList<int> playHistory();
     /// The phrase mixing (zydekautodj.cpp's MixPlanner: by the tracks' sections, zydekstructurecache.h's files), on
     /// Mixxx's main thread from now on; setMix: its choices, {entry, exit, bars, style} (each given: changed)
     void startMixing();

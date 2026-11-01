@@ -695,13 +695,13 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     }
     if (path == QLatin1String("/api/library/views")) {
         QJsonObject v = m_library.views();
-        v.insert(QStringLiteral("autoplayHistory"), static_cast<int>(m_autoDj.autoplayHistory().size()));
+        v.insert(QStringLiteral("played"), static_cast<int>(m_autoDj.playHistory().size()));   // (the play history's)
         return json(v);
     }
     if (path == QLatin1String("/api/library/tracks")) {
         QString view = arg("view").isEmpty() ? QStringLiteral("all") : arg("view");
-        if (view == QLatin1String("autoplay")) {   // what autoplay has picked, newest first
-            return json(m_library.tracksIn(m_autoDj.autoplayHistory(), arg("q"),
+        if (view == QLatin1String("played")) {   // the play history, newest first
+            return json(m_library.tracksIn(m_autoDj.playHistory(), arg("q"),
                     arg("sort").isEmpty() ? QStringLiteral("added") : arg("sort"),
                     arg("limit").isEmpty() ? 200 : arg("limit").toInt(), arg("offset").toInt(), arg("genre")));
         }
@@ -777,6 +777,9 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     if (path == QLatin1String("/api/load")) {   // ?track_id=&target=deck1..4|sampler|samplerN[&sync=1|0 for a sampler]
         const QJsonObject r = m_library.load(arg("track_id").toInt(), arg("target"));
         const QString group = r.value(QStringLiteral("group")).toString();
+        if (r.value(QStringLiteral("ok")).toBool() && group.startsWith(QLatin1String("[Channel"))) {
+            notePlayHistory(arg("track_id").toInt());   // (loaded to a deck by the user: in the play history)
+        }
         if (r.value(QStringLiteral("ok")).toBool() && group.startsWith(QLatin1String("[Sampler"))) {
             Library::setSamplerOptions(group, arg("sync") != QLatin1String("0"), false, arg("keylock") != QLatin1String("0"));
             setSamplerMode(group.mid(8, group.size() - 9).toInt(), QStringLiteral("oneshot"));   // a whole track: plays once

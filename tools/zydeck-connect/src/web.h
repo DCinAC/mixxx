@@ -79,6 +79,7 @@ class Web : public QObject {
         QPointer<QNetworkReply> reply;
         QString remoteId, server, original, outName;   // stems
         QString deck;                                    // a download to load there ("[Channel1]"; "": none)
+        int trackId = 0;                                 // a library track loaded to a deck (the play history's)
     };
     Job* start(const QString& kind, const QString& title);
     void finish(Job* job, const QJsonValue& result);

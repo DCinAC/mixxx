@@ -49,8 +49,11 @@ class Library {
     QJsonObject genres();
     QJsonObject track(int trackId);
     /// Autoplay's (zydecklibraryquery.h): random tracks of the pool, and the Auto DJ queue's length
-    QList<int> pick(const zydeck::library::Pool& pool, int count, double after = 0);
+    QList<int> pick(const zydeck::library::Pool& pool, int count, double after = 0, int afterKey = 0);
     double autoDjQueueTailBpm();
+    int autoDjQueueTailKey();
+    /// zydecklibraryquery.h's playHistory: these (track, when) with Mixxx's record of what played
+    QList<int> playHistory(const QList<std::pair<int, qint64>>& ours);
     int autoDjQueueLength();
     /// The tracks in ids, in that order (autoplay's history), searched, sorted and filtered as tracks()
     QJsonArray tracksIn(const QList<int>& ids, const QString& search, const QString& sort, int limit, int offset, const QString& genre);

@@ -178,29 +178,47 @@ QString stemBase(QString server) {
 } // namespace
 
 namespace {
-// Player history: what played while Auto DJ ran (player mode's picks, and tracks the user cut in), newest first,
-// the last 500
-QList<int> autoplayHistory() {
-    QList<int> ids;
-    for (const QJsonValue& v : QJsonDocument::fromJson(QSettings().value(QStringLiteral("player/history")).toByteArray()).array()) {
-        ids.append(v.toInt());
+// The play history's own record (zydecklibraryquery.h's playHistory adds Mixxx's): each track as a deck started
+// playing it (Mixxx ZyDeck says so) or as the user loaded it to one from a device, with when (ms since 1970), newest
+// first, the last 500
+QList<std::pair<int, qint64>> playRecord() {
+    QList<std::pair<int, qint64>> out;
+    for (const QJsonValue& v : QJsonDocument::fromJson(QSettings().value(QStringLiteral("play/history")).toByteArray()).array()) {
+        out.append({v.toObject().value(QStringLiteral("id")).toInt(), static_cast<qint64>(v.toObject().value(QStringLiteral("at")).toDouble())});
     }
-    return ids;
+    return out;
 }
 
-// A track that started playing (Mixxx ZyDeck's state says which), into the player history
-void recordPlayed(int id) {
-    QList<int> ids = autoplayHistory();
-    if (id <= 0 || (!ids.isEmpty() && ids.first() == id)) {
+void recordPlayed(int id, qint64 at) {
+    if (id <= 0) {
         return;
     }
-    ids.removeAll(id);
-    ids.prepend(id);
+    QList<std::pair<int, qint64>> list = playRecord();
+    list.erase(std::remove_if(list.begin(), list.end(), [id](const auto& e) { return e.first == id; }), list.end());
+    list.prepend({id, at});
     QJsonArray kept;
-    for (int i = 0; i < ids.size() && i < 500; ++i) {
-        kept.append(ids[i]);
+    for (int i = 0; i < list.size() && i < 500; ++i) {
+        kept.append(QJsonObject{{"id", list[i].first}, {"at", static_cast<double>(list[i].second)}});
     }
-    QSettings().setValue(QStringLiteral("player/history"), QJsonDocument(kept).toJson(QJsonDocument::Compact));
+    QSettings().setValue(QStringLiteral("play/history"), QJsonDocument(kept).toJson(QJsonDocument::Compact));
+}
+
+// The starts Mixxx ZyDeck reports (its Auto DJ state's "started"), each recorded once
+void recordStarts(const QJsonArray& started) {
+    static qint64 seen = QSettings().value(QStringLiteral("play/seen")).toLongLong();
+    qint64 newest = seen;
+    for (int i = started.size() - 1; i >= 0; --i) {   // (oldest first)
+        const QJsonObject s = started[i].toObject();
+        const qint64 at = static_cast<qint64>(s.value(QStringLiteral("at")).toDouble());
+        if (at > seen) {
+            recordPlayed(s.value(QStringLiteral("id")).toInt(), at);
+            newest = std::max(newest, at);
+        }
+    }
+    if (newest != seen) {
+        seen = newest;
+        QSettings().setValue(QStringLiteral("play/seen"), seen);
+    }
 }
 } // namespace
 
@@ -211,15 +229,15 @@ Web::Web(Library* library, QObject* parent)
     m_autoplay = new QTimer(this);
     m_autoplay->setInterval(4000);
     connect(m_autoplay, &QTimer::timeout, this, [this] {
-        const bool player = QSettings().value(QStringLiteral("autoplay/on")).toBool();
+        const bool player = QSettings().value(QStringLiteral("autoplay/on")).toBool();   // (and the play history, always)
         Library* library = m_library;
         QThreadPool::globalInstance()->start([library, player] {
             QFile f(mixxxDir() + QStringLiteral("/zydeck-autodj-state.json"));   // (only while Auto DJ plays)
             const QJsonObject state = f.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(f.readAll()).object() : QJsonObject();
+            recordStarts(state.value(QStringLiteral("started")).toArray());   // (whatever plays: the play history)
             if (!state.value(QStringLiteral("on")).toBool()) {
                 return;
             }
-            recordPlayed(state.value(QStringLiteral("playing")).toInt());
             if (player) {
                 autoplayTopUp(library);
             }
@@ -350,7 +368,7 @@ QJsonObject Web::library(Library* library, const QString& what, const QUrlQuery&
     };
     if (what == QLatin1String("library/views")) {
         QJsonObject v = library->views();
-        v.insert(QStringLiteral("autoplayHistory"), static_cast<int>(autoplayHistory().size()));
+        v.insert(QStringLiteral("played"), static_cast<int>(library->playHistory(playRecord()).size()));
         return v;
     }
     if (what == QLatin1String("library/tracks")) {
@@ -358,8 +376,8 @@ QJsonObject Web::library(Library* library, const QString& what, const QUrlQuery&
         if (view.startsWith(QLatin1String("fits:"))) {   // (what fits a deck: the device's own decks only)
             return {{"tracks", QJsonArray()}};
         }
-        if (view == QLatin1String("autoplay")) {   // what autoplay has picked, newest first
-            return {{"tracks", library->tracksIn(autoplayHistory(), arg("q"), arg("sort").isEmpty() ? QStringLiteral("added") : arg("sort"),
+        if (view == QLatin1String("played")) {   // the play history, newest first
+            return {{"tracks", library->tracksIn(library->playHistory(playRecord()), arg("q"), arg("sort").isEmpty() ? QStringLiteral("added") : arg("sort"),
                                        arg("limit").isEmpty() ? 200 : arg("limit").toInt(), arg("offset").toInt(), arg("genre"))}};
         }
         return {{"tracks", library->tracks(arg("q"), view, arg("sort").isEmpty() ? QStringLiteral("added") : arg("sort"),
@@ -426,15 +444,20 @@ int Web::autoplayTopUp(Library* library) {
     constexpr int kAhead = 2;
     const zydeck::library::Pool pool = zydeck::library::Pool::fromJson(
             QJsonDocument::fromJson(QSettings().value(QStringLiteral("autoplay/pool")).toByteArray()).object());
-    // the tempo they follow: the queue's last track's, else the playing deck's (as Mixxx ZyDeck says)
+    // the tempo and key they follow: the queue's last track's, else the playing deck's (as Mixxx ZyDeck says)
     double after = library->autoDjQueueTailBpm();
-    if (after <= 0) {
+    int afterKey = library->autoDjQueueTailKey();
+    if (after <= 0 || afterKey <= 0) {
         QFile f(mixxxDir() + QStringLiteral("/zydeck-autodj-state.json"));
-        if (f.open(QIODevice::ReadOnly)) {
-            after = QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("bpm")).toDouble();
+        const QJsonObject state = f.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(f.readAll()).object() : QJsonObject();
+        if (after <= 0) {
+            after = state.value(QStringLiteral("bpm")).toDouble();
+        }
+        if (afterKey <= 0) {
+            afterKey = static_cast<int>(std::lround(state.value(QStringLiteral("key")).toDouble()));
         }
     }
-    const QList<int> ids = library->pick(pool, kAhead - library->autoDjQueueLength(), after);
+    const QList<int> ids = library->pick(pool, kAhead - library->autoDjQueueLength(), after, afterKey);
     for (int id : ids) {
         askAutoDj({{"do", "add"}, {"track", id}, {"where", "bottom"}});
     }
@@ -562,6 +585,7 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
         }
         Job* j = start(QStringLiteral("load"), QFileInfo(path).completeBaseName());
         j->deck = deck.hasMatch() ? QStringLiteral("[Channel%1]").arg(deck.captured(1)) : QStringLiteral("[PreviewDeck1]");
+        j->trackId = deck.hasMatch() ? arg("id").toInt() : 0;   // (loaded to a deck: the play history, once it's there)
         loadToDeck(j, {{"path", path}});
         return {{"job", j->id}};
     }
@@ -1072,6 +1096,7 @@ void Web::loadToDeck(Job* job, QJsonObject result) {
             f.remove();
             if (done.value(QStringLiteral("ok")).toBool()) {
                 result.insert(QStringLiteral("loaded"), job->deck);
+                recordPlayed(job->trackId, QDateTime::currentMSecsSinceEpoch());
             } else {
                 result.insert(QStringLiteral("loadError"), done.value(QStringLiteral("error")).toString(QStringLiteral("Mixxx didn't load it")));
             }
