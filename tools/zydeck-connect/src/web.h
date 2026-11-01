@@ -9,7 +9,8 @@
 //                                      downloads folder as "<name>.stem.mp4", with a hidden note naming the original
 //                                      (Mixxx ZyDeck gives the stems its cues and beat grid): a job, its result
 //                                      {path, artist, title, seconds, original}
-//   GET /web/job?id=                   {state: running|done|error, progress 0-1, message, result | error}
+//   GET /web/job?id=                   {state: running|done|error, progress 0-1, speed (bytes a second), message,
+//                                      result | error}
 //   GET /web/cancel?id=
 //   GET /web/fx                        Mixxx's effects as a unit's slots number them: {effects: [name, ...], beats:
 //                                      [{knob, min, max} or null, ...] (the knob in beats, for the BEAT keys)} (Mixxx
@@ -70,6 +71,7 @@ class Web : public QObject {
         QString id, kind, title;
         QString state = QStringLiteral("running");
         double progress = 0;
+        double speed = 0;   // a download's, bytes a second
         QString message;
         QJsonValue result;
         QString error;

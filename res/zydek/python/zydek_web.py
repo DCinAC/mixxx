@@ -349,7 +349,10 @@ def _download(url, title, client=None):
                 total = d.get("total_bytes") or d.get("total_bytes_estimate")
                 if total:
                     job["progress"] = min(0.98, d.get("downloaded_bytes", 0) / total)
+                job["speed"] = d.get("speed") or 0   # bytes a second (the page: MB/s or KB/s)
                 job["message"] = "Downloading"
+            elif d["status"] == "finished":
+                job["speed"] = 0
 
         job["message"] = "Finding the audio"
         bili = "bilibili" in url or "b23.tv" in url or "bili2233" in url
@@ -638,7 +641,7 @@ def _qr_save(job_id):
 # ---- API (/api/web/<name>) ------------------------------------------------------------------------
 
 def _public(job):
-    return {k: job.get(k) for k in ("id", "kind", "title", "state", "progress", "message", "result", "error", "data")}
+    return {k: job.get(k) for k in ("id", "kind", "title", "state", "progress", "message", "result", "error", "data", "speed")}
 
 
 def api(name, args_json):

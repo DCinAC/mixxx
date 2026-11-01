@@ -303,6 +303,17 @@
   .wr img { width: 96px; height: 54px; object-fit: cover; border-radius: 6px; background: #1a1a1a; }
   .wr .t { color: var(--text); font-size: 14px; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .wr .a { color: var(--dim); font-size: 12px; margin-top: 2px; }
+  /* several at once: a tick in front of each result, the bar above them */
+  .wr .tick { display: none; }
+  .wr.picking { grid-template-columns: 26px 96px 1fr; }
+  .wr.picking .tick { display: block; width: 22px; height: 22px; border-radius: 6px; border: 2px solid #555; box-sizing: border-box; }
+  .wr.picked .tick { background: var(--deck34); border-color: var(--deck34); box-shadow: inset 0 0 0 3px #0b0b0b; }
+  .wr.picked { background: #12202a; }
+  .wsel { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 12px; position: sticky; top: 0; z-index: 2;
+    background: rgba(11,11,11,.96); border-bottom: 1px solid var(--edge); font-size: 13px; color: var(--dim); }
+  .wsel span { flex: 1 1 140px; min-width: 0; }
+  .wsel button { min-height: 38px; padding: 0 14px; }
+  .wsel .go { border-color: #3a6ea5; color: #8cc4ff; }
   .badge.bili { color: #fb7299; } .badge.yt { color: #ff4e45; }
   .wj { padding: 8px 12px; border-bottom: 1px solid #1d1d1d; font-size: 13px; }
   .wj .t { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1775,16 +1786,49 @@ async function webSearch() {
     if (seq !== webSeq) return;
     $("#wnote").textContent = list.length ? "" : "Nothing found.";
     lamp($("#wgo"), "ok", 6000);
-    list.forEach(r => {
+    // several at once: a playlist's link opens with its tracks to tick; a search's results can be ticked too (Select)
+    const playlist = /^https?:\/\//i.test(q) && list.length > 1;
+    const picked = new Set();
+    let picking = playlist;
+    const bar = h("li", "wsel");
+    const paintBar = () => {
+      bar.innerHTML = picking
+        ? `<span>${playlist ? `Playlist · ${list.length} tracks` : `${list.length} results`} · ${picked.size} picked</span>` +
+          `<button class="all">${picked.size === list.length ? "None" : "All"}</button>` +
+          `<button class="go"${picked.size ? "" : " disabled"}>Download ${picked.size || ""}</button>` +
+          (playlist ? "" : `<button class="done">Done</button>`)
+        : `<span>${list.length} results</span><button class="pick">Select</button>`;
+      bar.querySelector(".pick")?.addEventListener("click", () => { picking = true; paint(); });
+      bar.querySelector(".done")?.addEventListener("click", () => { picking = false; picked.clear(); paint(); });
+      bar.querySelector(".all")?.addEventListener("click", () => {
+        if (picked.size === list.length) picked.clear(); else list.forEach((_, i) => picked.add(i));
+        paint();
+      });
+      bar.querySelector(".go")?.addEventListener("click", () => {
+        const todo = list.filter((_, i) => picked.has(i));
+        picked.clear(); picking = playlist; paint();
+        downloadMany(todo);
+      });
+    };
+    const rows = [];
+    const paint = () => { paintBar(); rows.forEach((li, i) => { li.classList.toggle("picking", picking); li.classList.toggle("picked", picked.has(i)); }); };
+    if (list.length > 1) $("#wres").appendChild(bar);
+    list.forEach((r, i) => {
       const li = h("li", "wr");
       const badge = { bilibili: ["bili", "BILIBILI"], "bilibili-intl": ["bilitv", "BILIBILI.TV"] }[r.site] || ["yt", "YOUTUBE"];
-      li.innerHTML = `<img loading="lazy" referrerpolicy="no-referrer" alt="">` +
+      li.innerHTML = `<span class="tick" aria-hidden="true"></span><img loading="lazy" referrerpolicy="no-referrer" alt="">` +
         `<div><div class="t">${esc(r.title)}</div><div class="a"><span class="badge ${badge[0]}">${badge[1]}</span>${esc(r.channel)}${r.duration ? " · " + fmtTime(r.duration) : ""}` +
         `${r.views ? " · " + fmtViews(r.views) : ""}</div></div>`;
       if (r.thumbnail) li.querySelector("img").src = r.thumbnail;
-      li.addEventListener("click", () => openWebSheet(r));
+      li.addEventListener("click", () => {
+        if (!picking) return openWebSheet(r);
+        if (picked.has(i)) picked.delete(i); else picked.add(i);
+        paint();
+      });
+      rows.push(li);
       $("#wres").appendChild(li);
     });
+    paint();
   } catch (e) { if (seq === webSeq) { $("#wnote").innerHTML = `<span class="err">${esc(e.message)}</span>`; lamp($("#wgo"), "err", 8000); } }
 }
 $("#wq").value = store.get("wq", "");
@@ -1810,6 +1854,8 @@ function openWebSheet(r) {
   $("#scrim").classList.add("on"); s.classList.add("on");
 }
 
+// A download's speed: MB/s, or KB/s below one
+const fmtSpeed = bps => !(bps > 0) ? "" : bps >= 1e6 ? `${(bps / 1e6).toFixed(1)} MB/s` : `${Math.max(1, Math.round(bps / 1e3))} KB/s`;
 // Downloads: each shows its progress at the top of the tab until it's done.
 function jobRow(title, onCancel) {
   const li = h("li", "wj", `<div class="top"><div class="t">${esc(title)}</div>` +
@@ -1825,23 +1871,32 @@ function jobRow(title, onCancel) {
   const done = st => { li.querySelector(".top > .hpl").className = "hpl" + (st ? " " + st : ""); };   // its lamp
   return { li, show, done };
 }
-async function webDownload(r, target, stems) {
+// Picked tracks (a playlist's, a search's): one after another, each with its own row (gentle on a slow or metered
+// line); the toast counts them
+async function downloadMany(list) {
+  for (let i = 0; i < list.length; i++) {
+    toast(`Downloading ${i + 1} of ${list.length}: ${list[i].title}`);
+    await webDownload(list[i], null, false, true);
+  }
+  toast(`Downloaded ${list.length} track${list.length > 1 ? "s" : ""}`, "ok");
+}
+async function webDownload(r, target, stems, quiet) {
   const { li, show, done } = jobRow(r.title);
-  toast(target ? `Downloading for ${target.replace("deck", "deck ")}…` : "Downloading…");
+  if (!quiet) toast(target ? `Downloading for ${target.replace("deck", "deck ")}…` : "Downloading…");
   try {
     const res = await webJob(`/api/web/download?${qs({ url: r.url, title: r.title, ...(onComputer() && target ? { deck: target.slice(4) } : {}) })}`,
-      j => show(j.progress, j.message ? `${j.message}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}` : null));
+      j => show(j.progress, j.message ? `${j.message}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}${j.speed > 0 ? " · " + fmtSpeed(j.speed) : ""}` : null));
     const q = res.codec === "flac" ? "Hi-Res FLAC" : res.kbps ? `${res.kbps} kbps` : "";
     if (onComputer()) {   // (Mixxx ZyDeck takes it in from the folder, into the crate ZyDeck Web)
       show(1, `On the computer${q ? " (" + q + ")" : ""}: ${res.path.split("/").pop()}`);
       if (res.loaded) toast(`Loaded into deck ${target.slice(4)}: ${res.title}`, "ok");
       else if (res.loadError) toast(`Downloaded ${res.title}, not loaded: ${res.loadError}. It's in Mixxx's ZyDeck Web crate`, "bad");
-      else if (!stems) toast(`Downloaded ${res.title}: in Mixxx's ZyDeck Web crate`, "ok");
+      else if (!stems && !quiet) toast(`Downloaded ${res.title}: in Mixxx's ZyDeck Web crate`, "ok");
     } else {
       show(1, "Adding to the library");
       const added = await api(`/api/library/add?${qs({ path: res.path })}`);
       show(1, `Saved${q ? " (" + q + ")" : ""}: ${res.path.split("/").pop()}`);
-      if (target) await load({ id: added.id }, target); else if (!stems) toast(`Downloaded ${res.title}`, "ok");
+      if (target) await load({ id: added.id }, target); else if (!stems && !quiet) toast(`Downloaded ${res.title}`, "ok");
     }
     done("ok");
     setTimeout(() => li.remove(), 8000);

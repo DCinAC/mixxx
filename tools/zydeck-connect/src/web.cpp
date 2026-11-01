@@ -487,7 +487,8 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
             *status = 404;
             return {{"ok", false}, {"error", "No such job (Connect restarted?)"}};
         }
-        QJsonObject out{{"state", j->state}, {"progress", j->progress}, {"message", j->message}, {"title", j->title}};
+        QJsonObject out{{"state", j->state}, {"progress", j->progress}, {"message", j->message}, {"title", j->title},
+                {"speed", j->state == QLatin1String("running") ? j->speed : 0.0}};
         if (j->state == QLatin1String("done")) {
             out.insert(QStringLiteral("result"), j->result);
         } else if (j->state == QLatin1String("error")) {
@@ -834,7 +835,7 @@ void Web::download(Job* job, const QString& url) {
     }
     QStringList args{QStringLiteral("-f"), kAudioFormat, QStringLiteral("--no-playlist"), QStringLiteral("--newline"),
             QStringLiteral("--no-overwrites"), QStringLiteral("--progress-template"),
-            QStringLiteral("download:ZDP %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s"),
+            QStringLiteral("download:ZDP %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s"),
             QStringLiteral("-o"), dir + QStringLiteral("/.incoming/%(title).120B [%(id)s].%(ext)s"),
             QStringLiteral("--no-simulate"), QStringLiteral("--print"), QStringLiteral("after_move:ZDJ %()j")};
     const QString ff = ffmpeg();
@@ -857,6 +858,7 @@ void Web::download(Job* job, const QString& url) {
                 if (total > 0) {
                     job->progress = std::min(0.95, got / total);
                 }
+                job->speed = n.value(3).toDouble();   // bytes a second ("NA" while it doesn't know: 0)
                 job->message = QStringLiteral("Downloading");
             } else if (line.startsWith("ZDJ ")) {
                 *info = QJsonDocument::fromJson(line.mid(4)).object();
