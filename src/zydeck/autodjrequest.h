@@ -20,8 +20,10 @@ namespace zydeck {
 //   one goes out, by their sections, which ZyDeck Connect works out into zydeck-structure/<id>.json here)
 // This carries them out as Mixxx's own Auto DJ view would (its processor, the queue's playlist, the crates), in order,
 // and keeps zydeck-autodj-state.json up to date: {on, state: off | starting | playing | fading, transition, random,
-// requeue, beatmatch, mix, plan (the next transition), bpm, playing (the track playing now: Connect's player history),
-// done: [{id, ok, error}] (the last few)}. Connect reads the queue and crates from the database itself.
+// requeue, beatmatch, mix, plan (the next transition), bpm, key (the playing deck's: autoplay's next fits it), playing,
+// started (the last tracks a deck started playing, {id, at}: Connect's play history), done: [{id, ok, error}] (the
+// last few)}. Connect reads the queue and crates from the database itself. "on" with one of decks 1 and 2 playing
+// keeps a track the user cued on the other as the next to play.
 void watchAutoDj(const std::shared_ptr<Library>& pLibrary, UserSettingsPointer pConfig);
 
 } // namespace zydeck

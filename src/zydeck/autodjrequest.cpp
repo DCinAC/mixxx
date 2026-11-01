@@ -6,6 +6,7 @@
 #include <QMutex>
 #include <QRegularExpression>
 #include <functional>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -640,6 +641,25 @@ struct Watch {
     Beatmatch beatmatch;
     MixPlanner mix;
     int current = 1, playingBefore = 0;   // the deck shown as playing (in a mix, the one coming in)
+    bool was[5] = {};                     // decks 1-4 playing at the last look
+    QJsonArray started;                   // the last tracks a deck started playing, {id, at}: the play history's
+
+    void noteStarts() {
+        for (int deck = 1; deck <= 4; ++deck) {
+            const QString group = QStringLiteral("[Channel%1]").arg(deck);
+            const bool playing = ControlObject::get(ConfigKey(group, QStringLiteral("play"))) > 0;
+            if (playing && !was[deck]) {
+                if (const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(group)) {
+                    started.prepend(QJsonObject{{"id", pTrack->getId().toVariant().toInt()},
+                            {"at", static_cast<double>(QDateTime::currentMSecsSinceEpoch())}});
+                    while (started.size() > 10) {
+                        started.removeLast();
+                    }
+                }
+            }
+            was[deck] = playing;
+        }
+    }
 
     // The track that plays now (ZyDeck Connect's player history: what played, picked or cut in); 0: none
     int playingTrack() {
@@ -676,6 +696,20 @@ struct Watch {
             return QStringLiteral("Mixxx's Auto DJ isn't ready");
         }
         const QString what = ask.value(QStringLiteral("do")).toString();
+        if (what == QLatin1String("on") && p->getState() == AutoDJProcessor::ADJ_DISABLED) {
+            // decks 1 and 2: one has to be free; a track the user cued on the free one stays, as the next to play
+            const auto play = [](int deck) {
+                return ControlObject::get(ConfigKey(QStringLiteral("[Channel%1]").arg(deck), QStringLiteral("play"))) > 0;
+            };
+            if (play(1) && play(2)) {
+                return QStringLiteral("Decks 1 and 2 are both playing: Auto DJ needs one of them free");
+            }
+            if (play(1) != play(2)) {
+                if (const TrackPointer pCued = PlayerInfo::instance().getTrackInfo(QStringLiteral("[Channel%1]").arg(play(1) ? 2 : 1))) {
+                    pTracks->getPlaylistDAO().addTracksToAutoDJQueue({pCued->getId()}, PlaylistDAO::AutoDJSendLoc::TOP);
+                }
+            }
+        }
         if (what == QLatin1String("on") || what == QLatin1String("off")) {
             return errorText(p->toggleAutoDJ(what == QLatin1String("on")));
         }
@@ -813,6 +847,10 @@ struct Watch {
                 {"beatmatch", config->getValue(ConfigKey(QStringLiteral("[ZyDeck]"), QStringLiteral("AutoDjBeatmatch")), 0) == 1},
                 {"mix", MixSettings::read(config).json()},
                 {"playing", playingTrack()},
+                {"started", started},
+                {"key", [this] {   // the playing deck's key (Mixxx's key id: autoplay's next fits it)
+                     return ControlObject::get(ConfigKey(QStringLiteral("[Channel%1]").arg(current), QStringLiteral("key")));
+                 }()},
                 {"bpm", [] {   // the playing deck's track's own tempo (autoplay's next follows it)
                      for (const char* g : {"[Channel1]", "[Channel2]"}) {
                          if (ControlObject::get(ConfigKey(QString::fromLatin1(g), QStringLiteral("play"))) > 0) {
@@ -865,6 +903,7 @@ struct Watch {
             }
         }
         beatmatch.tick(config->getValue(ConfigKey(QStringLiteral("[ZyDeck]"), QStringLiteral("AutoDjBeatmatch")), 0) == 1, at);
+        noteStarts();
         // the tracks' sections, as ZyDeck Connect works them out (zydeck-structure/<id>.json here)
         const QString structures = QDir(dir).filePath(QStringLiteral("zydeck-structure/%1.json"));
         mix.tick(autoDj(), MixSettings::read(config), [structures](int id) {
