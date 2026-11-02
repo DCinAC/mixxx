@@ -33,6 +33,8 @@
 // computer's own); ffmpeg, if the computer has it, tags the file (title, artist, cover, link).
 
 #include <QHash>
+#include <functional>
+#include <memory>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QNetworkAccessManager>
@@ -89,6 +91,14 @@ class Web : public QObject {
     QProcess* run(Job* job, const QStringList& args);
     void search(Job* job, const QString& query);
     void searchWith(Job* job, const QString& target);
+    // Bilibili's own API, for search: a call with a visitor id (without one it answers 412); its lists (collections,
+    // series, favourites folders: web.cpp's BiliList), which yt-dlp knows less well
+    void biliGet(Job* job, const QString& url, std::function<void(const QJsonObject&)> done);
+    struct BiliList;
+    bool biliList(Job* job, const QString& url);   // false: not a list's link
+    void biliListStart(Job* job, std::shared_ptr<BiliList> list);
+    void biliListPage(Job* job, std::shared_ptr<BiliList> list);
+    QByteArray m_buvid3;
     void download(Job* job, const QString& url);
     void downloaded(Job* job, const QJsonObject& info);
     void stems(Job* job, const QString& path, const QString& preset);

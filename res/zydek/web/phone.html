@@ -316,13 +316,7 @@
   .wsel button { min-height: 38px; padding: 0 14px; }
   .wsel .go { border-color: #3a6ea5; color: #8cc4ff; }
   .badge.bili { color: #fb7299; } .badge.yt { color: #ff4e45; }
-  .wclip { display: none; gap: 8px; align-items: center; margin: 8px 12px 0; padding: 8px 10px 8px 12px; border: 1px solid #3a6ea5;
-    border-radius: 10px; background: #101a24; font-size: 13px; color: var(--dim); }
-  .wclip.on { display: flex; }
-  .wclip span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .wclip b { color: var(--text); font-weight: 600; }
-  .wclip button { min-height: 36px; padding: 0 12px; }
-  .wclip .go { border-color: #3a6ea5; color: #8cc4ff; }
+  .wr.wlist { border-left: 3px solid #fb7299; }
   .wj { padding: 8px 12px; border-bottom: 1px solid #1d1d1d; font-size: 13px; }
   .wj .t { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .wj .bar2 { height: 4px; border-radius: 2px; background: #222; margin-top: 6px; overflow: hidden; }
@@ -682,7 +676,6 @@
       <div class="search"><input id="wq" type="search" placeholder="Search YouTube, or paste a link or BV code" autocomplete="off"
         enterkeyhint="search"><button id="wgo">Search</button></div>
     </div>
-    <div class="wclip" id="wclip"><span>Copied: <b></b></span><button class="go">Get it</button><button class="x" aria-label="Dismiss">✕</button></div>
     <div class="note" id="wnote">Downloads go to Music/Zydek Web and into the library.</div>
     <ul class="list" id="wjobs"></ul>
     <ul class="list" id="wres"></ul>
@@ -1806,8 +1799,10 @@ async function webSearch() {
   $("#wnote").textContent = "Searching…";
   lamp($("#wgo"), "busy");
   try {
-    const list = await webJob(`/api/web/search?${qs({ q })}`, j => { if (seq === webSeq && j.message) $("#wnote").textContent = j.message; });
+    const found = await webJob(`/api/web/search?${qs({ q })}`, j => { if (seq === webSeq && j.message) $("#wnote").textContent = j.message; });
     if (seq !== webSeq) return;
+    // (a Bilibili list says its name; a video in a collection offers the whole of it)
+    const listName = found.find(r => r.kind === "name")?.title, offers = found.filter(r => r.kind === "list"), list = found.filter(r => !r.kind);
     $("#wnote").textContent = list.length ? "" : "Nothing found.";
     lamp($("#wgo"), "ok", 6000);
     // several at once: a playlist's link opens with its tracks to tick; a search's results can be ticked too (Select)
@@ -1817,7 +1812,7 @@ async function webSearch() {
     const bar = h("li", "wsel");
     const paintBar = () => {
       bar.innerHTML = picking
-        ? `<span>${playlist ? `Playlist · ${list.length} tracks` : `${list.length} results`} · ${picked.size} picked</span>` +
+        ? `<span>${playlist ? `${listName ? esc(listName) : "Playlist"} · ${list.length} tracks` : `${list.length} results`} · ${picked.size} picked</span>` +
           `<button class="all">${picked.size === list.length ? "None" : "All"}</button>` +
           `<button class="go"${picked.size ? "" : " disabled"}>Download ${picked.size || ""}</button>` +
           (playlist ? "" : `<button class="done">Done</button>`)
@@ -1837,6 +1832,12 @@ async function webSearch() {
     const rows = [];
     const paint = () => { paintBar(); rows.forEach((li, i) => { li.classList.toggle("picking", picking); li.classList.toggle("picked", picked.has(i)); }); };
     if (list.length > 1) $("#wres").appendChild(bar);
+    offers.forEach(o => {
+      const li = h("li", "wr wlist", `<div><div class="t">Whole collection: ${esc(o.title)}</div><div class="a"><span class="badge bili">BILIBILI</span>` +
+        `${o.count ? o.count + " videos · " : ""}open to pick ›</div></div>`);
+      li.addEventListener("click", () => { $("#wq").value = o.url; webSearch(); });
+      $("#wres").appendChild(li);
+    });
     list.forEach((r, i) => {
       const li = h("li", "wr");
       const badge = { bilibili: ["bili", "BILIBILI"], "bilibili-intl": ["bilitv", "BILIBILI.TV"] }[r.site] || ["yt", "YOUTUBE"];
@@ -1996,29 +1997,18 @@ async function stemsFor(path, title, trackId) {
 // (set in Settings › Stems: zydeck-menu.js tells this page through changed())
 webApi("/api/web/prefs").then(p => { if (p && !p.starting) { stemServer = p.stemServer || ""; stemPreset = p.stemPreset || "best"; store.set("stemServer", stemServer); store.set("stemPreset", stemPreset); } }).catch(() => {});
 
-function webJobs() { checkClip(); }   // (downloads started on this page show above; nothing to restore yet)
+function webJobs() {}   // (downloads started on this page show above; nothing to restore yet)
 
-// A link copied in another app (YouTube's Share › Copy link, Bilibili's), offered at the top of the Web tab while it's
-// open, downloads going or not: each copy once (clipAt: when the last one looked at was copied). Android only lets
-// ZyDeck read it while it's in front (window.ZydekAndroid.clipboardSince: MainActivity's)
-let clipAt = +store.get("clipAt", 0) || 0;
-function checkClip() {
-  if (page !== "web" || document.hidden || !window.ZydekAndroid?.clipboardSince) return;
-  let c = null;
-  try { c = JSON.parse(window.ZydekAndroid.clipboardSince(clipAt) || "null"); } catch {}
-  if (!c || !(c.at > clipAt)) return;
-  clipAt = c.at; store.set("clipAt", clipAt);
-  const link = (/https?:\/\/\S+|\bBV[0-9A-Za-z]{10}\b/.exec(c.text) || [])[0];
-  if (!link || link === $("#wq").value.trim()) return;
-  const box = $("#wclip");
-  box.querySelector("b").textContent = link;
-  box.dataset.link = link;
-  box.classList.add("on");
-}
-$("#wclip .go").addEventListener("click", () => { const box = $("#wclip"); box.classList.remove("on"); $("#wq").value = box.dataset.link; webSearch(); });
-$("#wclip .x").addEventListener("click", () => $("#wclip").classList.remove("on"));
-setInterval(checkClip, 2000);
-window.addEventListener("focus", checkClip);
+// Share › ZyDeck (YouTube's, Bilibili's, a browser's): the link to the Web tab, looked up there (MainActivity). The
+// shared text may say more ("【title】 https://b23.tv/..."): the link in it, or all of it to search for
+window.zydekShare = text => {
+  const link = (/https?:\/\/\S+|\bBV[0-9A-Za-z]{10}\b/.exec(text) || [])[0];
+  showPage("web"); scrollTo(0, 0);
+  $("#wq").value = link || text.trim();
+  webSearch();
+  return true;
+};
+{ const shared = window.ZydekAndroid?.takeShare?.(); if (shared) setTimeout(() => zydekShare(shared), 0); }
 
 // Bilibili login screen: Zydek asks the site for a QR login (zydek_web.py), shows the code, and waits for the
 // confirmation from the Bilibili app: scanned from another device, scanned from Photos (Save QR code), or

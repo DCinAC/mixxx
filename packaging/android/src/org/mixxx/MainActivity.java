@@ -260,36 +260,12 @@ public class MainActivity extends QtActivityBase {
             return MainActivity.hasAllFilesAccess();
         }
 
-        /// The Web tab's "a link you copied: get it?": {"at": when it was copied (ms), "text"} for a clip copied
-        /// after since, "" for none (or Android won't say: ZyDeck not in front). Until there's a new one only the
-        /// clip's description is read, so Android's "ZyDeck pasted from your clipboard" shows once a copy, not at
-        /// every look.
+        /// A link shared to ZyDeck (Share › ZyDeck) that came before the page could take it ("" for none).
         @JavascriptInterface
-        public String clipboardSince(long since) {
-            java.util.concurrent.FutureTask<String> read = new java.util.concurrent.FutureTask<>(() -> {
-                android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                android.content.ClipDescription d = cm != null ? cm.getPrimaryClipDescription() : null;
-                if (d == null || d.getTimestamp() <= since
-                        || !(d.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN)
-                                || d.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_URILIST))) {
-                    return "";
-                }
-                android.content.ClipData clip = cm.getPrimaryClip();
-                CharSequence text = clip != null && clip.getItemCount() > 0 ? clip.getItemAt(0).getText() : null;
-                if (text == null) {
-                    return "";
-                }
-                JSONObject o = new JSONObject();
-                o.put("at", d.getTimestamp());
-                o.put("text", text.length() > 2000 ? text.subSequence(0, 2000).toString() : text.toString());
-                return o.toString();
-            });
-            runOnUiThread(read);
-            try {
-                return read.get(500, java.util.concurrent.TimeUnit.MILLISECONDS);
-            } catch (Exception e) {
-                return "";
-            }
+        public String takeShare() {
+            final String text = m_pendingShare;
+            m_pendingShare = null;
+            return text == null ? "" : text;
         }
 
         @JavascriptInterface
@@ -760,6 +736,7 @@ public class MainActivity extends QtActivityBase {
         updateMode(getResources().getConfiguration().orientation);
         applyOrientationExtra(getIntent());
         handlePairIntent(getIntent());
+        handleShareIntent(getIntent());
     }
 
     @Override
@@ -773,6 +750,30 @@ public class MainActivity extends QtActivityBase {
         super.onNewIntent(intent);
         applyOrientationExtra(intent);
         handlePairIntent(intent);
+        handleShareIntent(intent);
+    }
+
+    // ---- Share › ZyDeck: a link from YouTube, Bilibili, a browser, straight to the Web tab (nothing copied) ----
+    private volatile String m_pendingShare;   // came before the page was ready: it takes it when it loads
+
+    private void handleShareIntent(Intent intent) {
+        if (intent == null || !Intent.ACTION_SEND.equals(intent.getAction())) {
+            return;
+        }
+        final String text = intent.getStringExtra(Intent.EXTRA_TEXT);
+        intent.setAction(Intent.ACTION_MAIN);   // (not again on a rotation)
+        if (text == null || text.trim().isEmpty()) {
+            return;
+        }
+        m_pendingShare = text;
+        if (m_phoneView == null) {
+            return;
+        }
+        m_phoneView.evaluateJavascript("!!(window.zydekShare && zydekShare(" + JSONObject.quote(text) + "))", taken -> {
+            if ("true".equals(taken)) {
+                m_pendingShare = null;
+            }
+        });
     }
 
     // ---- pairing by QR: zydeck://pair?name=&stems=&st=&bot=&bk= (a PC's servers, the code its ./launch.sh shows)

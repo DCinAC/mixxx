@@ -706,6 +706,210 @@ QProcess* Web::run(Job* job, const QStringList& args) {
 }
 
 // ---- search ---------------------------------------------------------------------------------------------------
+namespace {
+constexpr int kBiliMax = 500;   // a list's videos, at most
+
+QJsonObject biliVideo(const QJsonObject& a, const QString& owner) {
+    const QString bvid = a.value(QStringLiteral("bvid")).toString();
+    const QJsonObject stat = a.value(QStringLiteral("stat")).toObject(), counts = a.value(QStringLiteral("cnt_info")).toObject();
+    QString thumb = a.value(QStringLiteral("pic")).toString();
+    if (thumb.isEmpty()) {
+        thumb = a.value(QStringLiteral("cover")).toString();
+    }
+    return {{"id", bvid}, {"title", a.value(QStringLiteral("title"))},
+            {"channel", owner.isEmpty() ? a.value(QStringLiteral("upper")).toObject().value(QStringLiteral("name")).toString() : owner},
+            {"duration", a.value(QStringLiteral("duration"))},
+            {"views", stat.contains(QStringLiteral("view")) ? stat.value(QStringLiteral("view")) : counts.value(QStringLiteral("play"))},
+            {"thumbnail", thumb}, {"url", QStringLiteral("https://www.bilibili.com/video/") + bvid}, {"site", "bilibili"}};
+}
+} // namespace
+
+// A Bilibili list, not a video's parts (as the phone's Python's _bili_list): kind season (合集), series (系列) or fav
+// (收藏夹); typed: the link said which (a play page's sid may be either)
+struct Web::BiliList {
+    QString kind, id, mid, name, owner;
+    bool typed = true, ownerAsked = false, nameAsked = false;
+    int page = 1;
+    QJsonArray videos;
+};
+
+void Web::biliGet(Job* job, const QString& url, std::function<void(const QJsonObject&)> done) {
+    auto get = [this, job, url, done] {
+        QNetworkRequest r{QUrl(url)};
+        r.setRawHeader("User-Agent", kUserAgent);
+        r.setRawHeader("Referer", "https://www.bilibili.com/");
+        if (!m_buvid3.isEmpty()) {
+            r.setRawHeader("Cookie", "buvid3=" + m_buvid3);
+        }
+        QNetworkReply* reply = m_net.get(r);
+        job->reply = reply;
+        connect(reply, &QNetworkReply::finished, this, [job, reply, done] {
+            reply->deleteLater();
+            if (job->cancelled) {
+                return;
+            }
+            QJsonObject o = QJsonDocument::fromJson(reply->readAll()).object();
+            if (!o.contains(QStringLiteral("code"))) {
+                o = {{"code", -1}, {"message", reply->errorString()}};
+            }
+            done(o);
+        });
+    };
+    if (!m_buvid3.isEmpty()) {
+        get();
+        return;
+    }
+    QNetworkRequest r{QUrl(QStringLiteral("https://api.bilibili.com/x/frontend/finger/spi"))};
+    r.setRawHeader("User-Agent", kUserAgent);
+    QNetworkReply* reply = m_net.get(r);
+    job->reply = reply;
+    connect(reply, &QNetworkReply::finished, this, [this, job, reply, get] {
+        reply->deleteLater();
+        if (job->cancelled) {
+            return;
+        }
+        m_buvid3 = QJsonDocument::fromJson(reply->readAll()).object().value(QStringLiteral("data")).toObject()
+                           .value(QStringLiteral("b_3")).toString().toUtf8();
+        get();   // (none: tried anyway)
+    });
+}
+
+// space.bilibili.com/<mid>/lists/<id>?type=season|series, .../channel/collectiondetail?sid=, .../channel/seriesdetail?sid=,
+// .../favlist?fid=, www.bilibili.com/list/<mid>?sid= (a collection's play page), /medialist/detail/ml<id>, /list/ml<id>
+bool Web::biliList(Job* job, const QString& url) {
+    const QUrl u(url);
+    const QUrlQuery q(u);
+    const QStringList path = u.path().split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    const auto number = [](const QString& s) {
+        bool ok = false;
+        s.toLongLong(&ok);
+        return ok;
+    };
+    auto list = std::make_shared<BiliList>();
+    if (u.host().endsWith(QLatin1String("space.bilibili.com")) && !path.isEmpty() && number(path[0])) {
+        list->mid = path[0];
+        if (path.size() >= 3 && path[1] == QLatin1String("lists") && number(path[2])) {
+            list->kind = q.queryItemValue(QStringLiteral("type"));
+            list->typed = !list->kind.isEmpty();
+            if (!list->typed) {
+                list->kind = QStringLiteral("season");
+            }
+            list->id = path[2];
+        } else if (path.size() >= 3 && path[1] == QLatin1String("channel") && q.hasQueryItem(QStringLiteral("sid"))) {
+            list->kind = path[2] == QLatin1String("collectiondetail") ? QStringLiteral("season")
+                    : path[2] == QLatin1String("seriesdetail")        ? QStringLiteral("series")
+                                                                      : QString();
+            list->id = q.queryItemValue(QStringLiteral("sid"));
+        } else if (path.size() >= 2 && path[1] == QLatin1String("favlist") && q.hasQueryItem(QStringLiteral("fid"))) {
+            list->kind = QStringLiteral("fav");
+            list->id = q.queryItemValue(QStringLiteral("fid"));
+        }
+    } else if (u.host().contains(QLatin1String("bilibili.com")) && !path.isEmpty()) {
+        const auto ml = QRegularExpression(QStringLiteral(R"(^ml(\d+)$)")).match(path.last());
+        if (ml.hasMatch() && (path[0] == QLatin1String("medialist") || path[0] == QLatin1String("list"))) {
+            list->kind = QStringLiteral("fav");
+            list->id = ml.captured(1);
+        } else if (path[0] == QLatin1String("list") && path.size() == 2 && number(path[1]) && q.hasQueryItem(QStringLiteral("sid"))) {
+            list->kind = q.queryItemValue(QStringLiteral("type"));
+            list->typed = !list->kind.isEmpty();
+            if (!list->typed) {
+                list->kind = QStringLiteral("season");
+            }
+            list->mid = path[1];
+            list->id = q.queryItemValue(QStringLiteral("sid"));
+        }
+    }
+    if (list->kind.isEmpty() || list->id.isEmpty()) {
+        return false;
+    }
+    job->message = QStringLiteral("Asking Bilibili");
+    biliListStart(job, list);
+    return true;
+}
+
+// Whose it is (a collection's and a series' videos don't say) and a series' name; then its pages
+void Web::biliListStart(Job* job, std::shared_ptr<BiliList> list) {
+    if (!list->ownerAsked && !list->mid.isEmpty() && list->kind != QLatin1String("fav")) {
+        list->ownerAsked = true;
+        biliGet(job, QStringLiteral("https://api.bilibili.com/x/web-interface/card?mid=") + list->mid, [this, job, list](const QJsonObject& d) {
+            list->owner = d.value(QStringLiteral("data")).toObject().value(QStringLiteral("card")).toObject()
+                                  .value(QStringLiteral("name")).toString();
+            biliListStart(job, list);
+        });
+        return;
+    }
+    if (!list->nameAsked && list->kind == QLatin1String("series")) {
+        list->nameAsked = true;
+        biliGet(job, QStringLiteral("https://api.bilibili.com/x/series/series?series_id=") + list->id, [this, job, list](const QJsonObject& d) {
+            list->name = d.value(QStringLiteral("data")).toObject().value(QStringLiteral("meta")).toObject()
+                                 .value(QStringLiteral("name")).toString();
+            biliListStart(job, list);
+        });
+        return;
+    }
+    biliListPage(job, list);
+}
+
+void Web::biliListPage(Job* job, std::shared_ptr<BiliList> list) {
+    const QString url = list->kind == QLatin1String("season")
+            ? QStringLiteral("https://api.bilibili.com/x/polymer/web-space/seasons_archives_list?mid=%1&season_id=%2&page_num=%3&page_size=100")
+                      .arg(list->mid, list->id).arg(list->page)
+            : list->kind == QLatin1String("series")
+            ? QStringLiteral("https://api.bilibili.com/x/series/archives?mid=%1&series_id=%2&pn=%3&ps=100").arg(list->mid, list->id).arg(list->page)
+            // a favourites folder: 20 at a time (Bilibili's most)
+            : QStringLiteral("https://api.bilibili.com/x/v3/fav/resource/list?media_id=%1&pn=%2&ps=20&platform=web").arg(list->id).arg(list->page);
+    biliGet(job, url, [this, job, list](const QJsonObject& d) {
+        const int code = d.value(QStringLiteral("code")).toInt(-1);
+        if (code != 0) {
+            if (list->page == 1 && list->kind == QLatin1String("season") && !list->typed) {   // (a play page's sid: a series')
+                list->kind = QStringLiteral("series");
+                biliListStart(job, list);
+                return;
+            }
+            QString message = d.value(QStringLiteral("message")).toString();
+            fail(job, QStringLiteral("Bilibili: ") + (message.isEmpty() ? QStringLiteral("no such list") : message) +
+                            (code == -403 ? QStringLiteral(" (a private folder)") : QString()));
+            return;
+        }
+        const QJsonObject data = d.value(QStringLiteral("data")).toObject();
+        bool more = false;
+        if (list->kind == QLatin1String("fav")) {
+            if (list->page == 1) {
+                list->name = data.value(QStringLiteral("info")).toObject().value(QStringLiteral("title")).toString();
+            }
+            for (const QJsonValue& v : data.value(QStringLiteral("medias")).toArray()) {   // videos only, not ones taken down
+                const QJsonObject m = v.toObject();
+                if (m.value(QStringLiteral("type")).toInt() == 2 && m.value(QStringLiteral("attr")).toInt() == 0 &&
+                        !m.value(QStringLiteral("bvid")).toString().isEmpty()) {
+                    list->videos.append(biliVideo(m, {}));
+                }
+            }
+            more = data.value(QStringLiteral("has_more")).toBool();
+        } else {
+            if (list->page == 1 && list->kind == QLatin1String("season")) {
+                list->name = data.value(QStringLiteral("meta")).toObject().value(QStringLiteral("name")).toString();
+                list->name.remove(QRegularExpression(QStringLiteral("^合集·")));
+            }
+            const QJsonArray archives = data.value(QStringLiteral("archives")).toArray();
+            for (const QJsonValue& v : archives) {
+                list->videos.append(biliVideo(v.toObject(), list->owner));
+            }
+            more = !archives.isEmpty() &&
+                    list->videos.size() < data.value(QStringLiteral("page")).toObject().value(QStringLiteral("total")).toInt();
+        }
+        if (more && list->videos.size() < kBiliMax) {
+            ++list->page;
+            biliListPage(job, list);
+            return;
+        }
+        QJsonArray out{QJsonObject{{"kind", "name"}, {"title", list->name}}};
+        for (const QJsonValue& v : list->videos) {
+            out.append(v);
+        }
+        finish(job, out);
+    });
+}
+
 // A pasted link as it is, a BV code as its Bilibili video, else a YouTube search
 void Web::search(Job* job, const QString& query) {
     QString target;
@@ -719,26 +923,40 @@ void Web::search(Job* job, const QString& query) {
     } else {
         target = QStringLiteral("ytsearch%1:%2").arg(kSearchResults).arg(query);
     }
+    if (link && (target.contains(QLatin1String("b23.tv")) || target.contains(QLatin1String("bili2233")))) {   // a short link: where it goes
+        job->message = QStringLiteral("Asking Bilibili");
+        QNetworkRequest r{QUrl(target)};
+        r.setRawHeader("User-Agent", kUserAgent);
+        QNetworkReply* reply = m_net.head(r);
+        job->reply = reply;
+        connect(reply, &QNetworkReply::finished, this, [this, job, reply, target] {
+            reply->deleteLater();
+            if (job->cancelled) {
+                return;
+            }
+            const QString to = reply->url().toString();
+            if (reply->error() != QNetworkReply::NoError || to.contains(QLatin1String("b23.tv")) || to.contains(QLatin1String("bili2233"))) {
+                searchWith(job, target);
+            } else {
+                search(job, to);
+            }
+        });
+        return;
+    }
+    if (link && biliList(job, target)) {
+        return;
+    }
     const auto bv = kBv.match(target);
     if (!link || !bv.hasMatch() || !target.contains(QLatin1String("bilibili.com"))) {
         searchWith(job, target);
         return;
     }
     // A Bilibili video: its parts (P1, P2, ...) with their names from Bilibili itself (yt-dlp's quick listing gives
-    // them as bare links); yt-dlp if that doesn't work out
+    // them as bare links); yt-dlp if that doesn't work out. One in a collection (合集) comes with it, to open:
+    // {kind: list, title, count, url}
     job->message = QStringLiteral("Asking Bilibili");
-    QNetworkRequest r(QUrl(QStringLiteral("https://api.bilibili.com/x/web-interface/view?bvid=") + bv.captured(1)));
-    r.setRawHeader("User-Agent", kUserAgent);
-    r.setRawHeader("Referer", "https://www.bilibili.com/");
-    QNetworkReply* reply = m_net.get(r);
-    job->reply = reply;
-    connect(reply, &QNetworkReply::finished, this, [this, job, reply, target] {
-        reply->deleteLater();
-        if (job->cancelled) {
-            return;
-        }
-        const QJsonObject data = QJsonDocument::fromJson(reply->readAll()).object();
-        if (reply->error() != QNetworkReply::NoError || data.value(QStringLiteral("code")).toInt(-1) != 0) {
+    biliGet(job, QStringLiteral("https://api.bilibili.com/x/web-interface/view?bvid=") + bv.captured(1), [this, job, target](const QJsonObject& data) {
+        if (data.value(QStringLiteral("code")).toInt(-1) != 0) {
             searchWith(job, target);
             return;
         }
@@ -749,6 +967,16 @@ void Web::search(Job* job, const QString& query) {
         const QString base = QStringLiteral("https://www.bilibili.com/video/") + bvid;
         const QString only = QUrlQuery(QUrl(target)).queryItemValue(QStringLiteral("p"));
         QJsonArray out;
+        const QJsonObject season = v.value(QStringLiteral("ugc_season")).toObject();
+        if (season.value(QStringLiteral("id")).toInteger() && season.value(QStringLiteral("ep_count")).toInt() > 1) {
+            qint64 mid = season.value(QStringLiteral("mid")).toInteger();
+            if (!mid) {
+                mid = v.value(QStringLiteral("owner")).toObject().value(QStringLiteral("mid")).toInteger();
+            }
+            out.append(QJsonObject{{"kind", "list"}, {"title", season.value(QStringLiteral("title"))},
+                    {"count", season.value(QStringLiteral("ep_count"))}, {"site", "bilibili"},
+                    {"url", QStringLiteral("https://space.bilibili.com/%1/lists/%2?type=season").arg(mid).arg(season.value(QStringLiteral("id")).toInteger())}});
+        }
         if (pages.size() <= 1) {
             out.append(QJsonObject{{"id", bvid}, {"title", v.value(QStringLiteral("title"))}, {"channel", owner},
                     {"duration", v.value(QStringLiteral("duration"))},

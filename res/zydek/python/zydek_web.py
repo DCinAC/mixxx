@@ -226,32 +226,154 @@ def _entry(e, site_hint=""):
     }
 
 
-def _bili_parts(url):
-    """A bilibili.com video and its parts (P1, P2, ...) from Bilibili's video info API, or None.
+_buvid3 = []   # Bilibili's visitor id: without one (and not logged in) its API answers 412
 
-    yt-dlp's quick listing gives multi-part videos as bare links (no titles), so ask Bilibili directly."""
-    m = _BV.search(url)
-    if not m or "bilibili.com" not in url and "b23.tv" not in url:
-        return None
+
+def _bili_get(url):
+    """One of Bilibili's API calls (JSON), with the login's cookies and a visitor id."""
     import http.cookiejar
     jar = http.cookiejar.MozillaCookieJar()
     if _cookies():
         jar.load(_cookies(), ignore_discard=True, ignore_expires=True)
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-    req = urllib.request.Request(f"https://api.bilibili.com/x/web-interface/view?bvid={m.group(1)}",
-                                 headers={"User-Agent": _UA, "Referer": "https://www.bilibili.com/"})
-    data = json.load(opener.open(req, timeout=15))
+    headers = {"User-Agent": _UA, "Referer": "https://www.bilibili.com/"}
+    if not any(c.name == "buvid3" for c in jar):
+        if not _buvid3:
+            spi = json.load(urllib.request.urlopen(urllib.request.Request(
+                "https://api.bilibili.com/x/frontend/finger/spi", headers=headers), timeout=15))
+            _buvid3.append(spi["data"]["b_3"])
+        headers["Cookie"] = "buvid3=" + _buvid3[0]
+    return json.load(opener.open(urllib.request.Request(url, headers=headers), timeout=15))
+
+
+def _bili_resolve(url):
+    """A b23.tv short link: where it goes."""
+    if "b23.tv" not in url and "bili2233" not in url:
+        return url
+    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": _UA})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return r.geturl()
+
+
+_BILI_MAX = 500   # a list's videos, at most
+
+
+def _bili_video(a, owner=""):
+    return {"id": a["bvid"], "title": a.get("title", ""), "channel": owner or (a.get("upper") or {}).get("name", ""),
+            "duration": a.get("duration"), "views": (a.get("stat") or a.get("cnt_info") or {}).get("view")
+            or (a.get("cnt_info") or {}).get("play"), "thumbnail": a.get("pic") or a.get("cover", ""),
+            "url": f"https://www.bilibili.com/video/{a['bvid']}", "site": "bilibili"}
+
+
+def _bili_list(url):
+    """A Bilibili list, not a video's parts: a collection (合集), a series (系列), a favourites folder (收藏夹), from
+    Bilibili's own API: [{"kind": "name", "title"}, video, ...], or None when the link is none of these.
+
+    space.bilibili.com/<mid>/lists/<id>?type=season|series, .../channel/collectiondetail?sid=, .../channel/seriesdetail?sid=,
+    .../favlist?fid=, www.bilibili.com/list/<mid>?sid= (a collection's play page), /medialist/detail/ml<id>, /list/ml<id>."""
+    u = urllib.parse.urlparse(url)
+    q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
+    path = [p for p in u.path.split("/") if p]
+    kind = list_id = mid = None
+    if u.netloc.endswith("space.bilibili.com") and path and path[0].isdigit():
+        mid = path[0]
+        if len(path) >= 3 and path[1] == "lists" and path[2].isdigit():
+            kind, list_id = q.get("type") or "season", path[2]
+        elif path[1:3] == ["channel", "collectiondetail"] and q.get("sid"):
+            kind, list_id = "season", q["sid"]
+        elif path[1:3] == ["channel", "seriesdetail"] and q.get("sid"):
+            kind, list_id = "series", q["sid"]
+        elif path[1:2] == ["favlist"] and q.get("fid"):
+            kind, list_id = "fav", q["fid"]
+    elif "bilibili.com" in u.netloc and path:
+        ml = re.fullmatch(r"ml(\d+)", path[-1])
+        if ml and path[0] in ("medialist", "list"):
+            kind, list_id = "fav", ml.group(1)
+        elif path[0] == "list" and len(path) == 2 and path[1].isdigit() and q.get("sid"):
+            kind, list_id, mid = q.get("type") or "season", q["sid"], path[1]
+    if not kind:
+        return None
+    out = []
+    owner = ""
+    if mid and kind in ("season", "series"):   # (their videos don't say whose they are)
+        try:
+            owner = ((_bili_get(f"https://api.bilibili.com/x/web-interface/card?mid={mid}").get("data") or {}).get("card") or {}).get("name", "")
+        except Exception:
+            pass
+    if kind == "season":
+        n = 1
+        while len(out) < _BILI_MAX:
+            d = _bili_get("https://api.bilibili.com/x/polymer/web-space/seasons_archives_list?"
+                          + urllib.parse.urlencode({"mid": mid, "season_id": list_id, "page_num": n, "page_size": 100}))
+            if d.get("code") != 0:
+                if n == 1 and not q.get("type"):   # (a play page's sid may be a series')
+                    return _bili_list(f"https://space.bilibili.com/{mid}/lists/{list_id}?type=series")
+                raise RuntimeError(f"Bilibili: {d.get('message') or 'no such collection'}")
+            data = d["data"]
+            if n == 1:
+                out.append({"kind": "name", "title": re.sub(r"^合集·", "", (data.get("meta") or {}).get("name", ""))})
+            out += [_bili_video(a, owner) for a in data.get("archives") or []]
+            if not data.get("archives") or len(out) - 1 >= (data.get("page") or {}).get("total", 0):
+                break
+            n += 1
+    elif kind == "series":
+        meta = _bili_get(f"https://api.bilibili.com/x/series/series?series_id={list_id}")
+        out.append({"kind": "name", "title": ((meta.get("data") or {}).get("meta") or {}).get("name", "")})
+        n = 1
+        while len(out) < _BILI_MAX:
+            d = _bili_get("https://api.bilibili.com/x/series/archives?"
+                          + urllib.parse.urlencode({"mid": mid, "series_id": list_id, "pn": n, "ps": 100}))
+            if d.get("code") != 0:
+                raise RuntimeError(f"Bilibili: {d.get('message') or 'no such series'}")
+            data = d["data"]
+            out += [_bili_video(a, owner) for a in data.get("archives") or []]
+            if not data.get("archives") or len(out) - 1 >= (data.get("page") or {}).get("total", 0):
+                break
+            n += 1
+    else:   # a favourites folder: 20 at a time (Bilibili's most); a private one needs its owner's login
+        n = 1
+        while len(out) < _BILI_MAX:
+            d = _bili_get("https://api.bilibili.com/x/v3/fav/resource/list?"
+                          + urllib.parse.urlencode({"media_id": list_id, "pn": n, "ps": 20, "platform": "web"}))
+            if d.get("code") != 0:
+                raise RuntimeError(f"Bilibili: {d.get('message') or 'no such folder'}"
+                                   + (" (a private folder: log in as its owner in Settings › Accounts)" if d.get("code") == -403 else ""))
+            data = d["data"]
+            if n == 1:
+                out.append({"kind": "name", "title": (data.get("info") or {}).get("title", "")})
+            # videos only (type 2), not ones taken down since
+            out += [_bili_video(m) for m in data.get("medias") or [] if m.get("type") == 2 and m.get("bvid") and m.get("attr") == 0]
+            if not data.get("has_more"):
+                break
+            n += 1
+    return out
+
+
+def _bili_parts(url):
+    """A bilibili.com video and its parts (P1, P2, ...) from Bilibili's video info API, or None. A video in a
+    collection (合集) comes with the collection, to open: {"kind": "list", "title", "count", "url"}.
+
+    yt-dlp's quick listing gives multi-part videos as bare links (no titles), so ask Bilibili directly."""
+    m = _BV.search(url)
+    if not m or "bilibili.com" not in url:
+        return None
+    data = _bili_get(f"https://api.bilibili.com/x/web-interface/view?bvid={m.group(1)}")
     if data.get("code") != 0:
         return None
     v = data["data"]
+    season = v.get("ugc_season") or {}
+    offer = []
+    if season.get("id") and (season.get("ep_count") or 0) > 1:
+        offer = [{"kind": "list", "title": season.get("title", ""), "count": season.get("ep_count"), "site": "bilibili",
+                  "url": f"https://space.bilibili.com/{season.get('mid') or (v.get('owner') or {}).get('mid')}/lists/{season['id']}?type=season"}]
     pages = v.get("pages") or []
     owner = (v.get("owner") or {}).get("name", "")
     only = urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("p", [None])[0]
     base = f"https://www.bilibili.com/video/{v['bvid']}"
     if len(pages) <= 1:
-        return [{"id": v["bvid"], "title": v.get("title", ""), "channel": owner, "duration": v.get("duration"),
-                 "views": (v.get("stat") or {}).get("view"), "thumbnail": v.get("pic", ""), "url": base, "site": "bilibili"}]
-    out = []
+        return offer + [{"id": v["bvid"], "title": v.get("title", ""), "channel": owner, "duration": v.get("duration"),
+                         "views": (v.get("stat") or {}).get("view"), "thumbnail": v.get("pic", ""), "url": base, "site": "bilibili"}]
+    out = offer
     for pg in pages:
         if only and str(pg.get("page")) != only:
             continue
@@ -267,15 +389,23 @@ def _search(query):
     target, kind = _target(query)
 
     def run(job):
-        if kind == "link":
+        url = target
+        if kind == "link" and ("bili" in target or "b23.tv" in target):
             try:
-                parts = _bili_parts(target)
+                url = _bili_resolve(target)
+            except Exception as e:
+                _zydekjs.log(f"couldn't follow {target}: {e}")
+            listed = _bili_list(url)   # (its errors are the answer: yt-dlp knows these lists less well)
+            if listed is not None:
+                return listed
+            try:
+                parts = _bili_parts(url)
                 if parts:
                     return parts
             except Exception as e:
                 _zydekjs.log(f"Bilibili video info failed, using yt-dlp: {e}")
         with _ydl({"extract_flat": "in_playlist", "skip_download": True}) as ydl:
-            info = ydl.extract_info(target, download=False)
+            info = ydl.extract_info(url, download=False)
         entries = info.get("entries") if info.get("entries") is not None else [info]
         hint = info.get("extractor_key") or ""
         out = [_entry(e, hint) for e in entries if e and (e.get("url") or e.get("webpage_url") or e.get("id"))]

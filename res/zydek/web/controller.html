@@ -523,7 +523,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, scrFix: true, scrFeel: "smooth" };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1 };
 const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
@@ -562,6 +562,13 @@ const PREROLL = 30;
 // track (and more beats) into it. Track seconds across the strip for deck d:
 const deckRate = d => Math.max(.05, 1 + d.tempo / 100);
 const deckSpan = d => stripSeconds() * deckRate(d);
+// Scratch distance: how far the record turns for the hand's movement, w the strip's width (px). S.scrBase "wave":
+// S.scrMul times the waveform's own (1: the waveform under the finger stays under it; ½, ¼: it slides past slower, the
+// finger travelling farther, as on a platter). "cdj": S.scrMul times a CDJ's jog wheel at its edge (one turn, 1.8 s,
+// over 206 mm across: ~650 mm of travel), worked out from the screen's size (S.pxmm), so the same number feels the
+// same on a phone and a tablet
+const CDJ_MM_PER_REV = Math.PI * 206;
+const scrGain = w => (S.scrMul || 1) * (S.scrBase === "cdj" ? (w / S.pxmm) / (CDJ_MM_PER_REV * S.revs) : 1);
 
 // Keys as Mixxx numbers them: 1-12 = C..B major, 13-24 = C..B minor, 0 = none.
 const MAJOR_NAMES = ["C", "D♭", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
@@ -1164,7 +1171,8 @@ function buildStrip(s, u) {
       posSeed(d, d.pos, 0, performance.now());
       scrGrab(d, performance.now());
       latTrace("d", s, Math.round(Math.max(e.width || 0, e.height || 0) / S.pxmm * 10) / 10);
-      return { x: e.clientX, deck: d, w: u.strip.clientWidth, samples: [{ t: performance.now(), p: d.pos }] }; },
+      const w = u.strip.clientWidth;
+      return { x: e.clientX, deck: d, w: w / scrGain(w), samples: [{ t: performance.now(), p: d.pos }] }; },   // (w: the hand's strip)
     move: (e, st) => {
       const dx = e.clientX - st.x; st.x = e.clientX;
       st.deck.pos = clamp(st.deck.pos - dx / st.w * deckSpan(st.deck), -PREROLL, st.deck.dur);
@@ -2782,6 +2790,11 @@ ZydeckMenu.provide("controller", {
     saveSettings();
   },
   info: {
+    scr() {   // what the scratch distance comes to here
+      const w = ui.sides[0]?.strip?.clientWidth || 70 * S.pxmm, g = scrGain(w), wMm = w / S.pxmm;
+      const msPerMm = stripSeconds() * 1000 / wMm * g, cdj = 1800 / CDJ_MM_PER_REV;
+      return `${msPerMm.toFixed(1)} ms of audio per mm · waveform ×${g < .095 ? g.toFixed(3) : g.toFixed(2)} · CDJ ×${(msPerMm / cdj).toFixed(2)}`;
+    },
     revs() {
       const stripMm = ui.sides[0]?.strip ? ui.sides[0].strip.clientWidth / S.pxmm : 70;
       return `${stripSeconds().toFixed(1)} s of audio across ${stripMm.toFixed(0)} mm · ${(stripSeconds() * 1000 / stripMm).toFixed(0)} ms per mm`;
