@@ -457,8 +457,12 @@ void Core::http(QTcpSocket* s, const QByteArray& request) {
     // which can't know the key)
     const QByteArray first = request.left(request.indexOf("\r\n"));
     const bool loopback = s->peerAddress().isLoopback();
-    if (first.startsWith("GET /profile ") || first.startsWith("GET /profile?")) {   // the session profiler's page: here only
-        QFile page(QStringLiteral(":/page/profile.html"));
+    // this computer's pages, here only: the session profiler's, the downloader (the phone's Web tab, here)
+    const QByteArray pageName = first.startsWith("GET /profile ") || first.startsWith("GET /profile?") ? "profile"
+            : first.startsWith("GET /downloader ") || first.startsWith("GET /downloader?")       ? "downloader"
+                                                                                                  : "";
+    if (!pageName.isEmpty()) {
+        QFile page(QStringLiteral(":/page/%1.html").arg(QString::fromLatin1(pageName)));
         const bool ok = loopback && page.open(QIODevice::ReadOnly);
         const QByteArray body = ok ? page.readAll() : QByteArray("not here\n");
         s->write("HTTP/1.1 " + QByteArray(ok ? "200 OK" : "404 No") + "\r\nContent-Type: " + (ok ? "text/html; charset=utf-8" : "text/plain") +

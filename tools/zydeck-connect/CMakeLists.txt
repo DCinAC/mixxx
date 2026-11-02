@@ -53,7 +53,10 @@ elseif(WIN32)
 endif()
 # The session profiler's page (the phone's own, res/zydek/web/profile.html), served at /profile to this computer
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../res/zydek/web/profile.html" "${CMAKE_CURRENT_BINARY_DIR}/page/profile.html" COPYONLY)
-qt_add_resources(zydeck-connect page PREFIX /page BASE "${CMAKE_CURRENT_BINARY_DIR}/page" FILES "${CMAKE_CURRENT_BINARY_DIR}/page/profile.html")
+# and the downloader (res/zydek/web/downloader.html: the phone's Web tab, for this computer), at /downloader
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../res/zydek/web/downloader.html" "${CMAKE_CURRENT_BINARY_DIR}/page/downloader.html" COPYONLY)
+qt_add_resources(zydeck-connect page PREFIX /page BASE "${CMAKE_CURRENT_BINARY_DIR}/page"
+  FILES "${CMAKE_CURRENT_BINARY_DIR}/page/profile.html" "${CMAKE_CURRENT_BINARY_DIR}/page/downloader.html")
 qt_add_resources(zydeck-connect mapping
   PREFIX /mapping
   BASE "${CMAKE_CURRENT_BINARY_DIR}/mapping"

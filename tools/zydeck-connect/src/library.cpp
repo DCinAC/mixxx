@@ -449,8 +449,9 @@ QString Library::location(int trackId) {
         return {};
     }
     QSqlQuery q(d);
+    // (fs_deleted or not, as the lists: Mixxx ZyDeck looks for the file as it loads it)
     q.prepare(QStringLiteral("SELECT tl.location FROM library l JOIN track_locations tl ON tl.id = l.location "
-                             "WHERE l.id = ? AND l.mixxx_deleted = 0 AND tl.fs_deleted = 0"));
+                             "WHERE l.id = ? AND l.mixxx_deleted = 0"));
     q.addBindValue(trackId);
     return q.exec() && q.next() ? q.value(0).toString() : QString();
 }

@@ -173,8 +173,11 @@ QJsonObject trackJson(const QSqlQuery& q) {
             {"stems", location.endsWith(QLatin1String(".stem.mp4"), Qt::CaseInsensitive) ||
                             location.endsWith(QLatin1String(".stem.m4a"), Qt::CaseInsensitive) ||
                             location.endsWith(QLatin1String(".stem.m4a"), Qt::CaseInsensitive)},
-            // fs_deleted: Mixxx's last scan didn't find it; its folder not there now: e.g. the SD card's out
-            {"missing", q.value(15).toBool() || !folderThere(location)},
+            // its folder not there now (the SD card's out, the network drive's away). Not Mixxx's fs_deleted: a scan
+            // run while the drive was away marks all its tracks so, until the next scan with it there (a Mac's NAS,
+            // with Mixxx's rescan on startup off): a track in a folder that's there is taken to be there, and the
+            // file itself looked for when it's loaded
+            {"missing", !folderThere(location)},
     };
 }
 
@@ -434,7 +437,7 @@ QList<int> pick(const QSqlDatabase& db, const Where& only, const Pool& pool, int
     if (count <= 0) {
         return out;
     }
-    QStringList where{QStringLiteral("l.mixxx_deleted = 0"), QStringLiteral("tl.fs_deleted = 0"), only.sql,
+    QStringList where{QStringLiteral("l.mixxx_deleted = 0"), only.sql,   // (not fs_deleted: each pick is looked for, below)
             // not queued already, not played this session (Mixxx's newest set history: hidden = 2)
             QStringLiteral("l.id NOT IN (SELECT pt.track_id FROM PlaylistTracks pt JOIN Playlists p ON p.id = pt.playlist_id "
                            "WHERE p.hidden = 1 OR p.id = (SELECT max(id) FROM Playlists WHERE hidden = 2))")};

@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ZyDeck Downloader</title>
+<style>
+  /* ZyDeck: the phone's Web tab on the computer, served by ZyDeck Connect (/downloader, to this computer only): search
+     YouTube, open a link (a video, a playlist, a Bilibili collection, series or favourites folder), pick, download into
+     its ZyDeck Web folder, which Mixxx ZyDeck takes into its library (the crate ZyDeck Web), or straight into a deck.
+     Connect's /web/ API, as the phone's controller mode uses it (web.h); X-ZyDeck: this computer's own page. */
+  :root { --bg: #0b0b0b; --panel: #161616; --line: #2a2a2a; --text: #e8e8e8; --dim: #9a9a9a; --faint: #666; --go: #3a6ea5;
+    --goText: #8cc4ff; --bad: #ff6b61; --ok: #6bd88a; --yt: #ff4e45; --bili: #fb7299; --bar: #ff8a1e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 16px 16px 64px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  h1 { font-size: 20px; margin: 0; }
+  #where { color: var(--dim); font-size: 13px; flex: 1; min-width: 200px; }
+  button { min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid #444; background: #1d1d1d; color: var(--text);
+    font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.go { border-color: var(--go); color: var(--goText); }
+  button.small { min-height: 32px; padding: 0 10px; font-weight: 500; font-size: 13px; }
+  .search { display: flex; gap: 8px; }
+  .search input { flex: 1; min-width: 0; min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #444;
+    background: #121212; color: var(--text); font: inherit; }
+  #note { color: var(--dim); font-size: 14px; margin: 10px 2px; min-height: 1.4em; }
+  #note .err { color: var(--bad); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  /* downloads */
+  .job { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+  .job .top { display: flex; gap: 10px; align-items: center; }
+  .job .t { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job .num { font-variant-numeric: tabular-nums; color: var(--dim); font-size: 13px; white-space: nowrap; }
+  .job .bar { height: 4px; border-radius: 2px; background: #222; margin-top: 8px; overflow: hidden; }
+  .job .bar i { display: block; height: 100%; width: 0; background: var(--bar); transition: width .4s; }
+  .job .m { color: var(--dim); font-size: 13px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job.ok .bar i { background: var(--ok); }
+  .job.err .m { color: var(--bad); }
+  /* results */
+  .sel { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 12px; position: sticky; top: 0; z-index: 2;
+    background: rgba(11,11,11,.96); border-bottom: 1px solid var(--line); font-size: 13px; color: var(--dim); }
+  .sel span { flex: 1 1 200px; min-width: 0; }
+  .r { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; align-items: center; padding: 8px 4px;
+    border-bottom: 1px solid #1c1c1c; cursor: pointer; }
+  .r:hover { background: #121212; }
+  .r .tick { display: none; width: 22px; height: 22px; border-radius: 6px; border: 2px solid #555; }
+  .picking .r .tick { display: block; }
+  .picking .r:not(.offer) { grid-template-columns: auto 120px minmax(0, 1fr); }   /* (the tick's column, only while picking) */
+  .r.picked { background: #12202a; }
+  .r.picked .tick { background: var(--go); border-color: var(--go); box-shadow: inset 0 0 0 3px #0b0b0b; }
+  .r img { width: 120px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; background: #1a1a1a; }
+  .r .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .r .a { color: var(--dim); font-size: 13px; margin-top: 2px; }
+  .badge { font-size: 10px; font-weight: 800; letter-spacing: .06em; margin-right: 6px; }
+  .badge.yt { color: var(--yt); } .badge.bili { color: var(--bili); }
+  .r .acts { grid-column: -2 / -1; display: none; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .r.open .acts { display: flex; }
+  .picking .r.open .acts { display: none; }
+  .r.offer { grid-template-columns: minmax(0, 1fr); border-left: 3px solid var(--bili); padding-left: 12px; }
+  .r.offer.yt { border-left-color: var(--yt); }
+  @media (max-width: 560px) { .r { grid-template-columns: 84px minmax(0, 1fr); } .picking .r:not(.offer) { grid-template-columns: auto 84px minmax(0, 1fr); }
+    .r img { width: 84px; } }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>ZyDeck Downloader</h1><span id="where"></span></header>
+  <div class="search">
+    <input id="q" type="search" placeholder="Search YouTube, or paste a link or BV code" autocomplete="off" autofocus>
+    <button id="go" class="go">Search</button>
+  </div>
+  <div id="note"></div>
+  <ul id="jobs"></ul>
+  <ul id="res"></ul>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const qs = o => new URLSearchParams(o).toString();
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const fmtTime = s => { s = Math.round(s || 0); const m = Math.floor(s / 60); return m >= 60 ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}` : `${m}:${String(s % 60).padStart(2, "0")}`; };
+const fmtViews = n => n == null ? "" : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M views` : n >= 1e3 ? `${Math.round(n / 1e3)}K views` : `${n} views`;
+const fmtSpeed = bps => !(bps > 0) ? "" : bps >= 1e6 ? `${(bps / 1e6).toFixed(1)} MB/s` : `${Math.max(1, Math.round(bps / 1e3))} KB/s`;
+const store = { get(k, d) { try { const v = localStorage.getItem("zdl." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("zdl." + k, JSON.stringify(v)); } catch {} } };
+
+// Connect's /web/ API, as this computer's own page (X-ZyDeck: Connect answers that only from here)
+async function api(what, args = {}) {
+  const r = await fetch(`/web/${what}?${qs(args)}`, { headers: { "X-ZyDeck": "page" }, cache: "no-store" });
+  const b = await r.json().catch(() => null);
+  if (!r.ok || !b || b.ok === false) throw new Error((b && b.error) || r.statusText || "ZyDeck Connect didn't answer");
+  return b;
+}
+// a job (search, download): started, then followed until it's done
+async function job(what, args, onProgress, onStart) {
+  const { job: id } = await api(what, args);
+  onStart && onStart(id);
+  for (;;) {
+    const j = await api("job", { id });
+    if (j.state === "done") return j.result;
+    if (j.state === "error") throw new Error(j.error || "Failed");
+    onProgress && onProgress(j);
+    await sleep(400);
+  }
+}
+
+api("status").then(s => {
+  $("where").textContent = !s.ytdlp ? "yt-dlp isn't here: this needs ZyDeck Connect's own build"
+    : `Into ${s.folder || "ZyDeck Web"}, and into Mixxx's ZyDeck Web crate`;
+}).catch(e => { $("where").textContent = e.message; });
+
+// ---- downloads: one row each at the top while it goes ----
+function jobRow(title) {
+  const li = h("li", "job", `<div class="top"><div class="t">${esc(title)}</div><span class="num"></span>` +
+    `<button class="small x">Cancel</button></div><div class="bar"><i></i></div><div class="m">Starting…</div>`);
+  $("jobs").prepend(li);
+  let id = null, cancel = false;
+  const send = () => { if (id && cancel) api("cancel", { id }).catch(() => {}); };
+  li.querySelector(".x").addEventListener("click", e => { e.target.disabled = true; cancel = true; li.querySelector(".m").textContent = "Cancelling…"; send(); });
+  return {
+    li,
+    started: x => { id = x; send(); },
+    show(p, m, bps) {
+      if (p != null) li.querySelector(".bar i").style.width = `${Math.round(p * 100)}%`;
+      li.querySelector(".num").textContent = [bps > 0 ? fmtSpeed(bps) : "", p > 0 && p < 1 ? `${Math.round(p * 100)}%` : ""].filter(Boolean).join(" · ");
+      if (m) li.querySelector(".m").textContent = m;
+    },
+    end(state, m) {
+      li.querySelector(".x").remove();
+      li.classList.add(state);
+      this.show(state === "ok" ? 1 : null, m, 0);
+      setTimeout(() => li.remove(), state === "err" ? 20000 : 8000);
+    },
+  };
+}
+// one track; deck: 1-4 to load it there once it's in. "cancelled" when it was
+async function download(r, deck) {
+  const row = jobRow(r.title);
+  try {
+    const res = await job("download", { url: r.url, title: r.title, ...(deck ? { deck } : {}) },
+      j => row.show(j.progress, j.message, j.speed), row.started);
+    const q = res.codec === "flac" ? "Hi-Res FLAC" : res.kbps ? `${res.kbps} kbps` : "";
+    row.end("ok", `${deck ? (res.loaded ? `In deck ${deck}` : `Not loaded: ${res.loadError || "deck busy"}`) : "In Mixxx's ZyDeck Web crate"}` +
+      `${q ? " · " + q : ""} · ${String(res.path || "").split(/[\\/]/).pop()}`);
+  } catch (e) {
+    const cancelled = /cancelled/i.test(e.message);
+    row.end(cancelled ? "" : "err", cancelled ? "Cancelled" : e.message);
+    if (cancelled) return "cancelled";
+  }
+}
+async function downloadMany(list) {   // one after another, each with its own row
+  for (let i = 0; i < list.length; i++) {
+    $("note").textContent = `Downloading ${i + 1} of ${list.length}`;
+    if (await download(list[i]) === "cancelled") { $("note").textContent = `Stopped after ${i} of ${list.length}`; return; }
+  }
+  $("note").textContent = `Downloaded ${list.length} track${list.length > 1 ? "s" : ""}`;
+}
+
+// ---- search ----
+let seq = 0;
+async function search(whole) {   // whole: a playlist's link as it is (not its video)
+  const q = $("q").value.trim();
+  if (!q) return;
+  store.set("q", q);
+  const mine = ++seq;
+  $("res").innerHTML = "";
+  $("note").textContent = "Searching…";
+  try {
+    const found = await job("search", whole === true ? { q, whole: 1 } : { q }, j => { if (mine === seq && j.message) $("note").textContent = j.message; });
+    if (mine !== seq) return;
+    const clean = found.find(r => r.kind === "link")?.url;   // (the link without its sharing bits)
+    if (clean) { $("q").value = clean; store.set("q", clean); }
+    const listName = found.find(r => r.kind === "name")?.title, offers = found.filter(r => r.kind === "list"), list = found.filter(r => !r.kind);
+    $("note").textContent = list.length ? "" : "Nothing found.";
+    show(list, offers, /^https?:\/\//i.test($("q").value) && list.length > 1, listName);
+  } catch (e) { if (mine === seq) $("note").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+// the results: a playlist's open with its tracks to tick; a search's can be ticked too (Select)
+function show(list, offers, playlist, listName) {
+  const res = $("res"), picked = new Set(list.flatMap((r, i) => (r.picked ? [i] : [])));
+  let picking = playlist;
+  const bar = h("li", "sel"), rows = [];
+  const paint = () => {
+    res.classList.toggle("picking", picking);
+    rows.forEach((li, i) => li.classList.toggle("picked", picked.has(i)));
+    bar.innerHTML = picking
+      ? `<span>${playlist ? `${esc(listName || "Playlist")} · ${list.length} tracks` : `${list.length} results`} · ${picked.size} picked</span>` +
+        `<button class="small all">${picked.size === list.length ? "None" : "All"}</button>` +
+        `<button class="small go"${picked.size ? "" : " disabled"}>Download ${picked.size || ""}</button>` +
+        (playlist ? "" : `<button class="small done">Done</button>`)
+      : `<span>${list.length} results · click one for its choices</span><button class="small pick">Select</button>`;
+    bar.querySelector(".pick")?.addEventListener("click", () => { picking = true; paint(); });
+    bar.querySelector(".done")?.addEventListener("click", () => { picking = false; picked.clear(); paint(); });
+    bar.querySelector(".all")?.addEventListener("click", () => { if (picked.size === list.length) picked.clear(); else list.forEach((_, i) => picked.add(i)); paint(); });
+    bar.querySelector(".go")?.addEventListener("click", () => { const todo = list.filter((_, i) => picked.has(i)); picked.clear(); paint(); downloadMany(todo); });
+  };
+  if (list.length > 1) res.appendChild(bar);
+  for (const o of offers) {   // a video in a collection or a playlist: the whole of it, to pick from
+    const yt = o.site === "youtube";
+    const what = o.what === "mix" ? "YouTube's mix for this video" : `Whole ${o.what || "collection"}${o.title ? ": " + o.title : ""}`;
+    const li = h("li", "r offer" + (yt ? " yt" : ""), `<div><div class="t">${esc(what)}</div><div class="a">` +
+      `<span class="badge ${yt ? "yt" : "bili"}">${yt ? "YOUTUBE" : "BILIBILI"}</span>${o.count ? o.count + " videos · " : ""}open to pick ›</div></div>`);
+    li.addEventListener("click", () => { $("q").value = o.url; search(o.whole); });
+    res.appendChild(li);
+  }
+  list.forEach((r, i) => {
+    const bili = /^bilibili/.test(r.site || "");
+    const li = h("li", "r", `<span class="tick"></span><img loading="lazy" referrerpolicy="no-referrer" alt="">` +
+      `<div><div class="t">${esc(r.title)}</div><div class="a"><span class="badge ${bili ? "bili" : "yt"}">${bili ? "BILIBILI" : "YOUTUBE"}</span>` +
+      `${esc(r.channel)}${r.duration ? " · " + fmtTime(r.duration) : ""}${r.views ? " · " + fmtViews(r.views) : ""}</div></div>` +
+      `<div class="acts"><button class="small go dl">Download</button>${[1, 2, 3, 4].map(n => `<button class="small" data-deck="${n}">Deck ${n}</button>`).join("")}</div>`);
+    if (r.thumbnail) li.querySelector("img").src = r.thumbnail;
+    li.addEventListener("click", e => {
+      if (e.target.closest(".acts")) return;
+      if (picking) { if (picked.has(i)) picked.delete(i); else picked.add(i); return paint(); }
+      rows.forEach(x => x !== li && x.classList.remove("open"));
+      li.classList.toggle("open");
+    });
+    li.querySelector(".dl").addEventListener("click", () => { li.classList.remove("open"); download(r); });
+    li.querySelectorAll("[data-deck]").forEach(b => b.addEventListener("click", () => { li.classList.remove("open"); download(r, +b.dataset.deck); }));
+    rows.push(li);
+    res.appendChild(li);
+  });
+  paint();
+}
+$("q").value = store.get("q", "");
+$("go").addEventListener("click", () => search());
+$("q").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); search(); } });
+</script>
+</body>
+</html>
