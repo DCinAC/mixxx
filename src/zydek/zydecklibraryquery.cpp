@@ -4,6 +4,7 @@
 #include <QTimeZone>
 #include <QFileInfo>
 #include <QHash>
+#include <QMutex>
 #include <QJsonArray>
 #include <QRegularExpression>
 #include <QSet>
@@ -80,6 +81,29 @@ QString orderFor(const QString& sort) {
     return QStringLiteral("l.datetime_added DESC, l.id DESC");
 }
 
+// Whether a track's folder can be read now (an SD card or a network drive that's away: its tracks are missing): one
+// look per folder every 10 s, not one per track (a list of hundreds from a NAS took seconds). The file itself is only
+// looked for when it's loaded. Any thread.
+bool folderThere(const QString& location) {
+    static QMutex mutex;
+    static QHash<QString, std::pair<bool, qint64>> seen;   // folder: there, when looked
+    const QString folder = location.left(location.lastIndexOf(QLatin1Char('/')));
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    QMutexLocker lock(&mutex);
+    const auto it = seen.constFind(folder);
+    if (it != seen.cend() && now - it->second < 10000) {
+        return it->first;
+    }
+    lock.unlock();
+    const bool there = QFileInfo(folder).isDir();
+    lock.relock();
+    if (seen.size() > 5000) {
+        seen.clear();
+    }
+    seen.insert(folder, {there, now});
+    return there;
+}
+
 QList<QPair<QString, int>> genreFields(const QSqlDatabase& db, const Where& only) {
     QList<QPair<QString, int>> out;
     const QVariantList args = only.args;
@@ -149,8 +173,8 @@ QJsonObject trackJson(const QSqlQuery& q) {
             {"stems", location.endsWith(QLatin1String(".stem.mp4"), Qt::CaseInsensitive) ||
                             location.endsWith(QLatin1String(".stem.m4a"), Qt::CaseInsensitive) ||
                             location.endsWith(QLatin1String(".stem.m4a"), Qt::CaseInsensitive)},
-            // fs_deleted: Mixxx's last scan didn't find it; exists(): e.g. the SD card isn't there now
-            {"missing", q.value(15).toBool() || !QFileInfo::exists(location)},
+            // fs_deleted: Mixxx's last scan didn't find it; its folder not there now: e.g. the SD card's out
+            {"missing", q.value(15).toBool() || !folderThere(location)},
     };
 }
 

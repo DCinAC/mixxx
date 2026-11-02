@@ -35,6 +35,7 @@
 #include <QHash>
 #include <functional>
 #include <memory>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QNetworkAccessManager>
@@ -84,12 +85,14 @@ class Web : public QObject {
         QString remoteId, server, original, outName;   // stems
         QString deck;                                    // a download to load there ("[Channel1]"; "": none)
         int trackId = 0;                                 // a library track loaded to a deck (the play history's)
+        QJsonArray before;      // a search's: what goes ahead of its results (the link as looked up, a list to offer)
+        bool shortLink = false; // a search's: from a b23.tv link (the page is shown where it went)
     };
     Job* start(const QString& kind, const QString& title);
     void finish(Job* job, const QJsonValue& result);
     void fail(Job* job, const QString& error);
     QProcess* run(Job* job, const QStringList& args);
-    void search(Job* job, const QString& query);
+    void search(Job* job, const QString& query, bool whole = false);   // whole: a playlist's link as it is
     void searchWith(Job* job, const QString& target);
     // Bilibili's own API, for search: a call with a visitor id (without one it answers 412); its lists (collections,
     // series, favourites folders: web.cpp's BiliList), which yt-dlp knows less well

@@ -229,7 +229,8 @@ QJsonObject Library::load(int trackId, const QString& target) {
     if (t.isEmpty()) {
         return error(QStringLiteral("Track not in the library"));
     }
-    if (t.value(QStringLiteral("missing")).toBool()) {
+    // (the list only looks at its folder: the file itself, now)
+    if (t.value(QStringLiteral("missing")).toBool() || !QFileInfo::exists(t.value(QStringLiteral("location")).toString())) {
         return error(QStringLiteral("The file isn't available"));
     }
     QJsonObject result = loadLocation(t.value(QStringLiteral("location")).toString(), target);

@@ -532,7 +532,7 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
         }
         if (what == QLatin1String("search")) {
             Job* j = start(QStringLiteral("search"), q);
-            search(j, q);
+            search(j, q, arg("whole") == QLatin1String("1"));
             return {{"job", j->id}};
         }
         if (!kUrl.match(q).hasMatch() || kUrl.match(q).capturedStart() != 0) {
@@ -665,6 +665,13 @@ void Web::finish(Job* job, const QJsonValue& result) {
     job->state = QStringLiteral("done");
     job->progress = 1;
     job->result = result;
+    if (!job->before.isEmpty() && result.isArray()) {   // (a search's: Web::search)
+        QJsonArray all = job->before;
+        for (const QJsonValue& v : result.toArray()) {
+            all.append(v);
+        }
+        job->result = all;
+    }
     job->endedMs = nowMs();
 }
 
@@ -910,8 +917,61 @@ void Web::biliListPage(Job* job, std::shared_ptr<BiliList> list) {
     });
 }
 
+// A shared link without what it says about the sharing (si=, share_source=, vd_source=, spm_id_from=...), as the phone's
+// Python's _clean_link: a Bilibili video as bilibili.com/video/BV... (?p= kept when it's a later part); YouTube's
+// (youtu.be, shorts, music.youtube.com) as youtube.com/watch?v=..., one in a playlist (&list=) the video, with the
+// playlist in offer (whole: the playlist, the link as it is)
+namespace {
+QString cleanLink(const QString& url, bool whole, QJsonObject* offer) {
+    QUrl u(url);
+    const QUrlQuery q(u);
+    const QString host = u.host().toLower();
+    const QStringList path = u.path().split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    if (host.endsWith(QLatin1String("bilibili.com"))) {
+        const auto m = kBv.match(u.path());
+        if (m.hasMatch() && path.contains(QLatin1String("video"))) {
+            const QString p = q.queryItemValue(QStringLiteral("p"));
+            return QStringLiteral("https://www.bilibili.com/video/") + m.captured(1) +
+                    (p.toInt() > 1 ? QStringLiteral("?p=") + p : QString());
+        }
+        QUrlQuery keep;
+        for (const QString& k : {QStringLiteral("type"), QStringLiteral("sid"), QStringLiteral("fid")}) {
+            if (q.hasQueryItem(k)) {
+                keep.addQueryItem(k, q.queryItemValue(k));
+            }
+        }
+        u.setQuery(keep);
+        u.setFragment({});
+        return u.toString();
+    }
+    if (host == QLatin1String("youtu.be") || host.endsWith(QLatin1String("youtube.com"))) {
+        const QString vid = host == QLatin1String("youtu.be") && !path.isEmpty() ? path[0]
+                : path.size() > 1 && (path[0] == QLatin1String("shorts") || path[0] == QLatin1String("live") ||
+                                             path[0] == QLatin1String("embed"))
+                ? path[1]
+                : q.queryItemValue(QStringLiteral("v"));
+        const QString list = q.queryItemValue(QStringLiteral("list"));
+        const QString watch = QStringLiteral("https://www.youtube.com/watch?v=") + vid;
+        if (!vid.isEmpty() && !list.isEmpty() && whole) {
+            return watch + QStringLiteral("&list=") + list;
+        }
+        if (!vid.isEmpty()) {
+            if (!list.isEmpty()) {   // (a mix, RD...: YouTube's own, made for the video)
+                *offer = {{"kind", "list"}, {"what", list.startsWith(QLatin1String("RD")) ? "mix" : "playlist"}, {"site", "youtube"},
+                        {"url", watch + QStringLiteral("&list=") + list}, {"whole", true}};
+            }
+            return watch;
+        }
+        if (!list.isEmpty()) {
+            return QStringLiteral("https://www.youtube.com/playlist?list=") + list;
+        }
+    }
+    return url;
+}
+} // namespace
+
 // A pasted link as it is, a BV code as its Bilibili video, else a YouTube search
-void Web::search(Job* job, const QString& query) {
+void Web::search(Job* job, const QString& query, bool whole) {
     QString target;
     bool link = false;
     if (const auto m = kUrl.match(query); m.hasMatch()) {
@@ -938,10 +998,22 @@ void Web::search(Job* job, const QString& query) {
             if (reply->error() != QNetworkReply::NoError || to.contains(QLatin1String("b23.tv")) || to.contains(QLatin1String("bili2233"))) {
                 searchWith(job, target);
             } else {
+                job->shortLink = true;
                 search(job, to);
             }
         });
         return;
+    }
+    if (link) {   // the link as it's looked up (the page shows it in place of the one given) and what else there is
+        QJsonObject offer;
+        const QString clean = cleanLink(target, whole, &offer);
+        if (clean != target || job->shortLink) {
+            job->before.append(QJsonObject{{"kind", "link"}, {"url", clean}});
+        }
+        if (!offer.isEmpty()) {
+            job->before.append(offer);
+        }
+        target = clean;
     }
     if (link && biliList(job, target)) {
         return;
@@ -973,7 +1045,7 @@ void Web::search(Job* job, const QString& query) {
             if (!mid) {
                 mid = v.value(QStringLiteral("owner")).toObject().value(QStringLiteral("mid")).toInteger();
             }
-            out.append(QJsonObject{{"kind", "list"}, {"title", season.value(QStringLiteral("title"))},
+            out.append(QJsonObject{{"kind", "list"}, {"what", "collection"}, {"title", season.value(QStringLiteral("title"))},
                     {"count", season.value(QStringLiteral("ep_count"))}, {"site", "bilibili"},
                     {"url", QStringLiteral("https://space.bilibili.com/%1/lists/%2?type=season").arg(mid).arg(season.value(QStringLiteral("id")).toInteger())}});
         }
@@ -986,10 +1058,7 @@ void Web::search(Job* job, const QString& query) {
             for (const QJsonValue& pv : pages) {
                 const QJsonObject pg = pv.toObject();
                 const QString n = QString::number(pg.value(QStringLiteral("page")).toInt());
-                if (!only.isEmpty() && only != n) {
-                    continue;
-                }
-                QString part = pg.value(QStringLiteral("part")).toString();
+                QString part = pg.value(QStringLiteral("part")).toString();   // (all of them: the one the link named picked)
                 if (part.isEmpty()) {
                     part = QStringLiteral("Part ") + n;
                 }
@@ -1000,7 +1069,8 @@ void Web::search(Job* job, const QString& query) {
                 out.append(QJsonObject{{"id", bvid + QStringLiteral("_p") + n}, {"title", QStringLiteral("P%1 · %2").arg(n, part)},
                         {"channel", owner + QStringLiteral(" · ") + v.value(QStringLiteral("title")).toString()},
                         {"duration", pg.value(QStringLiteral("duration"))}, {"views", QJsonValue()},
-                        {"thumbnail", thumb}, {"url", base + QStringLiteral("?p=") + n}, {"site", "bilibili"}});
+                        {"thumbnail", thumb}, {"url", base + QStringLiteral("?p=") + n}, {"site", "bilibili"},
+                        {"picked", only == n}});
             }
         }
         finish(job, out);
@@ -1009,8 +1079,12 @@ void Web::search(Job* job, const QString& query) {
 
 void Web::searchWith(Job* job, const QString& target) {
     job->message = QStringLiteral("Searching");
-    QProcess* p = run(job, {QStringLiteral("--flat-playlist"), QStringLiteral("-J"), QStringLiteral("--"), target});
-    connect(p, &QProcess::finished, this, [this, job, p](int code) {
+    // a list's first 500 at most; YouTube's mixes (list=RD...) go on and on: their first 50
+    QProcess* p = run(job, {QStringLiteral("--flat-playlist"), QStringLiteral("--playlist-end"),
+                                   target.contains(QLatin1String("list=RD")) ? QStringLiteral("50") : QString::number(kBiliMax),
+                                   QStringLiteral("-J"), QStringLiteral("--"), target});
+    const bool searched = target.startsWith(QLatin1String("ytsearch"));
+    connect(p, &QProcess::finished, this, [this, job, p, searched](int code) {
         const QByteArray out = p->readAllStandardOutput(), err = p->readAllStandardError();
         p->deleteLater();
         if (job->cancelled) {
@@ -1045,6 +1119,9 @@ void Web::searchWith(Job* job, const QString& target) {
                 }
             }
             list.append(x);
+        }
+        if (!searched && info.contains(QStringLiteral("entries")) && !info.value(QStringLiteral("title")).toString().isEmpty()) {
+            list.prepend(QJsonObject{{"kind", "name"}, {"title", info.value(QStringLiteral("title"))}});   // a playlist: its name
         }
         finish(job, list);
     });

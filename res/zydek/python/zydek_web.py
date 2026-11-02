@@ -364,7 +364,7 @@ def _bili_parts(url):
     season = v.get("ugc_season") or {}
     offer = []
     if season.get("id") and (season.get("ep_count") or 0) > 1:
-        offer = [{"kind": "list", "title": season.get("title", ""), "count": season.get("ep_count"), "site": "bilibili",
+        offer = [{"kind": "list", "what": "collection", "title": season.get("title", ""), "count": season.get("ep_count"), "site": "bilibili",
                   "url": f"https://space.bilibili.com/{season.get('mid') or (v.get('owner') or {}).get('mid')}/lists/{season['id']}?type=season"}]
     pages = v.get("pages") or []
     owner = (v.get("owner") or {}).get("name", "")
@@ -374,37 +374,75 @@ def _bili_parts(url):
         return offer + [{"id": v["bvid"], "title": v.get("title", ""), "channel": owner, "duration": v.get("duration"),
                          "views": (v.get("stat") or {}).get("view"), "thumbnail": v.get("pic", ""), "url": base, "site": "bilibili"}]
     out = offer
-    for pg in pages:
-        if only and str(pg.get("page")) != only:
-            continue
+    for pg in pages:   # all of them, to pick from: the one the link named (?p=) picked to begin with
         part = pg.get("part") or f"Part {pg.get('page')}"
         out.append({"id": f"{v['bvid']}_p{pg.get('page')}", "title": f"P{pg.get('page')} · {part}",
                     "channel": f"{owner} · {v.get('title', '')}", "duration": pg.get("duration"),
                     "views": None, "thumbnail": pg.get("first_frame") or v.get("pic", ""),
-                    "url": f"{base}?p={pg.get('page')}", "site": "bilibili"})
+                    "url": f"{base}?p={pg.get('page')}", "site": "bilibili", **({"picked": True} if only == str(pg.get("page")) else {})})
     return out
 
 
-def _search(query):
+def _clean_link(url, whole=False):
+    """A shared link without what it says about the sharing (si=, share_source=, vd_source=, spm_id_from=...), and
+    what else to offer: (link, {"kind": "list", ...} or None). A b23.tv short link is followed to its video, which is
+    bilibili.com/video/BV... (?p= kept when it's a later part); YouTube's (youtu.be, shorts, music.youtube.com) are
+    youtube.com/watch?v=..., and one in a playlist (&list=) is the video, with the playlist offered (whole: the
+    playlist, the link as it is)."""
+    if "b23.tv" in url or "bili2233" in url:
+        url = _bili_resolve(url)
+    u = urllib.parse.urlparse(url)
+    q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
+    host = u.netloc.lower().split(":")[0]
+    path = [p for p in u.path.split("/") if p]
+    if host.endswith("bilibili.com"):
+        m = _BV.search(u.path)
+        if m and "video" in path:
+            p = q.get("p", "")
+            return f"https://www.bilibili.com/video/{m.group(1)}" + (f"?p={p}" if p.isdigit() and p != "1" else ""), None
+        keep = {k: q[k] for k in ("type", "sid", "fid") if k in q}
+        return urllib.parse.urlunparse(u._replace(query=urllib.parse.urlencode(keep), fragment="")), None
+    if host == "youtu.be" or host.endswith("youtube.com"):
+        vid = (path[0] if host == "youtu.be" and path
+               else path[1] if len(path) > 1 and path[0] in ("shorts", "live", "embed") else q.get("v"))
+        lst = q.get("list")
+        if vid and lst and whole:
+            return f"https://www.youtube.com/watch?v={vid}&list={lst}", None
+        if vid:
+            offer = None
+            if lst:   # (a mix, RD...: YouTube's own, made for the video)
+                offer = {"kind": "list", "what": "mix" if lst.startswith("RD") else "playlist", "site": "youtube",
+                         "url": f"https://www.youtube.com/watch?v={vid}&list={lst}", "whole": True}
+            return f"https://www.youtube.com/watch?v={vid}", offer
+        if lst:
+            return f"https://www.youtube.com/playlist?list={lst}", None
+    return url, None
+
+
+def _search(query, whole=False):
     target, kind = _target(query)
 
     def run(job):
-        url = target
-        if kind == "link" and ("bili" in target or "b23.tv" in target):
+        url, offer = target, None
+        if kind == "link":
             try:
-                url = _bili_resolve(target)
+                url, offer = _clean_link(target, whole)
             except Exception as e:
                 _zydekjs.log(f"couldn't follow {target}: {e}")
+        # the link as it's looked up (the page shows it in place of the one given) and what else there is
+        head = ([{"kind": "link", "url": url}] if url != target else []) + ([offer] if offer else [])
+        if kind == "link" and "bilibili.com" in url:
             listed = _bili_list(url)   # (its errors are the answer: yt-dlp knows these lists less well)
             if listed is not None:
-                return listed
+                return head + listed
             try:
                 parts = _bili_parts(url)
                 if parts:
-                    return parts
+                    return head + parts
             except Exception as e:
                 _zydekjs.log(f"Bilibili video info failed, using yt-dlp: {e}")
-        with _ydl({"extract_flat": "in_playlist", "skip_download": True}) as ydl:
+        # a list's first 500 at most; YouTube's mixes (list=RD...) go on and on: their first 50
+        with _ydl({"extract_flat": "in_playlist", "skip_download": True, "playlistend": 50 if "list=RD" in url else _BILI_MAX}) as ydl:
             info = ydl.extract_info(url, download=False)
         entries = info.get("entries") if info.get("entries") is not None else [info]
         hint = info.get("extractor_key") or ""
@@ -414,7 +452,9 @@ def _search(query):
                 p = urllib.parse.parse_qs(urllib.parse.urlparse(e["url"]).query).get("p", [None])[0]
                 e["title"] = f"{info.get('title') or 'Part'} · P{p or i + 1}"
                 e["channel"] = e["channel"] or info.get("uploader") or ""
-        return out
+        if kind == "link" and info.get("entries") is not None and info.get("title"):   # a playlist: its name
+            out.insert(0, {"kind": "name", "title": info["title"]})
+        return head + out
 
     return _job("search", query, run)
 
@@ -798,7 +838,7 @@ def api(name, args_json):
         if name == "search":
             if not args.get("q", "").strip():
                 return json.dumps({"ok": False, "error": "Type something to search for"})
-            return json.dumps({"ok": True, "job": _search(args["q"])["id"]})
+            return json.dumps({"ok": True, "job": _search(args["q"], args.get("whole") == "1")["id"]})
         if name == "download":
             if not args.get("url"):
                 return json.dumps({"ok": False, "error": "No link to download"})

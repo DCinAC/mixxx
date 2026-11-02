@@ -317,6 +317,7 @@
   .wsel .go { border-color: #3a6ea5; color: #8cc4ff; }
   .badge.bili { color: #fb7299; } .badge.yt { color: #ff4e45; }
   .wr.wlist { border-left: 3px solid #fb7299; }
+  .wr.wlist:has(.badge.yt) { border-left-color: #ff4e45; }
   .wj { padding: 8px 12px; border-bottom: 1px solid #1d1d1d; font-size: 13px; }
   .wj .t { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .wj .bar2 { height: 4px; border-radius: 2px; background: #222; margin-top: 6px; overflow: hidden; }
@@ -1790,7 +1791,7 @@ async function webJob(path, onProgress, onStart) {
 }
 const fmtViews = n => n == null ? "" : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M views` : n >= 1e3 ? `${Math.round(n / 1e3)}K views` : `${n} views`;
 let webSeq = 0;
-async function webSearch() {
+async function webSearch(whole) {   // whole: a playlist's link as it is (not its video)
   const q = $("#wq").value.trim();
   if (!q) return;
   store.set("wq", q);
@@ -1799,15 +1800,17 @@ async function webSearch() {
   $("#wnote").textContent = "Searching…";
   lamp($("#wgo"), "busy");
   try {
-    const found = await webJob(`/api/web/search?${qs({ q })}`, j => { if (seq === webSeq && j.message) $("#wnote").textContent = j.message; });
+    const found = await webJob(`/api/web/search?${qs(whole === true ? { q, whole: 1 } : { q })}`, j => { if (seq === webSeq && j.message) $("#wnote").textContent = j.message; });
     if (seq !== webSeq) return;
     // (a Bilibili list says its name; a video in a collection offers the whole of it)
     const listName = found.find(r => r.kind === "name")?.title, offers = found.filter(r => r.kind === "list"), list = found.filter(r => !r.kind);
+    const clean = found.find(r => r.kind === "link")?.url;   // (the link without its sharing bits, as it was looked up)
+    if (clean) { $("#wq").value = clean; store.set("wq", clean); }
     $("#wnote").textContent = list.length ? "" : "Nothing found.";
     lamp($("#wgo"), "ok", 6000);
     // several at once: a playlist's link opens with its tracks to tick; a search's results can be ticked too (Select)
     const playlist = /^https?:\/\//i.test(q) && list.length > 1;
-    const picked = new Set();
+    const picked = new Set(list.flatMap((r, i) => (r.picked ? [i] : [])));   // (a video's part the link named)
     let picking = playlist;
     const bar = h("li", "wsel");
     const paintBar = () => {
@@ -1832,10 +1835,12 @@ async function webSearch() {
     const rows = [];
     const paint = () => { paintBar(); rows.forEach((li, i) => { li.classList.toggle("picking", picking); li.classList.toggle("picked", picked.has(i)); }); };
     if (list.length > 1) $("#wres").appendChild(bar);
-    offers.forEach(o => {
-      const li = h("li", "wr wlist", `<div><div class="t">Whole collection: ${esc(o.title)}</div><div class="a"><span class="badge bili">BILIBILI</span>` +
+    offers.forEach(o => {   // a video in a collection or a playlist: the whole of it, to pick from
+      const what = o.what === "mix" ? "YouTube's mix for this video" : `Whole ${o.what || "collection"}${o.title ? ": " + o.title : ""}`;
+      const li = h("li", "wr wlist", `<div><div class="t">${esc(what)}</div><div class="a">` +
+        `<span class="badge ${o.site === "youtube" ? "yt" : "bili"}">${o.site === "youtube" ? "YOUTUBE" : "BILIBILI"}</span>` +
         `${o.count ? o.count + " videos · " : ""}open to pick ›</div></div>`);
-      li.addEventListener("click", () => { $("#wq").value = o.url; webSearch(); });
+      li.addEventListener("click", () => { $("#wq").value = o.url; webSearch(o.whole); });
       $("#wres").appendChild(li);
     });
     list.forEach((r, i) => {
