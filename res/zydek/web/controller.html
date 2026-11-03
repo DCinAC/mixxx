@@ -3340,6 +3340,9 @@ function onMixxx(m) {
     case "s": if (m.i < samplers.length) samplers[m.i].state = m.v; break;
     case "sn": if (m.i < samplers.length) samplers[m.i].name = m.n ? m.n.t : `Sample ${m.i + 1}`; break;
     case "wf": wfReady(m.id); return;   // a deck's waveform is analysed
+    case "beats":   // a deck's beat grid changed (edited, a new BPM): its beats again, and its sections worked out again
+      if (!REMOTE.on) decks.forEach(x => { if (x.beatsFor === m.id) loadBeats(x, m.id, true); });
+      return;
     case "dn": d.title = m.n ? m.n.t : `Deck ${d.n}`; d.artist = m.n ? m.n.a : ""; if (REMOTE.on) d.cueLabels = m.n?.l || null; loadCueLabels(d);
       if ((m.n ? m.n.id : null) !== d.wfFor) { d.rstem = null; loadWaveform(d, m.n ? m.n.id : null); loadBeats(d, m.n ? m.n.id : null); }
       return markDirty("deck", d);

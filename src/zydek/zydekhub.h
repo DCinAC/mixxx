@@ -160,6 +160,9 @@ class Hub : public QObject {
     QTimer m_slipTimer;
     QSharedPointer<VisualPlayPosition> m_visualPos[kNumDecks];
     QMetaObject::Connection m_waveformDone[kNumDecks];   // each deck's track: tells the pages when it's analysed
+    // each deck's track: tells the pages when its beat grid changes (the grid editor, a new BPM), once it has settled
+    QMetaObject::Connection m_beatsChanged[kNumDecks];
+    QTimer m_beatsTimer[kNumDecks];
     bool m_slipShown[kNumDecks] = {};
     void slipTick();
     QJsonObject startOptimize();

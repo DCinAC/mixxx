@@ -877,8 +877,10 @@ async function deckAsset(path, tries) {
   return r.status === 202 ? 15000 : 2000;
 }
 // The track's beats (Mixxx's beat grid): {beats: [seconds], bar}; beat i starts a bar when (i + bar) % 4 == 0.
-async function loadBeats(d, id) {
-  d.beatsFor = id; d.beats = null; d.beatsVer = (d.beatsVer || 0) + 1;
+// keep: the old beats (and sections) stay up until the new ones are in (the same track, its grid edited)
+async function loadBeats(d, id, keep = false) {
+  d.beatsFor = id; d.beatsVer = (d.beatsVer || 0) + 1;
+  if (!keep) d.beats = null;
   if (!id) return;
   for (let tries = 0; d.beatsFor === id && (!remote.on || tries < 40); tries++) {
     let wait = 2000;
@@ -886,7 +888,7 @@ async function loadBeats(d, id) {
       const r = await deckAsset(`/beats/${id}`, tries);
       if (r === "stop") return;
       if (typeof r === "number") wait = r;
-      else { const j = await r.json(); if (d.beatsFor !== id) return; d.beats = Float64Array.from(j.beats); d.bar = j.bar; d.beatsVer++; loadStructure(d, id); return; }
+      else { const j = await r.json(); if (d.beatsFor !== id) return; d.beats = Float64Array.from(j.beats); d.bar = j.bar; d.beatsVer++; loadStructure(d, id, keep); return; }
     } catch {}
     await untilWf(id, wait);
   }
@@ -894,13 +896,15 @@ async function loadBeats(d, id) {
 // The track's structure (the hub's /api/structure): sections on the bar grid, intro, verse, pre-chorus, chorus,
 // bridge, interlude, outro, each with a letter that repeats where the music does. Worked out in the background once the track
 // has a beat grid (a few seconds; then kept), so asked again until it's there.
-async function loadStructure(d, id) {
-  d.strFor = id; d.sections = null; d.strVer = (d.strVer || 0) + 1;
+async function loadStructure(d, id, keep = false) {
+  d.strFor = id; d.strVer = (d.strVer || 0) + 1;
+  if (!keep) d.sections = null;
+  const run = d.strRun = (d.strRun || 0) + 1;   // (asking for an earlier grid's stops)
   if (!id || (remote.on && !remote.http)) return;   // (controller mode: the computer's tracks, from ZyDeck Connect)
-  for (let tries = 0; d.strFor === id && tries < 100; tries++) {
+  for (let tries = 0; d.strRun === run && tries < 100; tries++) {
     let r;
     try { r = await api(`/api/structure?${qs({ id })}`); } catch { return; }   // (it can't: no grid, a file it can't read)
-    if (d.strFor !== id) return;
+    if (d.strRun !== run) return;
     if (!r.pending) { d.sections = r.sections; d.strVer++; return; }
     await new Promise(res => setTimeout(res, 3000));
   }
@@ -1048,6 +1052,7 @@ function connect() {
     else if (m.t === "cue" && decks[m.d] && m.k < 8) decks[m.d].cueColors[m.k] = m.v ? m.v - 1 : null;   // hot cue colour + 1
     else if (m.t === "dn" && decks[m.d]) onDeckName(decks[m.d], m.n);
     else if (m.t === "wf") wfReady(m.id);   // a deck's waveform is analysed
+    else if (m.t === "beats" && !remote.on) decks.forEach(d => { if (d.beatsFor === m.id) loadBeats(d, m.id, true); });   // its grid changed
   };
   ws.onclose = () => {
     if (sock !== ws) return;   // dropped on purpose (wsAway)

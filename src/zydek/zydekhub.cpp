@@ -321,6 +321,16 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
     m_slipTimer.setInterval(40);
     connect(&m_slipTimer, &QTimer::timeout, this, &Hub::slipTick);
     m_slipTimer.start();
+    for (int deck = 0; deck < kNumDecks; ++deck) {   // a beat grid edited: its new beats, and its sections again
+        m_beatsTimer[deck].setSingleShot(true);
+        m_beatsTimer[deck].setInterval(1500);   // (the grid editor's nudges come many a second)
+        connect(&m_beatsTimer[deck], &QTimer::timeout, this, [this, deck] {
+            const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(QStringLiteral("[Channel%1]").arg(deck + 1));
+            if (pTrack) {
+                emitJson({{"t", "beats"}, {"id", pTrack->getId().toVariant().toInt()}});
+            }
+        });
+    }
     m_streamDelayTimer.setInterval(1000);
     connect(&m_streamDelayTimer, &QTimer::timeout, this, &Hub::streamDelayTick);
     m_streamDelayTimer.start();
@@ -3496,7 +3506,10 @@ void Hub::deckTrackLoaded(int deck, const TrackPointer& pTrack) {
     // Its waveform and beats may take a while (Mixxx analyses one track at a time, and after a restart there can be a
     // queue): the pages wait for this rather than giving up
     disconnect(m_waveformDone[deck]);
+    disconnect(m_beatsChanged[deck]);
+    m_beatsTimer[deck].stop();
     if (pTrack) {
+        m_beatsChanged[deck] = connect(pTrack.get(), &Track::beatsUpdated, &m_beatsTimer[deck], qOverload<>(&QTimer::start));
         const int id = pTrack->getId().toVariant().toInt();
         const QPointer<Track> pWeak(pTrack.get());
         m_waveformDone[deck] = connect(pTrack.get(), &Track::waveformUpdated, this, [this, deck, id, pWeak] {
