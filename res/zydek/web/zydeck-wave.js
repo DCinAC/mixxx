@@ -17,6 +17,73 @@ function drawBeats(g, d, pxPerSec, left, W, H) {
   }
 }
 
+// A track's sections (the hub's /api/structure, ZyDeck Connect's /web/structure: d.sections, [{s, e (seconds), letter,
+// label}]), in their colours: a tint behind the waveform, a strip along its bottom and a tag where each starts
+const SECTION_COLORS = { Intro: "#3fbf6f", Verse: "#4a90e2", "Pre-Chorus": "#e0b020", Chorus: "#e5484d",
+  Interlude: "#9b6bd6", Bridge: "#2fb7b0", Outro: "#3fbf6f" };
+// A section's letter where it starts (zoomed in: with its part, "B Pre-Chorus"); a run of the same one: once
+const sectionTag = (secs, i) => i === 0 || secs[i].letter !== secs[i - 1].letter || secs[i].label !== secs[i - 1].label;
+function drawSectionTint(g, d, pxPerSec, left, W, H, alpha = .2) {
+  if (!d.sections) return;
+  g.globalAlpha = alpha;
+  for (const s of d.sections) {
+    const x0 = Math.round(s.s * pxPerSec) - left, x1 = Math.round(s.e * pxPerSec) - left;
+    if (x1 < 0 || x0 > W) continue;
+    g.fillStyle = SECTION_COLORS[s.label] || "#888";
+    g.fillRect(x0, 0, x1 - x0, H);
+  }
+  g.globalAlpha = 1;
+}
+// names: "B Pre-Chorus" (else just "B", where it fits); tags: false draws only the strip (the deck page's waveform,
+// whose start lines and tags are its own, unstretched by the tempo)
+function drawSectionTags(g, d, pxPerSec, left, W, H, names, tags = true) {
+  const secs = d.sections;
+  if (!secs) return;
+  const dpr = devicePixelRatio || 1, bar = Math.max(2, Math.round(2 * dpr)), fs = Math.max(Math.round(9 * dpr), Math.round(H * .3));
+  g.font = `bold ${fs}px sans-serif`; g.textBaseline = "top"; g.textAlign = "left";
+  let first = true;
+  secs.forEach((s, i) => {
+    const x0 = Math.round(s.s * pxPerSec) - left, x1 = Math.round(s.e * pxPerSec) - left;
+    if (x1 < 0 || x0 > W) return;
+    const col = SECTION_COLORS[s.label] || "#888";
+    g.fillStyle = col;
+    g.fillRect(x0, H - bar, x1 - x0, bar);   // a strip along the bottom, in the section's colour
+    // (zoomed in: the section under the left edge keeps its tag there, so you know where you are)
+    const sticky = names && first && x0 < 0;
+    first = false;
+    if (!tags) return;
+    const starts = sectionTag(secs, i);
+    if (starts && x0 >= 0) {
+      g.fillStyle = "rgba(0,0,0,.65)";
+      g.fillRect(x0, 0, Math.max(1, Math.round(dpr)), H);   // where it starts
+    }
+    if (!starts && !sticky) return;
+    const text = names ? `${s.letter} ${s.label}` : s.letter, w = g.measureText(text).width + fs * .5, x = Math.max(x0, 0);
+    if (!names && x1 - x0 < w) return;
+    g.fillStyle = col;
+    g.fillRect(x + dpr, H - bar - fs * 1.15, w, fs * 1.15);
+    g.fillStyle = "#101010";
+    g.fillText(text, x + dpr + fs * .25, H - bar - fs * 1.1);
+  });
+}
+// The section at t (seconds): its index in secs, or -1
+function sectionAt(secs, t) {
+  if (!secs) return -1;
+  let lo = 0, hi = secs.length - 1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (t < secs[m].s) hi = m - 1; else if (t >= secs[m].e) lo = m + 1; else return m; }
+  return -1;
+}
+// Bars left from t to e (seconds) by the beat grid (d.beats, a bar's first beat d.bar): the one t is in, and each
+// bar starting after it before e; 0 without a grid
+function barsTo(d, t, e) {
+  const b = d.beats;
+  if (!b || !b.length) return 0;
+  const first = x => { let lo = 0, hi = b.length; while (lo < hi) { const m = (lo + hi) >> 1; if (b[m] <= x) lo = m + 1; else hi = m; } return lo; };
+  let n = 1;
+  for (let i = first(t), j = first(e - .05); i < j; i++) if ((i + d.bar) % 4 === 0) n++;
+  return n;
+}
+
 // A track's waveform being analysed: untilWf(id, ms) waits for the hub's "wf" for it (wfReady), or ms at most
 const wfWaiting = new Map();   // track id -> what's waiting for its "wf"
 const wfReady = id => { (wfWaiting.get(id) || []).forEach(f => f()); wfWaiting.delete(id); };

@@ -894,8 +894,6 @@ async function loadBeats(d, id) {
 // The track's structure (the hub's /api/structure): sections on the bar grid, intro, verse, pre-chorus, chorus,
 // bridge, interlude, outro, each with a letter that repeats where the music does. Worked out in the background once the track
 // has a beat grid (a few seconds; then kept), so asked again until it's there.
-const SECTION_COLORS = { Intro: "#3fbf6f", Verse: "#4a90e2", "Pre-Chorus": "#e0b020", Chorus: "#e5484d",
-  Interlude: "#9b6bd6", Bridge: "#2fb7b0", Outro: "#3fbf6f" };
 async function loadStructure(d, id) {
   d.strFor = id; d.sections = null; d.strVer = (d.strVer || 0) + 1;
   if (!id || (remote.on && !remote.http)) return;   // (controller mode: the computer's tracks, from ZyDeck Connect)
@@ -906,47 +904,6 @@ async function loadStructure(d, id) {
     if (!r.pending) { d.sections = r.sections; d.strVer++; return; }
     await new Promise(res => setTimeout(res, 3000));
   }
-}
-// A section's letter where it starts (zoomed in: with its part, "B Pre-Chorus"); a run of the same one: once
-const sectionTag = (secs, i) => i === 0 || secs[i].letter !== secs[i - 1].letter || secs[i].label !== secs[i - 1].label;
-function drawSectionTint(g, d, pxPerSec, left, W, H) {
-  if (!d.sections) return;
-  g.globalAlpha = .2;
-  for (const s of d.sections) {
-    const x0 = Math.round(s.s * pxPerSec) - left, x1 = Math.round(s.e * pxPerSec) - left;
-    if (x1 < 0 || x0 > W) continue;
-    g.fillStyle = SECTION_COLORS[s.label] || "#888";
-    g.fillRect(x0, 0, x1 - x0, H);
-  }
-  g.globalAlpha = 1;
-}
-function drawSectionTags(g, d, pxPerSec, left, W, H, names) {
-  const secs = d.sections;
-  if (!secs) return;
-  const dpr = devicePixelRatio || 1, bar = Math.max(2, Math.round(2 * dpr)), fs = Math.max(Math.round(9 * dpr), Math.round(H * .3));
-  g.font = `bold ${fs}px sans-serif`; g.textBaseline = "top"; g.textAlign = "left";
-  let first = true;
-  secs.forEach((s, i) => {
-    const x0 = Math.round(s.s * pxPerSec) - left, x1 = Math.round(s.e * pxPerSec) - left;
-    if (x1 < 0 || x0 > W) return;
-    const col = SECTION_COLORS[s.label] || "#888";
-    g.fillStyle = col;
-    g.fillRect(x0, H - bar, x1 - x0, bar);   // a strip along the bottom, in the section's colour
-    // (zoomed in: the section under the left edge keeps its tag there, so you know where you are)
-    const sticky = names && first && x0 < 0;
-    first = false;
-    if (!sectionTag(secs, i) && !sticky) return;
-    if (x0 >= 0) {
-      g.fillStyle = "rgba(0,0,0,.65)";
-      g.fillRect(x0, 0, Math.max(1, Math.round(dpr)), H);   // where it starts
-    }
-    const text = names ? `${s.letter} ${s.label}` : s.letter, w = g.measureText(text).width + fs * .5, x = Math.max(x0, 0);
-    if (!names && x1 - x0 < w) return;
-    g.fillStyle = col;
-    g.fillRect(x + dpr, H - bar - fs * 1.15, w, fs * 1.15);
-    g.fillStyle = "#101010";
-    g.fillText(text, x + dpr + fs * .25, H - bar - fs * 1.1);
-  });
 }
 async function loadWaveform(d, id) {
   d.wfFor = id; d.wf = null; d.wfVer++;
