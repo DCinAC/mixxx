@@ -1188,9 +1188,12 @@ function buildStrip(s, u) {
       scrGrab(d, performance.now());
       latTrace("d", s, Math.round(Math.max(e.width || 0, e.height || 0) / S.pxmm * 10) / 10);
       const w = u.strip.clientWidth;
-      return { x: e.clientX, deck: d, w: w / scrGain(w), samples: [{ t: performance.now(), p: d.pos }] }; },   // (w: the hand's strip)
+      const t0 = performance.now();
+      return { x: e.clientX, deck: d, w: w / scrGain(w), samples: [{ t: t0, p: d.pos }],   // (w: the hand's strip)
+        stroke: { x: e.clientX, t: t0, dir: 0, ext: e.clientX, extT: t0 } }; },
     move: (e, st) => {
       const dx = e.clientX - st.x; st.x = e.clientX;
+      strokeMove(st.stroke, e.clientX, performance.now());
       st.deck.pos = clamp(st.deck.pos - dx / st.w * deckSpan(st.deck), -PREROLL, st.deck.dur);
       const now = performance.now();
       st.samples.push({ t: now, p: st.deck.pos });
@@ -1205,9 +1208,11 @@ function buildStrip(s, u) {
       st.samples.push({ t: now, p: d.pos });
       d.vel = clamp(releaseSpeed(st.samples.filter(x => now - x.t <= 60)), -8, 8);
       // Lifting off outside the strip lets go of the flick: the record eases from the finger's speed to the
-      // platter's in a fixed 150 ms instead of slipping.
-      const sr = u.strip.getBoundingClientRect();
-      if (e.clientX < sr.left || e.clientX > sr.right || e.clientY < sr.top || e.clientY > sr.bottom) d.easeMs = 150;
+      // platter's in a fixed 150 ms instead of slipping. A long, fast stroke (over half the strip, quicker than a strip a
+      // second) running off its end is still a flick: off the side, only above or below it lets go.
+      const sr = u.strip.getBoundingClientRect(), k = st.stroke, span = Math.abs(e.clientX - k.x);
+      const flung = span > sr.width * .5 && span / Math.max(1, now - k.t) * 1000 > sr.width;
+      if ((!flung && (e.clientX < sr.left || e.clientX > sr.right)) || e.clientY < sr.top || e.clientY > sr.bottom) d.easeMs = 150;
       latTrace(e.type === "pointercancel" ? "c" : "u", s, Math.round(d.vel * 100) / 100);
       d.coast = S.catchup > 0 || d.easeMs > 0;
       // Let go from where the cursor is: Mixxx's record stopped ~0.1 s past it (the cursor shows what you
@@ -1239,6 +1244,14 @@ function buildStrip(s, u) {
     },
   });
   return head;
+}
+
+// A scratch's strokes: each run one way, from where it turned (more than 2 mm back from its farthest point is a turn,
+// so a finger's wobble isn't). k: {x, t: the stroke's start, dir: -1 | 0 | 1, ext, extT: its farthest point}
+function strokeMove(k, x, now) {
+  if (!k.dir) { if (Math.abs(x - k.x) > mm(1)) { k.dir = Math.sign(x - k.x); k.ext = x; k.extT = now; } return; }
+  if ((x - k.ext) * k.dir > 0) { k.ext = x; k.extT = now; return; }
+  if ((k.ext - x) * k.dir > mm(2)) { k.x = k.ext; k.t = k.extT; k.dir = -k.dir; k.ext = x; k.extT = now; }
 }
 
 // Strips on top (S.layout "stacked"): each strip gets its row of the top band, with the track info riding on
