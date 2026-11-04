@@ -73,15 +73,19 @@ function sectionAt(secs, t) {
   while (lo <= hi) { const m = (lo + hi) >> 1; if (t < secs[m].s) hi = m - 1; else if (t >= secs[m].e) lo = m + 1; else return m; }
   return -1;
 }
-// Bars left from t to e (seconds) by the beat grid (d.beats, a bar's first beat d.bar): the one t is in, and each
-// bar starting after it before e; 0 without a grid
-function barsTo(d, t, e) {
+// Bars from t to e (seconds), with their fraction (4 beats a bar): by the beat grid (d.beats), or the BPM without one
+function barsBetween(d, t, e) {
   const b = d.beats;
-  if (!b || !b.length) return 0;
-  const first = x => { let lo = 0, hi = b.length; while (lo < hi) { const m = (lo + hi) >> 1; if (b[m] <= x) lo = m + 1; else hi = m; } return lo; };
-  let n = 1;
-  for (let i = first(t), j = first(e - .05); i < j; i++) if ((i + d.bar) % 4 === 0) n++;
-  return n;
+  const beatAt = x => {   // beats from the grid's first, fractional (before the first and after the last: at their spacing)
+    if (!b || b.length < 2) return d.bpm > 0 ? x * d.bpm / 60 : NaN;
+    let lo = 0, hi = b.length - 1;
+    if (x <= b[0]) return (x - b[0]) / (b[1] - b[0]);
+    if (x >= b[hi]) return hi + (x - b[hi]) / (b[hi] - b[hi - 1]);
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (b[m] <= x) lo = m; else hi = m; }
+    return lo + (x - b[lo]) / (b[hi] - b[lo]);
+  };
+  const n = (beatAt(e) - beatAt(t)) / 4;
+  return n > 0 ? n : 0;
 }
 
 // A track's waveform being analysed: untilWf(id, ms) waits for the hub's "wf" for it (wfReady), or ms at most

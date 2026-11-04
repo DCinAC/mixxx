@@ -156,7 +156,13 @@
   .strip .foot { position: absolute; left: calc(var(--mm) * 1.2); bottom: calc(var(--mm) * .8); display: flex; align-items: center;
     gap: calc(var(--mm) * 1); pointer-events: none; z-index: 2; }
   .strip .label { font-size: calc(var(--mm) * 1.7); color: #4a4a4a; }
-  .strip .cursec:empty { display: none; }
+  .strip .cursec:empty, .strip .barsleft:empty { display: none; }
+  /* the bars left in the track, at the top of the cursor */
+  .strip .barsleft { position: absolute; left: 50%; top: calc(var(--mm) * .4); transform: translateX(-50%); z-index: 2; pointer-events: none;
+    font-size: calc(var(--mm) * 1.7); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap;
+    background: rgba(0, 0, 0, .62); border: 1px solid color-mix(in srgb, var(--acc) 60%, transparent); border-radius: 3px;
+    padding: 0 calc(var(--mm) * .5); line-height: 1.35; }
+  .strip .barsleft small { font-size: .78em; font-weight: 600; color: var(--dim); }
   .strip .cursec { display: flex; align-items: center; gap: calc(var(--mm) * .6); font-size: calc(var(--mm) * 1.7); font-weight: 700;
     color: var(--c); text-shadow: 0 0 3px #000, 0 0 2px #000; white-space: nowrap; }
   .strip .cursec i { font-style: normal; background: var(--c); color: #101010; text-shadow: none; border-radius: 2px;
@@ -1136,8 +1142,8 @@ function buildStrip(s, u) {
   // platter strip
   u.strip = h("div", "strip", `<div class="axis"></div><div class="wftrack"><div class="tiles"></div></div>` +
     `<div class="slipghost"><div class="clip"><div class="wftrack"><div class="tiles"></div></div></div><div class="edge"></div></div><div class="played"></div>` +
-    `<div class="cursor"></div><div class="foot"><span class="cursec"></span><span class="label"></span></div><div class="endwarn"></div>`);
-  u.cursor = u.strip.querySelector(".cursor"); u.cursec = u.strip.querySelector(".cursec");
+    `<div class="cursor"></div><div class="barsleft"></div><div class="foot"><span class="cursec"></span><span class="label"></span></div><div class="endwarn"></div>`);
+  u.cursor = u.strip.querySelector(".cursor"); u.cursec = u.strip.querySelector(".cursec"); u.barsLeft = u.strip.querySelector(".barsleft");
   // Unload: hold the title of a paused deck (on its waveform): the eject sign fades in beside it, as tall as
   // the waveform, and after half a second it stays, as a button: a tap on it unloads (asking first, unless told
   // not to); touching anything else puts it away. Playing, the title scratches as ever.
@@ -2439,9 +2445,13 @@ function frame(now) {
     }
     const left = (d.dur - d.pos) / (1 + d.tempo / 100);
     setText(u.time, fmtTime(left));
+    if (u.barsLeft) {   // over the cursor: the bars left in the track
+      const n = d.dur > 0 ? barsBetween(d, d.pos, d.dur) : NaN;
+      setHTML(u.barsLeft, n >= 0 ? `${n.toFixed(1)}<small> bars</small>` : "");
+    }
     if (u.cursec) {   // the section the deck is in, and the bars left in it
-      const k = sectionAt(d.sections, d.pos), sc = d.sections?.[k], bars = sc ? barsTo(d, d.pos, sc.e) : 0;
-      setHTML(u.cursec, !sc ? "" : `<i>${sc.letter} ${sc.label}</i>${bars ? `${bars} bar${bars > 1 ? "s" : ""}` : ""}`);
+      const k = sectionAt(d.sections, d.pos), sc = d.sections?.[k], bars = sc ? barsBetween(d, d.pos, sc.e) : NaN;
+      setHTML(u.cursec, !sc ? "" : `<i>${sc.letter} ${sc.label}</i>${bars >= 0 ? `${bars.toFixed(1)} bars` : ""}`);
       const col = sc ? SECTION_COLORS[sc.label] || "#888" : "";
       if (u.cursec._c !== col) { u.cursec._c = col; u.cursec.style.setProperty("--c", col); }
     }
