@@ -834,7 +834,7 @@ function buildSide(s) {
   // (no FX mode: the FX strip under the pads has it all)
   u.modes = ["cue", "roll", "stem", "smpl", "jump"].map(m => {
     const b = h("button", "", m.toUpperCase()); b.dataset.mode = m;
-    bindPress(b, down => { if (!down) return; const d = deckOf(s); d.mode = m; d.shift = false; paintSide(s); });
+    bindPress(b, down => { if (!down) return; const d = deckOf(s); d.mode = m; shiftUsed(d); paintSide(s); });
     modes.appendChild(b); return b;
   });
   const pads = buildPads(s, u, 8);
@@ -942,10 +942,11 @@ function shiftButton(s, u, cls = "shift") {
   let shiftAt = 0, wasOn = false;
   bindPress(u.shiftBtn, down => {
     const d = deckOf(s);
+    shiftHeld[s] = down;
     if (down) {
-      shiftAt = performance.now(); wasOn = d.shift;
+      shiftAt = performance.now(); wasOn = d.shift; shiftUsedHeld[s] = false;
       if (!wasOn) setShift(s, true);
-    } else if (wasOn || performance.now() - shiftAt > 350) setShift(s, false);
+    } else if (wasOn || shiftUsedHeld[s] || performance.now() - shiftAt > 350) setShift(s, false);
     paintAll();
   });
   return u.shiftBtn;
@@ -965,6 +966,14 @@ function paintSamplesButtons() {
   });
 }
 
+// SHIFT used (a SHIFT function pressed): a tapped SHIFT goes off; one held stays on until it's let go
+const shiftHeld = [false, false], shiftUsedHeld = [false, false];
+function shiftUsed(d) {
+  const both = sidePage[0] === "samples" && sidePage[1] === "samples";
+  const held = [0, 1].filter(t => shiftHeld[t] && (both || deckOf(t) === d));
+  if (held.length) { held.forEach(t => shiftUsedHeld[t] = true); return; }
+  if (both) setShift(0, false); else d.shift = false;
+}
 // With both sides on sampler pads the two SHIFTs are one (the 32 pads are one grid); otherwise each has its own.
 function setShift(s, on) {
   if (sidePage[0] === "samples" && sidePage[1] === "samples") [0, 1].forEach(t => deckOf(t).shift = on);
@@ -983,7 +992,7 @@ const push = (g, k) => { setCtl(g, k, 1); setCtl(g, k, 0); };
 function samplerPress(d, i, down, el) {
   if (d.shift) {   // SHIFT: an empty pad captures the deck's loop; a loaded one opens its options
     if (!down) return;
-    if (sidePage[0] === "samples" && sidePage[1] === "samples") setShift(0, false); else d.shift = false;
+    shiftUsed(d);
     if (!samplers[i].state) captureInto(d, i); else padOptions(i, el);
     paintAll();
     return;
@@ -1068,7 +1077,7 @@ async function captureInto(d, i) {
 function transportControls(s, u) {
   u.cue = h("button", "cuebtn", "CUE"); u.play = h("button", "play", "PLAY"); u.sync = h("button", "sync", "SYNC");
   bindPress(u.cue, down => { const d = deckOf(s);
-    if (down && d.shift && live) { d.cueSlip = true; d.shift = false; d.slip = !d.slip; send("slip", d.n, d.slip ? 1 : 0); paintAll(); return; }
+    if (down && d.shift && live) { d.cueSlip = true; shiftUsed(d); d.slip = !d.slip; send("slip", d.n, d.slip ? 1 : 0); paintAll(); return; }
     if (!down && d.cueSlip) { d.cueSlip = false; return; }   // (that press was SLIP's)
     if (live) { send("cue", d.n, down); return; }
     if (down) { if (d.playing) { d.playing = false; d.pos = d.cuePoint; } else if (Math.abs(d.pos - d.cuePoint) > .05) d.cuePoint = d.pos; else d.preview = true; }
@@ -1076,7 +1085,7 @@ function transportControls(s, u) {
     paintSide(s); });
   bindPress(u.play, down => { const d = deckOf(s);
     if ((down && d.shift && live) || (!down && d.censor)) {   // SHIFT + PLAY, held: CENSOR
-      d.censor = down; if (down) d.shift = false;
+      d.censor = down; if (down) shiftUsed(d);
       send("censor", d.n, down ? 1 : 0); paintAll(); return;
     }
     if (down) {
@@ -1086,7 +1095,7 @@ function transportControls(s, u) {
   // SHIFT + tap = make this deck the master: the synced decks follow its tempo.
   bindPress(u.sync, down => { if (!down) return;
     const d = deckOf(s), master = d.shift;
-    if (master) { d.shift = false; d.syncMode = 2; if (!live) decks.forEach(o => o.leader = o === d); }
+    if (master) { shiftUsed(d); d.syncMode = 2; if (!live) decks.forEach(o => o.leader = o === d); }
     else d.syncMode = d.syncMode ? 0 : 2;
     if (live) send("sync", d.n, master ? 3 : d.syncMode ? 1 : 0);
     else if (d.syncMode && !d.leader) matchTempo(d, s);
@@ -1479,7 +1488,7 @@ function buildPhone() {
           el.style.setProperty("--hold", `${FX_HOLD_MS}ms`); el.classList.add("holding");   // (only FX holds: its menu)
           hold = setTimeout(() => { el.classList.remove("holding"); onHold(); }, FX_HOLD_MS);
         }
-        const d = deckOf(s); d.mode = d.shift ? shifted : normal; d.shift = false; paintSide(s); paintMixer();
+        const d = deckOf(s); d.mode = d.shift ? shifted : normal; shiftUsed(d); paintSide(s); paintMixer();
       });
     };
     mode(u.mA, "cue", "fx", () => fxMenu(s)); mode(u.mB, "loop", "smpl"); mode(u.mC, "stem", "key");
@@ -1554,7 +1563,7 @@ function buildLoops() {
       bindPress(el, down => {
         const d = deckOf(s);
         if (down && (d.shift || d.adjust === which)) {
-          d.adjust = d.adjust === which ? null : which; d.shift = false; paintAll(); return;
+          d.adjust = d.adjust === which ? null : which; shiftUsed(d); paintAll(); return;
         }
         if (d.adjust && down) return;
         loopAction(d, key, down);
@@ -1579,7 +1588,7 @@ function buildLoops() {
     bindPress(smp, down => {
       if (!down) return;
       const shifted = deckOf(0).shift || deckOf(1).shift, bank = shifted ? 1 - s : s;
-      if (shifted) { deckOf(0).shift = false; deckOf(1).shift = false; }
+      if (shifted) [0, 1].forEach(t => { if (deckOf(t).shift) shiftUsed(deckOf(t)); });
       // Back to the deck: a plain press while it shows pads (either bank), or SHIFT on the bank it shows.
       // SHIFT while it shows its own bank switches to the other one.
       if (sidePage[s] === "samples" && (!shifted || sideBank[s] === bank)) sidePage[s] = "deck";
@@ -2166,7 +2175,7 @@ function padPress(s, k, down, e, el) {
   if (d.mode === "key") {
     if (!down) { if (k === 2 && live) send("keyAction", d.n, "sync_key", 0); return; }
     if (k < 2 && d.shift) {   // back to the track's own key
-      d.shift = false;
+      shiftUsed(d);
       if (live) { send("keyAction", d.n, "reset_key", 1); send("keyAction", d.n, "reset_key", 0); }
       guessKey(d, -d.key);
     } else if (k < 2) {
@@ -2225,17 +2234,17 @@ function padPress(s, k, down, e, el) {
       if (down) {
         clearTimeout(d.cueHold);
         d.cueHold = d.cues[k] && !REMOTE.on ? setTimeout(() => {
-          d.cueHold = null; d.shift = false; paintSide(s);
+          d.cueHold = null; shiftUsed(d); paintSide(s);
           askText(`Name for hot cue ${k + 1}`, d.cueLabels?.[k] || "", async label => {
             await fetch(`/api/cues/label?group=${encodeURIComponent(ch(d.n))}&n=${k + 1}&label=${encodeURIComponent(label)}`).catch(() => {});
             loadCueLabels(d);
           });
         }, 500) : null;
-        if (!d.cueHold) { d.shift = false; setTimeout(() => paintSide(s), 0); return send("pad", d.n, 8 + k, true); }
+        if (!d.cueHold) { shiftUsed(d); setTimeout(() => paintSide(s), 0); return send("pad", d.n, 8 + k, true); }
         return;
       }
       if (d.cueHold) {   // let go before the hold: a clear
-        clearTimeout(d.cueHold); d.cueHold = null; d.shift = false; setTimeout(() => paintSide(s), 0);
+        clearTimeout(d.cueHold); d.cueHold = null; shiftUsed(d); setTimeout(() => paintSide(s), 0);
         send("pad", d.n, 8 + k, true);
       }
       return send("pad", d.n, 8 + k, false);
@@ -2257,7 +2266,7 @@ function padPress(s, k, down, e, el) {
   switch (d.mode) {
     case "cue":
       if (!down) break;
-      if (d.shift) { d.cues[k] = null; d.shift = false; }
+      if (d.shift) { d.cues[k] = null; shiftUsed(d); }
       else if (d.cues[k]) d.pos = d.cues[k].pos;
       else d.cues[k] = { pos: d.pos, c: CUE_COLORS[k] };
       break;
