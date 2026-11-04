@@ -55,6 +55,7 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 | `src/widget/wtrackmenu.cpp` | "Make Stems (ZyDeck)" after the Analyze menu (and its include) |
 | `src/effects/backends/builtin/builtinbackend.cpp` | registers the Sidechain effect (`src/zydeck/sidechaineffect.*`, the same as ZyDeck on Android) |
 | `src/engine/readaheadmanager.cpp`, `src/engine/cachingreader/cachingreader.cpp` | read further ahead, with a bigger cache (network music folders) |
+| `src/main.cpp` | macOS: raises the open-file limit from 256 (Mixxx's ~100 threads hold ~200 of them as Qt wake-up pipes; analysing a new stem file ran out, and Qt aborted) |
 | `src/coreservices.cpp` | writes the effects list and the decks' tracks for ZyDeck Connect once effects are set up (`src/zydeck/effectlist.*`, `decklist.*`), loads a track into a deck, or previews it, when Connect asks (a device's library page and "download and load to deck": `loadrequest.*`), runs Mixxx's Auto DJ as a device asks through Connect (`autodjrequest.*`), and sets up the Live Broadcasting connection to the ZyDeck Discord bot that Connect hands over (`discordbroadcast.*`) |
 
 Based on upstream `main` at 2086fe0 (2026-10-22, 2.7.0-alpha).

@@ -33,6 +33,12 @@
 #include "sources/soundsourceproxy.h"
 #include "util/cmdlineargs.h"
 #include "util/console.h"
+#if defined(__ZYDECK__) && defined(__APPLE__)
+#include <sys/resource.h>
+#include <sys/syslimits.h>
+
+#include <algorithm>
+#endif
 #include "util/logging.h"
 #include "util/sandbox.h"
 #include "util/versionstore.h"
@@ -210,6 +216,19 @@ Java_org_qtproject_qt_android_QtNativeAccessibility_accessibilitySupported(JNIEn
 
 int main(int argc, char * argv[]) {
     Console console;
+
+#if defined(__ZYDECK__) && defined(__APPLE__)
+    // ZyDeck: macOS gives an app 256 open files. Each thread with an event loop holds two (Qt's wake-up pipe) and
+    // Mixxx runs about a hundred, so it sat at ~230: analysing a new stem file (more threads, a decoder per stem) ran
+    // out, and Qt aborts when a thread can't get its pipe. Raised to what macOS allows.
+    {
+        struct rlimit files;
+        if (getrlimit(RLIMIT_NOFILE, &files) == 0 && files.rlim_cur < OPEN_MAX) {
+            files.rlim_cur = std::min<rlim_t>(files.rlim_max, OPEN_MAX);
+            setrlimit(RLIMIT_NOFILE, &files);
+        }
+    }
+#endif
 
     // These need to be set early on (not sure how early) in order to trigger
     // logic in the OS X appstore support patch from QTBUG-16549.
