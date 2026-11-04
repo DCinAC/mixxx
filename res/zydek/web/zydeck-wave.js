@@ -9,11 +9,14 @@ function drawBeats(g, d, pxPerSec, left, W, H) {
   const dpr = devicePixelRatio || 1, start = (left - 2 * dpr) / pxPerSec, end = (left + W + 2 * dpr) / pxPerSec;
   let lo = 0, hi = b.length;
   while (lo < hi) { const m = (lo + hi) >> 1; if (b[m] < start) lo = m + 1; else hi = m; }
-  const tick = Math.round(H * .2);
+  // every beat a line the whole height, edged in black so it shows on the wave's bright colours; a bar's first
+  // wider and brighter, with a solid tick in the clear band above and below the wave (WAVE_FULL)
+  const tick = Math.round(H * .1), w = Math.max(1, Math.round(dpr));
   for (let i = lo; i < b.length && b[i] <= end; i++) {
-    const x = Math.round(b[i] * pxPerSec) - left;
-    if ((i + d.bar) % 4 === 0) { g.fillStyle = "rgba(255,255,255,.55)"; g.fillRect(x - dpr, 0, 2 * dpr, H); }
-    else { g.fillStyle = "rgba(255,255,255,.5)"; g.fillRect(x, 0, dpr, tick); g.fillRect(x, H - tick, dpr, tick); }
+    const x = Math.round(b[i] * pxPerSec) - left, bar = (i + d.bar) % 4 === 0, lw = bar ? 2 * w : w;
+    g.fillStyle = "rgba(0,0,0,.55)"; g.fillRect(x - w, 0, lw + 2 * w, H);
+    g.fillStyle = bar ? "rgba(255,255,255,.9)" : "rgba(255,255,255,.6)"; g.fillRect(x, 0, lw, H);
+    g.fillStyle = bar ? "#fff" : "rgba(255,255,255,.85)"; g.fillRect(x, 0, lw, tick); g.fillRect(x, H - tick, lw, tick);
   }
 }
 

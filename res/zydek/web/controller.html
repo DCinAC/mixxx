@@ -2498,10 +2498,14 @@ const bandScale = (d, b) => Math.min(2, eqGain(d[BAND_KEYS[b]] ?? .5));     // a
 // One stretch of the record at pxPerSec (normal speed). part: "all" the waveform (EQ, stems and gain applied),
 // the beat grid and the pre/post-roll; "grid" only the grid and rolls; "wave" the waveform as analysed;
 // 0-3 that stem alone, in its colour.
+// A full-scale column (the analysis's loudest) takes 80 % of the strip's height, as in Mixxx: only a louder one (the
+// gain turned up past it) fills the strip, so a wave reaching the edges is redlining. The 10 % above and below
+// keeps the beat grid clear.
+const WAVE_FULL = .8;
 function renderTile(wf, k, pxPerSec, H, d, part = "all") {
   const TW = TILE + 2, c = document.createElement("canvas"); c.width = TW; c.height = H;
   const g = c.getContext("2d"), mid = H / 2, x0 = k * TILE;
-  if (wf && part === "wave") ZydeckPos.waveColumns(g, wf, x0, TW, H, pxPerSec);   // as the calibration page draws it
+  if (wf && part === "wave") ZydeckPos.waveColumns(g, wf, x0, TW, H, pxPerSec, WAVE_FULL);   // as the calibration page draws it
   else if (wf && part !== "grid") {
     const a = wf.data, perPx = wf.rate / pxPerSec, st = wf.stride || 4, all3 = part === "all";
     const gl = all3 ? eqGain(d.low ?? .5) : 1, gm = all3 ? eqGain(d.mid ?? .5) : 1, gh = all3 ? eqGain(d.high ?? .5) : 1;
@@ -2522,7 +2526,7 @@ function renderTile(wf, k, pxPerSec, H, d, part = "all") {
         if (st === 8) for (let s2 = 0; s2 < 4; s2++) if (a[j + 4 + s2] > sv[s2]) sv[s2] = a[j + 4 + s2];
       }
       if (stem >= 0) {   // one stem: its own level
-        const h = Math.min(mid, sv[stem] / 255 * mid * .95);
+        const h = Math.min(mid, sv[stem] / 255 * mid * WAVE_FULL);
         if (h > .5) g.fillRect(x, mid - h, 1, h * 2);
         continue;
       }
@@ -2530,7 +2534,7 @@ function renderTile(wf, k, pxPerSec, H, d, part = "all") {
         const top = Math.max(lo, mi, hi), v = [lo, mi, hi][band];
         let f = 1;
         if (st === 8) { const sum = sv[0] + sv[1] + sv[2] + sv[3]; if (sum > 0) f = (sv[0] * vol[0] + sv[1] * vol[1] + sv[2] * vol[2] + sv[3] * vol[3]) / sum; }
-        const h = top > 0 ? Math.min(mid, all * (v / top) * f / 255 * mid * .95) : 0;
+        const h = top > 0 ? Math.min(mid, all * (v / top) * f / 255 * mid * WAVE_FULL) : 0;
         if (h > .5) g.fillRect(x, mid - h, 1, h * 2);
         continue;
       }
@@ -2540,7 +2544,7 @@ function renderTile(wf, k, pxPerSec, H, d, part = "all") {
       const m = Math.max(L, M, Hh);
       if (m <= 0 || gain <= 0) continue;
       g.fillStyle = `rgb(${Math.round(255 * L / m)},${Math.round(255 * M / m)},${Math.round(255 * Hh / m)})`;
-      const h = Math.min(mid, Math.max(1, all * gain / 255 * mid * .95));
+      const h = Math.min(mid, Math.max(1, all * gain / 255 * mid * WAVE_FULL));
       g.fillRect(x, mid - h, 1, h * 2);
     }
   }

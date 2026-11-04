@@ -139,7 +139,7 @@
   // A waveform's columns, as Mixxx's RGB waveform (allshader/waveformrendererrgb.cpp): per column the loudest
   // low / mid / high mix red / green / blue, scaled so the strongest is full brightness, the height its loudness.
   // wf: {rate, n, data (all, low, mid, high per point; stride bytes a point)}; columns x0.. of width W at pxPerSec.
-  function waveColumns(g, wf, x0, W, H, pxPerSec) {
+  function waveColumns(g, wf, x0, W, H, pxPerSec, full = .95) {   // full: a full-scale column's share of the height
     const a = wf.data, st = wf.stride || 4, perPx = wf.rate / pxPerSec, mid = H / 2;
     for (let x = 0; x < W; x++) {
       const i0 = Math.floor((x0 + x) * perPx), i1 = Math.max(i0 + 1, Math.floor((x0 + x + 1) * perPx));
@@ -152,7 +152,7 @@
       const m = Math.max(lo, mi, hi);
       if (m <= 0) continue;
       g.fillStyle = `rgb(${Math.round(255 * lo / m)},${Math.round(255 * mi / m)},${Math.round(255 * hi / m)})`;
-      const h = Math.min(mid, Math.max(1, all / 255 * mid * .95));
+      const h = Math.min(mid, Math.max(1, all / 255 * mid * full));
       g.fillRect(x, mid - h, 1, h * 2);
     }
   }
