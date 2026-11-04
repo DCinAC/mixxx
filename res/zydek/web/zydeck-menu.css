@@ -90,6 +90,7 @@
 .zm-sr > span { width: calc(var(--zmm) * 13); flex: none; color: #c8c8c8; font-size: calc(var(--zmm) * 2.4); }
 .zm.page .zm-sr { justify-content: flex-start; }
 .zm.page .zm-sr .zseg { flex: 1; }
+.zm .zm-run { min-width: calc(var(--zmm) * 13); text-align: center; align-self: center; color: var(--text, #eee); font-weight: 700; font-size: calc(var(--zmm) * 2.4); font-variant-numeric: tabular-nums; }
 .zm-tl { margin: 0 0 calc(var(--zmm) * 2); padding: calc(var(--zmm) * 1.6) calc(var(--zmm) * 2); max-height: calc(var(--zmm) * 28); overflow: auto; white-space: pre-line;
   font: calc(var(--zmm) * 2.1) / 1.45 ui-monospace, monospace; color: #bdbdbd; background: #0c0c0d; border-radius: 4px; user-select: text; -webkit-user-select: text; }
 .zm-qr { display: flex; flex-direction: column; align-items: center; gap: calc(var(--zmm) * 1.6); padding: 0 0 calc(var(--zmm) * 3); }

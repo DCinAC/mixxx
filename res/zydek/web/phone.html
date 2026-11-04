@@ -863,6 +863,8 @@ function onDeckName(d, n) {
   d.title = n ? n.t : ""; d.artist = n ? n.a : "";
   const id = n ? n.id : null;
   if (id !== d.wfFor) { loadWaveform(d, id); loadStructure(d, null); loadBeats(d, id); }   // (its structure follows its beats)
+  else if (remote.on && id && (n.g ?? null) !== d.gridSig) loadBeats(d, id, true);   // the computer's grid edited
+  d.gridSig = n?.g ?? null;
 }
 // The hub answers a deck's waveform and beats with 200, 202 while Mixxx is still analysing the track (as long as that
 // takes: after a restart there can be a queue; a "wf" push says when it's done) or 404 when it's not on a deck; ZyDeck

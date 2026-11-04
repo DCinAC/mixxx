@@ -303,6 +303,8 @@
     { id: "ejectat", sec: "decks", name: "Eject sign", kind: "seg", multi: true, opts: () => [["left", "Left"], ["leftmid", "Left-mid"], ["middle", "Middle"], ["right", "Right"]],
       get: () => ctl()?.ejectPlaces?.() || ["leftmid"], set: v => ctl()?.toggleEject?.(v),
       desc: "Where it comes up on the waveform: any of them (left and left-mid would overlap, so one of those)." },
+    { id: "loopruns", sec: "decks", name: "Loop pads", kind: "custom", build: buildLoopRuns, show: () => !!ctl(),
+      desc: "The loop lengths on the pads (the phone's LOOP, the tablet's ROLL): a run of them from 1/32 to 32 beats, moved a step shorter or longer with the arrows. On the pads: SHIFT, then the first pad (◀) or the last (▶)." },
     // Controller › Effects
     { id: "fxlayout", sec: "fx", name: "FX layout", kind: "seg", opts: () => [["beat", "Beat FX"], ["multi", "Multi-FX"]], ...C("fxLayout", "beat"),
       desc: "Beat FX: one effect per side with its beat length, LEVEL and ON, like Pioneer's. Multi-FX: three effects with a knob each and MIX, like Serato's." },
@@ -778,6 +780,24 @@
     });
     c.appendChild(box);
     return () => { const d = ctl()?.deckDefaults() || [-1, -1, -1]; segs.forEach((s, i) => [...s.children].forEach(b => b.classList.toggle("on", b._v === d[i]))); };
+  }
+  function buildLoopRuns(c) {
+    const box = el("div", "zm-subs");
+    const lines = [["loop", "LOOP"], ["roll", "ROLL"]].map(([mode, name]) => {
+      const line = el("div", "zm-sr", `<span>${name}</span>`), s = el("div", "zseg");
+      const prev = key("◀ Shorter", "s"), now = el("span", "zm-run"), next = key("Longer ▶", "s");
+      prev.addEventListener("click", () => { ctl()?.shiftRun(mode, -1); refresh(); });
+      next.addEventListener("click", () => { ctl()?.shiftRun(mode, 1); refresh(); });
+      s.append(prev, now, next); line.appendChild(s); box.appendChild(line);
+      return { mode, line, now, prev, next };
+    });
+    c.appendChild(box);
+    return () => lines.forEach(l => {
+      const r = ctl()?.loopRun?.(l.mode);
+      l.line.hidden = !r;
+      if (!r) return;
+      l.now.textContent = r.text; l.prev.disabled = !r.shorter; l.next.disabled = !r.longer;
+    });
   }
   function buildKits(c) {
     const name = el("input", "zf"), save = procKey("Save the pads", "kitsave"), list = el("div", "zm-sub");

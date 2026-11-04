@@ -312,6 +312,7 @@
   .smpbtn i { font-style: normal; font-weight: 400; }
   .smpbtn small { display: block; font-size: calc(var(--mm) * 1.4); font-weight: 500; color: var(--dim); margin-top: 1px; }
   .smpbtn .dimmed { opacity: .4; }
+  .pad .dimmed { opacity: .3; }   /* a LOOP/ROLL arrow at the end of the lengths */
   .smpbtn small.lit { color: var(--text); }
   .smpbtn.on { border-color: var(--play); color: var(--play); background: color-mix(in srgb, var(--play) 14%, #1c1c1c); }
   .smpbtn.on small.lit { color: var(--play); }
@@ -1377,13 +1378,34 @@ const volumeFader = s => {
 // =====================================================================================================
 // Phone: what mixing needs on one phone held sideways, like a small controller (Hercules Starlight).
 // Both strips across the top (waveform, scratch); tempo lanes on the outer edges, full height. Per deck:
-// CUE · PLAY, 4 pads, HOT CUE / LOOP (with SHIFT: FX / SAMPLER), SHIFT · SYNC. Mixer: BASS and FILTER per
-// deck (with that deck's SHIFT: MID and HIGH), headphone cue, volume faders, crossfader. Faders keep at
+// CUE · PLAY, 4 pads, HOT CUE / LOOP (with SHIFT: FX / SAMPLER), SHIFT · SYNC. Mixer: HIGH, MID and LOW per
+// deck (with that deck's SHIFT: GAIN and FILTER), headphone cue, volume faders, crossfader. Faders keep at
 // least 30 mm of travel on a 7" phone.
 // =====================================================================================================
-const PHONE_EQ = [["low", "mid"], ["filter", "high"]];   // knob: [normally, with SHIFT]
-const EQ_LABEL = { low: "BASS", mid: "MID", filter: "FILTER", high: "HIGH" };
-const LOOP_PADS = [.5, 1, 2, 4];
+const PHONE_EQ = [["high", "gain"], ["mid", "filter"], ["low"]];   // knob: [normally, with SHIFT]
+const EQ_LABEL = { low: "LOW", mid: "MID", filter: "FILTER", high: "HIGH", gain: "GAIN" };
+// Loop lengths as Serato's auto loops, 1/32 to 32 beats: the LOOP and ROLL pads show a run of them in a row (the
+// phone's LOOP ½–4, the tablet's ROLL ⅛–16 to start with). SHIFT turns the outer pads into ◀ ▶, which move the
+// whole run a step shorter or longer (as Controller › Decks › Loop pads does); the run is kept.
+const LOOP_LADDER = [1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16, 32];
+const RUN_FROM = { loop: 4, roll: 2 }, RUN_KEY = { loop: "loopFrom", roll: "rollFrom" };
+const padCount = () => PHONE ? 4 : 8;
+const runFrom = mode => clamp(S[RUN_KEY[mode]] ?? RUN_FROM[mode], 0, LOOP_LADDER.length - padCount());
+const runSizes = mode => LOOP_LADDER.slice(runFrom(mode), runFrom(mode) + padCount());
+const runIsMapped = () => !PHONE && runFrom("roll") === RUN_FROM.roll;   // the mapping's own ROLL pads (its lights too)
+const fmtLen = b => ({ .125: "⅛", .25: "¼", .5: "½" })[b] || fmtBeats(b);
+const runArrowText = (mode, dir) => {
+  const z = runSizes(mode), end = dir < 0 ? runFrom(mode) === 0 : runFrom(mode) === LOOP_LADDER.length - padCount();
+  return `<span${end ? ' class="dimmed"' : ""}>${dir < 0 ? "◀" : "▶"}</span><small>${runText(mode)}</small>`;
+};
+const runText = mode => { const z = runSizes(mode); return `${fmtLen(z[0])}–${fmtLen(z[z.length - 1])}`; };
+// SHIFT on a LOOP or ROLL pad: -1 (the first: shorter), 1 (the last: longer), 0 (the others)
+const runArrow = (d, k) => (d.mode === "loop" || d.mode === "roll") && d.shift ? (k === 0 ? -1 : k === padCount() - 1 ? 1 : 0) : 0;
+function shiftRun(mode, dir) {
+  const from = clamp(runFrom(mode) + dir, 0, LOOP_LADDER.length - padCount());
+  if (from === runFrom(mode)) return;
+  S[RUN_KEY[mode]] = from; saveSettings(); paintAll(); ZydeckMenu.refresh();
+}
 // The phone's 4 jump pads (−4, −1, +1, +4 beats) as the tablet's 8: −1 +1 −2 +2 −4 +4 −8 +8
 const PHONE_JUMPS = [4, 0, 1, 5];
 const padIndex = (d, k) => PHONE && d.mode === "jump" ? PHONE_JUMPS[k] : k;
@@ -1459,9 +1481,9 @@ function buildPhoneMixer() {
   const chan = s => {
     const c = h("div", "chan");
     const knobs = PHONE_EQ.map(([a, b]) => {
-      const key = d => d.shift ? b : a;
+      const key = d => d.shift && b ? b : a;
       const k = knob(EQ_LABEL[a], d => d[key(d)], (v, d) => { const kk = key(d); d[kk] = v; send(kk, d.n, v); }, .5, true, () => deckOf(s));
-      k.label = d => two(EQ_LABEL[a], EQ_LABEL[b], d.shift);
+      k.label = d => two(EQ_LABEL[a], b ? EQ_LABEL[b] : "&nbsp;", d.shift && b);
       return k;
     });
     const pfl = pflButton(s);
@@ -1699,7 +1721,11 @@ function paintPad(s, k) {
       const tm = t != null ? `<i class="ct ${S.cueTime === "right" ? "r" : "l"}">${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}</i>` : "";
       setPad(el, (c ? "lit" : "") + (d.shift && c ? " armed" : ""), (lbl ? `${k + 1}<span class="lbl">${lbl.replace(/</g, "&lt;")}</span>` : `${k + 1}`) + tm,
         c && rgb(c.c), c && fgFor(c.c)); break; }
-    case "roll": setPad(el, d.rolls[k] ? "lit" : "tint", ["⅛", "¼", "½", "1", "2", "4", "8", "16"][k], "var(--roll)"); break;
+    case "roll": {
+      const arrow = runArrow(d, k);
+      if (arrow) { setPad(el, "tint", runArrowText("roll", arrow), "var(--roll)"); break; }
+      setPad(el, d.rollHeld?.[k] || (runIsMapped() && d.rolls[k]) ? "lit" : "tint", fmtLen(runSizes("roll")[k]), "var(--roll)"); break;
+    }
     case "key": {   // the phone's KEY pads: −1, +1 (SHIFT: reset), MATCH (key sync), KEY LOCK
       const name = keyName(d.curKey);
       if (k < 2) setPad(el, "tint", d.shift ? `RESET<small>${name}</small>` : `${k ? "+1" : "−1"}<small>${name}</small>`, "var(--jump)");
@@ -1707,8 +1733,12 @@ function paintPad(s, k) {
       else setPad(el, d.keylock ? "lit" : "tint", "LOCK<small>key lock</small>", "var(--jump)");
       break;
     }
-    case "loop": setPad(el, d.loopOn && Math.abs(d.loopSize - LOOP_PADS[k]) < 1e-6 ? "lit" : "tint",
-      `${fmtBeats(LOOP_PADS[k])}<small>LOOP</small>`, "var(--play)", "#04200e"); break;
+    case "loop": {
+      const arrow = runArrow(d, k), size = runSizes("loop")[k];
+      if (arrow) { setPad(el, "tint", runArrowText("loop", arrow), "var(--play)", "#04200e"); break; }
+      setPad(el, d.loopOn && Math.abs(d.loopSize - size) < 1e-6 ? "lit" : "tint",
+        `${fmtBeats(size)}<small>LOOP</small>`, "var(--play)", "#04200e"); break;
+    }
     case "stem": {
       // No stems in the file: live stems make them, on the PC's stem server when one's set (Settings › Stem server),
       // else on the phone; pad 5 says where, shows how far, then switches to them
@@ -2122,8 +2152,21 @@ function padPress(s, k, down, e, el) {
     paintAll();
     return;
   }
+  const arrow = runArrow(d, k);
+  if (arrow || d.runArrowHeld?.[k]) {   // SHIFT: ◀ ▶ (its release too, SHIFT let go or not)
+    (d.runArrowHeld ??= [])[k] = down;
+    if (down) shiftRun(d.mode, arrow);
+    return;
+  }
+  if (d.mode === "roll" && (d.rollHeld?.[k] || down && !runIsMapped())) {   // a roll the mapping's pads don't have
+    const size = (d.rollHeld ??= [])[k] || runSizes("roll")[k];
+    d.rollHeld[k] = down ? size : 0;
+    if (live) send("loop", d.n, `beatlooproll_${size}_activate`, down);
+    paintSide(s);
+    return;
+  }
   if (d.mode === "loop") {
-    const size = LOOP_PADS[k];
+    const size = runSizes("loop")[k];
     if (live) return send("loop", d.n, `beatloop_${size}_toggle`, down);
     if (down) { const on = !(d.loopOn && d.loopSize === size); d.loopOn = on; d.loopSize = size; d.loopStart = d.pos; paintSide(s); }
     return;
@@ -2841,6 +2884,9 @@ ZydeckMenu.provide("controller", {
   set(k, v, final = true) { S[k] = v; saveSettings(); applySettings(); tellApp(); if (k === "fxLayout") applyFxLayout(); if (final) build(); },
   reset() { S = { ...DEFAULTS }; saveSettings(); applySettings(); tellApp(); build(); },
   deckDefaults: () => deckDefaults,
+  shiftRun,
+  loopRun: mode => (mode === "roll") === PHONE ? null   // (LOOP pads on the phone, ROLL pads on the tablet)
+    : { text: runText(mode), shorter: runFrom(mode) > 0, longer: runFrom(mode) < LOOP_LADDER.length - padCount() },
   profiling: () => prof.on, setProfiling: profiling,
   setDeckDefault(i, v) { deckDefaults[i] = v; fetch(`/api/deckdefaults?${["keylock", "quantize", "slip"][i]}=${v}`).catch(() => {}); },
   ejectPlaces,
@@ -3014,11 +3060,19 @@ function loadFxNames() {
     setTimeout(fillFxDefaults, 1500);   // once the units' state has come in
   }).catch(() => {});
 }
-// Mixxx's units can start out empty: Echo, Reverb and Flanger in empty slots (loaded, not switched on)
+// Mixxx's units can start out empty: the effects last used in each slot (S.fxLast, by name), else Echo, Reverb and
+// Flanger, in empty slots (loaded, not switched on)
+function rememberFx(u, j, i) {   // (this phone's own Mixxx: the computer's keeps its own)
+  const name = fxNames[i - 1];
+  if (REMOTE.on || u > 1 || !name || S.fxLast?.[u]?.[j] === name) return;
+  S.fxLast = [0, 1].map(x => [0, 1, 2].map(y => x === u && y === j ? name : S.fxLast?.[x]?.[y] || ""));
+  saveSettings();
+}
 function fillFxDefaults() {
   const want = ["Echo", "Reverb", "Flanger"];
   for (const u of [1, 2]) for (let j = 0; j < 3; j++) {
-    const i = fxNames.indexOf(want[j]);
+    let i = fxNames.indexOf(S.fxLast?.[u - 1]?.[j]);
+    if (i < 0) i = fxNames.indexOf(want[j]);
     if (!fxState[u - 1].loaded[j] && i >= 0) setCtl(fxSlotG(u, j), "loaded_effect", i + 1);
   }
 }
@@ -3180,7 +3234,7 @@ function applyCv(name, v, ts) {
       const j = m[2] - 1;
       if (key === "enabled") f.enabled[j] = v > 0 ? 1 : 0;
       else if (key === "meta") f.meta[j] = v;
-      else if (key === "loaded_effect") f.loaded[j] = Math.round(v);
+      else if (key === "loaded_effect") { f.loaded[j] = Math.round(v); rememberFx(m[1] - 1, j, f.loaded[j]); }
     }
     markDirty("all");
   } else if (group === MAIN_GROUP) {
@@ -3345,6 +3399,8 @@ function onMixxx(m) {
       return;
     case "dn": d.title = m.n ? m.n.t : `Deck ${d.n}`; d.artist = m.n ? m.n.a : ""; if (REMOTE.on) d.cueLabels = m.n?.l || null; loadCueLabels(d);
       if ((m.n ? m.n.id : null) !== d.wfFor) { d.rstem = null; loadWaveform(d, m.n ? m.n.id : null); loadBeats(d, m.n ? m.n.id : null); }
+      else if (REMOTE.on && m.n && (m.n.g ?? null) !== d.gridSig) loadBeats(d, m.n.id, true);   // the computer's grid edited
+      d.gridSig = m.n?.g ?? null;
       return markDirty("deck", d);
     case "sc": d.sc = m.v; return markDirty("deck", d);
     case "cue": d.cues[m.k] = m.v ? { c: m.v - 1 } : null; loadCueLabels(d); return markDirty("deck", d);

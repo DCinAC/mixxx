@@ -22,7 +22,7 @@ namespace zydeck::shared {
 inline constexpr quint8 kLinkHello = 0x60;   // device -> computer: {"v": 1, "name": device}
 inline constexpr quint8 kLinkOffer = 0x61;   // computer -> device: {"name", "hosts": [...], "port", "key"}
 inline constexpr quint8 kNameAsk = 0x62;     // device -> computer: {"s": sampler?, "i": index, "ms": track length}
-inline constexpr quint8 kNameReply = 0x63;   // computer -> device: {"s", "i", "ms", "n": {t, a, id, l} or null}
+inline constexpr quint8 kNameReply = 0x63;   // computer -> device: {"s", "i", "ms", "n": {t, a, id, l, g} or null}
 
 /// F0 7D <kind> <hex of the JSON> F7
 inline QByteArray sysexText(quint8 kind, const QJsonObject& obj) {

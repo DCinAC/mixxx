@@ -153,7 +153,8 @@ Core::Core(QObject* parent)
     m_decksWatch.start(250);
 }
 
-// Mixxx ZyDeck writes zydeck-decks.json as a track loads (and as its hot cues change: their names come along): each
+// Mixxx ZyDeck writes zydeck-decks.json as a track loads (and as its hot cues change: their names come along; and as
+// its beat grid is edited, saved to the library first: the devices fetch the grid and sections again): each
 // new name goes to the devices then, without waiting to be asked (the asking, by the track's length, is for plain Mixxx). Each name carries its track's length ("ms"), so a
 // device takes it only for that track, not for the one before or after (an answer arriving late)
 void Core::decksChanged() {
@@ -183,7 +184,8 @@ void Core::decksChanged() {
                 {"ms", std::round(t.value(QStringLiteral("seconds")).toDouble() * 1000)},
                 {"n", QJsonObject{{"t", t.value(QStringLiteral("title")).toString()},
                               {"a", t.value(QStringLiteral("artist")).toString()}, {"id", t.value(QStringLiteral("id")).toInt()},
-                              {"l", t.value(QStringLiteral("cues"))}}}};   // (l: its hot cues' names, as they change too)
+                              {"l", t.value(QStringLiteral("cues"))},   // (l: its hot cues' names, as they change too)
+                              {"g", t.value(QStringLiteral("grid"))}}}};   // (g: its beat grid's, as it's edited: the devices fetch it again)
         const QByteArray line = "J " + QJsonDocument(n).toJson(QJsonDocument::Compact) + '\n';
         for (auto c = m_clients.cbegin(); c != m_clients.cend(); ++c) {
             if (c.value()->linked) {
