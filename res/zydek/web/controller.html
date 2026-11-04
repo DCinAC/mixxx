@@ -1384,10 +1384,10 @@ const volumeFader = s => {
 // =====================================================================================================
 const PHONE_EQ = [["high", "gain"], ["mid", "filter"], ["low"]];   // knob: [normally, with SHIFT]
 const EQ_LABEL = { low: "LOW", mid: "MID", filter: "FILTER", high: "HIGH", gain: "GAIN" };
-// Loop lengths as Serato's auto loops, 1/32 to 32 beats: the LOOP and ROLL pads show a run of them in a row (the
+// Loop lengths, all Mixxx has (1/32 to 512 beats: it takes no others): the LOOP and ROLL pads show a run of them in a row (the
 // phone's LOOP ½–4, the tablet's ROLL ⅛–16 to start with). SHIFT turns the outer pads into ◀ ▶, which move the
 // whole run a step shorter or longer (as Controller › Decks › Loop pads does); the run is kept.
-const LOOP_LADDER = [1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16, 32];
+const LOOP_LADDER = [1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512];
 const RUN_FROM = { loop: 4, roll: 2 }, RUN_KEY = { loop: "loopFrom", roll: "rollFrom" };
 const padCount = () => PHONE ? 4 : 8;
 const runFrom = mode => clamp(S[RUN_KEY[mode]] ?? RUN_FROM[mode], 0, LOOP_LADDER.length - padCount());

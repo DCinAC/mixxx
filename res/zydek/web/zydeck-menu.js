@@ -304,7 +304,7 @@
       get: () => ctl()?.ejectPlaces?.() || ["leftmid"], set: v => ctl()?.toggleEject?.(v),
       desc: "Where it comes up on the waveform: any of them (left and left-mid would overlap, so one of those)." },
     { id: "loopruns", sec: "decks", name: "Loop pads", kind: "custom", build: buildLoopRuns, show: () => !!ctl(),
-      desc: "The loop lengths on the pads (the phone's LOOP, the tablet's ROLL): a run of them from 1/32 to 32 beats, moved a step shorter or longer with the arrows. On the pads: SHIFT, then the first pad (◀) or the last (▶)." },
+      desc: "The loop lengths on the pads (the phone's LOOP, the tablet's ROLL): a run of them from 1/32 to 512 beats (all Mixxx has), moved a step shorter or longer with the arrows. On the pads: SHIFT, then the first pad (◀) or the last (▶)." },
     // Controller › Effects
     { id: "fxlayout", sec: "fx", name: "FX layout", kind: "seg", opts: () => [["beat", "Beat FX"], ["multi", "Multi-FX"]], ...C("fxLayout", "beat"),
       desc: "Beat FX: one effect per side with its beat length, LEVEL and ON, like Pioneer's. Multi-FX: three effects with a knob each and MIX, like Serato's." },
