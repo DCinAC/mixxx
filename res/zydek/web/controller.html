@@ -1384,15 +1384,20 @@ const volumeFader = s => {
 // =====================================================================================================
 const PHONE_EQ = [["high", "gain"], ["mid", "filter"], ["low"]];   // knob: [normally, with SHIFT]
 const EQ_LABEL = { low: "LOW", mid: "MID", filter: "FILTER", high: "HIGH", gain: "GAIN" };
-// Loop lengths, all Mixxx has (1/32 to 512 beats: it takes no others): the LOOP and ROLL pads show a run of them in a row (the
-// phone's LOOP ½–4, the tablet's ROLL ⅛–16 to start with). SHIFT turns the outer pads into ◀ ▶, which move the
-// whole run a step shorter or longer (as Controller › Decks › Loop pads does); the run is kept.
-const LOOP_LADDER = [1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512];
-const RUN_FROM = { loop: 4, roll: 2 }, RUN_KEY = { loop: "loopFrom", roll: "rollFrom" };
+// Loop lengths, 1/128 to 512 beats: the LOOP and ROLL pads show a run of them in a row (the phone's LOOP ½–4, the
+// tablet's ROLL ⅛–16 to start with). SHIFT turns the outer pads into ◀ ▶, which move the whole run a step shorter or
+// longer (as Controller › Decks › Loop pads does); the run is kept (S.loopFirst / S.rollFirst: its shortest length).
+// Mixxx's own go from 1/32 (MIN_LOOP) to 512; the shorter ones are made as 1/32 and their end pulled in (tinyLoop).
+const LOOP_LADDER = [1 / 128, 1 / 64, 1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512];
+const MIN_LOOP = 1 / 32;
+const RUN_FROM = { loop: .5, roll: 1 / 8 }, RUN_KEY = { loop: "loopFirst", roll: "rollFirst" };
 const padCount = () => PHONE ? 4 : 8;
-const runFrom = mode => clamp(S[RUN_KEY[mode]] ?? RUN_FROM[mode], 0, LOOP_LADDER.length - padCount());
+const runFrom = mode => {
+  const i = LOOP_LADDER.indexOf(S[RUN_KEY[mode]] ?? RUN_FROM[mode]);
+  return clamp(i < 0 ? LOOP_LADDER.indexOf(RUN_FROM[mode]) : i, 0, LOOP_LADDER.length - padCount());
+};
 const runSizes = mode => LOOP_LADDER.slice(runFrom(mode), runFrom(mode) + padCount());
-const runIsMapped = () => !PHONE && runFrom("roll") === RUN_FROM.roll;   // the mapping's own ROLL pads (its lights too)
+const runIsMapped = () => !PHONE && runSizes("roll")[0] === RUN_FROM.roll;   // the mapping's own ROLL pads (its lights too)
 const fmtLen = b => ({ .125: "⅛", .25: "¼", .5: "½" })[b] || fmtBeats(b);
 const runArrowText = (mode, dir) => {
   const z = runSizes(mode), end = dir < 0 ? runFrom(mode) === 0 : runFrom(mode) === LOOP_LADDER.length - padCount();
@@ -1404,8 +1409,20 @@ const runArrow = (d, k) => (d.mode === "loop" || d.mode === "roll") && d.shift ?
 function shiftRun(mode, dir) {
   const from = clamp(runFrom(mode) + dir, 0, LOOP_LADDER.length - padCount());
   if (from === runFrom(mode)) return;
-  S[RUN_KEY[mode]] = from; saveSettings(); paintAll(); ZydeckMenu.refresh();
+  S[RUN_KEY[mode]] = LOOP_LADDER[from]; saveSettings(); paintAll(); ZydeckMenu.refresh();
 }
+// A loop shorter than Mixxx's shortest: once Mixxx has made the 1/32 (it says where), its end comes in to the length
+// asked for (Mixxx takes any loop end after the start). d.tiny: {size, at, done}.
+function tinyLoop(d) {
+  const t = d.tiny;
+  if (!t || t.done || performance.now() - t.at > 1500 || !(d.loopIn >= 0 && d.loopOut > d.loopIn)) return;
+  if (!(d.bpm > 0 && d.trackSamples > 0 && d.dur > 0)) return;
+  const len32 = 60 / d.bpm * MIN_LOOP * d.trackSamples / d.dur, len = d.loopOut - d.loopIn;
+  if (Math.abs(len - len32) > len32 * .25) return;   // (not the new 1/32 yet)
+  t.done = true;
+  setCtl(ch(d.n), "loop_end_position", d.loopIn + Math.max(2, Math.round(len * t.size / MIN_LOOP / 2) * 2));
+}
+const tinyLit = (d, size) => d.loopOn && d.tiny?.done && d.tiny.size === size;
 // The phone's 4 jump pads (−4, −1, +1, +4 beats) as the tablet's 8: −1 +1 −2 +2 −4 +4 −8 +8
 const PHONE_JUMPS = [4, 0, 1, 5];
 const padIndex = (d, k) => PHONE && d.mode === "jump" ? PHONE_JUMPS[k] : k;
@@ -1736,7 +1753,7 @@ function paintPad(s, k) {
     case "loop": {
       const arrow = runArrow(d, k), size = runSizes("loop")[k];
       if (arrow) { setPad(el, "tint", runArrowText("loop", arrow), "var(--play)", "#04200e"); break; }
-      setPad(el, d.loopOn && Math.abs(d.loopSize - size) < 1e-6 ? "lit" : "tint",
+      setPad(el, (size < MIN_LOOP ? tinyLit(d, size) : d.loopOn && !d.tiny?.done && Math.abs(d.loopSize - size) < 1e-6) ? "lit" : "tint",
         `${fmtBeats(size)}<small>LOOP</small>`, "var(--play)", "#04200e"); break;
     }
     case "stem": {
@@ -2161,12 +2178,20 @@ function padPress(s, k, down, e, el) {
   if (d.mode === "roll" && (d.rollHeld?.[k] || down && !runIsMapped())) {   // a roll the mapping's pads don't have
     const size = (d.rollHeld ??= [])[k] || runSizes("roll")[k];
     d.rollHeld[k] = down ? size : 0;
-    if (live) send("loop", d.n, `beatlooproll_${size}_activate`, down);
+    if (down) d.tiny = size < MIN_LOOP ? { size, at: performance.now() } : null;
+    if (live) send("loop", d.n, `beatlooproll_${Math.max(size, MIN_LOOP)}_activate`, down);
     paintSide(s);
     return;
   }
   if (d.mode === "loop") {
     const size = runSizes("loop")[k];
+    if (live && size < MIN_LOOP) {   // (Mixxx's 1/32, made shorter: tinyLoop)
+      if (!down) return;
+      if (tinyLit(d, size)) { d.tiny = null; return push(ch(d.n), "reloop_toggle"); }
+      d.tiny = { size, at: performance.now() };
+      return push(ch(d.n), `beatloop_${MIN_LOOP}_activate`);
+    }
+    if (live && down) d.tiny = null;
     if (live) return send("loop", d.n, `beatloop_${size}_toggle`, down);
     if (down) { const on = !(d.loopOn && d.loopSize === size); d.loopOn = on; d.loopSize = size; d.loopStart = d.pos; paintSide(s); }
     return;
@@ -3205,10 +3230,10 @@ function applyCv(name, v, ts) {
       case "quantize": if (!isLocal(d, "quantize")) upd("quantize", v > 0); return;
       case "pfl": if (!isLocal(d, "pfl")) upd("pfl", v > 0, "mixer"); return;
       case "mute": return upd("muted", v > 0, "mixer");
-      case "loop_enabled": return upd("loopOn", v > 0);
+      case "loop_enabled": if (!v) d.tiny = null; return upd("loopOn", v > 0);
       case "beatloop_size": return upd("loopSize", v);
-      case "loop_start_position": d.loopIn = v; return;                     // in samples; drawn on the strip
-      case "loop_end_position": d.loopOut = v; return;
+      case "loop_start_position": d.loopIn = v; return tinyLoop(d);         // in samples; drawn on the strip
+      case "loop_end_position": d.loopOut = v; return tinyLoop(d);
       case "track_samples": d.trackSamples = v; return;
       case "cue_point": d.mainCue = v; return;                              // samples; drawn on the strip
       case "volume": if (!isLocal(d, "vol")) upd("vol", v, "mixer"); return;
