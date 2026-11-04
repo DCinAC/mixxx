@@ -455,7 +455,10 @@
   #app.phone .pdeck .shift.on { background: var(--err); border-color: var(--err); color: #fff; }
   #app.phone #mixer { grid-template-columns: calc(var(--mm) * 10) calc(var(--mm) * 8) calc(var(--mm) * 8) calc(var(--mm) * 10);
     grid-template-rows: minmax(0, 1fr) calc(var(--mm) * 6.5); padding: calc(var(--mm) * .4) calc(var(--mm) * .8); gap: calc(var(--mm) * .8); }
-  #app.phone .chan .pfl { flex-basis: calc(var(--mm) * 7); }
+  #app.phone .prow.sx { grid-template-columns: .7fr 1fr .55fr; }   /* SYNC (narrower), SHIFT, the headphones (inside) */
+  #app.phone .prow.sx.r { grid-template-columns: .55fr 1fr .7fr; }
+  #app.phone .prow .pfl { padding: 0; }
+  #app.phone .prow .pfl.on { background: var(--cue); border-color: var(--cue); color: #1b1206; }
   #app.phone .knob span { font-size: calc(var(--mm) * 1.4); }
 
   /* tap a deck's BPM: the beat grid editor */
@@ -1481,8 +1484,9 @@ function buildPhone() {
     };
     mode(u.mA, "cue", "fx", () => fxMenu(s)); mode(u.mB, "loop", "smpl"); mode(u.mC, "stem", "key");
     u.deck = u.el = h("div", "pdeck");
+    u.pfl = pflButton(s);   // (beside SHIFT: the mixer keeps its height for the knobs)
     u.deck.append(buildNudge(s, u), row("transport", u.cue, u.play), buildPads(s, u, 4), row("modes", u.mA, u.mB, u.mC),
-      s ? row("transport", u.shiftBtn, u.sync) : row("transport", u.sync, u.shiftBtn));   // SYNC on the outside
+      s ? row("transport sx r", u.pfl, u.shiftBtn, u.sync) : row("transport sx", u.sync, u.shiftBtn, u.pfl));   // SYNC outside, the headphones by the mixer
     u.col = h("div", "tempo pcol");
     ui.sides[s] = u;
     decksEl[s] = u.deck;
@@ -1509,9 +1513,8 @@ function buildPhoneMixer() {
       k.label = d => two(EQ_LABEL[a], b ? EQ_LABEL[b] : "&nbsp;", d.shift && b);
       return k;
     });
-    const pfl = pflButton(s);
-    c.append(...knobs, pfl);
-    ui.chans[s] = { el: c, knobs, pfl };
+    c.append(...knobs);
+    ui.chans[s] = { el: c, knobs, pfl: ui.sides[s].pfl };
     return c;
   };
   const xf = h("div"); xf.id = "xf";
