@@ -2422,8 +2422,10 @@ function frame(now) {
       if (u.sync._glow !== glow) { u.sync._glow = glow; u.sync.style.setProperty("--glow", glow); }
       u.sync.classList.toggle("matched", !d.syncMode && c.matched);
     }
-    const sec = deckSpan(d);
-    drawStripWave(u, d, d.pos - sec / 2, sec);             // the cursor stays in the middle; the waveform rolls
+    const sd = shownOn(s, d);
+    if (sd !== d) sd.pos = 30 + (performance.now() - peeking) / 1000;
+    const sec = deckSpan(sd);
+    drawStripWave(u, sd, sd.pos - sec / 2, sec);           // the cursor stays in the middle; the waveform rolls
     if (u.play) {   // PLAY: steady while playing; flashing with the beat (lit one, dark the next) only while a held CUE
       // plays it (letting go stops it); a track with no grid blinks instead
       const preview = d.playing && u.play.classList.contains("preview"), grid = d.bpm > 0;
@@ -2844,6 +2846,11 @@ decks.forEach(d => {
   d.wf = demoWave(d); d.wfVer = 1;
   d.beats = Float64Array.from({ length: Math.floor(d.dur * d.bpm / 60) }, (_, i) => i * 60 / d.bpm); d.bar = 0; d.beatsVer = 1;
 });
+// A menu slider held to see the strips (Platter strip): each side shows its deck's track, or, with none loaded, a
+// stand-in (the first two demo decks as they were made: their own waveform and beats), playing along.
+let peeking = 0;
+const standIns = decks.slice(0, 2).map(d => ({ ...d, cues: [...d.cues], wfVer: -1, sections: null }));
+const shownOn = (s, d) => !peeking || !live || (d.wf && d.dur > 0) ? d : standIns[s];
 
 // =====================================================================================================
 // Top bar, settings
@@ -2910,6 +2917,7 @@ ZydeckMenu.provide("controller", {
   reset() { S = { ...DEFAULTS }; saveSettings(); applySettings(); tellApp(); build(); },
   deckDefaults: () => deckDefaults,
   shiftRun,
+  peek(id, on) { peeking = on ? performance.now() : 0; schedulePaint(); },
   loopRun: mode => (mode === "roll") === PHONE ? null   // (LOOP pads on the phone, ROLL pads on the tablet)
     : { text: runText(mode), shorter: runFrom(mode) > 0, longer: runFrom(mode) < LOOP_LADDER.length - padCount() },
   profiling: () => prof.on, setProfiling: profiling,

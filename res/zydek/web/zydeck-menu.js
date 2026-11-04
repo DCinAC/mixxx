@@ -296,8 +296,9 @@
     { id: "scrfeel", sec: "decks", name: "Scratch response", kind: "seg", opts: () => [["smooth", "Smooth"], ["direct", "Direct"]], ...C("scrFeel", "smooth"),
       show: () => !!ctl(),
       desc: "Controller mode: how Mixxx turns your movement into the record's speed. Smooth evens out the bumps (it lags a little at each turn); Direct follows sooner (bumps on Wi-Fi come through)." },
-    { id: "revs", sec: "decks", name: "Platter strip", kind: "seg", opts: () => [[.5, "½ rev"], [1, "1 rev"], [2, "2 rev"]], ...C("revs", 1),
-      st: () => ctl()?.info?.revs?.() || "", desc: "How much of the record one full strip covers." },
+    { id: "revs", sec: "decks", name: "Platter strip", kind: "slider", min: .25, max: 4, step: .05, ...C("revs", 1), peek: true,
+      fmt: v => `${+v.toFixed(2)} rev`, st: () => ctl()?.info?.revs?.() || "",
+      desc: "How much of the record one full strip covers. While you hold the slider the menu clears away: both strips show it (an empty deck, a stand-in track)." },
     { id: "unload", sec: "decks", name: "Unload", kind: "seg", opts: () => [[true, "Ask every time"], [false, "Don't ask"]], ...C("askUnload", true),
       desc: "Hold a paused deck's title for half a second: the eject sign comes up beside it; tap it to unload." },
     { id: "ejectat", sec: "decks", name: "Eject sign", kind: "seg", multi: true, opts: () => [["left", "Left"], ["leftmid", "Left-mid"], ["middle", "Middle"], ["right", "Right"]],
@@ -417,6 +418,15 @@
         inp.setAttribute("aria-label", r.name);
         inp.addEventListener("input", () => { rd.textContent = r.fmt(+inp.value); r.set(+inp.value, false); });
         inp.addEventListener("change", () => { r.set(+inp.value, true); refresh(); });
+        if (r.peek) {   // held: the menu clears away (the slider stays, faint) to show the page behind it
+          const peek = on => {
+            if (!winBox || winBox.classList.contains("peek") === on) return;
+            winBox.classList.toggle("peek", on); box.classList.toggle("zm-peeking", on);
+            ctl()?.peek?.(r.id, on);
+          };
+          inp.addEventListener("pointerdown", () => peek(true));
+          for (const ev of ["pointerup", "pointercancel", "lostpointercapture", "blur", "change"]) inp.addEventListener(ev, () => peek(false));
+        }
         box.append(inp, rd); c.appendChild(box);
         if (r.ruler) c.appendChild(el("div", "zruler"));
         upds.push(() => { if (document.activeElement !== inp) inp.value = r.get(); rd.textContent = r.fmt(+inp.value); inp.style.setProperty("--p", `${(inp.value - r.min) / (r.max - r.min) * 100}%`); });

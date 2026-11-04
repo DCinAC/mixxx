@@ -10,6 +10,11 @@
 /* ---- the window (sideways) ---- */
 .zm-win { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.72); }
 .zm-win.open { display: flex; }
+/* a slider held with peek: only it shows (faint), over the page */
+.zm-win.peek { background: transparent; }
+.zm-win.peek * { visibility: hidden; }
+.zm-win.peek .zm-peeking, .zm-win.peek .zm-peeking * { visibility: visible; }
+.zm-win.peek .zm-peeking { opacity: .3; }
 .zm.window { width: min(96vw, calc(var(--zmm) * 205)); height: min(94vh, calc(var(--zmm) * 130)); display: flex; }
 .zm.window .zm-box { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .zm-head { display: flex; gap: calc(var(--zmm) * 1.6); align-items: center; padding: calc(var(--zmm) * 2.2) calc(var(--zmm) * 2.4) calc(var(--zmm) * 2); flex: none; }
