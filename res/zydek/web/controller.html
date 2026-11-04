@@ -2505,6 +2505,7 @@ const WAVE_FULL = .8;
 function renderTile(wf, k, pxPerSec, H, d, part = "all") {
   const TW = TILE + 2, c = document.createElement("canvas"); c.width = TW; c.height = H;
   const g = c.getContext("2d"), mid = H / 2, x0 = k * TILE;
+  if (part === "all" || part === "grid") { drawRolls(g, d, pxPerSec, x0, TW, H); drawBeats(g, d, pxPerSec, x0, TW, H); }   // (behind the wave)
   if (wf && part === "wave") ZydeckPos.waveColumns(g, wf, x0, TW, H, pxPerSec, WAVE_FULL);   // as the calibration page draws it
   else if (wf && part !== "grid") {
     const a = wf.data, perPx = wf.rate / pxPerSec, st = wf.stride || 4, all3 = part === "all";
@@ -2548,10 +2549,7 @@ function renderTile(wf, k, pxPerSec, H, d, part = "all") {
       g.fillRect(x, mid - h, 1, h * 2);
     }
   }
-  if (part === "all" || part === "grid") {
-    drawRolls(g, d, pxPerSec, x0, TW, H); drawBeats(g, d, pxPerSec, x0, TW, H);
-    drawSectionTags(g, d, pxPerSec, x0, TW, H, false, false);   // (their start lines and letters: paintMarks)
-  }
+  if (part === "all" || part === "grid") drawSectionTags(g, d, pxPerSec, x0, TW, H, false, false);   // (their start lines and letters: paintMarks)
   return c;
 }
 
@@ -2628,13 +2626,13 @@ function drawSlipGhost(u, d, base, f, dpr, H, sec, now) {
 function tileAt(u, d, k, base, H, dpr) {
   if (u.tiles.has(k)) return;
   const place = c => { c.style.left = `${(k * TILE / dpr).toFixed(3)}px`; c.style.width = `${((TILE + 2) / dpr).toFixed(3)}px`; return c; };
-  // the wave into its layers (extreme: each band; live: each stem, or the whole), the grid over them, unscaled
+  // the wave into its layers (extreme: each band; live: each stem, or the whole), the grid behind them, unscaled
   liveLayers(u, d);
   const parts = S.waveMode === "extreme" ? [0, 1, 2].map(b => { const c = place(renderTile(d.wf, k, base, H, d, "b" + b)); u.bl[b].appendChild(c); return c; })
     : d.wf?.stems ? [0, 1, 2, 3].map(s => { const c = place(renderTile(d.wf, k, base, H, d, s)); u.sl[s].appendChild(c); return c; })
     : [(() => { const c = place(renderTile(d.wf, k, base, H, d, "wave")); u.sl[0].appendChild(c); return c; })()];
   const grid = place(renderTile(d.wf, k, base, H, d, "grid"));
-  u.tilesBox.appendChild(grid);
+  u.tilesBox.insertBefore(grid, u.wl);   // the grid behind the wave's layers
   u.tiles.set(k, { grid, parts, remove() { grid.remove(); parts.forEach(c => c.remove()); } });
 }
 // The wave's layers: .wl (scaled for the gain) holding one .sl per stem (live: scaled to nothing when it's muted)
@@ -2804,8 +2802,6 @@ function cueMarks(d) {
   return marks;
 }
 
-// Beat grid on a tile (left: its first pixel at pxPerSec): bar lines across the strip, ticks top and bottom
-// for the other beats
 // Mixxx's pre-roll and post-roll (allshader/waveformrendererpreroll.cpp): before the track's start and after its
 // end, a row of triangles pointing in towards the track, 40 % of the waveform's height, outlined 1.5 px with a
 // 25 % fill.

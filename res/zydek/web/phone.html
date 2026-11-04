@@ -1383,6 +1383,7 @@ function drawZoom(p, d) {
   g.clearRect(0, 0, W, H);
   if (!wf) { drawBeats(g, d, pxPerSec, left, ZOOM_SECONDS * pxPerSec, H); drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H); return; }
   drawSectionTint(g, d, pxPerSec, left, W, H);
+  drawBeats(g, d, pxPerSec, left, ZOOM_SECONDS * pxPerSec, H);   // (behind the wave)
   const tkey = `${d.n}|${d.wfVer}|${W}|${H}`;
   if (p.tileKey !== tkey) { p.tileKey = tkey; p.tiles = new Map(); }
   for (let t = Math.floor(left / TILE); t * TILE < left + W; t++) {
@@ -1405,11 +1406,9 @@ function drawZoom(p, d) {
     }
     g.drawImage(tile, t * TILE - left, 0);
   }
-  drawBeats(g, d, pxPerSec, left, ZOOM_SECONDS * pxPerSec, H);
   drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H);
   drawSectionTags(g, d, pxPerSec, left, W, H, true);
 }
-// Beat grid: bar lines across, the other beats as ticks top and bottom.
 // Play position between Mixxx's updates, and where to draw it: zydeck-position.js (the same as the deck page and
 // the calibration page draw by)
 const { hubTime, posSeed, posModel, posUpdate } = ZydeckPos;
