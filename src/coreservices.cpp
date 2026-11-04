@@ -657,6 +657,7 @@ void CoreServices::initialize(QApplication* pApp) {
     m_pPlayerManager->bindToLibrary(m_pLibrary.get());
 #ifdef __ZYDECK__   // ZyDeck: a device's Auto DJ controls, through ZyDeck Connect (zydeck/autodjrequest.h)
     zydeck::watchAutoDj(m_pLibrary, pConfig);
+    zydeck::saveGridsTo(m_pTrackCollectionManager.get());   // (zydeck/decklist.h)
 #endif
 
     bool musicDirAdded = false;
