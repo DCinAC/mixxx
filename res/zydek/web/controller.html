@@ -3252,7 +3252,10 @@ function applyCv(name, v, ts) {
       case "track_loaded": return upd("loaded", v > 0);
       case "play_latched": return upd("latched", v > 0);
       case "duration": d.dur = v; return;                                   // shown by the animation loop
-      case "rate_ratio": d.ratio = v; if (!isLocal(d, "tempo") && ui.sides.every(u => u?.laneDeck !== d)) upd("tempo", (v - 1) * 100); return;
+      case "rate_ratio": d.ratio = v; if (!isLocal(d, "tempo") && ui.sides.every(u => u?.laneDeck !== d)) upd("tempo", (v - 1) * 100);
+        // past ±8 % (sync took it there): TEMPO BOOST on, so the lane carries on from there instead of jumping to 8 %
+        if (Math.abs(v - 1) > .0805 && !d.ol) { d.ol = true; markDirty("deck", d); }
+        return;
       case "file_bpm": if (v > 0) upd("bpm", v); return;
       case "pitch": upd("key", Math.round(v)); return;   // semitones from the track's own key
       case "key": upd("curKey", v); return;      // the key you hear: file key + shift (+ tempo without key lock)

@@ -1304,6 +1304,9 @@ function colorFor(a, i) {   // like Mixxx's RGB waveform: red lows, green mids, 
   return `rgb(${Math.round(255 * lo / m)},${Math.round(230 * mi / m)},${Math.round(255 * hi / m)})`;
 }
 // Needle search: the whole track, drawn once per track and size.
+// A full-scale column takes 80 % of a waveform's height (as the controller's strips): only a louder one reaches the
+// edges, which is redlining, as in Mixxx.
+const WAVE_FULL = .8;
 function drawOverview(p, d) {
   const c = p.nCanvas, resized = sizeCanvas(c), key = `${d.n}|${d.wfVer}|${d.strVer || 0}|${c.width}|${cueSig(d)}`;
   if (p.nKey === key && !resized) return;
@@ -1319,7 +1322,7 @@ function drawOverview(p, d) {
     let all = 0, best = i0;
     for (let i = i0; i < i1 && i < wf.n; i++) if (a[i * 4] > all) { all = a[i * 4]; best = i; }
     g.fillStyle = colorFor(a, best * 4);
-    const hh = Math.max(1, all / 255 * H * .48);
+    const hh = Math.max(1, all / 255 * H * WAVE_FULL / 2);
     g.fillRect(x, H / 2 - hh, 1, hh * 2);
   }
   // cue marks over the whole track: a line and a small tag with the number at the top, as CUE's (the bottom edge is
@@ -1394,7 +1397,7 @@ function drawZoom(p, d) {
         let all = 0, best = i0;
         for (let i = Math.max(0, i0); i < Math.min(wf.n, i1); i++) if (a[i * 4] > all) { all = a[i * 4]; best = i; }
         tg.fillStyle = colorFor(a, best * 4);
-        const hh = Math.max(1, all / 255 * H * .47);
+        const hh = Math.max(1, all / 255 * H * WAVE_FULL / 2);
         tg.fillRect(x, H / 2 - hh, 1, hh * 2);
       }
       p.tiles.set(t, tile);
@@ -2486,7 +2489,7 @@ function previewNeedle(box, t) {
       let all = 0, best = i0;
       for (let i = i0; i < i1 && i < wf.n; i++) if (a[i * 4] > all) { all = a[i * 4]; best = i; }
       g.fillStyle = colorFor(a, best * 4);
-      const hh = Math.max(1, all / 255 * H * .46);
+      const hh = Math.max(1, all / 255 * H * WAVE_FULL / 2);
       g.fillRect(x, H / 2 - hh, 1, hh * 2);
     }
   }
