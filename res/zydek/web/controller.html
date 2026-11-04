@@ -1777,7 +1777,7 @@ function paintPad(s, k) {
       }
       if (k === 4 && live && !d.sc && !REMOTE.on) {
         if (ls.s === "making") setPad(el, "tint", `STEMS<small>${ls.pc ? "PC · " : ""}${Math.round((ls.p || 0) * 100)} %</small>`, "var(--play)");
-        else if (ls.s === "ready") setPad(el, "lit", `USE STEMS<small>short gap</small>`, "var(--play)", "#071a0e");
+        else if (ls.s === "ready") setPad(el, "lit", `USE STEMS<small>${ls.pc ? "PC's · " : ""}short gap</small>`, "var(--play)", "#071a0e");
         else if (ls.s === "failed") setPad(el, "off", `STEMS<small>${(ls.e || "failed").replace(/</g, "&lt;")}</small>`);
         else setPad(el, "tint", `MAKE STEMS<small>${stemServer ? "on the PC" : "on the phone"}</small>`, "var(--play)");
         break;

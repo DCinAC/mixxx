@@ -1119,7 +1119,24 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
         if (!m_pLiveStems || arg("id").toInt() <= 0 || !QFileInfo::exists(arg("path"))) {
             return result({{"ok", false}, {"error", "No such track or file"}});
         }
-        m_pLiveStems->adopt(arg("id").toInt(), arg("path"), true);
+        const int id = arg("id").toInt();
+        m_pLiveStems->adopt(id, arg("path"), true);
+        for (int i = 0; i < kNumDecks; ++i) {   // a deck with the track, not on stems yet: these now (not the phone's)
+            DeckStems& ds = m_deckStems[i];
+            if (ds.trackId != id || ds.state == QLatin1String("on")) {
+                continue;
+            }
+            ds.state = QStringLiteral("ready");
+            ds.progress = 1;
+            ds.onPc = true;
+            ds.error.clear();
+            const bool playing = ControlObject::get(ConfigKey(QStringLiteral("[Channel%1]").arg(i + 1), QStringLiteral("play"))) > 0;
+            if (playing || !m_liveStemsAuto) {
+                emitDeckStems(i);   // the pages offer the swap
+            } else {
+                swapToStems(i, true);
+            }
+        }
         return result({{"ok", true}});
     }
     if (path == QLatin1String("/api/livestems/swap")) {   // ?deck=1..4: load its stems, where it is

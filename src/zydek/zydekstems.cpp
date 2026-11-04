@@ -746,9 +746,18 @@ void LiveStems::run() {
         }
         const int id = m_busyId;
         QString error;
-        const QString path = separate(pTrack, &error);
-        if (!path.isEmpty()) {
-            adopt(id, path);
+        // the PC's (the library's "Make stems") can come in while this one waits or works: they stay the track's
+        QString path = stemFileFor(id);
+        if (path.isEmpty()) {
+            path = separate(pTrack, &error);
+            const QString meanwhile = stemFileFor(id);
+            if (!path.isEmpty() && !meanwhile.isEmpty() && meanwhile != path) {
+                qInfo() << "Zydek live stems: the PC's came in meanwhile, these go:" << path;
+                removeReplaced(path);
+                path = meanwhile;
+            } else if (!path.isEmpty()) {
+                adopt(id, path);
+            }
         }
         {
             QMutexLocker lock(&m_mutex);
