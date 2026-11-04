@@ -89,6 +89,13 @@ function barsBetween(d, t, e) {
   return n > 0 ? n : 0;
 }
 
+// Bars left as bars.beats: the beats left in the bar the count is in (4 at its first beat … 1 at its last) after the
+// whole bars still to come, "0.0" at the end: 7.4, 7.3, 7.2, 7.1, 6.4 …
+function fmtBarsLeft(bars) {
+  const n = Math.ceil(bars * 4 - 1e-6);   // beats left, the one playing counted
+  return n <= 0 ? "0.0" : `${Math.floor((n - 1) / 4)}.${(n - 1) % 4 + 1}`;
+}
+
 // A track's waveform being analysed: untilWf(id, ms) waits for the hub's "wf" for it (wfReady), or ms at most
 const wfWaiting = new Map();   // track id -> what's waiting for its "wf"
 const wfReady = id => { (wfWaiting.get(id) || []).forEach(f => f()); wfWaiting.delete(id); };

@@ -2457,13 +2457,13 @@ function frame(now) {
     }
     const left = (d.dur - d.pos) / (1 + d.tempo / 100);
     setText(u.time, fmtTime(left));
-    if (u.barsLeft) {   // over the cursor: the bars left in the track
+    if (u.barsLeft) {   // over the cursor: the bars left in the track (bars.beats)
       const n = d.dur > 0 ? barsBetween(d, d.pos, d.dur) : NaN;
-      setHTML(u.barsLeft, n >= 0 ? `${n.toFixed(1)}<small> bars</small>` : "");
+      setHTML(u.barsLeft, n >= 0 ? `${fmtBarsLeft(n)}<small> bars</small>` : "");
     }
     if (u.cursec) {   // the section the deck is in, and the bars left in it
       const k = sectionAt(d.sections, d.pos), sc = d.sections?.[k], bars = sc ? barsBetween(d, d.pos, sc.e) : NaN;
-      setHTML(u.cursec, !sc ? "" : `<i>${sc.letter} ${sc.label}</i>${bars >= 0 ? `${bars.toFixed(1)} bars` : ""}`);
+      setHTML(u.cursec, !sc ? "" : `<i>${sc.letter} ${sc.label}</i>${bars >= 0 ? `${fmtBarsLeft(bars)} bars` : ""}`);
       const col = sc ? SECTION_COLORS[sc.label] || "#888" : "";
       if (u.cursec._c !== col) { u.cursec._c = col; u.cursec.style.setProperty("--c", col); }
     }
