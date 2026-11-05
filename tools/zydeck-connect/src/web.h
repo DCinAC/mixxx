@@ -60,6 +60,13 @@ class Web : public QObject {
 
     /// /web/<what>: the JSON answer; status gets the HTTP status. On this object's thread.
     QJsonObject handle(const QString& what, const QUrlQuery& query, int* status, bool keyed);   // keyed: with the pairing key
+    /// POST /web/upload?k=&name=&artist=&title=&codec=&kbps=&duration=&deck= (core.cpp has the body): a track a
+    /// device downloaded itself, taken in as one of this computer's downloads. For the phone's Bilibili login in
+    /// controller mode: the phone downloads with it and sends only the audio; the login never comes here.
+    /// uploadFile: the file in .incoming for the body ("" and the error if it can't be); uploaded: all of it is
+    /// there: {job} (moved into the folder, and loaded into a deck if asked), its result as a download's
+    QString uploadFile(const QUrlQuery& query, QString* error);
+    QJsonObject uploaded(const QString& part, const QUrlQuery& query);
     /// /web/library/... and /web/autodj (the reading ones): safe on any thread (a worker's: they read the database)
     static QJsonObject library(Library* library, const QString& what, const QUrlQuery& query, int* status);
     /// Where downloads go ("" while Mixxx has no music folder).

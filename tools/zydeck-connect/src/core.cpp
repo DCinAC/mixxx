@@ -22,6 +22,7 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <cmath>
+#include <memory>
 
 namespace zc {
 
@@ -111,6 +112,16 @@ struct Core::Client {
     QByteArray buffer;
     QString device;
     bool linked = false;
+    std::unique_ptr<QFile> upload;   // POST /web/upload: where its body goes, and how much is still to come
+    qint64 uploadLeft = 0;
+    QUrlQuery uploadQuery;
+    void dropUpload() {   // (not all of it came: nothing half-written stays)
+        if (upload) {
+            upload->close();
+            upload->remove();
+            upload.reset();
+        }
+    }
 };
 
 Core::Core(QObject* parent)
@@ -339,6 +350,7 @@ void Core::fromMixxx(const QByteArray& msg) {
 Core::~Core() {
     for (auto it = m_clients.cbegin(); it != m_clients.cend(); ++it) {
         it.key()->disconnect(this);
+        it.value()->dropUpload();
         delete it.value();
     }
     m_clients.clear();
@@ -352,6 +364,9 @@ void Core::connection() {
         connect(s, &QTcpSocket::readyRead, this, [this, s] { read(s); });
         connect(s, &QTcpSocket::disconnected, this, [this, s] {
             Client* c = m_clients.take(s);
+            if (c) {
+                c->dropUpload();
+            }
             if (c && c->linked) {
                 m_seen.remove(c->device);
                 emit changed();
@@ -361,7 +376,7 @@ void Core::connection() {
         });
         QPointer<QTcpSocket> guard(s);
         QTimer::singleShot(10000, this, [this, guard] {   // nothing said in time: not a ZyDeck
-            if (guard && m_clients.contains(guard) && !m_clients.value(guard)->linked) {
+            if (guard && m_clients.contains(guard) && !m_clients.value(guard)->linked && !m_clients.value(guard)->upload) {
                 guard->abort();
             }
         });
@@ -374,6 +389,21 @@ void Core::read(QTcpSocket* s) {
         return;
     }
     c->buffer += s->readAll();
+    if (c->upload) {
+        uploadMore(s, *c);
+        return;
+    }
+    if (!c->linked && c->buffer.startsWith("POST ")) {
+        const int end = c->buffer.indexOf("\r\n\r\n");
+        if (end >= 0) {
+            const QByteArray head = c->buffer.left(end);
+            c->buffer.remove(0, end + 4);
+            uploadStart(s, *c, head);
+        } else if (c->buffer.size() > 16384) {
+            s->abort();
+        }
+        return;
+    }
     if (!c->linked && c->buffer.startsWith("GET ")) {
         const int end = c->buffer.indexOf("\r\n\r\n");
         if (end >= 0) {
@@ -451,6 +481,89 @@ QByteArray jsonReply(int status, const QByteArray& body, bool keyed) {
            "Cache-Control: no-store\r\nConnection: close\r\n\r\n" + body;
 }
 } // namespace
+
+// POST /web/upload?k=<key>&name=...: a download a device did itself (the phone, with its own Bilibili login, which
+// never comes here), its body straight into a file in the downloads folder's .incoming as it arrives
+void Core::uploadStart(QTcpSocket* s, Client& c, const QByteArray& head) {
+    const auto refuse = [s](int status, const QString& error) {
+        s->write(jsonReply(status, QJsonDocument(QJsonObject{{"ok", false}, {"error", error}}).toJson(QJsonDocument::Compact), false));
+        s->disconnectFromHost();
+    };
+    const QByteArray first = head.left(head.indexOf("\r\n"));
+    if (!first.startsWith("POST /web/upload?")) {
+        refuse(404, QStringLiteral("No such thing"));
+        return;
+    }
+    const QUrl url(QString::fromUtf8(first.mid(5, first.lastIndexOf(' ') - 5)));
+    QString qs = url.query(QUrl::FullyEncoded);
+    qs.replace(QLatin1Char('+'), QStringLiteral("%20"));
+    const QUrlQuery query(qs);
+    if (!sameKey(query.queryItemValue(QStringLiteral("k")).toLatin1(), m_key.toLatin1())) {
+        refuse(403, QStringLiteral("wrong key"));
+        return;
+    }
+    qint64 size = -1;
+    for (const QByteArray& h : head.split('\n')) {
+        if (h.toLower().startsWith("content-length:")) {
+            size = h.mid(15).trimmed().toLongLong();
+        }
+    }
+    if (size <= 0 || size > (qint64{4} << 30)) {   // (a track: not nothing, not more than 4 GB)
+        refuse(400, QStringLiteral("No track, or too big"));
+        return;
+    }
+    QString error;
+    const QString part = m_web.uploadFile(query, &error);
+    std::unique_ptr<QFile> file;
+    if (!part.isEmpty()) {
+        file = std::make_unique<QFile>(part);
+    }
+    if (!file || !file->open(QIODevice::WriteOnly)) {
+        refuse(409, error.isEmpty() ? QStringLiteral("Can't write the file here") : error);
+        return;
+    }
+    c.upload = std::move(file);
+    c.uploadLeft = size;
+    c.uploadQuery = query;
+    // a sender gone quiet (out of Wi-Fi, say): given up on after half a minute without a byte
+    QPointer<QTcpSocket> guard(s);
+    auto* stall = new QTimer(s);
+    stall->setInterval(30000);
+    auto seen = std::make_shared<qint64>(size);
+    connect(stall, &QTimer::timeout, this, [this, guard, stall, seen] {
+        Client* now = guard ? m_clients.value(guard) : nullptr;
+        if (!now || !now->upload) {
+            stall->deleteLater();
+        } else if (now->uploadLeft == *seen) {
+            now->dropUpload();
+            guard->abort();
+        } else {
+            *seen = now->uploadLeft;
+        }
+    });
+    stall->start();
+    uploadMore(s, c);
+}
+
+void Core::uploadMore(QTcpSocket* s, Client& c) {
+    const QByteArray chunk = c.buffer.left(c.uploadLeft);
+    c.buffer.clear();
+    if (c.upload->write(chunk) != chunk.size()) {
+        c.dropUpload();
+        s->write(jsonReply(507, R"j({"ok":false,"error":"Couldn't write it here (is the disk full?)"})j", false));
+        s->disconnectFromHost();
+        return;
+    }
+    c.uploadLeft -= chunk.size();
+    if (c.uploadLeft > 0) {
+        return;
+    }
+    c.upload->close();
+    const QString part = c.upload->fileName();
+    c.upload.reset();
+    s->write(jsonReply(200, QJsonDocument(m_web.uploaded(part, c.uploadQuery)).toJson(QJsonDocument::Compact), false));
+    s->disconnectFromHost();
+}
 
 /// GET /waveform/<id>?k=<key> and /beats/<id>?k=<key>. The waveform goes deflated (as Mixxx's own files are:
 /// qCompress is zlib's format, which is HTTP's "deflate").

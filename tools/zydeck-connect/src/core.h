@@ -71,6 +71,9 @@ class Core : public QObject {
     void read(QTcpSocket* s);
     void line(QTcpSocket* s, Client& c, const QByteArray& line);
     void http(QTcpSocket* s, const QByteArray& request);
+    // POST /web/upload: a device's own download (web.h), its body written to a file as it comes in
+    void uploadStart(QTcpSocket* s, Client& c, const QByteArray& head);
+    void uploadMore(QTcpSocket* s, Client& c);
     void fromMixxx(const QByteArray& msg);
     QJsonObject nameReply(const QJsonObject& ask);
     QJsonObject profileApi(const QUrlQuery& query, int* status);

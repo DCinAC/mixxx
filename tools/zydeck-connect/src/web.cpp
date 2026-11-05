@@ -1253,6 +1253,59 @@ void Web::downloaded(Job* job, const QJsonObject& info) {
     p->start();
 }
 
+// ---- a device's own download (POST /web/upload) ---------------------------------------------------------------
+namespace {
+const QStringList kTaken{"m4a", "mp4", "mp3", "ogg", "opus", "flac", "wav", "webm"};
+} // namespace
+
+QString Web::uploadFile(const QUrlQuery& query, QString* error) {
+    const QString ext = QFileInfo(query.queryItemValue(QStringLiteral("name"), QUrl::FullyDecoded)).suffix().toLower();
+    if (!kTaken.contains(ext)) {
+        *error = QStringLiteral("That isn't a track");
+        return {};
+    }
+    const QString dir = folder();
+    if (dir.isEmpty()) {
+        *error = QStringLiteral("Mixxx has no music folder yet");
+        return {};
+    }
+    if (!QDir().mkpath(dir + QStringLiteral("/.incoming"))) {
+        *error = QStringLiteral("Can't write to %1 (is the network drive connected?)").arg(dir);
+        return {};
+    }
+    return freePath(dir + QStringLiteral("/.incoming"),
+            QStringLiteral("device-") + QString::number(QRandomGenerator::global()->generate64() & 0xffffffffULL, 16), QLatin1Char('.') + ext);
+}
+
+QJsonObject Web::uploaded(const QString& part, const QUrlQuery& query) {
+    const auto arg = [&query](const char* name) {
+        return query.queryItemValue(QString::fromLatin1(name), QUrl::FullyDecoded).trimmed();
+    };
+    const QString given = QFileInfo(arg("name")).completeBaseName();
+    const QString artist = arg("artist"), title = arg("title").isEmpty() ? given : arg("title");
+    Job* job = start(QStringLiteral("download"), title);
+    if (const int deck = arg("deck").toInt(); deck >= 1 && deck <= 4) {
+        job->deck = QStringLiteral("[Channel%1]").arg(deck);
+    }
+    const QString ext = QLatin1Char('.') + QFileInfo(part).suffix();
+    const QString dir = folder();
+    // (the phone tagged it already: "Artist - Title" here too, as this computer's own downloads)
+    const QString to = freePath(dir, safeFileName(artist.isEmpty() ? title : artist + QStringLiteral(" - ") + title), ext);
+    if (dir.isEmpty() || !QFile::rename(part, to)) {
+        QFile::remove(part);
+        fail(job, QStringLiteral("Couldn't move it into %1").arg(dir));
+        return {{"job", job->id}};
+    }
+    const QJsonObject result{{"path", to}, {"artist", artist}, {"title", title}, {"duration", arg("duration").toDouble()},
+            {"codec", arg("codec")}, {"kbps", arg("kbps").toInt()}, {"playable", true}};
+    if (job->deck.isEmpty()) {
+        finish(job, result);
+    } else {
+        loadToDeck(job, result);
+    }
+    return {{"job", job->id}};
+}
+
 // ---- stems from the PC ----------------------------------------------------------------------------------------
 QNetworkReply* Web::stemRequest(const QString& method, const QString& path, QIODevice* body) {
     const QString base = stemBase(QSettings().value(QStringLiteral("stems/server")).toString());

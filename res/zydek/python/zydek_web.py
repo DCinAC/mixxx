@@ -510,7 +510,11 @@ def _tag(path, info, artist, title):
         _zydekjs.log(f"couldn't tag {path}: {e}")
 
 
-def _download(url, title, client=None):
+def _download(url, title, client=None, to=None, key="", deck=""):
+    """to: ZyDeck Connect's address (controller mode, with this phone's Bilibili login): downloaded here, then only
+    the audio goes to the computer (_send); the login never leaves the phone."""
+    span = 0.8 if to else 0.98   # (the rest: sending it)
+
     def run(job):
         os.makedirs(_dirs["music"], exist_ok=True)
 
@@ -524,7 +528,7 @@ def _download(url, title, client=None):
             if d["status"] == "downloading":
                 total = d.get("total_bytes") or d.get("total_bytes_estimate")
                 if total:
-                    job["progress"] = min(0.98, d.get("downloaded_bytes", 0) / total)
+                    job["progress"] = min(span, span * d.get("downloaded_bytes", 0) / total)
                 job["speed"] = d.get("speed") or 0   # bytes a second (the page: MB/s or KB/s)
                 job["message"] = "Downloading"
             elif d["status"] == "finished":
@@ -568,6 +572,15 @@ def _download(url, title, client=None):
                 os.replace(path, nice)
                 path = nice
         fmt = (info.get("requested_downloads") or [{}])[0]
+        if to:
+            try:
+                return _send(job, path, to, key, deck, {"artist": artist, "title": track, "duration": info.get("duration") or "",
+                             "codec": fmt.get("acodec") or info.get("acodec") or "", "kbps": round(fmt.get("tbr") or info.get("tbr") or 0)})
+            finally:   # (it was for the computer: nothing stays here)
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
         return {"path": path, "artist": artist, "title": track, "duration": info.get("duration"),
                 "codec": fmt.get("acodec") or info.get("acodec"), "kbps": round(fmt.get("tbr") or info.get("tbr") or 0),
                 "playable": ext in (".m4a", ".mp4", ".mp3", ".ogg", ".opus", ".flac", ".wav")}
@@ -614,18 +627,64 @@ def _stem_check(server):
 
 
 class _Upload:
-    """The track file, read in chunks while urllib sends it, reporting how far it got."""
+    """The track file, read in chunks while urllib sends it, reporting how far it got (progress from base, over span)."""
 
-    def __init__(self, path, job):
+    def __init__(self, path, job, base=0.0, span=0.15):
         self.f, self.job, self.size, self.sent = open(path, "rb"), job, os.path.getsize(path), 0
+        self.base, self.span = base, span
 
     def read(self, n=-1):
         if self.job.get("cancel"):
             raise RuntimeError("Cancelled")
         b = self.f.read(1 << 16 if n is None or n < 0 else min(n, 1 << 16))
         self.sent += len(b)
-        self.job["progress"] = 0.15 * self.sent / max(self.size, 1)
+        self.job["progress"] = self.base + self.span * self.sent / max(self.size, 1)
         return b
+
+
+def _send(job, path, to, key, deck, tags):
+    """A download, to ZyDeck Connect (POST /web/upload): into the computer's ZyDeck Web folder, and a deck if asked.
+    Connect's answer, as its own downloads': {path (there), artist, title, codec, kbps, loaded | loadError}."""
+    to = to.rstrip("/")
+
+    def connect(rest, data=None, headers=None, timeout=20):
+        req = urllib.request.Request(f"{to}{rest}", data=data, method="POST" if data is not None else "GET", headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:   # (never the address in the message: it has the key)
+            try:
+                msg = json.loads(e.read()).get("error") or e.reason
+            except Exception:
+                msg = e.reason
+            raise RuntimeError(f"The computer: {msg}") from None
+        except (urllib.error.URLError, OSError) as e:
+            raise RuntimeError(f"Can't reach ZyDeck Connect on the computer ({getattr(e, 'reason', e)})") from None
+
+    job["message"] = "Sending to the computer"
+    job["speed"] = 0
+    body = _Upload(path, job, 0.8, 0.18)
+    try:
+        q = urllib.parse.urlencode({"k": key, "name": os.path.basename(path), "deck": deck or "", **tags})
+        started = connect(f"/web/upload?{q}", body, {"Content-Length": str(body.size), "Content-Type": "application/octet-stream"}, 120)
+    finally:
+        body.f.close()
+    if not started.get("job"):
+        raise RuntimeError(started.get("error") or "The computer didn't take it")
+    while True:   # (moved into the folder, and loaded into a deck if asked)
+        time.sleep(0.4)
+        if job.get("cancel"):
+            try:
+                connect("/web/cancel?" + urllib.parse.urlencode({"id": started["job"], "k": key}))
+            except RuntimeError:
+                pass
+            raise RuntimeError("Cancelled")
+        j = connect("/web/job?" + urllib.parse.urlencode({"id": started["job"], "k": key}))
+        if j.get("state") == "done":
+            return j.get("result") or {}
+        if j.get("state") == "error":
+            raise RuntimeError(j.get("error") or "The computer couldn't take it")
+        job["message"] = j.get("message") or "On the computer"
 
 
 def _stems(path, preset):
@@ -842,7 +901,10 @@ def api(name, args_json):
         if name == "download":
             if not args.get("url"):
                 return json.dumps({"ok": False, "error": "No link to download"})
-            return json.dumps({"ok": True, "job": _download(args["url"], args.get("title", ""), args.get("client"))["id"]})
+            if args.get("to") and not re.match(r"^https?://", args["to"]):
+                return json.dumps({"ok": False, "error": "Not ZyDeck Connect's address"})
+            return json.dumps({"ok": True, "job": _download(args["url"], args.get("title", ""), args.get("client"),
+                                                            args.get("to"), args.get("k", ""), args.get("deck", ""))["id"]})
         if name == "job":
             job = _jobs.get(args.get("id", ""))
             if not job:

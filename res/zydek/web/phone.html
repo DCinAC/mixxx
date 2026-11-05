@@ -570,6 +570,8 @@
   #ask .acts button { flex: 1; min-height: 48px; font-size: 15px; font-weight: 600; background: #222; border: 1.5px solid #5c5c5c; }
   #ask .yes { border-color: var(--err); color: var(--err); }
   #ask .yes.danger { background: var(--err); color: #fff; }
+  #ask .yes.go { border-color: var(--play); color: var(--play); }
+  #ask p.warn { color: #ffb84d; font-weight: 600; }
 
   /* track sheet */
   #scrim { position: fixed; inset: 0; z-index: 8; background: rgba(0,0,0,.6); opacity: 0; pointer-events: none; transition: opacity .18s; }
@@ -1725,8 +1727,9 @@ const onComputer = () => remote.on && !!remote.http;
 const webNote = () => { if (!webSeq) $("#wnote").textContent = onComputer()
   ? "Downloads go to the computer: its ZyDeck Web folder, and into Mixxx as they land."
   : "Downloads go to Music/Zydek Web and into the library."; };
-async function webApi(path) {   // like api(), but "Python is starting" is an answer, not an error
-  if (onComputer() && /^\/api\/web\/(search|download|stems|job|cancel)\b/.test(path)) {
+// local: the phone's own Python even in controller mode (its Bilibili login and what goes with it)
+async function webApi(path, local) {   // like api(), but "Python is starting" is an answer, not an error
+  if (!local && onComputer() && /^\/api\/web\/(search|download|stems|job|cancel)\b/.test(path)) {
     path = `${remote.http}${path.slice(4)}${path.includes("?") ? "&" : "?"}k=${encodeURIComponent(remote.key || "")}`;
   }
   const r = await fetch(path);
@@ -1737,10 +1740,10 @@ async function webApi(path) {   // like api(), but "Python is starting" is an an
 }
 const sleep = ms => new Promise(res => setTimeout(res, ms));
 // Starts a job (search or download), waiting out Python's first start; then polls it until it's finished.
-async function webJob(path, onProgress, onStart) {
+async function webJob(path, onProgress, onStart, local) {
   let r;
   for (;;) {
-    r = await webApi(path);
+    r = await webApi(path, local);
     if (!r.starting) break;
     onProgress && onProgress({ message: r.error });
     await sleep(1500);
@@ -1748,7 +1751,7 @@ async function webJob(path, onProgress, onStart) {
   onStart && onStart(r);
   if (!r.job) return r;   // (an answer straight away, no job to follow: as the menu's webJob)
   for (;;) {
-    const j = await webApi(`/api/web/job?${qs({ id: r.job })}`);
+    const j = await webApi(`/api/web/job?${qs({ id: r.job })}`, local);
     if (j.state === "done") return j.result;
     if (j.state === "error") throw new Error(j.error);
     onProgress && onProgress(j);
@@ -1887,16 +1890,56 @@ async function downloadMany(list) {
   }
   toast(`Downloaded ${list.length} track${list.length > 1 ? "s" : ""}`, "ok");
 }
+// Controller mode, a Bilibili link, and this phone logged in to that site: the phone's account? Then the phone
+// downloads it (its own yt-dlp, its login: the cookies never leave the phone) and sends only the audio to the
+// computer. Asked once while the page is open, and again if the phone has left Wi-Fi since (its mobile data).
+// "phone", "computer" (no login, as before), or null (cancelled)
+let biliVia = null;   // {choice, wifi}
+const biliSite = r => r.site === "bilibili-intl" || /bilibili\.tv/.test(r.url || "") ? "intl"
+  : /^bilibili$/.test(r.site || "") || /bilibili\.com|b23\.tv|bili2233/.test(r.url || "") ? "cn" : null;
+const onWifi = () => { try { return !bridge?.onWifi || bridge.onWifi(); } catch { return true; } };
+async function downloadVia(r) {
+  const site = onComputer() && biliSite(r);
+  let logged = false;
+  try { logged = !!(site && bridge?.bilibiliState && JSON.parse(bridge.bilibiliState())[site]); } catch {}
+  if (!logged) return "computer";
+  const wifi = onWifi();
+  if (biliVia && !(biliVia.choice === "phone" && biliVia.wifi && !wifi)) return biliVia.choice;
+  const choice = await askBiliVia(site, wifi);
+  if (choice) biliVia = { choice, wifi };
+  return choice;
+}
+function askBiliVia(site, wifi) {
+  const name = site === "intl" ? "Bilibili International" : "Bilibili";
+  return new Promise(done => {
+    const box = h("div", "", `<div class="box" role="dialog" aria-modal="true" aria-labelledby="ask-t">
+      <b id="ask-t">Use this phone's ${name} account?</b>
+      <p>The phone downloads it with its own login (Hi-Res with premium), then sends only the audio file to the computer. The login stays on this phone.</p>
+      ${wifi ? "" : `<p class="warn">This phone isn't on Wi-Fi: the download uses its mobile data.</p>`}
+      <p>Or the computer downloads it without a login.</p>
+      <div class="acts"><button class="no">Computer, no login</button><button class="yes go">Use the phone's</button></div></div>`);
+    box.id = "ask";
+    const end = v => { box.remove(); done(v); };
+    box.addEventListener("click", e => { if (e.target === box) end(null); });
+    box.querySelector(".no").addEventListener("click", () => end("computer"));
+    box.querySelector(".yes").addEventListener("click", () => end("phone"));
+    document.body.appendChild(box);
+  });
+}
 async function webDownload(r, target, stems, quiet) {
+  const via = await downloadVia(r);
+  if (!via) return "cancelled";
+  const local = via === "phone";   // (the phone's Python, sending the file to the computer's Connect)
   let jobId = null, cancel = false;   // (Cancel before Python has said which job: as soon as it does)
-  const sendCancel = () => { if (jobId && cancel) webApi(`/api/web/cancel?${qs({ id: jobId })}`).catch(() => {}); };
+  const sendCancel = () => { if (jobId && cancel) webApi(`/api/web/cancel?${qs({ id: jobId })}`, local).catch(() => {}); };
   const { li, show, done } = jobRow(r.title, () => { cancel = true; sendCancel(); });
-  if (!quiet) toast(target ? `Downloading for ${target.replace("deck", "deck ")}…` : "Downloading…");
+  if (!quiet) toast(target ? `Downloading for ${target.replace("deck", "deck ")}…` : local ? "Downloading on the phone…" : "Downloading…");
   try {
-    const res = await webJob(`/api/web/download?${qs({ url: r.url, title: r.title, ...(onComputer() && target ? { deck: target.slice(4) } : {}) })}`,
+    const res = await webJob(`/api/web/download?${qs({ url: r.url, title: r.title, ...(onComputer() && target ? { deck: target.slice(4) } : {}),
+        ...(local ? { to: remote.http, k: remote.key || "" } : {}) })}`,
       j => show(j.progress, j.message ? `${j.message}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}` +
         `${j.speed > 0 && !document.body.classList.contains("menuhw") ? " · " + fmtSpeed(j.speed) : ""}` : null, j.speed || 0),
-      st => { jobId = st.job; sendCancel(); });
+      st => { jobId = st.job; sendCancel(); }, local);
     li.querySelector(".x")?.remove();
     show(null, null, 0);
     const q = res.codec === "flac" ? "Hi-Res FLAC" : res.kbps ? `${res.kbps} kbps` : "";
@@ -2004,7 +2047,7 @@ function lgHeader() {
 }
 function openLogin(site) { lg.site = site; $("#login").classList.add("on"); lgHeader(); lgStart(); }
 function closeLogin() { lgCancel(); $("#login").classList.remove("on"); loadBili(); }
-function lgCancel() { lg.seq++; if (lg.job) { webApi(`/api/web/cancel?${qs({ id: lg.job })}`).catch(() => {}); lg.job = null; } lg.link = null; }
+function lgCancel() { lg.seq++; if (lg.job) { webApi(`/api/web/cancel?${qs({ id: lg.job })}`, true).catch(() => {}); lg.job = null; } lg.link = null; }
 async function lgStart() {
   lgCancel();
   const seq = lg.seq, qr = $("#lg-qr");
@@ -2012,7 +2055,7 @@ async function lgStart() {
   try {
     let r;
     for (;;) {
-      r = await webApi(`/api/web/qrlogin?${qs({ site: lg.site })}`);
+      r = await webApi(`/api/web/qrlogin?${qs({ site: lg.site })}`, true);
       if (!r.starting) break;
       qr.innerHTML = `<div class="wait">${esc(r.error)}</div>`;
       await sleep(1500);
@@ -2021,7 +2064,7 @@ async function lgStart() {
     lg.job = r.job;
     for (;;) {
       if (seq !== lg.seq) return;
-      const j = await webApi(`/api/web/job?${qs({ id: r.job })}`);
+      const j = await webApi(`/api/web/job?${qs({ id: r.job })}`, true);
       if (seq !== lg.seq) return;
       if (j.data && j.data.link !== lg.link) {
         lg.link = j.data.link;
@@ -2070,7 +2113,7 @@ $("#lg-page").addEventListener("click", () => {
 // MainActivity.java); who's logged in comes from zydek_web.py.
 const bridge = window.ZydekAndroid;
 async function loadBili() {   // who's logged in, for the login screen; the menu's Accounts rows follow
-  try { biliAcc = await webJob("/api/web/account"); } catch {}
+  try { biliAcc = await webJob("/api/web/account", null, null, true); } catch {}
   ZydeckMenu.reload("acc");
 }
 window.zydekBilibili = (site, ok) => {

@@ -8,6 +8,8 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.media.MediaScannerConnection;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -364,6 +366,16 @@ public class MainActivity extends QtActivityBase {
         @JavascriptInterface
         public String bilibiliState() {
             return "{\"cn\":" + hasSession("cn") + ",\"intl\":" + hasSession("intl") + "}";
+        }
+
+        /// Whether the phone's internet is Wi-Fi (or a cable) right now, not its mobile data: a download with this
+        /// phone's Bilibili login for the computer (controller mode) says so first when it isn't.
+        @JavascriptInterface
+        public boolean onWifi() {
+            final ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+            final NetworkCapabilities nc = cm == null ? null : cm.getNetworkCapabilities(cm.getActiveNetwork());
+            return nc != null && (nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                    || nc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET));
         }
     }
 
