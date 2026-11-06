@@ -28,6 +28,8 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 - **What's on the decks, for ZyDeck**: `zydeck-decks.json` beside it, each deck's and sampler's track (id, title,
   artist, length, hot cue names) as it loads and as its hot cues change, so ZyDeck Connect names the track a phone or
   tablet sees, and its hot cues, by what's really there.
+- **The slip position, for ZyDeck**: `[ChannelN],zydeck_slip_seconds`, so a phone or tablet draws the slip ghost as
+  Mixxx does (Mixxx keeps that position only for its waveforms). Read only. `src/zydeck/slipposition.*`.
 - **ZyDeck connectivity** (to come): the same hub as the Android app, so a tablet or phone talks to Mixxx directly:
   the exact track, its waveform at once, and positions timed by Mixxx's audio. Downloading and separating stay in
   ZyDeck Connect, not in this repository.

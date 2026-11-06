@@ -5,6 +5,7 @@
 #include "zydeck/decklist.h"
 #include "zydeck/effectlist.h"
 #include "zydeck/prefetch.h"
+#include "zydeck/slipposition.h"
 #include "zydeck/loadrequest.h"
 #include "zydeck/autodjrequest.h"
 #include "zydeck/discordbroadcast.h"
@@ -603,6 +604,7 @@ void CoreServices::initialize(QApplication* pApp) {
     zydeck::watchEffectList(m_pEffectsManager, pConfig);
     zydeck::watchDecks(pConfig);   // (what's on each deck, likewise: zydeck/decklist.h)
     zydeck::prefetchNetworkTracks();   // (a track from a NAS read whole as it loads: zydeck/prefetch.h)
+    zydeck::publishSlipPositions();   // (the slip position, as a control for the devices: zydeck/slipposition.h)
     zydeck::watchLoadRequests(m_pPlayerManager, pConfig);   // (a device's "load to deck": zydeck/loadrequest.h)
 #ifdef __BROADCAST__
     zydeck::watchDiscordBroadcast(m_pSettingsManager->broadcastSettings(), pConfig);   // (zydeck/discordbroadcast.h)
