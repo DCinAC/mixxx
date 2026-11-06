@@ -27,6 +27,9 @@
 #include "waveform/waveformwidgetfactory.h"
 #include "widget/controlwidgetconnection.h"
 #include "wskincolor.h"
+#ifdef __ZYDECK__
+#include "zydeck/phrases.h"
+#endif
 
 namespace {
 // Horizontal and vertical margin around the widget where we accept play pos dragging.
@@ -79,6 +82,9 @@ WOverview::WOverview(
           m_playpositionControl(
                   m_group,
                   QStringLiteral("playposition")) {
+#ifdef __ZYDECK__   // ZyDeck: the track's phrases, over the overview (zydeck/phrases.h)
+    zydeck::addPhraseStrip(this, m_group);
+#endif
     m_endOfTrackControl = make_parented<ControlProxy>(
             m_group, QStringLiteral("end_of_track"), this, ControlFlag::NoAssertIfMissing);
     m_endOfTrackControl->connectValueChanged(this, &WOverview::onEndOfTrackChange);

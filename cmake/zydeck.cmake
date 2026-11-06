@@ -10,6 +10,7 @@ target_sources(
     src/zydeck/sidechaineffect.cpp
     src/zydeck/effectlist.cpp
     src/zydeck/decklist.cpp
+    src/zydeck/phrases.cpp
     src/zydeck/prefetch.cpp
     src/zydeck/slipposition.cpp
     src/zydeck/loadrequest.cpp
