@@ -2609,7 +2609,8 @@ function drawStripWave(u, d, start, sec) {
   if (u.trackTr !== tr) { u.trackTr = tr; u.track.style.transform = tr; }
   drawSlipGhost(u, d, base, f, dpr, H, sec, now);
 }
-// The slip position (the hub's, every 40 ms while it differs from the deck's), run on between readings at the
+// The slip position (the hub's, every 40 ms while it differs from the deck's; controller mode: Mixxx ZyDeck's control,
+// sent when it changes, and 0 when it's over, so a paused deck's goes quiet and stays), run on between readings at the
 // deck's speed; a reading nearby is eased into, one far off (a loop let go of) is followed.
 function slipModel(d, now) { return d.slipP + (d.playing ? d.ratio || 1 : 0) * (now - d.slipAt) / 1000; }
 function onSlip(d, p) {
@@ -2621,7 +2622,7 @@ function onSlip(d, p) {
 // Mixxx's slip ghost: the top half, black, the waveform at the slip position drawn one-sided (the top half of
 // the deck's tiles, from the centre line up), with its beats and cue marks, in the blinking outline.
 function drawSlipGhost(u, d, base, f, dpr, H, sec, now) {
-  const on = live && d.slip && d.slipAt !== undefined && now - d.slipAt < 1000;
+  const on = live && d.slip && d.slipAt !== undefined && (REMOTE.on || now - d.slipAt < 1000);
   if (u.slipOn !== on) { u.slipOn = on; u.strip.classList.toggle("slipping", on); }
   if (!on) return;
   const start = slipModel(d, now) - latNow() * (d.playing ? d.ratio || 1 : 0) - sec / 2;
@@ -3279,6 +3280,7 @@ function applyCv(name, v, ts) {
       case "sync_mode": return upd("leader", v >= 2);                     // 2/3: soft/explicit leader
       case "keylock": return upd("keylock", v > 0);
       case "slip_enabled": if (!isLocal(d, "slip")) upd("slip", v > 0); return;
+      case "zydeck_slip_seconds": return onSlip(d, v && d.dur > 0 ? v / d.dur : null);   // (Mixxx ZyDeck's: 0, not slipping)
       case "quantize": if (!isLocal(d, "quantize")) upd("quantize", v > 0); return;
       case "pfl": if (!isLocal(d, "pfl")) upd("pfl", v > 0, "mixer"); return;
       case "mute": return upd("muted", v > 0, "mixer");
@@ -3333,6 +3335,7 @@ function subscribeAll() {
       "loop_start_position", "loop_end_position", "track_samples", "cue_point",
       ...[1, 2, 3, 4, 5, 6, 7, 8].map(k => `hotcue_${k}_position`)]) sub.push([ch(n), k, 0]);
     sub.push([ch(n), "playposition", 1]);                  // polled ~30/s
+    if (REMOTE.on) sub.push([ch(n), "zydeck_slip_seconds", 0]);   // (the computer's slip; here: the hub's "slip")
     for (const f of ["vol", "gain", "high", "mid", "low", "filter"]) sub.push([...MIXER[f](n), 2]);
   }
   for (const k of Object.values(MAIN)) sub.push([MAIN_GROUP, k, 2]);
