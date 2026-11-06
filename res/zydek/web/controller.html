@@ -549,7 +549,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1 };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1 };
 const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
@@ -1441,6 +1441,20 @@ function tinyLoop(d) {
   setCtl(ch(d.n), "loop_end_position", d.loopIn + Math.max(2, Math.round(len * t.size / MIN_LOOP / 2) * 2));
 }
 const tinyLit = (d, size) => d.loopOn && d.tiny?.done && d.tiny.size === size;
+// A roll without slip (SHIFT + a ROLL pad, or the plain pad: Controller › Decks › Roll pads): a plain loop while the
+// pad is held, and the track goes on from inside it, not from where it would have got to. Held together they
+// stack, as Mixxx's rolls do (d.dry: the pads, latest last); a loop that was on already gets its length back.
+function dryRoll(d, k, down) {
+  const held = d.dry ??= [];
+  if (down) {
+    if (!held.length) d.dryWas = d.loopOn ? d.loopSize : 0;
+    held.push({ k, size: runSizes("roll")[k] });
+  } else held.splice(held.findIndex(h => h.k === k), 1);
+  const size = held.at(-1)?.size ?? d.dryWas;
+  if (!size) return setCtl(ch(d.n), "loop_enabled", 0);
+  d.tiny = size < MIN_LOOP ? { size, at: performance.now() } : null;
+  push(ch(d.n), `beatloop_${Math.max(size, MIN_LOOP)}_activate`);
+}
 // The phone's 4 jump pads (−4, −1, +1, +4 beats) as the tablet's 8: −1 +1 −2 +2 −4 +4 −8 +8
 const PHONE_JUMPS = [4, 0, 1, 5];
 const padIndex = (d, k) => PHONE && d.mode === "jump" ? PHONE_JUMPS[k] : k;
@@ -1759,7 +1773,7 @@ function paintPad(s, k) {
     case "roll": {
       const arrow = runArrow(d, k);
       if (arrow) { setPad(el, "tint", runArrowText("roll", arrow), "var(--roll)"); break; }
-      setPad(el, d.rollHeld?.[k] || (runIsMapped() && d.rolls[k]) ? "lit" : "tint", fmtLen(runSizes("roll")[k]), "var(--roll)"); break;
+      setPad(el, d.rollHeld?.[k] || d.dry?.some(h => h.k === k) || (runIsMapped() && d.rolls[k]) ? "lit" : "tint", fmtLen(runSizes("roll")[k]), "var(--roll)"); break;
     }
     case "key": {   // the phone's KEY pads: −1, +1 (SHIFT: reset), MATCH (key sync), KEY LOCK
       const name = keyName(d.curKey);
@@ -2192,6 +2206,11 @@ function padPress(s, k, down, e, el) {
     (d.runArrowHeld ??= [])[k] = down;
     if (down) shiftRun(d.mode, arrow);
     return;
+  }
+  if (d.mode === "roll" && live) {
+    const noSlip = down && !!d.shift !== !!S.rollNoSlip;
+    if (down && d.shift) { shiftUsed(d); paintSide(s); }
+    if (noSlip || d.dry?.some(h => h.k === k)) { dryRoll(d, k, down); paintSide(s); return; }
   }
   if (d.mode === "roll" && (d.rollHeld?.[k] || down && !runIsMapped())) {   // a roll the mapping's pads don't have
     const size = (d.rollHeld ??= [])[k] || runSizes("roll")[k];
