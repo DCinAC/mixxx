@@ -2609,16 +2609,7 @@ function drawStripWave(u, d, start, sec) {
   if (u.trackTr !== tr) { u.trackTr = tr; u.track.style.transform = tr; }
   drawSlipGhost(u, d, base, f, dpr, H, sec, now);
 }
-// The slip position (the hub's, every 40 ms while it differs from the deck's; controller mode: Mixxx ZyDeck's control,
-// sent when it changes, and 0 when it's over, so a paused deck's goes quiet and stays), run on between readings at the
-// deck's speed; a reading nearby is eased into, one far off (a loop let go of) is followed.
-function slipModel(d, now) { return d.slipP + (d.playing ? d.ratio || 1 : 0) * (now - d.slipAt) / 1000; }
-function onSlip(d, p) {
-  const now = performance.now();
-  if (p == null || !(d.dur > 0)) { d.slipAt = undefined; return; }
-  const t = p * d.dur, model = d.slipAt === undefined ? t : slipModel(d, now);
-  d.slipP = Math.abs(t - model) > .15 ? t : model + (t - model) * .3; d.slipAt = now;
-}
+const { slipModel, onSlip } = ZydeckPos;
 // Mixxx's slip ghost: the top half, black, the waveform at the slip position drawn one-sided (the top half of
 // the deck's tiles, from the centre line up), with its beats and cue marks, in the blinking outline.
 function drawSlipGhost(u, d, base, f, dpr, H, sec, now) {
@@ -3323,6 +3314,7 @@ function applyCv(name, v, ts) {
   }
 }
 
+const slipSubs = () => [1, 2, 3, 4].map(n => [ch(n), "zydeck_slip_seconds", 0]);   // (the computer's slip; here: the hub's "slip")
 function subscribeAll() {
   const sub = [];
   for (const u of [1, 2]) {   // the FX panel's units
@@ -3335,10 +3327,10 @@ function subscribeAll() {
       "loop_start_position", "loop_end_position", "track_samples", "cue_point",
       ...[1, 2, 3, 4, 5, 6, 7, 8].map(k => `hotcue_${k}_position`)]) sub.push([ch(n), k, 0]);
     sub.push([ch(n), "playposition", 1]);                  // polled ~30/s
-    if (REMOTE.on) sub.push([ch(n), "zydeck_slip_seconds", 0]);   // (the computer's slip; here: the hub's "slip")
     for (const f of ["vol", "gain", "high", "mid", "low", "filter"]) sub.push([...MIXER[f](n), 2]);
   }
   for (const k of Object.values(MAIN)) sub.push([MAIN_GROUP, k, 2]);
+  if (REMOTE.on) sub.push(...slipSubs());
   sub.push(["[App]", "output_latency_ms", 0]);   // (controller mode: the computer's sound delay, useRemoteLat)
   sub.push(["[App]", "audio_latency_overload_count", 0]);   // (its sound's dropouts: the profiler counts them)
   for (let n = 1; n <= samplers.length; n++) sub.push([`[Sampler${n}]`, "sync_enabled", 0], [`[Sampler${n}]`, "keylock", 0]);
@@ -3402,6 +3394,7 @@ function onRemote(r) {
   const was = REMOTE;
   REMOTE = r;
   useRemoteLat();
+  if (live && r.live && !was.live) mxSend({ sub: slipSubs() });
   if (live) topNote.textContent = liveText();
   if (r.on !== was.on || r.http !== was.http || r.computer !== was.computer) loadFxNames();   // (whose effects)
   if (r.via === "wifi" && was.via === "usb") toast("Cable out: carrying on over Wi-Fi");

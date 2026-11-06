@@ -157,6 +157,17 @@
     }
   }
 
-  window.ZydeckPos = { hubTime, posSeed, posModel, posAt, posUpdate, posStop, posVisual, waveColumns, clockSync, clockStart,
+  // The slip position (the hub's, every 40 ms while it differs from the deck's; controller mode: Mixxx ZyDeck's control,
+  // sent when it changes, and 0 when it's over, so a paused deck's goes quiet and stays), run on between readings at the
+  // deck's speed; a reading nearby is eased into, one far off (a loop let go of) is followed.
+  function slipModel(d, now) { return d.slipP + (d.playing ? d.ratio || 1 : 0) * (now - d.slipAt) / 1000; }
+  function onSlip(d, p) {
+    const now = performance.now();
+    if (p == null || !(d.dur > 0)) { d.slipAt = undefined; return; }
+    const t = p * d.dur, model = d.slipAt === undefined ? t : slipModel(d, now);
+    d.slipP = Math.abs(t - model) > .15 ? t : model + (t - model) * .3; d.slipAt = now;
+  }
+
+  window.ZydeckPos = { slipModel, onSlip, hubTime, posSeed, posModel, posAt, posUpdate, posStop, posVisual, waveColumns, clockSync, clockStart,
     clockPong, setLatency, ahead };
 })();

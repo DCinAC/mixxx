@@ -949,6 +949,7 @@ function applyCv(k, v, ts) {
     }
     case "duration": d.dur = v; break;
     case "rate_ratio": d.ratio = v || 1; break;
+    case "zydeck_slip_seconds": ZydeckPos.onSlip(d, v && d.dur > 0 ? v / d.dur : null); break;   // (the computer's: 0, not slipping)
     case "playposition": posUpdate(d, v * d.dur, performance.now(), ts); break;
     case "track_samples": d.trackSamples = v; break;
     case "cue_point": d.mainCue = v; break;
@@ -969,6 +970,7 @@ function linkText() {
 function onRemote(r) {
   const was = remote;
   remote = r;
+  if (r.live && !was.live && ws?.readyState === 1) wsSend({ sub: slipSubs() });
   document.body.classList.toggle("remote", !!r.on);
   const lib = !!r.on && !!r.http, hadLib = !!was.on && !!was.http;
   document.body.classList.toggle("remotelib", lib);
@@ -1009,6 +1011,7 @@ function paintCtlMode() {
   box.querySelector(".off").addEventListener("click", () => api("/api/controller?on=0").catch(() => {}));
 }
 
+const slipSubs = () => [1, 2, 3, 4].map(n => [`[Channel${n}]`, "zydeck_slip_seconds", 0]);   // (the computer's slip; here: the hub's "slip")
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   const sock = ws;
@@ -1047,12 +1050,14 @@ function connect() {
       }
       for (const k of ["play", "track_loaded", "duration"]) sub.push(["[PreviewDeck1]", k, 0]);
       sub.push(["[PreviewDeck1]", "playposition", 1]);
+      if (remote.on) sub.push(...slipSubs());
       mixCtl.forEach((c, k) => { const [g, key] = k.split(/,(?=[^,]*$)/); sub.push([g, key, c.kind]); });
       wsSend({ sub });
       showLink();
       return;
     }
     if (m.t === "cv") applyCv(m.k, m.v, m.ts);
+    else if (m.t === "slip" && decks[m.d]) ZydeckPos.onSlip(decks[m.d], m.p);
     else if (m.t === "cue" && decks[m.d] && m.k < 8) decks[m.d].cueColors[m.k] = m.v ? m.v - 1 : null;   // hot cue colour + 1
     else if (m.t === "dn" && decks[m.d]) onDeckName(decks[m.d], m.n);
     else if (m.t === "wf") wfReady(m.id);   // a deck's waveform is analysed
@@ -1378,7 +1383,12 @@ function drawZoom(p, d) {
   const c = p.zCanvas;
   sizeCanvas(c);
   const W = c.width, H = c.height, wf = d.wf, pxPerSec = W / ZOOM_SECONDS;
-  const left = Math.round((d.pos - ZOOM_SECONDS / 2) * pxPerSec), key = `${d.n}|${d.wfVer}|${d.beatsVer || 0}|${d.strVer || 0}|${cueSig(d)}|${left}|${W}|${H}`;
+  const left = Math.round((d.pos - ZOOM_SECONDS / 2) * pxPerSec), now = performance.now();
+  // Mixxx's slip ghost, as the deck view's: the top half, black, the track where it would have got to, in a blinking outline
+  const slipping = d.slipAt !== undefined && (remote.on || now - d.slipAt < 1000);
+  const slipLeft = slipping ? Math.round((ZydeckPos.slipModel(d, now) - LAT * (d.playing ? d.ratio || 1 : 0) - ZOOM_SECONDS / 2) * pxPerSec) : null;
+  const blink = slipping ? Math.round((Math.cos(now / 800 * Math.PI) + 1) * 4) : 0;
+  const key = `${d.n}|${d.wfVer}|${d.beatsVer || 0}|${d.strVer || 0}|${cueSig(d)}|${left}|${W}|${H}|${slipLeft}|${blink}`;
   if (p.zKey === key) return;
   p.zKey = key;
   const g = c.getContext("2d");
@@ -1386,7 +1396,23 @@ function drawZoom(p, d) {
   if (!wf) { drawBeats(g, d, pxPerSec, left, ZOOM_SECONDS * pxPerSec, H); drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H); return; }
   drawSectionTint(g, d, pxPerSec, left, W, H);
   drawBeats(g, d, pxPerSec, left, ZOOM_SECONDS * pxPerSec, H);   // (behind the wave)
-  const tkey = `${d.n}|${d.wfVer}|${W}|${H}`;
+  drawZoomWave(p, d, g, left, W, H, pxPerSec);
+  drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H);
+  drawSectionTags(g, d, pxPerSec, left, W, H, true);
+  if (slipLeft == null) return;
+  const half = Math.ceil(H / 2), edge = Math.max(2, Math.round(devicePixelRatio));
+  g.save();
+  g.beginPath(); g.rect(0, 0, W, half); g.clip();
+  g.fillStyle = "#000"; g.fillRect(0, 0, W, half);
+  drawBeats(g, d, pxPerSec, slipLeft, ZOOM_SECONDS * pxPerSec, H);
+  drawZoomWave(p, d, g, slipLeft, W, H, pxPerSec);
+  drawCueMarks(g, cueMarks(d), pxPerSec, slipLeft, W, H);
+  g.restore();
+  g.fillStyle = `rgba(224,224,224,${(.25 + blink / 8 * .5).toFixed(3)})`;
+  g.fillRect(0, 0, W, edge); g.fillRect(0, half, W, edge); g.fillRect(0, 0, edge, half); g.fillRect(W - edge, 0, edge, half);
+}
+function drawZoomWave(p, d, g, left, W, H, pxPerSec) {
+  const wf = d.wf, tkey = `${d.n}|${d.wfVer}|${W}|${H}`;
   if (p.tileKey !== tkey) { p.tileKey = tkey; p.tiles = new Map(); }
   for (let t = Math.floor(left / TILE); t * TILE < left + W; t++) {
     if (t < 0 || t * TILE / pxPerSec > wf.n / wf.rate) continue;
@@ -1404,12 +1430,10 @@ function drawZoom(p, d) {
         tg.fillRect(x, H / 2 - hh, 1, hh * 2);
       }
       p.tiles.set(t, tile);
-      if (p.tiles.size > 8) p.tiles.delete(p.tiles.keys().next().value);
+      if (p.tiles.size > 12) p.tiles.delete(p.tiles.keys().next().value);   // (the ghost's too)
     }
     g.drawImage(tile, t * TILE - left, 0);
   }
-  drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H);
-  drawSectionTags(g, d, pxPerSec, left, W, H, true);
 }
 // Play position between Mixxx's updates, and where to draw it: zydeck-position.js (the same as the deck page and
 // the calibration page draw by)
