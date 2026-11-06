@@ -549,7 +549,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1 };
+const DEFAULTS = { revs: 1, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1 };
 const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
@@ -1200,7 +1200,7 @@ function buildStrip(s, u) {
   drag(u.strip, {
     // Grab like vinyl: touching holds the record and the waveform under the finger follows it 1:1
     // (the waveform rolls past a fixed cursor, so moving the finger left plays forward).
-    down: e => { const d = deckOf(s); d.grabbed = true; d.coast = false; d.vel = 0; d.easeMs = 0; d.slipStep = undefined; u.strip.classList.add("held"); send("scratchOn", d.n);
+    down: e => { const d = deckOf(s); d.grabbed = true; d.coast = false; d.vel = 0; d.easeMs = 0; d.slipStep = undefined; d.spin = 0; u.strip.classList.add("held"); send("scratchOn", d.n);
       // held, Mixxx stops, and says nothing more until the track moves again: the model of where it is stops here too
       // (left alone it ran on a quarter of a second past the last report, and the waveform rushed after it on release)
       posSeed(d, d.pos, 0, performance.now());
@@ -1233,7 +1233,8 @@ function buildStrip(s, u) {
       const flung = span > sr.width * .5 && span / Math.max(1, now - k.t) * 1000 > sr.width;
       if ((!flung && (e.clientX < sr.left || e.clientX > sr.right)) || e.clientY < sr.top || e.clientY > sr.bottom) d.easeMs = 150;
       latTrace(e.type === "pointercancel" ? "c" : "u", s, Math.round(d.vel * 100) / 100);
-      d.coast = S.catchup > 0 || d.easeMs > 0;
+      d.spin = spinFor(d);
+      d.coast = S.catchup > 0 || d.easeMs > 0 || d.spin > 0;
       // Let go from where the cursor is: Mixxx's record stopped ~0.1 s past it (the cursor shows what you
       // heard, and the record slides on a moment after the grab), and would play on from there, skipping it
       // (with quantize on, Mixxx keeps a playing deck's beat phase through a seek, which put it right back:
@@ -2345,12 +2346,16 @@ const posAt = (d, now) => ZydeckPos.posAt(d, now, latNow());   // what to draw n
 // steady rate (S.catchup ms per 1x of speed) until it matches the platter's, then the two lock together.
 // With the motor stopped the platter is braked, and the record slows to a stop the same way.
 // d.easeMs (lifted off outside the strip): reach the platter's speed in that time instead.
+// d.spin (a fast throw, back or forward): it runs down at its own rate, Back spin length's as rekordbox's, and the
+// slipmat takes over for the last 1x, however the grip is set.
+const SPIN_MS = { short: 90, normal: 180, long: 360 }, SPIN_FROM = 2;   // ms per 1x of speed; how far off the platter's a throw is
+const spinFor = d => !d.easeMs && Math.abs(d.vel - (d.playing ? d.ratio || 1 : 0)) > SPIN_FROM ? SPIN_MS[S.spinLength] ?? SPIN_MS.normal : 0;
 function slip(d, target, dt) {
   if (d.easeMs) d.slipStep ??= Math.abs(target - d.vel) / d.easeMs;
-  const perMs = d.easeMs ? d.slipStep : S.catchup > 0 ? 1 / S.catchup : Infinity;
+  const perMs = d.easeMs ? d.slipStep : d.spin && Math.abs(target - d.vel) > 1 ? 1 / d.spin : S.catchup > 0 ? 1 / S.catchup : Infinity;
   const step = dt * 1000 * perMs;
   d.vel = Math.abs(target - d.vel) <= step ? target : d.vel + Math.sign(target - d.vel) * step;
-  if (d.vel === target) { d.easeMs = 0; d.slipStep = undefined; }
+  if (d.vel === target) { d.easeMs = 0; d.slipStep = undefined; d.spin = 0; }
   return d.vel;
 }
 // Scratching the computer's Mixxx (controller mode): Mixxx is sent how far the platter turns (ticks, as a jog wheel),

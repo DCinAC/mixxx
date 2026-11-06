@@ -338,6 +338,8 @@
       fmt: v => `${Math.round(v * 100)} %`, desc: "How much the nudge bars bend the speed: lower is finer." },
     { id: "catchup", sec: "touch", name: "Slipmat grip", kind: "slider", min: 0, max: 800, step: 10, ...C("catchup", 180),
       fmt: v => +v ? `${v} ms` : "Off", desc: "After you let go, the time from a standstill back to full speed." },
+    { id: "spinlen", sec: "touch", name: "Back spin length", kind: "seg", opts: () => [["short", "Short"], ["normal", "Normal"], ["long", "Long"]], ...C("spinLength", "normal"),
+      desc: "How long the record keeps spinning after a fast throw, back or forward, as rekordbox's setting. A gentle release follows Slipmat grip." },
     { id: "palm", sec: "touch", name: "Palm rejection", kind: "slider", min: 0, max: 30, step: 1, ...C("palm", 18), show: () => ctl() && !ctl().phone,
       fmt: v => +v ? `${v} mm` : "Off", desc: "Ignores touches wider than this." },
     // Controller › Screen
