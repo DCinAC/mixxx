@@ -637,6 +637,11 @@
   .wv.ending .tm7 { animation: endtime7 1s step-end infinite; }
   .wv.ending .endwarn { animation: endwarn 1s step-end infinite; }
   .wv.empty canvas, .wv.empty .cur, .wv.empty .played { visibility: hidden; }
+  /* the section it's in and the bars left in it, as the deck view's */
+  .wv .cursec { position: absolute; left: 4px; bottom: 5px; z-index: 3; display: flex; align-items: center; gap: 5px; padding-right: 5px; border-radius: 3px; background: rgba(0,0,0,.72);
+    font: 700 min(16cqh, 4cqw)/1.25 system-ui, sans-serif; font-variant-numeric: tabular-nums; color: var(--c); white-space: nowrap; }
+  .wv .cursec:empty { display: none; }
+  .wv .cursec i { font-style: normal; padding: 0 5px; border-radius: 3px; background: var(--c); color: #101010; }
   .wv .span { position: absolute; left: 50%; bottom: 3px; transform: translateX(-50%); z-index: 3; padding: 1px 8px; border-radius: 4px; background: rgba(0,0,0,.78);
     font: 700 15px/20px system-ui, sans-serif; color: #fff; white-space: nowrap; visibility: hidden; }
   .wv.spanon .span { visibility: visible; }
@@ -1151,11 +1156,11 @@ const shown = p => four || p.k < 2;
 // Big Wave (see its style): a row per deck, drawn as the panels' rolling waveforms are. (window.zydeckWaves: the deck view rests)
 const wavePanels = [2, 0, 1, 3].map(k => {
   const root = h("div", "wv", `<canvas></canvas><div class="played"></div><div class="cur"></div><div class="endwarn"></div>` +
-    `<div class="name"><b></b><span></span></div><div class="bars"></div><div class="span"></div>` +
+    `<div class="name"><b></b><span></span></div><div class="bars"></div><div class="cursec"></div><div class="span"></div>` +
     `<div class="tm7"><span class="s7"></span><span class="silk">:</span><span class="s7"></span></div>`);
   $("#wavekeys").before(root);
   return { k, root, zCanvas: root.querySelector("canvas"), num: root.querySelector("b"), title: root.querySelector(".name span"),
-    bars: root.querySelector(".bars"), span: root.querySelector(".span"), time7: root.querySelectorAll(".s7"), tiles: new Map(), tagMax: 13 * (devicePixelRatio || 1) };
+    bars: root.querySelector(".bars"), cursec: root.querySelector(".cursec"), span: root.querySelector(".span"), time7: root.querySelectorAll(".s7"), tiles: new Map(), tagOpts: { maxFs: 13 * (devicePixelRatio || 1), sticky: false } };
 });
 function setWaves(on) {
   window.zydeckWaves = on;
@@ -1465,7 +1470,7 @@ function drawZoom(p, d) {
   drawBeats(g, d, pxPerSec, left, W, H);   // (behind the wave)
   drawZoomWave(p, d, g, left, W, H, pxPerSec);
   drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H);
-  drawSectionTags(g, d, pxPerSec, left, W, H, true, true, p.tagMax);
+  drawSectionTags(g, d, pxPerSec, left, W, H, true, true, p.tagOpts);
   if (slipLeft == null) return;
   const half = Math.ceil(H / 2), edge = Math.max(2, Math.round(devicePixelRatio));
   g.save();
@@ -1525,6 +1530,13 @@ function wavesFrame(now) {
     seg7(p.time7[1], left != null ? String(left % 60).padStart(2, "0") : "", 2);
     const bars = d.loaded && d.dur > 0 ? barsBetween(d, d.pos, d.dur) : NaN, text = bars >= 0 ? fmtBarsLeft(bars) : "";
     if (p.bars.textContent !== text) p.bars.textContent = text;
+    const sc = d.loaded ? d.sections?.[sectionAt(d.sections, d.pos)] : null, inSec = sc ? barsBetween(d, d.pos, sc.e) : NaN;
+    const cursec = sc ? `<i>${esc(sc.letter + " " + sc.label)}</i>${inSec >= 0 ? fmtBarsLeft(inSec) + " bars" : ""}` : "";
+    if (p.cursecText !== cursec) {
+      p.cursecText = cursec;
+      p.cursec.innerHTML = cursec;
+      p.cursec.style.setProperty("--c", sc ? SECTION_COLORS[sc.label] || "#888" : "");
+    }
     p.seconds = waveSeconds;
     if (d.loaded) drawZoom(p, d);
     const spanOn = now < waveSpanUntil;
