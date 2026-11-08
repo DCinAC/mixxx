@@ -864,7 +864,10 @@ const wsSend = m => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m));
 function onDeckName(d, n) {
   d.title = n ? n.t : ""; d.artist = n ? n.a : "";
   const id = n ? n.id : null;
-  if (id !== d.wfFor) { loadWaveform(d, id); loadStructure(d, null); loadBeats(d, id); }   // (its structure follows its beats)
+  if (id !== d.wfFor) {
+    loadWaveform(d, id); loadStructure(d, null); loadBeats(d, id);   // (its structure follows its beats)
+    if (remote.on) fitsChanged(d);
+  }
   else if (remote.on && id && (n.g ?? null) !== d.gridSig) loadBeats(d, id, true);   // the computer's grid edited
   d.gridSig = n?.g ?? null;
 }
@@ -948,7 +951,9 @@ function applyCv(k, v, ts) {
       break;
     }
     case "duration": d.dur = v; break;
-    case "rate_ratio": d.ratio = v || 1; break;
+    case "rate_ratio": d.ratio = v || 1; fitsMoved(d); break;
+    case "key": d.key = v; fitsMoved(d); break;
+    case "file_bpm": d.fileBpm = v; fitsMoved(d); break;
     case "zydeck_slip_seconds": ZydeckPos.onSlip(d, v && d.dur > 0 ? v / d.dur : null); break;   // (the computer's: 0, not slipping)
     case "playposition": posUpdate(d, v * d.dur, performance.now(), ts); break;
     case "track_samples": d.trackSamples = v; break;
@@ -970,7 +975,7 @@ function linkText() {
 function onRemote(r) {
   const was = remote;
   remote = r;
-  if (r.live && !was.live && ws?.readyState === 1) wsSend({ sub: slipSubs() });
+  if (r.live && !was.live && ws?.readyState === 1) wsSend({ sub: computerSubs() });
   document.body.classList.toggle("remote", !!r.on);
   const lib = !!r.on && !!r.http, hadLib = !!was.on && !!was.http;
   document.body.classList.toggle("remotelib", lib);
@@ -1011,7 +1016,8 @@ function paintCtlMode() {
   box.querySelector(".off").addEventListener("click", () => api("/api/controller?on=0").catch(() => {}));
 }
 
-const slipSubs = () => [1, 2, 3, 4].map(n => [`[Channel${n}]`, "zydeck_slip_seconds", 0]);   // (the computer's slip; here: the hub's "slip")
+// (the computer's slip, here the hub's "slip"; its decks' key and tempo, for what fits them: the hub knows its own)
+const computerSubs = () => [1, 2, 3, 4].flatMap(n => ["zydeck_slip_seconds", "key", "file_bpm"].map(k => [`[Channel${n}]`, k, 0]));
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   const sock = ws;
@@ -1050,7 +1056,7 @@ function connect() {
       }
       for (const k of ["play", "track_loaded", "duration"]) sub.push(["[PreviewDeck1]", k, 0]);
       sub.push(["[PreviewDeck1]", "playposition", 1]);
-      if (remote.on) sub.push(...slipSubs());
+      if (remote.on) sub.push(...computerSubs());
       mixCtl.forEach((c, k) => { const [g, key] = k.split(/,(?=[^,]*$)/); sub.push([g, key, c.kind]); });
       wsSend({ sub });
       showLink();
@@ -1481,6 +1487,22 @@ function fitsChanged(d) {
   clearTimeout(fitsTimer);
   fitsTimer = setTimeout(() => { loadViews(); if (view === `fits:${d.n}`) loadTracks(); }, 400);
 }
+// Controller mode: ZyDeck Connect can't see the decks, so the page says what to fit: the key and tempo the computer's
+// deck plays at now, and the track to leave out (as the hub works out fits:N for its own).
+const fitsNow = d => ({ key: Math.round(d.key || 0), bpm: (d.fileBpm || 0) * (d.ratio || 1) });
+function askedView() {
+  const m = /^fits:(\d)$/.exec(view);
+  if (!m || !onComputer()) return view;
+  const d = decks[m[1] - 1], now = d.fitsAsked = fitsNow(d);
+  return `fits:${now.key}:${now.bpm.toFixed(2)}:${d.wfFor || 0}`;
+}
+// The key or tempo arrive after the track, and can change: the list follows, past a small move of the tempo.
+function fitsMoved(d) {
+  const a = d.fitsAsked;
+  if (!a || !remote.on || view !== `fits:${d.n}`) return;
+  const now = fitsNow(d);
+  if (now.key !== a.key || Math.abs(now.bpm - a.bpm) > a.bpm * .02) fitsChanged(d);
+}
 async function loadViews() {
   let v;
   try { v = await api("/api/library/views"); } catch (e) { $("#libnote").innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
@@ -1491,7 +1513,7 @@ async function loadViews() {
     ...v.history.slice(0, 6).map(p => [`playlist:${p.id}`, `Set ${p.name}`, p.count])];
   // What fits next: tracks in a key that mixes with the deck's (as it plays now, key shift included) and
   // within 6 % of its tempo (or half / double time). One chip per loaded deck.
-  const fits = remote.on ? [] : decks.filter(d => (d.n <= 2 || four) && (d.loaded || view === `fits:${d.n}`)).map(d => [`fits:${d.n}`, `Fits deck ${d.n}`, ""]);
+  const fits = remote.on && !remote.http ? [] : decks.filter(d => (d.n <= 2 || four) && (d.loaded || view === `fits:${d.n}`)).map(d => [`fits:${d.n}`, `Fits deck ${d.n}`, ""]);
   chips.splice(1, 0, ...fits, ...(v.autodj ? [[`playlist:${v.autodj.id}`, "Auto DJ", v.autodj.count]] : []));
   adjView = v.autodj ? `playlist:${v.autodj.id}` : null;
   if (!chips.some(c => c[0] === view)) view = "all";
@@ -1710,7 +1732,7 @@ async function loadTracks(more = false) {
   const seq = more ? libSeq : ++libSeq, q = $("#q").value.trim(), sort = queue ? "added" : $("#sort").value, offset = more ? libShown : 0;
   let list;
   libBusy = true;
-  try { list = await api(`/api/library/tracks?${qs({ q, view, sort, limit: PAGE, offset, genre: queue ? "" : genre })}`); list = Array.isArray(list) ? list : list.tracks || []; }
+  try { list = await api(`/api/library/tracks?${qs({ q, view: askedView(), sort, limit: PAGE, offset, genre: queue ? "" : genre })}`); list = Array.isArray(list) ? list : list.tracks || []; }
   catch (e) { $("#libnote").innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
   finally { libBusy = false; }
   if (seq !== libSeq) return;

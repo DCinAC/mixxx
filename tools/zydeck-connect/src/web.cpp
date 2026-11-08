@@ -373,7 +373,8 @@ QJsonObject Web::library(Library* library, const QString& what, const QUrlQuery&
     }
     if (what == QLatin1String("library/tracks")) {
         const QString view = arg("view").isEmpty() ? QStringLiteral("all") : arg("view");
-        if (view.startsWith(QLatin1String("fits:"))) {   // (what fits a deck: the device's own decks only)
+        // what fits a deck: the page says its key, tempo and track (fits:<key>:<bpm>:<id>); a page from before that, fits:<deck>
+        if (view.startsWith(QLatin1String("fits:")) && view.count(QLatin1Char(':')) < 3) {
             return {{"tracks", QJsonArray()}};
         }
         if (view == QLatin1String("played")) {   // the play history, newest first

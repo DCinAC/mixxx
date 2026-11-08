@@ -2996,8 +2996,10 @@ ZydeckMenu.provide("controller", {
 });
 
 // Browsers only allow fullscreen from a touch, so the first touch anywhere enters it (and locks landscape).
+// Not in the app: it has the whole screen already, and turning the device there brings up the library.
+const IN_APP = (() => { try { return !!(window.ZydekAndroid || parent.ZydekAndroid); } catch { return false; } })();
 addEventListener("pointerdown", () => {
-  if (!S.autoFs || fsPaused || document.fullscreenElement) return;
+  if (IN_APP || !S.autoFs || fsPaused || document.fullscreenElement) return;
   document.documentElement.requestFullscreen({ navigationUI: "hide" })
     .then(() => screen.orientation?.lock?.("landscape").catch(() => {}))
     .catch(() => {});
