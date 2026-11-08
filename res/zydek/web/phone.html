@@ -613,7 +613,7 @@
     body > header, body > main, body > nav, #toast { visibility: hidden; }
   }
   /* Waves: only the four decks' rolling waveforms, top to bottom as Mixxx's (3 1 2 4), to look at beside Mixxx's big
-     library, either way up: the time left in seven segments, the bars left in the middle (its digits 40 % of the row; a narrow row: both smaller, side by side) */
+     library, either way up: the time left in seven segments at the upper right, the bars left at the top in the middle, over the wave (its digits 33 % of the row; a narrow row: smaller) */
   #waves { position: fixed; inset: 0; z-index: 90; display: none; flex-direction: column; gap: 2px; background: #000;
     padding: var(--safe-t) 0 var(--safe-b); box-sizing: border-box; }
   body.waves #waves { display: flex; }
@@ -627,9 +627,9 @@
   .wv.d34 .name b { color: var(--deck34); }
   .wv.playing .name b::after { content: " ▶"; color: var(--play); font-size: 9px; }
   .wv .name span { overflow: hidden; text-overflow: ellipsis; }
-  .wv .bars { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; font: 700 min(55cqh, 10cqw)/1 system-ui, sans-serif;
+  .wv .bars { position: absolute; left: 50%; top: 0; transform: translateX(-50%); z-index: 3; font: 700 min(45.3cqh, 10cqw)/1 system-ui, sans-serif;
     font-variant-numeric: tabular-nums; color: #fff; -webkit-text-stroke: .07em #000; paint-order: stroke fill; white-space: nowrap; pointer-events: none; }
-  .wv .tm7 { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); z-index: 3; display: flex; align-items: flex-end; gap: 1px; padding: 3px 5px;
+  .wv .tm7 { position: absolute; right: 3px; top: 3px; z-index: 3; display: flex; align-items: flex-end; gap: 1px; padding: 3px 5px;
     border-radius: 4px; background: rgba(0,0,0,.72); }
   .wv .tm7 .s7 { --dh: min(36cqh, 6.5cqw); }
   .wv .tm7 .silk { font-size: min(30cqh, 5.4cqw); line-height: min(36cqh, 6.5cqw); }
@@ -637,7 +637,7 @@
   .wv.ending .tm7 { animation: endtime7 1s step-end infinite; }
   .wv.ending .endwarn { animation: endwarn 1s step-end infinite; }
   .wv.empty canvas, .wv.empty .cur, .wv.empty .played { visibility: hidden; }
-  #wavesx { position: absolute; right: 0; top: var(--safe-t); z-index: 4; width: 40px; height: 32px; min-height: 0; padding: 0; border: 0; background: none; color: #999; font-size: 18px; }
+  #wavesx { position: absolute; right: 0; bottom: var(--safe-b); z-index: 4; width: 40px; height: 32px; min-height: 0; padding: 0; border: 0; background: none; color: #999; font-size: 18px; }
   /* Starting up: dark (the intro, intro.html, ends dark) until the library and the decks are ready */
   #boot { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column; align-items: center;
     justify-content: flex-end; padding-bottom: 9vh; transition: opacity .4s; }
@@ -1503,7 +1503,7 @@ function wavesFrame(now) {
     const title = d.loaded ? (d.title || "Loaded") + (d.artist ? " · " + d.artist : "") : "Empty";
     if (p.title.textContent !== title) p.title.textContent = title;
     const left = d.loaded ? Math.max(0, Math.round((d.dur - d.pos) / (d.ratio || 1))) : null;
-    seg7(p.time7[0], left != null ? "-" + Math.floor(left / 60) : "", 3);
+    seg7(p.time7[0], left != null ? "-" + Math.floor(left / 60) : "", 2);   // (a third digit only from 10 minutes)
     seg7(p.time7[1], left != null ? String(left % 60).padStart(2, "0") : "", 2);
     const bars = d.loaded && d.dur > 0 ? barsBetween(d, d.pos, d.dur) : NaN, text = bars >= 0 ? fmtBarsLeft(bars) : "";
     if (p.bars.textContent !== text) p.bars.textContent = text;
