@@ -13,6 +13,8 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPainter>
+#include <QPainterPath>
+#include <QPen>
 #include <QPointer>
 #include <QTimer>
 #include <QTransform>
@@ -406,8 +408,10 @@ void PhraseRenderer::preprocess() {
 // ---- the bars left -----------------------------------------------------------------------------------------------
 namespace {
 
-constexpr int kCountHeightPx = 18;
+constexpr int kCountHeightPx = 18;   // the time left
 constexpr int kCountFontPx = 13;
+constexpr qreal kBarsScale = 1.2;    // the bars left, drawn this much bigger
+constexpr int kBarsHeightPx = 22;
 constexpr float kSectionMinBreadth = 48;   // a waveform lower than this: only the track's count
 constexpr double kSectionEndSlackSeconds = 0.05;   // a section's end is a beat's, to its rounding
 
@@ -416,7 +420,14 @@ QString barsText(int beats) {
     return beats <= 0 ? QStringLiteral("0.0") : QStringLiteral("-%1.%2").arg(beats / 4).arg(beats % 4);
 }
 
-// "[B Chorus] -3.2 bars" on a dark ground, so it reads over the wave. tag "": without the coloured part.
+void paintOutlined(QPainter* pPainter, const QFont& font, qreal x, qreal baseline, const QString& text, const QColor& color) {
+    QPainterPath path;
+    path.addText(x, baseline, font, text);
+    pPainter->strokePath(path, QPen(QColor(0, 0, 0, 235), 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    pPainter->fillPath(path, color);
+}
+
+// "[B Chorus] -3.2 bars", no ground: outlined, so it reads over the wave. tag "": without the coloured part.
 QImage countImage(const QString& tag, const QColor& color, const QString& count, float devicePixelRatio) {
     QFont number;
     number.setPixelSize(kCountFontPx);
@@ -425,34 +436,31 @@ QImage countImage(const QString& tag, const QColor& color, const QString& count,
     unit.setPixelSize(kTagFontPx);
     const QString bars = QStringLiteral(" bars");
     const qreal tagW = tag.isEmpty() ? 0 : tagWidth(tag) + 4;
-    const qreal numberW = QFontMetricsF(number).horizontalAdvance(count);
+    const QFontMetricsF metrics(number);
+    const qreal numberW = metrics.horizontalAdvance(count);
     const qreal unitW = QFontMetricsF(unit).horizontalAdvance(bars);
-    const qreal width = std::ceil(2 + tagW + 3 + numberW + unitW + 5);
-    QImage image(static_cast<int>(width * devicePixelRatio), static_cast<int>(kCountHeightPx * devicePixelRatio),
+    constexpr qreal kMargin = 2;   // room for the outline
+    const qreal width = std::ceil((2 * kMargin + tagW + numberW + unitW) * kBarsScale);
+    const qreal height = kBarsHeightPx / kBarsScale;
+    QImage image(static_cast<int>(width * devicePixelRatio), static_cast<int>(kBarsHeightPx * devicePixelRatio),
             QImage::Format_ARGB32_Premultiplied);
     image.setDevicePixelRatio(devicePixelRatio);
     image.fill(Qt::transparent);
     QPainter painter(&image);
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setRenderHint(QPainter::TextAntialiasing);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(0, 0, 0, 170));
-    painter.drawRoundedRect(QRectF(0, 0, width, kCountHeightPx), 3, 3);
-    qreal x = 2;
+    painter.scale(kBarsScale, kBarsScale);
+    qreal x = kMargin;
     if (!tag.isEmpty()) {
         Phrase phrase;
         phrase.tag = tag;
         phrase.color = color;
-        paintTag(&painter, QRectF(x, 1.5, tagW - 4, kTagHeightPx), phrase);
+        paintTag(&painter, QRectF(x, (height - kTagHeightPx) / 2, tagW - 4, kTagHeightPx), phrase);
         x += tagW;
     }
-    x += 3;
-    painter.setFont(number);
-    painter.setPen(Qt::white);
-    painter.drawText(QRectF(x, 0, numberW + 1, kCountHeightPx), Qt::AlignLeft | Qt::AlignVCenter, count);
-    painter.setFont(unit);
-    painter.setPen(QColor(190, 190, 190));
-    painter.drawText(QRectF(x + numberW, 0, unitW + 1, kCountHeightPx), Qt::AlignLeft | Qt::AlignVCenter, bars);
+    const qreal baseline = (height + metrics.ascent() - metrics.descent()) / 2;
+    paintOutlined(&painter, number, x, baseline, count, Qt::white);
+    paintOutlined(&painter, unit, x + numberW, baseline, bars, QColor(190, 190, 190));
     painter.end();
     return image;
 }
@@ -508,10 +516,10 @@ QImage timeImage(const QString& text, float devicePixelRatio) {
     return image;
 }
 
-void place(ImageNode* pNode, float x, float y, float width) {
+void place(ImageNode* pNode, float x, float y, float width, float height = kCountHeightPx) {
     pNode->geometry().allocate(6);
     TexturedVertexUpdater vertices{pNode->geometry().vertexDataAs<Geometry::TexturedPoint2D>()};
-    vertices.addRectangle({x, y}, {x + width, y + kCountHeightPx}, {0.f, 0.f}, {1.f, 1.f});
+    vertices.addRectangle({x, y}, {x + width, y + height}, {0.f, 0.f}, {1.f, 1.f});
     pNode->markDirtyGeometry();
 }
 
@@ -622,10 +630,10 @@ void BarsLeftRenderer::preprocess() {
     }
     // The track's, its right edge just left of the play cursor, as rekordbox (cue labels are right of their line)
     const float cursor = static_cast<float>(m_waveformRenderer->getPlayMarkerPosition() * length);
-    place(m_pTrack, std::max(0.f, cursor - widthOf(m_pTrack) - 3.f), top + 2.f, widthOf(m_pTrack));
+    place(m_pTrack, std::max(0.f, cursor - widthOf(m_pTrack) - 3.f), top + 2.f, widthOf(m_pTrack), kBarsHeightPx);
     // The section's, at the lower left
     if (section >= 0 && breadth >= kSectionMinBreadth) {
-        place(m_pSection, 4.f, breadth - kStripPx - kCountHeightPx - 1.f, widthOf(m_pSection));
+        place(m_pSection, 4.f, breadth - kStripPx - kBarsHeightPx - 1.f, widthOf(m_pSection), kBarsHeightPx);
     } else {
         hide(m_pSection);
     }
