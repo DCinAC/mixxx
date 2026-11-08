@@ -201,7 +201,10 @@
                         <TooltipId>visual_key</TooltipId>
                         <ObjectName>KeyTextSmall</ObjectName>
                         <Channel><Variable name="ChanNum"/></Channel>
-                        <Size>44min,23f</Size>
+                        <!-- ZyDeck: room for all of the key, "8A (Am)" -->
+                        <MinimumSize>44,23</MinimumSize>
+                        <MaximumSize>80,23</MaximumSize>
+                        <SizePolicy>me,f</SizePolicy>
                         <Alignment>center</Alignment>
                         <Elide>right</Elide>
                         <Connection>

@@ -204,5 +204,9 @@
       <ConfigKey persist="true">[Skin],show_rate_controls_compact</ConfigKey>
       <BindProperty>highlight</BindProperty>
     </Connection>
+    <Connection><!-- ZyDeck: the skin menu's "Buttons &amp; Tempo Fader" -->
+      <ConfigKey persist="true">[Skin],zydeck_show_deck_buttons</ConfigKey>
+      <BindProperty>visible</BindProperty>
+    </Connection>
   </WidgetGroup><!-- DeckRow_5_Compact -->
 </Template>

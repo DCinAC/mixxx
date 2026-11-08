@@ -93,6 +93,9 @@ WaveformWidget::WaveformWidget(QWidget* parent,
                 addRendererNode<WaveformRenderMark>(
                         ::WaveformRendererAbstract::Slip));
     }
+#ifdef __ZYDECK__   // ZyDeck: the bars left (zydeck/phrases.h), over the rest
+    pOpacityNode->appendChildNode(addRendererNode<zydeck::BarsLeftRenderer>());
+#endif
 
     m_initSuccess = init();
 

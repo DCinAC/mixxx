@@ -595,6 +595,10 @@ WTrackProperty[selected="true"],
   #DeckMini_TitlePlayPosKeyBPM {
     margin: 1px 1px 1px 0px;
   }
+  /* ZyDeck: as style_classic.qss has it. WKey draws in its stylesheet box: with no box rule, nothing shows */
+  #KeyTextSmall {
+    padding: 0px 1px 0px 0px;
+  }
 
 #DeckRow_1_KeyVinylFx {
   padding-right: 2px;

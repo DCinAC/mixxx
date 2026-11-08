@@ -269,6 +269,10 @@
                 </Connection>
               </WidgetGroup><!-- RateButtons for different rate directions -->
             </Children>
+            <Connection><!-- ZyDeck: the skin menu's "Buttons &amp; Tempo Fader" -->
+              <ConfigKey persist="true">[Skin],zydeck_show_deck_buttons</ConfigKey>
+              <BindProperty>visible</BindProperty>
+            </Connection>
           </WidgetGroup><!-- RateControls -->
 
           <WidgetGroup><Size>0min,0me</Size></WidgetGroup>
