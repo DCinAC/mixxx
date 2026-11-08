@@ -37,10 +37,10 @@ function drawSectionTint(g, d, pxPerSec, left, W, H, alpha = .2) {
 }
 // names: "B Pre-Chorus" (else just "B", where it fits); tags: false draws only the strip (the deck page's waveform,
 // whose start lines and tags are its own, unstretched by the tempo)
-function drawSectionTags(g, d, pxPerSec, left, W, H, names, tags = true) {
+function drawSectionTags(g, d, pxPerSec, left, W, H, names, tags = true, maxFs = Infinity) {
   const secs = d.sections;
   if (!secs) return;
-  const dpr = devicePixelRatio || 1, bar = Math.max(2, Math.round(2 * dpr)), fs = Math.max(Math.round(9 * dpr), Math.round(H * .3));
+  const dpr = devicePixelRatio || 1, bar = Math.max(2, Math.round(2 * dpr)), fs = Math.min(maxFs, Math.max(Math.round(9 * dpr), Math.round(H * .3)));
   g.font = `bold ${fs}px sans-serif`; g.textBaseline = "top"; g.textAlign = "left";
   let first = true;
   secs.forEach((s, i) => {

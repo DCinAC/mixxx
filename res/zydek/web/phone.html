@@ -612,6 +612,32 @@
     #deckview { visibility: visible; }
     body > header, body > main, body > nav, #toast { visibility: hidden; }
   }
+  /* Waves: only the four decks' rolling waveforms, top to bottom as Mixxx's (3 1 2 4), to look at beside Mixxx's big
+     library, either way up: the time left in seven segments, the bars left in the middle (its digits 40 % of the row; a narrow row: both smaller, side by side) */
+  #waves { position: fixed; inset: 0; z-index: 90; display: none; flex-direction: column; gap: 2px; background: #000;
+    padding: var(--safe-t) 0 var(--safe-b); box-sizing: border-box; }
+  body.waves #waves { display: flex; }
+  .wv { position: relative; flex: 1 1 0; min-height: 0; background: #101010; overflow: hidden; container-type: size; }
+  .wv canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .wv .played { position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background: rgba(0,0,0,.45); }
+  .wv .cur { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: var(--acc); }
+  .wv .name { position: absolute; left: 4px; top: 3px; max-width: 42%; display: flex; gap: 5px; padding: 0 4px; border-radius: 3px; background: rgba(0,0,0,.6);
+    font-size: 12px; line-height: 16px; color: #ddd; white-space: nowrap; overflow: hidden; z-index: 3; }
+  .wv .name b { flex: none; color: var(--deck12); }
+  .wv.d34 .name b { color: var(--deck34); }
+  .wv.playing .name b::after { content: " ▶"; color: var(--play); font-size: 9px; }
+  .wv .name span { overflow: hidden; text-overflow: ellipsis; }
+  .wv .bars { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; font: 700 min(55cqh, 10cqw)/1 system-ui, sans-serif;
+    font-variant-numeric: tabular-nums; color: #fff; -webkit-text-stroke: .07em #000; paint-order: stroke fill; white-space: nowrap; pointer-events: none; }
+  .wv .tm7 { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); z-index: 3; display: flex; align-items: flex-end; gap: 1px; padding: 3px 5px;
+    border-radius: 4px; background: rgba(0,0,0,.72); }
+  .wv .tm7 .s7 { --dh: min(36cqh, 6.5cqw); }
+  .wv .tm7 .silk { font-size: min(30cqh, 5.4cqw); line-height: min(36cqh, 6.5cqw); }
+  .wv .tm7 .s7 .on { opacity: var(--tlit); }
+  .wv.ending .tm7 { animation: endtime7 1s step-end infinite; }
+  .wv.ending .endwarn { animation: endwarn 1s step-end infinite; }
+  .wv.empty canvas, .wv.empty .cur, .wv.empty .played { visibility: hidden; }
+  #wavesx { position: absolute; right: 0; top: var(--safe-t); z-index: 4; width: 40px; height: 32px; min-height: 0; padding: 0; border: 0; background: none; color: #999; font-size: 18px; }
   /* Starting up: dark (the intro, intro.html, ends dark) until the library and the decks are ready */
   #boot { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column; align-items: center;
     justify-content: flex-end; padding-bottom: 9vh; transition: opacity .4s; }
@@ -634,7 +660,7 @@
 <div id="boot"><div class="st" id="boot-st"></div></div>
 <header id="decks">
   <div id="dkbez"><div id="dk2"></div><div id="dk0"></div><div id="dk1"></div><div id="dk3"></div></div>
-  <div id="deckbar"><span id="link">connecting…</span><button id="four">4 Decks</button></div>
+  <div id="deckbar"><span id="link">connecting…</span><button id="wavesbtn">Waves</button><button id="four">4 Decks</button></div>
 </header>
 
 <main>
@@ -714,6 +740,7 @@
 </div>
 <div id="pv"><span></span><button id="pvstop">Stop preview</button></div>
 <iframe id="deckview" title="Decks"></iframe>
+<div id="waves"><button id="wavesx" aria-label="Close">✕</button></div>
 <script>
   // a tablet gets the tablet controller, a phone the phone layout (smallest side under 600 CSS px)
   document.getElementById("deckview").src = Math.min(screen.width, screen.height) >= 600 ? "/controller" : "/controller?phone=1";
@@ -1115,6 +1142,21 @@ const panels = [0, 1, 2, 3].map(k => {
 });
 const deckFor = p => decks[p.k];
 const shown = p => four || p.k < 2;
+// Waves (see its style): a row per deck, drawn as the panels' rolling waveforms are. (window.zydeckWaves: the deck view rests)
+const wavePanels = [2, 0, 1, 3].map(k => {
+  const root = h("div", "wv", `<canvas></canvas><div class="played"></div><div class="cur"></div><div class="endwarn"></div>` +
+    `<div class="name"><b></b><span></span></div><div class="bars"></div>` +
+    `<div class="tm7"><span class="s7"></span><span class="silk">:</span><span class="s7"></span></div>`);
+  $("#waves").appendChild(root);
+  return { k, root, zCanvas: root.querySelector("canvas"), num: root.querySelector("b"), title: root.querySelector(".name span"),
+    bars: root.querySelector(".bars"), time7: root.querySelectorAll(".s7"), tiles: new Map(), tagMax: 13 * (devicePixelRatio || 1) };
+});
+function setWaves(on) {
+  window.zydeckWaves = on;
+  document.body.classList.toggle("waves", on);
+}
+$("#wavesbtn").addEventListener("click", () => setWaves(true));
+$("#wavesx").addEventListener("click", () => setWaves(false));
 // ---------------------------------------------------------------------------------------------------
 // Mixer tab: each deck's channel strip (GAIN, the EQ's HIGH / MID / LOW, FILTER, the headphones' cue, the volume
 // fader) and the crossfader, on Mixxx's own controls (knobs and faders as 0-1 parameters). The knobs are the deck page's
@@ -1388,29 +1430,30 @@ const TILE = 1024, ZOOM_SECONDS = 4;
 function drawZoom(p, d) {
   const c = p.zCanvas;
   sizeCanvas(c);
-  const W = c.width, H = c.height, wf = d.wf, pxPerSec = W / ZOOM_SECONDS;
-  const left = Math.round((d.pos - ZOOM_SECONDS / 2) * pxPerSec), now = performance.now();
+  const seconds = p.seconds || ZOOM_SECONDS;
+  const W = c.width, H = c.height, wf = d.wf, pxPerSec = W / seconds;
+  const left = Math.round((d.pos - seconds / 2) * pxPerSec), now = performance.now();
   // Mixxx's slip ghost, as the deck view's: the top half, black, the track where it would have got to, in a blinking outline
   const slipping = d.slipAt !== undefined && (remote.on || now - d.slipAt < 1000);
-  const slipLeft = slipping ? Math.round((ZydeckPos.slipModel(d, now) - LAT * (d.playing ? d.ratio || 1 : 0) - ZOOM_SECONDS / 2) * pxPerSec) : null;
+  const slipLeft = slipping ? Math.round((ZydeckPos.slipModel(d, now) - LAT * (d.playing ? d.ratio || 1 : 0) - seconds / 2) * pxPerSec) : null;
   const blink = slipping ? Math.round((Math.cos(now / 800 * Math.PI) + 1) * 4) : 0;
   const key = `${d.n}|${d.wfVer}|${d.beatsVer || 0}|${d.strVer || 0}|${cueSig(d)}|${left}|${W}|${H}|${slipLeft}|${blink}`;
   if (p.zKey === key) return;
   p.zKey = key;
   const g = c.getContext("2d");
   g.clearRect(0, 0, W, H);
-  if (!wf) { drawBeats(g, d, pxPerSec, left, ZOOM_SECONDS * pxPerSec, H); drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H); return; }
+  if (!wf) { drawBeats(g, d, pxPerSec, left, W, H); drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H); return; }
   drawSectionTint(g, d, pxPerSec, left, W, H);
-  drawBeats(g, d, pxPerSec, left, ZOOM_SECONDS * pxPerSec, H);   // (behind the wave)
+  drawBeats(g, d, pxPerSec, left, W, H);   // (behind the wave)
   drawZoomWave(p, d, g, left, W, H, pxPerSec);
   drawCueMarks(g, cueMarks(d), pxPerSec, left, W, H);
-  drawSectionTags(g, d, pxPerSec, left, W, H, true);
+  drawSectionTags(g, d, pxPerSec, left, W, H, true, true, p.tagMax);
   if (slipLeft == null) return;
   const half = Math.ceil(H / 2), edge = Math.max(2, Math.round(devicePixelRatio));
   g.save();
   g.beginPath(); g.rect(0, 0, W, half); g.clip();
   g.fillStyle = "#000"; g.fillRect(0, 0, W, half);
-  drawBeats(g, d, pxPerSec, slipLeft, ZOOM_SECONDS * pxPerSec, H);
+  drawBeats(g, d, pxPerSec, slipLeft, W, H);
   drawZoomWave(p, d, g, slipLeft, W, H, pxPerSec);
   drawCueMarks(g, cueMarks(d), pxPerSec, slipLeft, W, H);
   g.restore();
@@ -1449,7 +1492,27 @@ const { hubTime, posSeed, posModel, posUpdate } = ZydeckPos;
 let LAT = 0;
 const posAt = (d, now) => ZydeckPos.posAt(d, now, LAT);   // what to draw now
 
+function wavesFrame(now) {
+  for (const p of wavePanels) {
+    const d = deckFor(p);
+    d.pos = d.loaded ? clamp(posAt(d, now), 0, d.dur) : 0;
+    const ending = ctlSettings().endWarn !== false && d.loaded && d.playing && d.dur > 0 && d.pos < d.dur &&
+      (d.dur - d.pos) / (d.ratio || 1) < END_WARN_S;
+    p.root.className = `wv${d.n > 2 ? " d34" : ""}${d.loaded ? "" : " empty"}${d.playing ? " playing" : ""}${ending ? " ending" : ""}`;
+    p.num.textContent = d.n;
+    const title = d.loaded ? (d.title || "Loaded") + (d.artist ? " · " + d.artist : "") : "Empty";
+    if (p.title.textContent !== title) p.title.textContent = title;
+    const left = d.loaded ? Math.max(0, Math.round((d.dur - d.pos) / (d.ratio || 1))) : null;
+    seg7(p.time7[0], left != null ? "-" + Math.floor(left / 60) : "", 3);
+    seg7(p.time7[1], left != null ? String(left % 60).padStart(2, "0") : "", 2);
+    const bars = d.loaded && d.dur > 0 ? barsBetween(d, d.pos, d.dur) : NaN, text = bars >= 0 ? fmtBarsLeft(bars) : "";
+    if (p.bars.textContent !== text) p.bars.textContent = text;
+    p.seconds = Math.max(ZOOM_SECONDS, p.zCanvas.clientWidth / 90);   // (as much of the track to an inch as the panels, on a phone)
+    if (d.loaded) drawZoom(p, d);
+  }
+}
 function frame(now) {
+  if (window.zydeckWaves) { wavesFrame(now); requestAnimationFrame(frame); return; }
   if (innerWidth > innerHeight) { requestAnimationFrame(frame); return; }   // landscape: the deck view is on top
   for (const p of panels) {
     if (!shown(p)) continue;

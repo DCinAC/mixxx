@@ -2426,7 +2426,7 @@ function releaseSpeed(xs) {
 let last = performance.now();
 let frames = 0;
 function frame(now) {
-  if (PHONE && innerHeight > innerWidth) { last = now; requestAnimationFrame(frame); return; }   // portrait: the library is showing
+  if ((PHONE && innerHeight > innerWidth) || parent.zydeckWaves) { last = now; requestAnimationFrame(frame); return; }   // portrait: the library is showing; Waves is over it
   if (now - last < 1000) lat.frameMax = Math.max(lat.frameMax, now - last);
   const dt = Math.min(.1, (now - last) / 1000); last = now;
   frames++;
