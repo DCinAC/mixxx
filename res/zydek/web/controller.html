@@ -160,8 +160,7 @@
   /* the bars left in the track, its right edge just left of the cursor, as rekordbox */
   .strip .barsleft { position: absolute; left: 50%; top: calc(var(--mm) * .4); transform: translateX(-100%); margin-left: calc(var(--mm) * -.5); z-index: 2; pointer-events: none;
     font-size: calc(var(--mm) * 3.4); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap;
-    background: rgba(0, 0, 0, .62); border: 1px solid color-mix(in srgb, var(--acc) 60%, transparent); border-radius: 3px;
-    padding: 0 calc(var(--mm) * .5); line-height: 1.35; }
+    -webkit-text-stroke: .07em #000; paint-order: stroke fill; line-height: 1.35; }
   .strip .barsleft small { font-size: .78em; font-weight: 600; color: var(--dim); }
   .strip .cursec { display: flex; align-items: center; gap: calc(var(--mm) * .6); font-size: calc(var(--mm) * 1.7); font-weight: 700;
     color: var(--c); text-shadow: 0 0 3px #000, 0 0 2px #000; white-space: nowrap; }
