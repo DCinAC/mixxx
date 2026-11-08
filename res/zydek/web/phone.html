@@ -612,7 +612,7 @@
     #deckview { visibility: visible; }
     body > header, body > main, body > nav, #toast { visibility: hidden; }
   }
-  /* Waves: only the four decks' rolling waveforms, top to bottom as Mixxx's (3 1 2 4), to look at beside Mixxx's big
+  /* Big Wave: only the four decks' rolling waveforms, top to bottom as Mixxx's (3 1 2 4), to look at beside Mixxx's big
      library, either way up: the time left in seven segments at the upper right, the bars left at the top in the middle, over the wave (its digits 33 % of the row; a narrow row: smaller) */
   #waves { position: fixed; inset: 0; z-index: 90; display: none; flex-direction: column; gap: 2px; background: #000;
     padding: var(--safe-t) 0 var(--safe-b); box-sizing: border-box; }
@@ -637,7 +637,13 @@
   .wv.ending .tm7 { animation: endtime7 1s step-end infinite; }
   .wv.ending .endwarn { animation: endwarn 1s step-end infinite; }
   .wv.empty canvas, .wv.empty .cur, .wv.empty .played { visibility: hidden; }
-  #wavesx { position: absolute; right: 0; bottom: var(--safe-b); z-index: 4; width: 40px; height: 32px; min-height: 0; padding: 0; border: 0; background: none; color: #999; font-size: 18px; }
+  .wv .span { position: absolute; left: 50%; bottom: 3px; transform: translateX(-50%); z-index: 3; padding: 1px 8px; border-radius: 4px; background: rgba(0,0,0,.78);
+    font: 700 15px/20px system-ui, sans-serif; color: #fff; white-space: nowrap; visibility: hidden; }
+  .wv.spanon .span { visibility: visible; }
+  /* zoom out, zoom in, close: 4 mm apart, so a finger doesn't close it by mistake */
+  #wavekeys { position: absolute; right: calc(var(--wmm) * 1); bottom: calc(var(--safe-b) + var(--wmm) * 1); z-index: 4; display: flex; gap: calc(var(--wmm) * 4); }
+  #wavekeys button { width: calc(var(--wmm) * 8); height: calc(var(--wmm) * 7); min-height: 0; padding: 0; border: 1px solid #555; border-radius: 6px; background: rgba(0,0,0,.72);
+    color: #ddd; font-size: 20px; line-height: 1; }
   /* Starting up: dark (the intro, intro.html, ends dark) until the library and the decks are ready */
   #boot { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column; align-items: center;
     justify-content: flex-end; padding-bottom: 9vh; transition: opacity .4s; }
@@ -660,7 +666,7 @@
 <div id="boot"><div class="st" id="boot-st"></div></div>
 <header id="decks">
   <div id="dkbez"><div id="dk2"></div><div id="dk0"></div><div id="dk1"></div><div id="dk3"></div></div>
-  <div id="deckbar"><span id="link">connecting…</span><button id="wavesbtn">Waves</button><button id="four">4 Decks</button></div>
+  <div id="deckbar"><span id="link">connecting…</span><button id="wavesbtn">Big Wave</button><button id="four">4 Decks</button></div>
 </header>
 
 <main>
@@ -740,7 +746,7 @@
 </div>
 <div id="pv"><span></span><button id="pvstop">Stop preview</button></div>
 <iframe id="deckview" title="Decks"></iframe>
-<div id="waves"><button id="wavesx" aria-label="Close">✕</button></div>
+<div id="waves"><div id="wavekeys"><button id="waveout" aria-label="Show more of the track">−</button><button id="wavein" aria-label="Show less of the track">+</button><button id="wavesx" aria-label="Close">✕</button></div></div>
 <script>
   // a tablet gets the tablet controller, a phone the phone layout (smallest side under 600 CSS px)
   document.getElementById("deckview").src = Math.min(screen.width, screen.height) >= 600 ? "/controller" : "/controller?phone=1";
@@ -1142,14 +1148,14 @@ const panels = [0, 1, 2, 3].map(k => {
 });
 const deckFor = p => decks[p.k];
 const shown = p => four || p.k < 2;
-// Waves (see its style): a row per deck, drawn as the panels' rolling waveforms are. (window.zydeckWaves: the deck view rests)
+// Big Wave (see its style): a row per deck, drawn as the panels' rolling waveforms are. (window.zydeckWaves: the deck view rests)
 const wavePanels = [2, 0, 1, 3].map(k => {
   const root = h("div", "wv", `<canvas></canvas><div class="played"></div><div class="cur"></div><div class="endwarn"></div>` +
-    `<div class="name"><b></b><span></span></div><div class="bars"></div>` +
+    `<div class="name"><b></b><span></span></div><div class="bars"></div><div class="span"></div>` +
     `<div class="tm7"><span class="s7"></span><span class="silk">:</span><span class="s7"></span></div>`);
-  $("#waves").appendChild(root);
+  $("#wavekeys").before(root);
   return { k, root, zCanvas: root.querySelector("canvas"), num: root.querySelector("b"), title: root.querySelector(".name span"),
-    bars: root.querySelector(".bars"), time7: root.querySelectorAll(".s7"), tiles: new Map(), tagMax: 13 * (devicePixelRatio || 1) };
+    bars: root.querySelector(".bars"), span: root.querySelector(".span"), time7: root.querySelectorAll(".s7"), tiles: new Map(), tagMax: 13 * (devicePixelRatio || 1) };
 });
 function setWaves(on) {
   window.zydeckWaves = on;
@@ -1157,6 +1163,17 @@ function setWaves(on) {
 }
 $("#wavesbtn").addEventListener("click", () => setWaves(true));
 $("#wavesx").addEventListener("click", () => setWaves(false));
+// How much of the track a row shows (+ and -), seconds across; each row says how many bars that is, for a moment.
+const WAVE_SECONDS = [2, 3, 4, 6, 8, 12, 16, 24, 32];
+let waveSeconds = store.get("waveSeconds", 8), waveSpanUntil = 0;
+const waveZoom = step => {
+  const i = WAVE_SECONDS.indexOf(waveSeconds), at = i < 0 ? 4 : i;
+  waveSeconds = WAVE_SECONDS[clamp(at + step, 0, WAVE_SECONDS.length - 1)];
+  store.set("waveSeconds", waveSeconds);
+  waveSpanUntil = performance.now() + 2000;
+};
+$("#waveout").addEventListener("click", () => waveZoom(1));
+$("#wavein").addEventListener("click", () => waveZoom(-1));
 // ---------------------------------------------------------------------------------------------------
 // Mixer tab: each deck's channel strip (GAIN, the EQ's HIGH / MID / LOW, FILTER, the headphones' cue, the volume
 // fader) and the crossfader, on Mixxx's own controls (knobs and faders as 0-1 parameters). The knobs are the deck page's
@@ -1197,6 +1214,7 @@ function mixSet(g, k, v) {
   mixOut.set(key, [g, k, v, c.param ? 1 : 0]);
 }
 const mixPxMm = (() => { try { const v = +window.ZydekAndroid?.screenPxPerMm?.(); if (v > 2 && v < 12) return v; } catch {} return 6.3; })();
+$("#waves").style.setProperty("--wmm", mixPxMm + "px");   // (Big Wave's keys, their real size)
 document.getElementById("p-mix").style.setProperty("--kmax", (10 * mixPxMm).toFixed(1) + "px");   // knobs 10 mm across
 document.getElementById("p-mix").style.setProperty("--xfmax", (37 * mixPxMm).toFixed(1) + "px");  // the crossfader 37 mm
 document.getElementById("p-mix").style.setProperty("--mmpx", mixPxMm.toFixed(2) + "px");
@@ -1437,7 +1455,7 @@ function drawZoom(p, d) {
   const slipping = d.slipAt !== undefined && (remote.on || now - d.slipAt < 1000);
   const slipLeft = slipping ? Math.round((ZydeckPos.slipModel(d, now) - LAT * (d.playing ? d.ratio || 1 : 0) - seconds / 2) * pxPerSec) : null;
   const blink = slipping ? Math.round((Math.cos(now / 800 * Math.PI) + 1) * 4) : 0;
-  const key = `${d.n}|${d.wfVer}|${d.beatsVer || 0}|${d.strVer || 0}|${cueSig(d)}|${left}|${W}|${H}|${slipLeft}|${blink}`;
+  const key = `${d.n}|${d.wfVer}|${d.beatsVer || 0}|${d.strVer || 0}|${cueSig(d)}|${left}|${W}|${H}|${seconds}|${slipLeft}|${blink}`;
   if (p.zKey === key) return;
   p.zKey = key;
   const g = c.getContext("2d");
@@ -1461,7 +1479,7 @@ function drawZoom(p, d) {
   g.fillRect(0, 0, W, edge); g.fillRect(0, half, W, edge); g.fillRect(0, 0, edge, half); g.fillRect(W - edge, 0, edge, half);
 }
 function drawZoomWave(p, d, g, left, W, H, pxPerSec) {
-  const wf = d.wf, tkey = `${d.n}|${d.wfVer}|${W}|${H}`;
+  const wf = d.wf, tkey = `${d.n}|${d.wfVer}|${W}|${H}|${pxPerSec}`;
   if (p.tileKey !== tkey) { p.tileKey = tkey; p.tiles = new Map(); }
   for (let t = Math.floor(left / TILE); t * TILE < left + W; t++) {
     if (t < 0 || t * TILE / pxPerSec > wf.n / wf.rate) continue;
@@ -1507,8 +1525,15 @@ function wavesFrame(now) {
     seg7(p.time7[1], left != null ? String(left % 60).padStart(2, "0") : "", 2);
     const bars = d.loaded && d.dur > 0 ? barsBetween(d, d.pos, d.dur) : NaN, text = bars >= 0 ? fmtBarsLeft(bars) : "";
     if (p.bars.textContent !== text) p.bars.textContent = text;
-    p.seconds = Math.max(ZOOM_SECONDS, p.zCanvas.clientWidth / 90);   // (as much of the track to an inch as the panels, on a phone)
+    p.seconds = waveSeconds;
     if (d.loaded) drawZoom(p, d);
+    const spanOn = now < waveSpanUntil;
+    p.root.classList.toggle("spanon", spanOn);
+    if (spanOn) {
+      const seen = d.loaded ? barsBetween(d, d.pos - waveSeconds / 2, d.pos + waveSeconds / 2) : NaN;
+      const span = seen > 0 ? `${+seen.toFixed(1)} bars` : `${waveSeconds} s`;
+      if (p.span.textContent !== span) p.span.textContent = span;
+    }
   }
 }
 function frame(now) {
