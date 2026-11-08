@@ -65,4 +65,4 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 | `res/skins/LateNight/decks/deck_mini.xml`, `style_palemoon.qss` | the key above the big library: PaleMoon drew it blank (no box rule for WKey to draw in), and room for all of it |
 | `src/coreservices.cpp` | writes the effects list and the decks' tracks for ZyDeck Connect once effects are set up (`src/zydeck/effectlist.*`, `decklist.*`), loads a track into a deck, or previews it, when Connect asks (a device's library page and "download and load to deck": `loadrequest.*`), runs Mixxx's Auto DJ as a device asks through Connect (`autodjrequest.*`), and sets up the Live Broadcasting connection to the ZyDeck Discord bot that Connect hands over (`discordbroadcast.*`) |
 
-Based on upstream `main` at 2086fe0 (2026-10-22, 2.7.0-alpha).
+Based on upstream `main` at 64c1cbec91 (2026-11-06, 2.7.0-alpha).
