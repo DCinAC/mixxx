@@ -157,9 +157,9 @@
     gap: calc(var(--mm) * 1); pointer-events: none; z-index: 2; }
   .strip .label { font-size: calc(var(--mm) * 1.7); color: #4a4a4a; }
   .strip .cursec:empty, .strip .barsleft:empty { display: none; }
-  /* the bars left in the track, at the top of the cursor */
-  .strip .barsleft { position: absolute; left: 50%; top: calc(var(--mm) * .4); transform: translateX(-50%); z-index: 2; pointer-events: none;
-    font-size: calc(var(--mm) * 1.7); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap;
+  /* the bars left in the track, its right edge just left of the cursor, as rekordbox */
+  .strip .barsleft { position: absolute; left: 50%; top: calc(var(--mm) * .4); transform: translateX(-100%); margin-left: calc(var(--mm) * -.5); z-index: 2; pointer-events: none;
+    font-size: calc(var(--mm) * 3.4); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap;
     background: rgba(0, 0, 0, .62); border: 1px solid color-mix(in srgb, var(--acc) 60%, transparent); border-radius: 3px;
     padding: 0 calc(var(--mm) * .5); line-height: 1.35; }
   .strip .barsleft small { font-size: .78em; font-weight: 600; color: var(--dim); }
@@ -336,7 +336,7 @@
   #app.stacked #xf .rail { left: calc(var(--mm) * 3); right: calc(var(--mm) * 3); }
   .strip .info { position: absolute; left: calc(var(--mm) * 1.2); right: calc(var(--mm) * 1.2); top: calc(var(--mm) * .5);
     display: flex; gap: calc(var(--mm) * 1.5); align-items: baseline; pointer-events: none; text-shadow: 0 0 3px #000, 0 0 2px #000; }
-  .strip .info .title { font-size: calc(var(--mm) * 2); pointer-events: auto; }   /* held (paused): unload */
+  .strip .info .title { font-size: calc(var(--mm) * 2); pointer-events: auto; margin-right: calc(50% + var(--mm) * 17); }   /* held (paused): unload. Ends before the bars left */
   .strip .info .num { font-size: calc(var(--mm) * 2); }
   .num.keynum { color: var(--dim); } .num.keynum.shifted { color: var(--acc); }   /* lit: shifted from the track's own key */
   /* the key's colour bar (as Mixxx's): the key you hear, and as it drifts off it (tempo without key lock) the key a
