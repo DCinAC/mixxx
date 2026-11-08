@@ -33,7 +33,6 @@
 #include "rendergraph/vertexupdaters/rgbavertexupdater.h"
 #include "rendergraph/vertexupdaters/texturedvertexupdater.h"
 #include "track/track.h"
-#include "util/colorcomponents.h"
 #include "waveform/renderers/waveformwidgetrenderer.h"
 
 using namespace rendergraph;
@@ -265,10 +264,14 @@ void addPhraseStrip(QWidget* pOverview, const QString& group) {
 }
 
 // ---- the scrolling waveform ------------------------------------------------------------------------------------
-// A texture made with QPainter on a QImage (as WaveformRenderMark's), drawn as rectangles of it. Nothing until it has one.
-class ImageNode : public GeometryNode {
+// The tags are one texture, made when the phrases change (as WaveformRenderMark's: QPainter only on a QImage), each
+// tag a rectangle of it. Not drawn until there's a texture.
+class PhraseRenderer::Tags : public GeometryNode {
   public:
-    ImageNode() {
+    struct Tag {
+        float v0, v1, width;
+    };
+    Tags() {
         initForRectangles<TextureMaterial>(0);
     }
     bool isSubtreeBlocked() const override {
@@ -279,23 +282,12 @@ class ImageNode : public GeometryNode {
         material().setUniform(1, 1.f);
         markDirtyMaterial();
         m_ready = true;
-        imageWidth = static_cast<float>(image.width());
     }
-
-    float imageWidth = 1;   // (its pixels)
+    QHash<QString, Tag> tags;
+    float imageWidth = 1;
 
   private:
     bool m_ready = false;
-};
-
-// The tags are one texture, made when the phrases change, each tag a rectangle of it.
-class PhraseRenderer::Tags : public ImageNode {
-  public:
-    struct Tag {
-        float v0, v1, width;
-    };
-    QHash<QString, Tag> tags;
-    float tagsWidth = 1;   // (logical pixels)
 };
 
 PhraseRenderer::PhraseRenderer(WaveformWidgetRenderer* pWaveformWidget)
@@ -337,7 +329,7 @@ void PhraseRenderer::makeTags(const QList<Phrase>& phrases, float devicePixelRat
         tag.v1 /= height;
     }
     m_pTags->tags = tags;
-    m_pTags->tagsWidth = width;
+    m_pTags->imageWidth = width;
     m_pTags->setImage(m_waveformRenderer->getContext(), image);
 }
 
@@ -388,7 +380,7 @@ void PhraseRenderer::preprocess() {
             continue;
         }
         float r, g, b, a;
-        getRgbF(p.color, &r, &g, &b, &a);
+        p.color.getRgbF(&r, &g, &b, &a);
         bars.addRectangle({std::max(x0, 0.f), breadth - strip}, {std::min(x1, length), breadth}, {r, g, b, 1.f});
         if (p.tag.isEmpty()) {
             continue;
@@ -396,160 +388,11 @@ void PhraseRenderer::preprocess() {
         bars.addRectangle({x0, top}, {x0 + 1.f, breadth - strip}, {r, g, b, 0.8f});
         const Tags::Tag tag = m_pTags->tags.value(p.tag);
         labels.addRectangle({x0, tagTop}, {x0 + tag.width, tagTop + kTagHeightPx},
-                {0.f, tag.v0}, {tag.width / m_pTags->tagsWidth, tag.v1});
+                {0.f, tag.v0}, {tag.width / m_pTags->imageWidth, tag.v1});
     }
     markDirtyGeometry();
     markDirtyMaterial();
     m_pTags->markDirtyGeometry();
-}
-
-// ---- the bars left -----------------------------------------------------------------------------------------------
-namespace {
-
-constexpr int kCountHeightPx = 18;
-constexpr int kCountFontPx = 13;
-constexpr float kSectionMinBreadth = 48;   // a waveform lower than this: only the track's count
-constexpr double kSectionEndSlackSeconds = 0.05;   // a section's end is a beat's, to its rounding
-
-// As zydeck-wave.js's fmtBarsLeft: -8.0 on a bar's first beat 8 bars out, -7.3, -7.2 … "0.0" at the end
-QString barsText(int beats) {
-    return beats <= 0 ? QStringLiteral("0.0") : QStringLiteral("-%1.%2").arg(beats / 4).arg(beats % 4);
-}
-
-// "[B Chorus] -3.2 bars" on a dark ground, so it reads over the wave. tag "": without the coloured part.
-QImage countImage(const QString& tag, const QColor& color, const QString& count, float devicePixelRatio) {
-    QFont number;
-    number.setPixelSize(kCountFontPx);
-    number.setBold(true);
-    QFont unit;
-    unit.setPixelSize(kTagFontPx);
-    const QString bars = QStringLiteral(" bars");
-    const qreal tagW = tag.isEmpty() ? 0 : tagWidth(tag) + 4;
-    const qreal numberW = QFontMetricsF(number).horizontalAdvance(count);
-    const qreal unitW = QFontMetricsF(unit).horizontalAdvance(bars);
-    const qreal width = std::ceil(2 + tagW + 3 + numberW + unitW + 5);
-    QImage image(static_cast<int>(width * devicePixelRatio), static_cast<int>(kCountHeightPx * devicePixelRatio),
-            QImage::Format_ARGB32_Premultiplied);
-    image.setDevicePixelRatio(devicePixelRatio);
-    image.fill(Qt::transparent);
-    QPainter painter(&image);
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setRenderHint(QPainter::TextAntialiasing);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(0, 0, 0, 170));
-    painter.drawRoundedRect(QRectF(0, 0, width, kCountHeightPx), 3, 3);
-    qreal x = 2;
-    if (!tag.isEmpty()) {
-        Phrase phrase;
-        phrase.tag = tag;
-        phrase.color = color;
-        paintTag(&painter, QRectF(x, 1.5, tagW - 4, kTagHeightPx), phrase);
-        x += tagW;
-    }
-    x += 3;
-    painter.setFont(number);
-    painter.setPen(Qt::white);
-    painter.drawText(QRectF(x, 0, numberW + 1, kCountHeightPx), Qt::AlignLeft | Qt::AlignVCenter, count);
-    painter.setFont(unit);
-    painter.setPen(QColor(190, 190, 190));
-    painter.drawText(QRectF(x + numberW, 0, unitW + 1, kCountHeightPx), Qt::AlignLeft | Qt::AlignVCenter, bars);
-    painter.end();
-    return image;
-}
-
-void place(ImageNode* pNode, float x, float y, float width) {
-    pNode->geometry().allocate(6);
-    TexturedVertexUpdater vertices{pNode->geometry().vertexDataAs<Geometry::TexturedPoint2D>()};
-    vertices.addRectangle({x, y}, {x + width, y + kCountHeightPx}, {0.f, 0.f}, {1.f, 1.f});
-    pNode->markDirtyGeometry();
-}
-
-void hide(ImageNode* pNode) {
-    pNode->geometry().allocate(0);
-    pNode->markDirtyGeometry();
-}
-
-} // namespace
-
-BarsLeftRenderer::BarsLeftRenderer(WaveformWidgetRenderer* pWaveformWidget)
-        : ::WaveformRendererAbstract(pWaveformWidget) {
-    initForRectangles<RGBAMaterial>(0);
-    setUsePreprocess(true);
-    auto pTrack = std::make_unique<ImageNode>();
-    m_pTrack = pTrack.get();
-    appendChildNode(std::move(pTrack));
-    auto pSection = std::make_unique<ImageNode>();
-    m_pSection = pSection.get();
-    appendChildNode(std::move(pSection));
-}
-
-void BarsLeftRenderer::clear() {
-    hide(m_pTrack);
-    hide(m_pSection);
-    m_pBeats.reset();
-}
-
-void BarsLeftRenderer::preprocess() {
-    const TrackPointer pTrack = m_waveformRenderer->getTrackInfo();
-    const mixxx::BeatsPointer pBeats = pTrack ? pTrack->getBeats() : nullptr;
-    const double rate = pTrack ? pTrack->getSampleRate().toDouble() : 0;
-    const double trackSamples = m_waveformRenderer->getTrackSamples();
-    if (!pBeats || rate <= 0 || trackSamples <= 0) {
-        clear();
-        return;
-    }
-    const auto pos = mixxx::audio::FramePos::fromEngineSamplePos(
-            m_waveformRenderer->getTruePosSample(::WaveformRendererAbstract::Play));
-    const QList<Phrase> phrases = Phrases::instance()->of(m_waveformRenderer->getGroup(), pTrack);
-    const double seconds = pos.value() / rate;
-    int section = -1;
-    for (int i = 0; i < phrases.size(); ++i) {
-        if (seconds >= phrases[i].start && seconds < phrases[i].end) {
-            section = i;
-            break;
-        }
-    }
-
-    const float ratio = m_waveformRenderer->getDevicePixelRatio();
-    const bool sameBeat = m_pBeats == pBeats && m_beat.isValid() && m_nextBeat.isValid() && pos >= m_beat && pos < m_nextBeat;
-    if (!sameBeat || section != m_sectionIndex || m_version != Phrases::instance()->version() || m_ratio != ratio) {
-        if (!pBeats->findPrevNextBeats(pos, &m_beat, &m_nextBeat, false)) {
-            clear();
-            return;
-        }
-        m_pBeats = pBeats;
-        m_sectionIndex = section;
-        m_version = Phrases::instance()->version();
-        m_ratio = ratio;
-        const auto end = mixxx::audio::FramePos::fromEngineSamplePos(trackSamples);
-        m_pTrack->setImage(m_waveformRenderer->getContext(),
-                countImage(QString(), QColor(), barsText(pBeats->numBeatsInRange(m_beat, end)), ratio));
-        if (section >= 0) {
-            QString tag;   // (a run of the same one is tagged once, at its start)
-            for (int i = section; i >= 0 && tag.isEmpty(); --i) {
-                tag = phrases[i].tag;
-            }
-            const mixxx::audio::FramePos sectionEnd((phrases[section].end - kSectionEndSlackSeconds) * rate);
-            m_pSection->setImage(m_waveformRenderer->getContext(),
-                    countImage(tag, phrases[section].color, barsText(pBeats->numBeatsInRange(m_beat, sectionEnd)), ratio));
-        }
-    }
-
-    const float length = m_waveformRenderer->getLength(), breadth = m_waveformRenderer->getBreadth();
-    const auto widthOf = [ratio](const ImageNode* pNode) {
-        return pNode->imageWidth / ratio;
-    };
-    // (slipping, the deck's wave is the lower half)
-    const float top = m_waveformRenderer->isSlipActive() ? breadth / 2.f : 0.f;
-    const float cursor = static_cast<float>(m_waveformRenderer->getPlayMarkerPosition() * length);
-    const float trackWidth = widthOf(m_pTrack);
-    place(m_pTrack, std::clamp(cursor - trackWidth / 2.f, 0.f, std::max(0.f, length - trackWidth)), top + 2.f, trackWidth);
-    if (section >= 0 && breadth >= kSectionMinBreadth) {
-        place(m_pSection, 4.f, breadth - kStripPx - kCountHeightPx - 1.f, widthOf(m_pSection));
-    } else {
-        hide(m_pSection);
-    }
-    markDirtyMaterial();
 }
 
 } // namespace zydeck

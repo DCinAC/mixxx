@@ -375,9 +375,5 @@
         </Children>
       </WidgetGroup><!-- DeckRow_5_LoopCuesTransport -->
     </Children>
-    <Connection><!-- ZyDeck: the skin menu's "Buttons &amp; Tempo Fader" -->
-      <ConfigKey persist="true">[Skin],zydeck_show_deck_buttons</ConfigKey>
-      <BindProperty>visible</BindProperty>
-    </Connection>
   </WidgetGroup>
 </Template>

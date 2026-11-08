@@ -60,9 +60,6 @@ bool WaveformRendererStem::init() {
     if (m_waveformRenderer->getGroup().isEmpty()) {
         return true;
     }
-#ifdef __ZYDECK__   // ZyDeck: the EQ's controls, for getGains (the other signal renderers get them this way)
-    WaveformRendererSignalBase::init();
-#endif
     for (int stemIdx = 0; stemIdx < mixxx::kMaxSupportedStems; stemIdx++) {
         QString stemGroup = EngineDeck::getGroupForStem(m_waveformRenderer->getGroup(), stemIdx);
         m_pStemGain.emplace_back(
@@ -176,12 +173,7 @@ bool WaveformRendererStem::preprocessInner() {
 
     // Per-band gain from the EQ knobs.
     float allGain(1.0);
-#ifdef __ZYDECK__   // ZyDeck: the EQ shows here too (below)
-    float lowGain(1.0), midGain(1.0), highGain(1.0);
-    getGains(&allGain, &lowGain, &midGain, &highGain);
-#else
     getGains(&allGain, nullptr, nullptr, nullptr);
-#endif
 
     const float breadth = static_cast<float>(m_waveformRenderer->getBreadth());
     const float stemBreadth = m_splitStemTracks ? breadth / 4.0f : 0;
@@ -212,28 +204,6 @@ bool WaveformRendererStem::preprocessInner() {
     const double maxSamplingRange = visualIncrementPerPixel / 2.0;
 
     for (int visualIdx = 0; visualIdx < stripLength; visualIdx++) {
-#ifdef __ZYDECK__
-        // ZyDeck: the data has a level per stem but bands only for the whole mix, so every stem follows the EQ as the
-        // mix does at this point: an approximation (a bass kill also lowers a vocal where the mix is mostly bass).
-        float eqGain = 1.f;
-        {
-            const int start = std::max(std::lround(xVisualFrame - maxSamplingRange) * 2, 0L);
-            const int stop = std::min(static_cast<int>(std::max(std::lround(xVisualFrame + maxSamplingRange),
-                                              std::lround(xVisualFrame - maxSamplingRange) + 1) *
-                                              2),
-                    dataSize - 1);
-            uchar low{}, mid{}, high{};
-            for (int i = start; i < stop; ++i) {
-                low = math_max(low, data[i].filtered.low);
-                mid = math_max(mid, data[i].filtered.mid);
-                high = math_max(high, data[i].filtered.high);
-            }
-            const float bands = static_cast<float>(low) + mid + high;
-            if (bands > 0.f) {
-                eqGain = (low * lowGain + mid * midGain + high * highGain) / bands;
-            }
-        }
-#endif
         int stemLayer = 0;
         for (int stemIdx : std::as_const(m_stackOrder)) {
             if (stemIdx >= stemInfo.size()) {
@@ -273,9 +243,6 @@ bool WaveformRendererStem::preprocessInner() {
 
                 // Apply the gains
                 if (layerIdx) {
-#ifdef __ZYDECK__
-                    max *= eqGain;
-#endif
                     if (selectedStems) {
                         max *= !(selectedStems & 1 << stemIdx)
                                 ? 0.f
