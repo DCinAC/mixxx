@@ -613,7 +613,7 @@
     body > header, body > main, body > nav, #toast { visibility: hidden; }
   }
   /* Big Wave: only the four decks' rolling waveforms, top to bottom as Mixxx's (3 1 2 4), to look at beside Mixxx's big
-     library, either way up: the time left in seven segments at the upper right, the bars left at the top in the middle, over the wave (its digits 33 % of the row; a narrow row: smaller) */
+     library, either way up: the time left in seven segments at the upper right, the bars left at the top, its right edge just left of the cursor as rekordbox, over the wave (its digits 33 % of the row; a narrow row: smaller) */
   #waves { position: fixed; inset: 0; z-index: 90; display: none; flex-direction: column; gap: 2px; background: #000;
     padding: var(--safe-t) 0 var(--safe-b); box-sizing: border-box; }
   body.waves #waves { display: flex; }
@@ -621,13 +621,13 @@
   .wv canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   .wv .played { position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background: rgba(0,0,0,.45); }
   .wv .cur { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: var(--acc); }
-  .wv .name { position: absolute; left: 4px; top: 3px; max-width: 42%; display: flex; gap: 5px; padding: 0 4px; border-radius: 3px; background: rgba(0,0,0,.6);
+  .wv .name { position: absolute; left: 4px; top: 3px; max-width: max(72px, calc(50% - 3.4 * min(45.3cqh, 10cqw) - 14px)); display: flex; gap: 5px; padding: 0 4px; border-radius: 3px; background: rgba(0,0,0,.6);
     font-size: 12px; line-height: 16px; color: #ddd; white-space: nowrap; overflow: hidden; z-index: 3; }
   .wv .name b { flex: none; color: var(--deck12); }
   .wv.d34 .name b { color: var(--deck34); }
   .wv.playing .name b::after { content: " ▶"; color: var(--play); font-size: 9px; }
   .wv .name span { overflow: hidden; text-overflow: ellipsis; }
-  .wv .bars { position: absolute; left: 50%; top: 0; transform: translateX(-50%); z-index: 3; font: 700 min(45.3cqh, 10cqw)/1 system-ui, sans-serif;
+  .wv .bars { position: absolute; left: 50%; top: 0; transform: translateX(-100%); margin-left: -5px; z-index: 3; font: 700 min(45.3cqh, 10cqw)/1 system-ui, sans-serif;
     font-variant-numeric: tabular-nums; color: #fff; -webkit-text-stroke: .07em #000; paint-order: stroke fill; white-space: nowrap; pointer-events: none; }
   .wv .tm7 { position: absolute; right: 3px; top: 3px; z-index: 3; display: flex; align-items: flex-end; gap: 1px; padding: 3px 5px;
     border-radius: 4px; background: rgba(0,0,0,.72); }
