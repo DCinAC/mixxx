@@ -33,6 +33,10 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 - **Phrases**: the sections ZyDeck Connect works out (as rekordbox's phrase analysis), drawn as ZyDeck's pages draw
   them: a strip in each section's colour along the bottom of the overview and the scrolling waveform, and a tag where
   one starts ("B Chorus"; the overview: its letter). Only on the GL waveforms (`allshader`). `src/zydeck/phrases.*`.
+- **Bars and time left**: on the scrolling waveform as on ZyDeck's pages: just left of the play cursor the bars left in
+  the track (-8.3 bars: bars.beats), at the lower left the section the deck is in and the bars left in it (with
+  phrases), at the upper right the time left in seven segments. Only on the GL waveforms; off with "Bars & Time Left"
+  in LateNight's skin menu (`[Skin],zydeck_show_waveform_counters`). `src/zydeck/phrases.*`.
 - **ZyDeck connectivity** (to come): the same hub as the Android app, so a tablet or phone talks to Mixxx directly:
   the exact track, its waveform at once, and positions timed by Mixxx's audio. Downloading and separating stay in
   ZyDeck Connect, not in this repository.
@@ -61,7 +65,8 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 | `src/effects/backends/builtin/builtinbackend.cpp` | registers the Sidechain effect (`src/zydeck/sidechaineffect.*`, the same as ZyDeck on Android) |
 | `src/engine/readaheadmanager.cpp`, `src/engine/cachingreader/cachingreader.cpp` | read further ahead, with a bigger cache (network music folders) |
 | `src/main.cpp` | macOS: raises the open-file limit from 256 (Mixxx's ~100 threads hold ~200 of them as Qt wake-up pipes; analysing a new stem file ran out, and Qt aborted) |
-| `src/widget/woverview.cpp`, `src/waveform/widgets/allshader/waveformwidget.cpp` | add the phrases to the overview and the scrolling waveform (`src/zydeck/phrases.*`) |
+| `src/widget/woverview.cpp`, `src/waveform/widgets/allshader/waveformwidget.cpp` | add the phrases to the overview and the scrolling waveform, and the bars and time left (`src/zydeck/phrases.*`) |
+| `res/skins/LateNight/skin.xml`, `skin_settings.xml` | the Bars & Time Left switch |
 | `res/skins/LateNight/decks/deck_mini.xml`, `style_palemoon.qss` | the key above the big library: PaleMoon drew it blank (no box rule for WKey to draw in), and room for all of it |
 | `src/coreservices.cpp` | writes the effects list and the decks' tracks for ZyDeck Connect once effects are set up (`src/zydeck/effectlist.*`, `decklist.*`), loads a track into a deck, or previews it, when Connect asks (a device's library page and "download and load to deck": `loadrequest.*`), runs Mixxx's Auto DJ as a device asks through Connect (`autodjrequest.*`), and sets up the Live Broadcasting connection to the ZyDeck Discord bot that Connect hands over (`discordbroadcast.*`) |
 

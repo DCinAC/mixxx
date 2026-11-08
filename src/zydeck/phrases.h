@@ -7,8 +7,10 @@
 #include <QObject>
 #include <QString>
 
+#include "control/controlproxy.h"
 #include "preferences/usersettings.h"
 #include "rendergraph/geometrynode.h"
+#include "track/beats.h"
 #include "track/track_decl.h"
 #include "waveform/renderers/waveformrendererabstract.h"
 
@@ -66,6 +68,8 @@ class Phrases : public QObject {
 void addPhraseStrip(QWidget* pOverview, const QString& group);
 
 /// The scrolling waveform's (allshader::WaveformWidget), over the wave and under the hot cues.
+class ImageNode;
+
 class PhraseRenderer final : public ::WaveformRendererAbstract, public rendergraph::GeometryNode {
   public:
     explicit PhraseRenderer(WaveformWidgetRenderer* pWaveformWidget);
@@ -83,6 +87,34 @@ class PhraseRenderer final : public ::WaveformRendererAbstract, public rendergra
     int m_tagsVersion = -1;
     int m_tagsId = 0;
     float m_tagsRatio = 0;
+};
+
+/// The bars left, as on ZyDeck's pages and rekordbox's: at the top of the play cursor those in the track (-8.3 bars:
+/// bars.beats), at the lower left the section the deck is in and those left in it. Over everything on the waveform.
+class BarsLeftRenderer final : public ::WaveformRendererAbstract, public rendergraph::GeometryNode {
+  public:
+    explicit BarsLeftRenderer(WaveformWidgetRenderer* pWaveformWidget);
+    void setup(const QDomNode&, const SkinContext&) override {
+    }
+    void draw(QPainter*, QPaintEvent*) override {
+    }
+    void preprocess() override;
+
+  private:
+    void clear();
+
+    ImageNode* m_pTrack;
+    ImageNode* m_pSection;
+    ImageNode* m_pTime;
+    ControlProxy m_show;   // the skin's switch ([Skin],zydeck_show_waveform_counters); without one, shown
+    ControlProxy m_rateRatio;
+    int m_timeLeft = -1;   // the time left it was made for, seconds
+    mixxx::BeatsPointer m_pBeats;
+    mixxx::audio::FramePos m_beat;       // the beat the counts were made on, and the next
+    mixxx::audio::FramePos m_nextBeat;
+    int m_sectionIndex = -1;
+    int m_version = -1;
+    float m_ratio = 0;
 };
 
 } // namespace zydeck

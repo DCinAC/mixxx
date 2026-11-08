@@ -286,6 +286,21 @@ Description:
                         </Children>
                       </WidgetGroup>
 
+                      <!-- ZyDeck: the bars and time left on the waveforms -->
+                      <WidgetGroup>
+                        <Layout>stacked</Layout>
+                        <Size>-1me,18f</Size>
+                        <Children>
+                          <Template src="skins:LateNight/helpers/skin_settings_cover_inverted.xml">
+                            <SetVariable name="Setting">[Skin],show_waveforms</SetVariable>
+                          </Template>
+                          <Template src="skins:LateNight/helpers/skin_settings_button_2state.xml">
+                            <SetVariable name="Text">Bars &amp; Time Left</SetVariable>
+                            <SetVariable name="Setting">[Skin],zydeck_show_waveform_counters</SetVariable>
+                          </Template>
+                        </Children>
+                      </WidgetGroup>
+
                     </Children>
                   </WidgetGroup>
                 </Children>
