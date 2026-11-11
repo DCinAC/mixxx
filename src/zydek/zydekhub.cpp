@@ -611,6 +611,9 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         }
         return json(discordStatus());
     }
+    if (path == QLatin1String("/api/xfader")) {   // ?mode=0|1&curve=0.6-1000&reverse=0|1 (any of them), as Preferences › Mixer
+        return result(xfaderApi(query));
+    }
     if (path == QLatin1String("/api/deckdefaults")) {   // ?keylock=&quantize=&slip= (1 on, 0 off, -1 as they were)
         static const char* const kNames[3] = {"keylock", "quantize", "slip"};
         bool changed = false;
@@ -3183,6 +3186,55 @@ void Hub::setControl(const QString& group, const QString& key, double value) {
     parts.append(0);
     parts += encodeValue(value);
     sysex(parts);
+}
+
+/// The crossfader's curve, the way Mixxx's Preferences › Mixer sets it ([Mixer Profile]): mode 0 slow fade / fast cut
+/// (additive), 1 constant power; curve 0.6 (slowest fade) to 1000 (sharpest cut), with its calibration (-3 dB at the
+/// middle); reverse (hamster), which also flips the crossfader's position so the sound doesn't jump. Kept in Mixxx's
+/// config too, saved at once (Android may end the app without Mixxx's own save), so it lasts. In controller mode it
+/// goes to the computer's Mixxx for this session (its own preferences keep theirs); its values aren't read back.
+QJsonObject Hub::xfaderApi(const HttpServer::Query& query) {
+    static const QString kGroup = QStringLiteral("[Mixer Profile]");
+    const auto key = [](const char* name) { return ConfigKey(kGroup, QLatin1String(name)); };
+    if (standardMidi()) {
+        return {{"ok", false}, {"error", "Set in the DJ app on the computer"}};
+    }
+    if (!m_controllerMode) {   // Mixxx's own values (the preferences, a mapping, a skin may have set them)
+        m_xfader = {{"mode", ControlObject::get(key("xFaderMode")) > 0 ? 1 : 0},
+                {"curve", ControlObject::get(key("xFaderCurve"))},
+                {"reverse", ControlObject::get(key("xFaderReverse")) > 0}};
+    } else if (m_xfader.isEmpty()) {
+        m_xfader = {{"mode", 0}, {"curve", 1.0}, {"reverse", false}};   // Mixxx's defaults
+    }
+    if (query.contains(QStringLiteral("mode")) || query.contains(QStringLiteral("curve")) || query.contains(QStringLiteral("reverse"))) {
+        const int mode = query.contains(QStringLiteral("mode")) ? (query.value(QStringLiteral("mode")).toInt() ? 1 : 0)
+                                                                : m_xfader.value(QStringLiteral("mode")).toInt();
+        const double curve = std::clamp(query.contains(QStringLiteral("curve")) ? query.value(QStringLiteral("curve")).toDouble()
+                                                                                : m_xfader.value(QStringLiteral("curve")).toDouble(),
+                0.6, 1000.0);
+        const bool reverse = query.contains(QStringLiteral("reverse")) ? query.value(QStringLiteral("reverse")) == QLatin1String("1")
+                                                                       : m_xfader.value(QStringLiteral("reverse")).toBool();
+        const bool wasReverse = m_xfader.value(QStringLiteral("reverse")).toBool();
+        setControl(kGroup, QStringLiteral("xFaderMode"), mode);
+        setControl(kGroup, QStringLiteral("xFaderCurve"), curve);
+        setControl(kGroup, QStringLiteral("xFaderCalibration"), std::pow(0.5, 1.0 / curve));   // EngineXfader::getPowerCalibration
+        if (!m_controllerMode && reverse != wasReverse) {
+            const ConfigKey xf(QStringLiteral("[Master]"), QStringLiteral("crossfader"));
+            ControlObject::set(xf, -ControlObject::get(xf));
+        }
+        setControl(kGroup, QStringLiteral("xFaderReverse"), reverse ? 1 : 0);
+        if (!m_controllerMode) {
+            m_pConfig->setValue(key("xFaderMode"), mode);
+            m_pConfig->setValue(key("xFaderCurve"), curve);
+            m_pConfig->setValue(key("xFaderReverse"), reverse);
+            m_pConfig->save();
+        }
+        m_xfader = {{"mode", mode}, {"curve", curve}, {"reverse", reverse}};
+    }
+    QJsonObject out = m_xfader;
+    out.insert(QStringLiteral("ok"), true);
+    out.insert(QStringLiteral("remote"), m_controllerMode);
+    return out;
 }
 
 // ---- FX panel ----------------------------------------------------------------------------------------

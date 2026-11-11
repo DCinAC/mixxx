@@ -64,6 +64,7 @@
     rec: async () => { try { sys.rec = await api("/api/record"); } catch {} },
     dc: async () => { try { sys.dc = await api("/api/discord"); } catch {} },
     tl: async () => { try { sys.tracklist = await api("/api/tracklist"); } catch {} },
+    xf: async () => { try { sys.xf = await api(`${xfHub()}/api/xfader`); } catch (e) { sys.xf = { error: e.message }; } },
   };
   async function loadAll() { await Promise.all(Object.values(loads).map(f => f())); refresh(); }
   async function checkStems() {
@@ -112,7 +113,7 @@
   // ---- the list ----
   const TABS = { system: "System", controller: "Controller" };
   const SECTIONS = [
-    ["system", "conn", "Connections"], ["system", "audio", "Audio"], ["system", "library", "Library"], ["system", "stems", "Stems"],
+    ["system", "conn", "Connections"], ["system", "audio", "Audio"], ["system", "mixer", "Mixer"], ["system", "library", "Library"], ["system", "stems", "Stems"],
     ["system", "acc", "Accounts"], ["system", "rec", "Record & stream"], ["system", "look", "Look"], ["system", "start", "Start-up"],
     ["system", "dev", "Developer"],
     ["controller", "decks", "Decks"], ["controller", "fx", "Effects"], ["controller", "sampler", "Sampler"], ["controller", "touch", "Touch"],
@@ -197,6 +198,23 @@
       show: () => !sys.remote.on && !host.linked,
       act: async () => { openPage("/calibrate?scope=host", () => loads.audio().then(refresh)); },
       desc: "This device's own output (headphones, Bluetooth, the buffer): a rising C E G C plays in the headphones; watch, nudge, or tap along." },
+    // System › Mixer: the crossfader's curve, as Mixxx's Preferences › Mixer (the hub's /api/xfader; a linked
+    // device's is the host's, the Mixxx being played)
+    { id: "xfmode", sec: "mixer", name: "Crossfader curve", kind: "seg", show: () => !!sys.xf && !sys.xf.error,
+      opts: () => [[0, "Slow fade / fast cut"], [1, "Constant power"]], get: () => sys.xf?.mode,
+      set: v => xfSet({ mode: v }),
+      st: () => sys.xf?.remote ? "Sent to the computer's Mixxx for this session (its own Preferences › Mixer keep theirs)" : "",
+      desc: "Slow fade / fast cut: each side keeps its full level until the fader passes the middle (additive). Constant power: the two sides cross at the same loudness all the way, for long blends." },
+    { id: "xfshape", sec: "mixer", name: "Curve shape", kind: "slider", min: 0, max: 100, step: .5, show: () => !!sys.xf && !sys.xf.error,
+      get: () => xfPos(sys.xf?.curve ?? 1), fmt: v => xfName(xfCurve(v)),
+      set: (v, final) => { sys.xfDrag = xfCurve(v); xfDraw(); if (final) { sys.xfDrag = null; return xfSet({ curve: +xfCurve(v).toFixed(4) }); } },
+      desc: "How the crossfader bends. Left: a slow fade across the whole travel. Right: a sharp cut, the other deck in at once (for scratching)." },
+    { id: "xfgraph", sec: "mixer", name: "", kind: "custom", build: buildXfGraph, show: () => !!sys.xf && !sys.xf.error },
+    { id: "xfrev", sec: "mixer", name: "Reverse crossfader", kind: "toggle", show: () => !!sys.xf && !sys.xf.error,
+      get: () => !!sys.xf?.reverse, set: v => xfSet({ reverse: v ? 1 : 0 }), onLabel: "Reversed", offLabel: "Normal",
+      desc: "Hamster style: left plays the right deck." },
+    { id: "xferr", sec: "mixer", name: "Crossfader", kind: "note", show: () => !!sys.xf?.error, st: () => sys.xf?.error || "",
+      desc: "Couldn't read Mixxx's crossfader settings." },
     // System › Library
     { id: "keyfmt", sec: "library", name: "Key notation", kind: "seg", opts: () => [["camelot", "Camelot 8A"], ["open", "Open Key 1m"], ["musical", "Musical Am"]],
       ...shared("keyNotation", "keyNotation", "camelot"), desc: "How keys are written, on the decks and in the library." },
@@ -779,6 +797,49 @@
     const b = key("Open the reports", "s");
     b.addEventListener("click", () => { location.href = "/profile"; });
     c.appendChild(b);
+  }
+
+  // ---- the crossfader's curve: Mixxx's own math (src/engine/enginexfader.cpp, dlgprefmixer.cpp) ----
+  const xfHub = () => (host.linked ? `http://${host.hubHost}` : "");
+  async function xfSet(q) { sys.xf = await api(`${xfHub()}/api/xfader?${qs(q)}`); xfDraw(); }
+  // the preferences' slider (0-100 here, 0-100000 there) to the curve (0.6-1000) on its 1/x scale, and back
+  const xfCurve = pos => 1000 / ((100 - pos) / 100 * 999 + 1) - 1 + .6;
+  const xfPos = c => { const inMax = 1000 - .6 + 1; return Math.max(0, Math.min(100, 100 - ((inMax / (c - .6 + 1) - 1) / (inMax - 1)) * 100)); };
+  const xfName = c => c < .95 ? "Slow fade" : c < 1.5 ? "Linear" : c < 4 ? "Rounded" : c < 20 ? "Quick cut" : c < 200 ? "Fast cut" : "Instant cut";
+  function xfGains(x, t, mode) {   // x -1..1: [left gain, right gain]
+    const cal = Math.pow(.5, 1 / t);
+    let l = x, r = x;
+    if (mode === 1) { x *= cal; l = x - cal; r = x + cal; }
+    let g2 = l < 0 ? 1 - Math.pow(-l, t) : 1, g1 = r > 0 ? 1 - Math.pow(r, t) : 1;
+    g1 = Math.max(0, g1); g2 = Math.max(0, g2);
+    if (mode === 1) { if (g1 > g2) g2 = 1 - g1; else g1 = 1 - g2; const g = Math.hypot(g1, g2) || 1; g1 /= g; g2 /= g; }
+    return [g1, g2];
+  }
+  let xfCanvas = null;
+  function xfDraw() {
+    const cv = xfCanvas; if (!cv || !cv.isConnected || !sys.xf || sys.xf.error) return;
+    const w = cv.clientWidth, h = cv.clientHeight, dpr = devicePixelRatio || 1;
+    if (!w || !h) return;
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    g.strokeStyle = "rgba(255,255,255,.14)"; g.lineWidth = 1;
+    for (let i = 1; i < 4; i++) { const y = Math.round(h * i / 4) + .5; g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
+    for (let i = 1; i < 6; i++) { const x = Math.round(w * i / 6) + .5; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
+    const t = sys.xfDrag ?? sys.xf.curve ?? 1, mode = sys.xf.mode, pad = 3, n = Math.max(2, Math.round(w));
+    const line = (pick, colour, width) => {
+      g.strokeStyle = colour; g.lineWidth = width; g.beginPath();
+      for (let i = 0; i <= n; i++) { const [a, b] = xfGains(-1 + 2 * i / n, t, mode), v = pick(a, b), x = i / n * w, y = pad + (1 - v / 2) * (h - 2 * pad);
+        i ? g.lineTo(x, y) : g.moveTo(x, y); }
+      g.stroke();
+    };
+    line((a, b) => a + b, "rgba(255,107,97,.85)", 1.5);   // the two together (as Mixxx's red line)
+    line(a => a, "#e8e8e8", 2); line((a, b) => b, "#e8e8e8", 2);
+  }
+  function buildXfGraph(c) {
+    xfCanvas = el("canvas"); xfCanvas.setAttribute("aria-hidden", "true");
+    Object.assign(xfCanvas.style, { width: "100%", height: "86px", display: "block", background: "#050505", borderRadius: "4px" });
+    c.appendChild(xfCanvas);
+    return () => requestAnimationFrame(xfDraw);
   }
 
   function buildNewTrack(c) {

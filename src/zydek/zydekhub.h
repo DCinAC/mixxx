@@ -315,6 +315,8 @@ class Hub : public QObject {
     bool canSend() const;
     void sendMidi(const QByteArray& data);
     void setControl(const QString& group, const QString& key, double value);
+    QJsonObject xfaderApi(const HttpServer::Query& query);   // /api/xfader: the crossfader's curve
+    QJsonObject m_xfader;                                     // its last values (in controller mode, the last sent)
     void remoteMessage(const QByteArray& msg, bool viaUsb);
     void sendSysexText(quint8 kind, const QJsonObject& obj);
     void linkConnect(const QJsonObject& computer);
