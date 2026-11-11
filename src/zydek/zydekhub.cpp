@@ -287,6 +287,7 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
             &PlayerInfo::trackChanged,
             this,
             [this](const QString& group, TrackPointer pNew, TrackPointer) {
+                watchTrackEdits(group, pNew);
                 if (m_controllerMode) {
                     return;   // the pages show the computer's decks
                 }
@@ -485,6 +486,8 @@ void Hub::start() {
     });
     m_lastSessionTimer.setInterval(2000);
     connect(&m_lastSessionTimer, &QTimer::timeout, this, [this] { saveKit(kLastSession); });
+    m_editSaveTimer.setSingleShot(true);
+    connect(&m_editSaveTimer, &QTimer::timeout, this, &Hub::saveEditedTracks);
     QTimer::singleShot(5000, this, [this] { restoreLastSession(0); });
     QTimer::singleShot(6000, this, [this] { restoreDeckSession(0); });
     if (m_server.listen(kPort)) {
@@ -3186,6 +3189,78 @@ void Hub::setControl(const QString& group, const QString& key, double value) {
     parts.append(0);
     parts += encodeValue(value);
     sysex(parts);
+}
+
+// ---- edits kept as they're made -------------------------------------------------------------------------
+// Mixxx writes a track's cues, loops and beat grid back to its library only when the track leaves the deck and
+// its cache (or Mixxx closes cleanly): a crash, or Android ending the app, lost everything set since it was loaded.
+// Now each loaded track's edits are saved soon after they're made. The cue itself works at once, as before, from
+// the track in memory; the save follows: gathered for 0.7 s (a burst of cue presses is one save; never more than
+// 3 s behind), then on Mixxx's main thread (its database's), posted there so the hub (and with it the
+// controller's traffic) never waits on the write. How long each save took goes to the session profile and the log.
+
+void Hub::watchTrackEdits(const QString& group, const TrackPointer& pTrack) {
+    for (const QMetaObject::Connection& c : m_editConns.take(group)) {
+        disconnect(c);
+    }
+    if (!pTrack) {
+        return;
+    }
+    const TrackWeakPointer weak = pTrack;
+    const auto edited = [this, weak] {
+        const TrackPointer p = weak.lock();
+        if (!p) {
+            return;
+        }
+        m_editPending.insert(p.get(), weak);
+        const qint64 now = m_clock.elapsed();
+        if (!m_editSaveTimer.isActive()) {
+            m_editFirstMs = now;
+        }
+        m_editSaveTimer.start(now - m_editFirstMs >= 3000 ? 0 : 700);
+    };
+    // (Track lives on the main thread, the hub on its own: these run here, queued)
+    m_editConns.insert(group, {connect(pTrack.get(), &Track::cuesUpdated, this, edited),
+                                      connect(pTrack.get(), &Track::beatsUpdated, this, edited)});
+}
+
+void Hub::saveEditedTracks() {
+    QList<TrackPointer> tracks;
+    for (const TrackWeakPointer& weak : std::as_const(m_editPending)) {
+        if (const TrackPointer p = weak.lock()) {
+            tracks.append(p);
+        }
+    }
+    m_editPending.clear();
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (tracks.isEmpty() || !pLibrary) {
+        return;
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    const QPointer<Hub> self(this);
+    QMetaObject::invokeMethod(
+            pCollection,
+            [pCollection, tracks, self] {
+                QElapsedTimer t;
+                t.start();
+                int saved = 0, failed = 0;
+                for (const TrackPointer& p : tracks) {
+                    const auto r = pCollection->saveTrack(p);
+                    saved += r == TrackCollectionManager::SaveTrackResult::Saved ? 1 : 0;
+                    failed += r == TrackCollectionManager::SaveTrackResult::Failed ? 1 : 0;
+                }
+                const double ms = static_cast<double>(t.nsecsElapsed()) / 1e6;
+                qInfo() << "ZyDeck: edits saved:" << saved << "track(s) in" << ms << "ms" << (failed ? "· failed:" : "") << (failed ? failed : 0);
+                QMetaObject::invokeMethod(
+                        self.data(),
+                        [self, saved, failed, ms] {
+                            if (self) {
+                                self->profileEvent(QStringLiteral("editsSaved"), {{"saved", saved}, {"failed", failed}, {"ms", ms}});
+                            }
+                        },
+                        Qt::QueuedConnection);
+            },
+            Qt::QueuedConnection);
 }
 
 /// The crossfader's curve, the way Mixxx's Preferences › Mixer sets it ([Mixer Profile]): mode 0 slow fade / fast cut
