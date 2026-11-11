@@ -645,7 +645,7 @@ function applySettings() {
   r.setProperty("--bar", `calc(var(--mm) * ${S.bar})`);
   r.setProperty("--knob", `calc(var(--mm) * ${S.knobSize})`);
   applyLook();
-  platterGlass();
+  platterLook();
 }
 // The look (zydeck-skin-d.js): Hardware over Element, or Element as it is
 function applyLook() { document.body.classList.toggle("kc-dark", S.knobCentre === "dark"); window.zydeckSkin?.apply({ theme: S.theme || "d", lamp: S.lampSide, text: S.keyText, ptl: "top", layers: (S.drawMode || "layers") === "layers" }); }
@@ -2425,53 +2425,55 @@ function releaseSpeed(xs) {
 let last = performance.now();
 let frames = 0;
 // =====================================================================================================
-// Platter overlay: each deck's platter behind its strip, its edge and two sticks turning with the track
+// Platter overlay: each deck's record turning with the track, under a smoked lid
 // =====================================================================================================
-// A guide for the hand; scratching is still by ear, so S.platterOverlay switches it off (Touch in the menu). The
-// platter is a vinyl one, 166 mm across, at the screen's real size (S.pxmm). The strip is a window on its edge, so the
-// centre is off the strip: above the top deck's and below the bottom deck's (stacked), below both (side by side). Two
-// sticks half a turn apart reach the edge: a long one from 38 % out and a short, dimmer one from 90 % out. The window
-// never sees the middle, so the two lengths tell the half-turns apart. In the windows they're drawn under the
-// waveform; outside, faintly under the controls, which go see-through while it's on. Not on the phone.
-const PLATTER = { R: 83, low: .05, stick: 4, edge: 1, long: .38, short: .9, shortWhite: .6, inside: 1, outside: .11, panels: .55 };
-const platter = { page: null, wins: [null, null], ang: [0, 0], at: [null, null], deck: [null, null], glass: [], bg: "", sig: "" };
+// A guide for the hand; scratching is still by ear, so S.platterOverlay switches it off (Touch in the menu). Not on
+// the phone. The look is a turntable under its smoked acrylic dust cover:
+// - the record (166 mm across, at the screen's real size, S.pxmm): its edge and two sticks half a turn apart, a long
+//   one from 38 % out and a short, dimmer one from 90 % out (the window never sees the middle, so the two lengths tell
+//   the half-turns apart). The strip is a window on its edge, so the centre is off the strip: above the top deck's and
+//   below the bottom deck's (stacked), below both (side by side). Each deck keeps to its own side of the gap.
+// - the lid: one tinted sheet over the records, open where the strips are (there the edge and sticks are sharp, under
+//   the waveform). Under it a black mist: the records seen through the lid are a Gaussian-blurred copy (LID.mist of it
+//   over the clear one).
+// - the hardware through the lid: keys, pads, faders, knobs, nudge bars stay as they are (solid); each key's cut-out
+//   has a faint lit edge; the pads' gaps show the lid.
+// - printed on the lid: knob and fader legends, the fader scales, the crossfader's centre, the pitch range, in one ink.
+// Drawn once, turned by the GPU: a Gaussian blur looks the same in every direction, so a turned record blurred is the
+// blurred record turned. Each record (with its mist) and each window's edge and sticks is an image made only when the
+// size changes; a frame sets two rotations per side, and only when they moved.
+const PLATTER = { R: 83, low: .05, stick: 4, edge: 1, long: .38, short: .9, shortWhite: .6, inside: 1 };
+const LID = { lid: "rgba(14,22,32,0.65)", ink: "rgba(170,196,222,0.85)", record: "#18181a", plinth: "#0b0b0b",
+  blur: 1.5, mist: 1, screen: false };   // blur in mm; mist: how much of the blurred copy (screen: only what's brighter glows)
+const platter = { ang: [0, 0], at: [null, null], deck: [null, null], under: null, lid: null, clips: [], recs: [], wins: [], winImgs: [],
+  spriteKey: "", winKey: "", layoutKey: "", rot: ["", ""], wrot: ["", ""], css: null };
 const platterOn = () => S.platterOverlay !== false && !PHONE;
-// See-through panels: every background in the page's own stylesheets (not the menu's, not the strips') mixed toward
-// transparent, so the platter under them shows. Undone when it's off.
-function platterGlass() {
-  if (!platter.bg) platter.bg = getComputedStyle(document.body).backgroundColor;
-  platter.glass.forEach(g => g.r.style.setProperty(g.p, g.v, g.i)); platter.glass = [];
-  const a = platterOn() && CSS.supports("color", "color-mix(in srgb, red 50%, transparent)") ? PLATTER.panels : 1;
-  document.body.style.background = a < 1 ? "transparent" : "";             // the page's ground moves to <html>, under the platter
-  document.documentElement.style.background = a < 1 ? platter.bg : "";
-  if (a >= 1) return;
-  const root = getComputedStyle(document.documentElement), mix = c => `color-mix(in srgb, ${c} ${a * 100}%, transparent)`;
-  const fade = s => s.replace(/rgba?\([^)]+\)|#[0-9a-f]{3,8}\b/gi, mix)
-    .replace(/var\((--[\w-]+)\)/g, (m, n) => (/^\s*(#|rgb|hsl|color-mix)/.test(root.getPropertyValue(n)) ? mix(m) : m));
-  const skip = sel => /\.strip|wftrack|#zm|\.zm/.test(sel) || sel.split(",").some(x => /^(html|body|:root)([.#[:]|$)/.test(x.trim().split(/[\s>+~]+/).pop()));
-  const walk = rules => {
-    for (const r of rules) {
-      if (r.cssRules && !r.style) { walk(r.cssRules); continue; }
-      if (!r.style || !r.selectorText || skip(r.selectorText)) continue;
-      const st = r.style, bg = st.getPropertyValue("background"), bc = st.getPropertyValue("background-color"), bi = st.getPropertyValue("background-image");
-      const set = (p, v) => { platter.glass.push({ r, p, v, i: st.getPropertyPriority(p) }); st.setProperty(p, fade(v), st.getPropertyPriority(p)); };
-      if (!bc && !bi && /var\(--/.test(bg)) { set("background", bg); continue; }
-      if (/rgb|var\(--|#[0-9a-f]{3}/i.test(bc)) set("background-color", bc);
-      if (/gradient/.test(bi)) set("background-image", bi);
-    }
-  };
-  for (const sh of document.styleSheets) { if (/zydeck-menu/.test(sh.href || "")) continue; try { walk(sh.cssRules); } catch {} }
-}
-function platterCanvas(css) { const c = document.createElement("canvas"); c.className = "platter"; c.setAttribute("aria-hidden", "true"); c.style.cssText = css; return c; }
-function platterSize(c, w, h, r) {
-  const W = Math.round(w * r), H = Math.round(h * r);
-  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-  const g = c.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H); return g;
+const PLATTER_BLUR = (() => { try { const t = document.createElement("canvas").getContext("2d"); t.filter = "blur(2px)"; return t.filter === "blur(2px)"; } catch { return false; } })();
+// The page's look while it's on: the page's ground moves under the records, the mixer's panel is part of the lid,
+// the legends are printed in the lid's ink, the keys' cut-outs and the pads' gaps
+function platterLook() {
+  const on = platterOn();
+  if (!platter.css) {
+    platter.css = document.createElement("style");
+    platter.css.textContent = `
+      body.platter-on #app #mixer { background: transparent !important; }
+      body.platter-on #app .knob:not(.stepped) > span, body.platter-on #app .fader .lbl, body.platter-on #app .lane .end,
+      body.platter-on #app .keybox span small { color: ${LID.ink} !important; text-shadow: none !important; }
+      body.platter-on #app .pad .knob > span { color: inherit !important; }
+      body.platter-on #app .fader .ticks { background: repeating-linear-gradient(180deg, ${LID.ink} 0 1px, transparent 1px 10%) !important; }
+      body.platter-on #app #xf .mid { background: ${LID.ink} !important; }
+      body.platter-on #app button:not(.psw), body.platter-on #app .pads { outline: 1px solid rgba(255,255,255,.13); outline-offset: 3px; }
+      body.platter-on #app .pads { background: transparent !important; box-shadow: none !important; }`;
+    document.head.append(platter.css);
+  }
+  document.body.classList.toggle("platter-on", on);
+  document.body.style.background = on ? "transparent" : "";
+  document.documentElement.style.background = on ? LID.plinth : "";
 }
 // A deck's platter in its strip's own mm (0,0 the strip's top left): its centre and the sticks' edge points
 function platterDeck(s, W, H, below) {
   const { R, low } = PLATTER, cx = W / 2, cy = below ? H * low + R : H * (1 - low) - R, a0 = below ? -Math.PI / 2 - platter.ang[s] : Math.PI / 2 + platter.ang[s];
-  return { cx, cy, below, sticks: [0, 1].map(j => { const a = a0 + j * Math.PI; return [cx + R * Math.cos(a), cy + R * Math.sin(a), j]; }) };
+  return { cx, cy, below, a0, sticks: [0, 1].map(j => { const a = a0 + j * Math.PI; return [cx + R * Math.cos(a), cy + R * Math.sin(a), j]; }) };
 }
 function platterDraw(g, p, alpha) {
   const { R, edge, stick, long, short, shortWhite } = PLATTER;
@@ -2483,43 +2485,111 @@ function platterDraw(g, p, alpha) {
     g.beginPath(); g.moveTo(p.cx + (x - p.cx) * f, p.cy + (y - p.cy) * f); g.lineTo(x, y); g.stroke();
   }
 }
-function platterFrame() {
-  const on = platterOn();
-  if (!on) { if (platter.sig !== "off") { platter.sig = "off"; [platter.page, ...platter.wins].forEach(c => c && (c.style.display = "none")); } return; }
-  if (!platter.page) { platter.page = platterCanvas("position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:-1;pointer-events:none"); document.body.prepend(platter.page); }
-  const strips = [0, 1].map(s => ui.sides[s]?.strip);
-  strips.forEach((el, s) => {
-    if (!el || (platter.wins[s] && el.contains(platter.wins[s]))) return;
-    platter.wins[s] = platterCanvas("position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none");
-    el.insertBefore(platter.wins[s], el.querySelector(".wftrack"));   // under the waveform, over the strip's ground
+const PLATTER_FLAT = { cx: 0, cy: 0, sticks: [[83, 0, 0], [-83, 0, 1]] };   // first stick pointing right (angle 0)
+// One record under the lid as an image, round (the plinth round it is the layer's own ground): sharp, then its
+// blurred copy over it. px: CSS px per mm, q: image px per CSS px
+function platterRecord(px, q) {
+  const R = PLATTER.R * px, blurPx = LID.blur * px, pad = Math.ceil(blurPx * 4 + 6), S = Math.ceil((R + pad) * 2 * q), c = S / 2;
+  const make = () => { const cv = document.createElement("canvas"); cv.width = cv.height = S; return cv; };
+  const sharp = make(), a = sharp.getContext("2d");
+  a.fillStyle = LID.plinth; a.fillRect(0, 0, S, S);
+  a.setTransform(q * px, 0, 0, q * px, c, c);
+  a.fillStyle = LID.record; a.beginPath(); a.arc(0, 0, PLATTER.R, 0, 7); a.fill();
+  platterDraw(a, PLATTER_FLAT, 1);
+  a.setTransform(1, 0, 0, 1, 0, 0);
+  if (blurPx * q >= .3 && LID.mist > 0) {
+    const blurred = make(), b = blurred.getContext("2d");
+    b.fillStyle = LID.plinth; b.fillRect(0, 0, S, S);   // the plinth runs on past the edge, so the blur doesn't darken it
+    if (PLATTER_BLUR) { b.filter = `blur(${blurPx * q}px)`; b.drawImage(sharp, 0, 0); b.filter = "none"; }
+    else {   // no canvas blur: down to a small copy and back up
+      const f = Math.max(.02, Math.min(.5, 1.2 / (blurPx * q))), n = Math.max(2, Math.round(S * f)), t = document.createElement("canvas");
+      t.width = t.height = n; const tg = t.getContext("2d"); tg.imageSmoothingQuality = "high"; tg.drawImage(sharp, 0, 0, n, n);
+      b.imageSmoothingQuality = "high"; b.drawImage(t, 0, 0, S, S);
+    }
+    a.globalAlpha = LID.mist; a.globalCompositeOperation = LID.screen ? "screen" : "source-over";
+    a.drawImage(blurred, 0, 0);
+    a.globalAlpha = 1;
+  }
+  a.globalCompositeOperation = "destination-in"; a.beginPath(); a.arc(c, c, c, 0, 7); a.fill(); a.globalCompositeOperation = "source-over";
+  return sharp;
+}
+// a window's: the edge and the sticks alone, sharp, on nothing
+function platterWindow(px, q) {
+  const S = Math.ceil((PLATTER.R * px + 4) * 2 * q), cv = document.createElement("canvas"); cv.width = cv.height = S;
+  const g = cv.getContext("2d"); g.setTransform(q * px, 0, 0, q * px, S / 2, S / 2); platterDraw(g, PLATTER_FLAT, PLATTER.inside);
+  return cv;
+}
+function platterLayer(css) { const e = document.createElement("div"); e.setAttribute("aria-hidden", "true"); e.style.cssText = css; return e; }
+function platterImages(img, q) {   // the same image for both sides, each its own element, turning about its middle
+  return [0, 1].map(s => {
+    let c = img;
+    if (s) { c = document.createElement("canvas"); c.width = img.width; c.height = img.height; c.getContext("2d").drawImage(img, 0, 0); }
+    Object.assign(c.style, { position: "absolute", left: "0", top: "0", width: img.width / q + "px", height: img.height / q + "px",
+      transformOrigin: "50% 50%", willChange: "transform", pointerEvents: "none" });
+    return c;
   });
+}
+function platterFrame() {
+  if (!platterOn()) {
+    if (platter.layoutKey !== "off") { platter.layoutKey = "off"; [platter.under, platter.lid, ...platter.wins].forEach(e => e && (e.style.display = "none")); }
+    return;
+  }
+  if (!platter.under) {
+    platter.under = platterLayer(`position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;background:${LID.plinth}`);
+    platter.lid = platterLayer(`position:fixed;inset:0;z-index:-1;pointer-events:none;background:${LID.lid}`);
+    document.body.prepend(platter.lid); document.body.prepend(platter.under);   // the records, the lid over them, the page over both
+    platter.clips = [0, 1].map(() => { const c = platterLayer("position:absolute;overflow:hidden"); platter.under.append(c); return c; });
+  }
+  const strips = [0, 1].map(s => ui.sides[s]?.strip);
   const rects = strips.map(el => el && el.getBoundingClientRect());
   if (!rects[0] || !rects[1] || !rects[0].width || !rects[1].width) return;
   // turn each platter with its deck's play position: at 33 1/3 for vinyl, with the waveform for 1:1
-  const k = S.pxmm, Wmm = rects[0].width / k;
+  const k = S.pxmm, Wmm = rects[0].width / k, dpr = Math.min(2, devicePixelRatio || 1);
   [0, 1].forEach(s => {
     const d = deckOf(s), pos = Number.isFinite(d?.pos) ? d.pos : 0;
     if (platter.deck[s] !== d || platter.at[s] === null) { platter.deck[s] = d; platter.at[s] = pos; return; }
     const perSec = S.scrBase === "cdj" ? Math.PI * 2 / 1.8 : Wmm / deckSpan(d) / PLATTER.R;   // radians per track second
     platter.ang[s] = (platter.ang[s] + (pos - platter.at[s]) * perSec) % (Math.PI * 2); platter.at[s] = pos;
   });
-  const st = stacked(), sig = `${rects.map(r => `${r.left|0},${r.top|0},${r.width|0},${r.height|0}`)}|${platter.ang.map(a => a.toFixed(3))}|${st}|${innerWidth}x${innerHeight}`;
-  if (sig === platter.sig) return;
-  platter.sig = sig;
-  [platter.page, ...platter.wins].forEach(c => c && (c.style.display = ""));
-  const dpr = Math.min(2, devicePixelRatio || 1), pg = platterSize(platter.page, innerWidth, innerHeight, 1);   // the faint part: 1x is plenty
-  // each deck keeps to its own side of the gap between the strips
-  const split = st ? (rects[0].bottom + rects[1].top) / 2 : (rects[0].right + rects[1].left) / 2;
+  // the images: made again only when the size changes (mostly blur: a CSS pixel per pixel is plenty)
+  const q = LID.blur > 0 && LID.mist >= .5 ? Math.min(dpr, 1) : dpr;
+  if (platter.spriteKey !== `${k}|${q}`) {
+    platter.spriteKey = `${k}|${q}`; platter.layoutKey = "";
+    platter.recs.forEach(c => c.remove());
+    platter.recs = platterImages(platterRecord(k, q), q);
+    platter.recs.forEach((c, s) => platter.clips[s].append(c));
+  }
+  if (platter.winKey !== `${k}|${dpr}`) {
+    platter.winKey = `${k}|${dpr}`;
+    platter.wins.forEach(w => w?.remove()); platter.wins = [null, null];
+    platter.winImgs = platterImages(platterWindow(k, dpr), dpr);
+  }
+  strips.forEach((el, s) => {   // each window's layer: in the strip, under the waveform, over the strip's ground
+    if (platter.wins[s] && el.contains(platter.wins[s])) return;
+    platter.wins[s] = platterLayer("position:absolute;inset:0;overflow:hidden;pointer-events:none");
+    platter.wins[s].append(platter.winImgs[s]); el.insertBefore(platter.wins[s], el.querySelector(".wftrack"));
+    platter.layoutKey = "";
+  });
+  const st = stacked(), decks = [0, 1].map(s => platterDeck(s, rects[s].width / k, rects[s].height / k, !st || s === 1));
+  const layoutKey = `${rects.map(r => `${r.left | 0},${r.top | 0},${r.width | 0},${r.height | 0}`)}|${st}|${innerWidth}x${innerHeight}|${platter.spriteKey}`;
+  if (layoutKey !== platter.layoutKey) {   // where things go: each deck keeps to its own side of the gap between the strips
+    platter.layoutKey = layoutKey; platter.rot = ["", ""]; platter.wrot = ["", ""];
+    [platter.under, platter.lid, ...platter.wins].forEach(e => e && (e.style.display = ""));
+    const split = st ? (rects[0].bottom + rects[1].top) / 2 : (rects[0].right + rects[1].left) / 2, W = innerWidth, H = innerHeight;
+    [0, 1].forEach(s => {
+      const box = st ? (s ? [0, split, W, H - split] : [0, 0, W, split]) : (s ? [split, 0, W - split, H] : [0, 0, split, H]);
+      Object.assign(platter.clips[s].style, { left: box[0] + "px", top: box[1] + "px", width: box[2] + "px", height: box[3] + "px" });
+      platter.clips[s].ox = box[0]; platter.clips[s].oy = box[1];
+    });
+  }
+  // the turn: a transform per image, only when it moved
   [0, 1].forEach(s => {
-    const r = rects[s], p = platterDeck(s, r.width / k, r.height / k, !st || s === 1);
-    const g = platterSize(platter.wins[s], r.width, r.height, dpr);
-    g.setTransform(dpr * k, 0, 0, dpr * k, 0, 0); platterDraw(g, p, PLATTER.inside);
-    pg.save(); pg.beginPath();
-    if (st) s ? pg.rect(-1e4, split, 3e4, 1e4) : pg.rect(-1e4, split - 1e4, 3e4, 1e4);
-    else s ? pg.rect(split, -1e4, 1e4, 3e4) : pg.rect(split - 1e4, -1e4, 1e4, 3e4);
-    rects.forEach(q => pg.rect(q.left, q.top, q.width, q.height)); pg.clip("evenodd");   // the windows have their own
-    pg.setTransform(k, 0, 0, k, r.left, r.top); platterDraw(pg, p, PLATTER.outside);
-    pg.restore();
+    const p = decks[s], r = rects[s], rec = platter.recs[s], win = platter.winImgs[s];
+    const rs = parseFloat(rec.style.width), ws = parseFloat(win.style.width), rot = `rotate(${p.a0.toFixed(4)}rad)`;
+    const t = `translate(${(r.left + p.cx * k - platter.clips[s].ox - rs / 2).toFixed(1)}px,${(r.top + p.cy * k - platter.clips[s].oy - rs / 2).toFixed(1)}px) ${rot}`;
+    if (t !== platter.rot[s]) { rec.style.transform = t; platter.rot[s] = t; }
+    const wt = `translate(${(p.cx * k - ws / 2).toFixed(1)}px,${(p.cy * k - ws / 2).toFixed(1)}px) ${rot}`;
+    if (wt !== platter.wrot[s]) { win.style.transform = wt; platter.wrot[s] = wt; }
   });
 }
 function frame(now) {
