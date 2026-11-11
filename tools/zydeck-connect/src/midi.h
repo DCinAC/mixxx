@@ -59,6 +59,7 @@ class Midi : public QObject {
     void fromMixxx(const QByteArray& msg);
     void hello(const QString& device, const QString& port);
     void nameAsk(const QString& port, const QJsonObject& ask);
+    void hardware(const QString& port, const QByteArray& msg);   // a known DJ controller's press (hardware.h), read only
 
   private:
     void watch();

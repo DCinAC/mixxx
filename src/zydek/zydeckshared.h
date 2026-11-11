@@ -23,6 +23,12 @@ inline constexpr quint8 kLinkHello = 0x60;   // device -> computer: {"v": 1, "na
 inline constexpr quint8 kLinkOffer = 0x61;   // computer -> device: {"name", "hosts": [...], "port", "key"}
 inline constexpr quint8 kNameAsk = 0x62;     // device -> computer: {"s": sampler?, "i": index, "ms": track length}
 inline constexpr quint8 kNameReply = 0x63;   // computer -> device: {"s", "i", "ms", "n": {t, a, id, l, g} or null}
+// computer -> device: the DJ controller on the computer (read only, never written to), for the pages to follow:
+// {"dev": name, "d34": its decks 3-4 on, "pads": [deck A's pad mode, deck B's] ("hotcue", "roll", "slicer", "sampler",
+// "toneplay", "fx", "slicerloop", "beatjump"; null: not known yet), "ev": what just happened ("pads0", "pads1",
+// "d34"; absent: the state as it stands, for one that just connected)}. Over Wi-Fi the same JSON as a line "H <json>".
+// {} : none (any more).
+inline constexpr quint8 kHardware = 0x64;
 
 /// F0 7D <kind> <hex of the JSON> F7
 inline QByteArray sysexText(quint8 kind, const QJsonObject& obj) {

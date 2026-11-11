@@ -1,5 +1,7 @@
 #include "midi.h"
 
+#include "hardware.h"
+
 #include <QDateTime>
 #include <QFile>
 #include <QJsonDocument>
@@ -451,6 +453,9 @@ void Midi::fromCable(const QString& port, const QByteArray& msg) {
         }
         if (relay) {
             toMixxx(msg);
+        }
+        if (Hardware::wants(port, msg)) {
+            emit hardware(port, msg);   // (queued to the main thread)
         }
         return;   // (the mapping's own messages: relayed above, unless Mixxx reads this port itself)
     }

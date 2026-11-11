@@ -99,6 +99,7 @@ using zydeck::shared::kLinkHello;
 using zydeck::shared::kLinkOffer;
 using zydeck::shared::kNameAsk;
 using zydeck::shared::kNameReply;
+using zydeck::shared::kHardware;
 using zydeck::shared::kValueBytes;
 using zydeck::shared::encodeValue;
 using zydeck::shared::decodeValue;
@@ -4065,6 +4066,9 @@ void Hub::setControllerMode(bool on) {
         return;
     }
     m_controllerMode = on;
+    if (!on) {
+        hardwareIn({});   // (its controller is the computer's)
+    }
     choosePath();   // (off: nothing to choose, and the Wi-Fi lock let go)
     pauseOwnAudio(on);
     saveRemote();
@@ -4204,6 +4208,10 @@ void Hub::remoteMessage(const QByteArray& msg, bool viaUsb) {
         return;
     }
     const auto byte = [&msg](int i) { return static_cast<unsigned char>(msg[i]); };
+    if (msg.size() >= 4 && byte(0) == 0xF0 && byte(1) == 0x7D && byte(2) == kHardware) {
+        hardwareIn(zydeck::shared::sysexJson(msg));   // (over the cable; the same comes as "H" over Wi-Fi)
+        return;
+    }
     if (msg.size() >= 4 && byte(0) == 0xF0 && byte(1) == 0x7D && (byte(2) == kLinkOffer || byte(2) == kNameReply)) {
         const QJsonObject j = zydeck::shared::sysexJson(msg);
         if (byte(2) == kLinkOffer) {
@@ -4355,6 +4363,8 @@ void Hub::linkLine(const QByteArray& line) {
         } else if (what == QLatin1String("stop")) {
             profileStop(QStringLiteral("computer"));
         }
+    } else if (line.startsWith("H ")) {
+        hardwareIn(QJsonDocument::fromJson(line.mid(2)).object());
     } else if (line.startsWith("J ")) {
         const QJsonObject j = QJsonDocument::fromJson(line.mid(2)).object();
         if (j.contains(QStringLiteral("n")) && nameFits(j)) {
@@ -4813,6 +4823,16 @@ void Hub::applyName(bool sampler, int index, const QJsonValue& name) {
     }
 }
 
+// Repeats (the cable and Wi-Fi both bring it) do no harm: a page takes the state as it is, not a change to make
+void Hub::hardwareIn(const QJsonObject& state) {
+    if (state.isEmpty() && m_hardware.isEmpty()) {
+        return;
+    }
+    m_hardware = state;
+    m_hardware.remove(QStringLiteral("ev"));   // (a page coming later takes the state, not the last change)
+    emitJson({{"t", "hw"}, {"hw", state}});
+}
+
 void Hub::emitJson(const QJsonObject& message) {
     m_server.broadcast(QStringLiteral("/ws"), QJsonDocument(message).toJson(QJsonDocument::Compact));
 }
@@ -4857,6 +4877,7 @@ QJsonObject Hub::snapshot() const {
                     {"notice", QDateTime::currentMSecsSinceEpoch() - m_noticeAt < 30000 ? m_notice : QString()},
                     {"sfx", stemFxJson()},
                     {"rec", recordStatus()},
+                    {"hw", m_hardware},
                     {"cv", m_controlValues}}}};
 }
 

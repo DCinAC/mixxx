@@ -317,6 +317,10 @@ class Hub : public QObject {
     void setControl(const QString& group, const QString& key, double value);
     QJsonObject xfaderApi(const HttpServer::Query& query);   // /api/xfader: the crossfader's curve
     QJsonObject m_xfader;                                     // its last values (in controller mode, the last sent)
+    // The DJ controller on the computer, as ZyDeck Connect reads it (zydeckshared.h kHardware): to the pages ("hw"),
+    // which follow its pad modes and decks 3-4 if asked to. Nothing goes back to it.
+    void hardwareIn(const QJsonObject& state);
+    QJsonObject m_hardware;
     // a loaded track's cue and grid edits, saved to Mixxx's library as they're made (not only at eject)
     void watchTrackEdits(const QString& group, const TrackPointer& pTrack);
     void saveEditedTracks();

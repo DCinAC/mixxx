@@ -128,6 +128,7 @@ Core::Core(QObject* parent)
         : QObject(parent),
           m_key(loadKey()),
           m_midi(new Midi(this)),
+          m_hardware(new Hardware(m_midi, this)),
           m_profiler(new Profiler(m_midi, [this] {   // (a linked device's address: the network the profiler watches)
               for (const Device& d : devices()) {
                   if (!d.address.isEmpty()) {
@@ -141,6 +142,9 @@ Core::Core(QObject* parent)
         m_name = tr("This computer");
     }
     connect(m_midi, &Midi::fromMixxx, this, &Core::fromMixxx);
+    connect(m_midi, &Midi::hardware, m_hardware, &Hardware::feed);
+    connect(this, &Core::mixxxMappingStarted, m_hardware, &Hardware::mappingsStarted);
+    connect(m_hardware, &Hardware::changed, this, &Core::hardwareOut);
     connect(m_profiler, &Profiler::tell, this, [this](const QJsonObject& control) {   // the session profiler: all the devices
         const QByteArray line = "P " + QJsonDocument(control).toJson(QJsonDocument::Compact) + '\n';
         for (auto it = m_clients.cbegin(); it != m_clients.cend(); ++it) {
@@ -152,6 +156,7 @@ Core::Core(QObject* parent)
     connect(m_midi, &Midi::hello, this, [this](const QString& device, const QString& port) {
         seen(device, tr("USB cable"));
         m_midi->reply(port, sysexText(kLinkOffer, offer()));
+        m_midi->reply(port, sysexText(zydeck::shared::kHardware, m_hardware->state()));
         activity(device, false);
     });
     connect(m_midi, &Midi::nameAsk, this, [this](const QString& port, const QJsonObject& ask) {
@@ -205,6 +210,17 @@ void Core::decksChanged() {
         }
         m_midi->toDevices(sysexText(kNameReply, n));
     }
+}
+
+// The DJ controller's pad modes and decks switch (hardware.h), to every device: its pages follow them if asked to
+void Core::hardwareOut(const QJsonObject& state) {
+    const QByteArray line = "H " + QJsonDocument(state).toJson(QJsonDocument::Compact) + '\n';
+    for (auto c = m_clients.cbegin(); c != m_clients.cend(); ++c) {
+        if (c.value()->linked) {
+            c.key()->write(line);
+        }
+    }
+    m_midi->toDevices(sysexText(zydeck::shared::kHardware, state));
 }
 
 bool Core::listen() {
@@ -442,6 +458,7 @@ void Core::line(QTcpSocket* s, Client& c, const QByteArray& l) {
         }
         c.linked = true;
         s->write("OK " + m_name.toUtf8().toHex() + '\n');
+        s->write("H " + QJsonDocument(m_hardware->state()).toJson(QJsonDocument::Compact) + '\n');
         bool v4 = false;   // (as the network search has it: a plain IPv4 address, not IPv6's ::ffff: form)
         const quint32 ip = s->peerAddress().toIPv4Address(&v4);
         seen(c.device, tr("Wi-Fi"), v4 ? QHostAddress(ip).toString() : s->peerAddress().toString());

@@ -21,6 +21,7 @@
 #include <QUrlQuery>
 
 #include "library.h"
+#include "hardware.h"
 #include "midi.h"
 #include "profiler.h"
 #include "waveforms.h"
@@ -86,6 +87,8 @@ class Core : public QObject {
     Waveforms m_waveforms{&m_library};
     Web m_web{&m_library};
     Midi* m_midi;
+    Hardware* m_hardware;   // the DJ controller on this computer, read only: for the pages to follow
+    void hardwareOut(const QJsonObject& state);
     Profiler* m_profiler;
     QTcpServer m_server;
     QHash<QTcpSocket*, Client*> m_clients;
