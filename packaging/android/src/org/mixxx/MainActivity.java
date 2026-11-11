@@ -951,6 +951,15 @@ public class MainActivity extends QtActivityBase {
         m_phoneView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                // this device's page driving another ZyDeck (Link devices: ?hub=<its address>): the radio kept awake
+                String hub = null;
+                try {
+                    hub = url == null ? null : android.net.Uri.parse(url).getQueryParameter("hub");
+                } catch (RuntimeException e) {
+                    // (not a URL with a query)
+                }
+                ZydekLink.setLowLatencyFor(ZydekLink.LOCK_LINKED_TO, hub != null && !hub.isEmpty()
+                        && !hub.startsWith("127.") && !hub.startsWith("localhost"));
                 if (m_booting && url != null && url.startsWith(PHONE_PAGE)) {   // past the start-up screen
                     m_booting = false;
                     setRequestedOrientation(m_userOrientation);
