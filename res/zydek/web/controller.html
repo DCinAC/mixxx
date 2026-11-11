@@ -2445,7 +2445,7 @@ let frames = 0;
 const PLATTER = { R: 83, low: .05, stick: 4, edge: 1, long: .38, short: .9, shortWhite: .6, inside: 1 };
 const LID = { lid: "rgba(14,22,32,0.65)", ink: "rgba(170,196,222,0.85)", record: "#18181a", plinth: "#0b0b0b",
   blur: 1.5, mist: 1, screen: false };   // blur in mm; mist: how much of the blurred copy (screen: only what's brighter glows)
-const platter = { ang: [0, 0], at: [null, null], deck: [null, null], under: null, lid: null, clips: [], recs: [], wins: [], winImgs: [],
+const platter = { ang: {}, at: {}, under: null, lid: null, clips: [], recs: [], wins: [], winImgs: [],
   spriteKey: "", winKey: "", layoutKey: "", rot: ["", ""], wrot: ["", ""], css: null };
 const platterOn = () => S.platterOverlay !== false && !PHONE;
 const PLATTER_BLUR = (() => { try { const t = document.createElement("canvas").getContext("2d"); t.filter = "blur(2px)"; return t.filter === "blur(2px)"; } catch { return false; } })();
@@ -2472,7 +2472,8 @@ function platterLook() {
 }
 // A deck's platter in its strip's own mm (0,0 the strip's top left): its centre and the sticks' edge points
 function platterDeck(s, W, H, below) {
-  const { R, low } = PLATTER, cx = W / 2, cy = below ? H * low + R : H * (1 - low) - R, a0 = below ? -Math.PI / 2 - platter.ang[s] : Math.PI / 2 + platter.ang[s];
+  const ang = platter.ang[deckOf(s)?.n] || 0;   // the record of the deck the side shows (1 or 3, 2 or 4)
+  const { R, low } = PLATTER, cx = W / 2, cy = below ? H * low + R : H * (1 - low) - R, a0 = below ? -Math.PI / 2 - ang : Math.PI / 2 + ang;
   return { cx, cy, below, a0, sticks: [0, 1].map(j => { const a = a0 + j * Math.PI; return [cx + R * Math.cos(a), cy + R * Math.sin(a), j]; }) };
 }
 function platterDraw(g, p, alpha) {
@@ -2543,14 +2544,16 @@ function platterFrame() {
   const strips = [0, 1].map(s => ui.sides[s]?.strip);
   const rects = strips.map(el => el && el.getBoundingClientRect());
   if (!rects[0] || !rects[1] || !rects[0].width || !rects[1].width) return;
-  // turn each platter with its deck's play position: at 33 1/3 for vinyl, with the waveform for 1:1
+  // Every deck its own record, turning with its play position (at 33 1/3 for vinyl, with the waveform for 1:1), shown
+  // or not: switched to, deck 3's is where deck 3 has got to, not where deck 1's was
   const k = S.pxmm, Wmm = rects[0].width / k, dpr = Math.min(2, devicePixelRatio || 1);
-  [0, 1].forEach(s => {
-    const d = deckOf(s), pos = Number.isFinite(d?.pos) ? d.pos : 0;
-    if (platter.deck[s] !== d || platter.at[s] === null) { platter.deck[s] = d; platter.at[s] = pos; return; }
+  for (const d of decks) {
+    if (!d) continue;
+    const n = d.n, pos = Number.isFinite(d.pos) ? d.pos : 0;
+    if (platter.at[n] == null) { platter.at[n] = pos; platter.ang[n] = platter.ang[n] || 0; continue; }
     const perSec = S.scrBase === "cdj" ? Math.PI * 2 / 1.8 : Wmm / deckSpan(d) / PLATTER.R;   // radians per track second
-    platter.ang[s] = (platter.ang[s] + (pos - platter.at[s]) * perSec) % (Math.PI * 2); platter.at[s] = pos;
-  });
+    platter.ang[n] = (platter.ang[n] + (pos - platter.at[n]) * perSec) % (Math.PI * 2); platter.at[n] = pos;
+  }
   // the images: made again only when the size changes (mostly blur: a CSS pixel per pixel is plenty)
   const q = LID.blur > 0 && LID.mist >= .5 ? Math.min(dpr, 1) : dpr;
   if (platter.spriteKey !== `${k}|${q}`) {
@@ -2570,7 +2573,7 @@ function platterFrame() {
     platter.wins[s].append(platter.winImgs[s]); el.insertBefore(platter.wins[s], el.querySelector(".wftrack"));
     platter.layoutKey = "";
   });
-  const st = stacked(), decks = [0, 1].map(s => platterDeck(s, rects[s].width / k, rects[s].height / k, !st || s === 1));
+  const st = stacked(), geo = [0, 1].map(s => platterDeck(s, rects[s].width / k, rects[s].height / k, !st || s === 1));
   const layoutKey = `${rects.map(r => `${r.left | 0},${r.top | 0},${r.width | 0},${r.height | 0}`)}|${st}|${innerWidth}x${innerHeight}|${platter.spriteKey}`;
   if (layoutKey !== platter.layoutKey) {   // where things go: each deck keeps to its own side of the gap between the strips
     platter.layoutKey = layoutKey; platter.rot = ["", ""]; platter.wrot = ["", ""];
@@ -2584,7 +2587,7 @@ function platterFrame() {
   }
   // the turn: a transform per image, only when it moved
   [0, 1].forEach(s => {
-    const p = decks[s], r = rects[s], rec = platter.recs[s], win = platter.winImgs[s];
+    const p = geo[s], r = rects[s], rec = platter.recs[s], win = platter.winImgs[s];
     const rs = parseFloat(rec.style.width), ws = parseFloat(win.style.width), rot = `rotate(${p.a0.toFixed(4)}rad)`;
     const t = `translate(${(r.left + p.cx * k - platter.clips[s].ox - rs / 2).toFixed(1)}px,${(r.top + p.cy * k - platter.clips[s].oy - rs / 2).toFixed(1)}px) ${rot}`;
     if (t !== platter.rot[s]) { rec.style.transform = t; platter.rot[s] = t; }
