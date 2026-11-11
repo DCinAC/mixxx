@@ -27,8 +27,10 @@ Hardware::Hardware(Midi* midi, QObject* parent)
 }
 
 bool Hardware::wants(const QString& port, const QByteArray& msg) {
-    return msg.size() == 3 && (static_cast<quint8>(msg[0]) & 0xF0) == 0x90 && msg[2] != 0 &&
-            port.contains(kInpulse, Qt::CaseInsensitive);
+    if (msg.size() != 3 || (static_cast<quint8>(msg[0]) & 0xF0) != 0x90 || !port.contains(kInpulse, Qt::CaseInsensitive)) {
+        return false;
+    }
+    return msg[2] != 0 || msg[1] == 0x04;   // (presses; SHIFT's letting go too)
 }
 
 Hardware::Event Hardware::read(const QByteArray& msg) {
@@ -39,6 +41,11 @@ Hardware::Event Hardware::read(const QByteArray& msg) {
     if (status == 0x90 && note == 0x03) {   // Assistant: the mapping's decks 3-4 switch
         return {QStringLiteral("d34"), {}, false};
     }
+    // Its mode keys: mode n is note 0x0F + n - 1 on deck A's channel 2 / deck B's 3, and its pads are block n - 1
+    // (Hercules' MIDI chart for the Inpulse 300, the MK2's layout as its mapping has it)
+    if ((status == 0x91 || status == 0x92) && note >= 0x0F && note <= 0x16) {
+        return {status == 0x91 ? QStringLiteral("pads0") : QStringLiteral("pads1"), QString::fromLatin1(kBlocks[note - 0x0F]), true};
+    }
     if ((status == 0x96 || status == 0x97) && note < 0x80) {
         return {status == 0x96 ? QStringLiteral("pads0") : QStringLiteral("pads1"), QString::fromLatin1(kBlocks[note >> 4]), false};
     }
@@ -46,8 +53,18 @@ Hardware::Event Hardware::read(const QByteArray& msg) {
 }
 
 void Hardware::feed(const QString& port, const QByteArray& msg) {
+    const quint8 status = static_cast<quint8>(msg[0]);
+    if ((status == 0x91 || status == 0x92) && msg[1] == 0x04) {   // SHIFT, deck A / B
+        m_shift[status - 0x91] = msg[2] != 0;
+        return;
+    }
     const Event e = read(msg);
-    if (e.what.isEmpty()) {
+    if (e.what.isEmpty() || msg[2] == 0) {
+        return;
+    }
+    // With SHIFT held a mode key picks the second mode of four; which note that sends isn't in the charts that could be
+    // read: its first pad says
+    if (e.set && m_shift[e.what == QLatin1String("pads1") ? 1 : 0]) {
         return;
     }
     m_port = port;

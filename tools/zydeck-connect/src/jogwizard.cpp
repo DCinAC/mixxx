@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <vector>
 
@@ -97,17 +98,6 @@ struct Session {
             }
         }
         return best;
-    }
-    QString encName() const {
-        switch (enc) {
-        case Enc::Twos:
-            return QObject::tr("signed steps (1 and 127)");
-        case Enc::Offset:
-            return QObject::tr("steps around 64 (65 and 63)");
-        case Enc::Absolute:
-            break;
-        }
-        return QObject::tr("its position (0 to 127, round and round)");
     }
 };
 
@@ -369,6 +359,99 @@ class Blocks : public QWidget {
             p.drawText(QRect(r.left(), 22, r.width(), 16), Qt::AlignHCenter, labels.value(i));
         }
     }
+};
+
+// The hand: a pointer of the old pixel kind (an open hand), filled blue. Drawn from its cells: the outline is every
+// cell beside the hand
+void paintHand(QPainter& p, QPointF at, qreal cell) {
+    static const char* const kRows[] = {
+            "      XX        ",
+            "      XX XX     ",
+            "   XX XX XX     ",
+            "   XX XX XX XX  ",
+            "   XX XX XX XX  ",
+            "   XX XX XX XX  ",
+            "   XX XX XX XX  ",
+            "   XX XX XX XX  ",
+            "   XX XX XX XX  ",
+            "XX XXXXXXXXXXX  ",
+            "XXXXXXXXXXXXXX  ",
+            " XXXXXXXXXXXXX  ",
+            " XXXXXXXXXXXXX  ",
+            "  XXXXXXXXXXXX  ",
+            "  XXXXXXXXXXXX  ",
+            "   XXXXXXXXXXX  ",
+            "   XXXXXXXXXXX  ",
+            "    XXXXXXXXXX  ",
+            "     XXXXXXXX   ",
+    };
+    const int rows = int(std::size(kRows)), cols = 16;
+    const auto in = [&](int x, int y) { return y >= 0 && y < rows && x >= 0 && x < cols && kRows[y][x] == 'X'; };
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing, false);
+    for (int y = -1; y <= rows; ++y) {
+        for (int x = -1; x <= cols; ++x) {
+            const QRectF r(at.x() + (x + 1) * cell, at.y() + (y + 1) * cell, cell, cell);
+            if (in(x, y)) {
+                const double t = y / double(rows - 1);   // light at the fingertips, deep at the wrist
+                p.fillRect(r, QColor::fromRgbF(0.80 - 0.62 * t, 0.88 - 0.50 * t, 1.0 - 0.15 * t));
+            } else if (in(x - 1, y) || in(x + 1, y) || in(x, y - 1) || in(x, y + 1)) {
+                p.fillRect(r, QColor(0x0b, 0x1f, 0x4f));
+            }
+        }
+    }
+    p.restore();
+}
+
+// A little platter with the hand on it, two frames: on its edge (turning it there) or on its top
+class HandDemo : public QWidget {
+  public:
+    explicit HandDemo(bool onTop, QWidget* parent = nullptr)
+            : QWidget(parent),
+              m_onTop(onTop) {
+        setFixedSize(112, 88);
+        m_tick.setInterval(450);
+        connect(&m_tick, &QTimer::timeout, this, [this] {
+            m_frame ^= 1;
+            update();
+        });
+    }
+
+  protected:
+    void showEvent(QShowEvent*) override { m_tick.start(); }
+    void hideEvent(QHideEvent*) override { m_tick.stop(); }
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        const QPointF c(42, 46);
+        const qreal R = 34;
+        QPainterPath arrow;
+        arrow.moveTo(c.x() - 5, c.y() - R - 9);
+        arrow.lineTo(c.x() + 5, c.y() - R - 9);
+        arrow.lineTo(c.x(), c.y() - R - 1);
+        arrow.closeSubpath();
+        p.setPen(Qt::NoPen);
+        p.setBrush(kRed);
+        p.drawPath(arrow);
+        QRadialGradient metal(c - QPointF(12, 14), R * 1.5);
+        metal.setColorAt(0, QColor(0xfb, 0xfb, 0xfb));
+        metal.setColorAt(1, QColor(0x86, 0x8e, 0x9a));
+        p.setPen(QPen(QColor(0x5a, 0x60, 0x6a), 1));
+        p.setBrush(metal);
+        p.drawEllipse(c, R, R);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0x17, 0x17, 0x19));
+        p.drawEllipse(c, R - 5, R - 5);
+        p.setBrush(QColor(0xe0, 0x8c, 0x22));
+        p.drawEllipse(c, R * 0.36, R * 0.36);
+        const qreal dy = m_frame ? 5 : -5;   // up, down: turning it
+        paintHand(p, m_onTop ? QPointF(c.x() - 8, c.y() - 22 + dy) : QPointF(c.x() + R - 12, c.y() - 18 + dy), 2);
+    }
+
+  private:
+    bool m_onTop;
+    int m_frame = 0;
+    QTimer m_tick;
 };
 
 // A meter for the fast page: how many steps one message held, the most so far marked
@@ -646,6 +729,17 @@ class Page : public QWizardPage {
     void changed() { emit completeChanged(); }
 };
 
+// An instruction: its number, then what to do (a little larger than the rest)
+QLabel* step(int n, const QString& t) {
+    auto* l = new QLabel(QStringLiteral("<table cellspacing=0 cellpadding=0><tr><td width=22 valign=top><b>%1.</b></td><td>%2</td></tr></table>").arg(n).arg(t));
+    l->setWordWrap(true);
+    l->setTextFormat(Qt::RichText);
+    QFont f = l->font();
+    f.setPixelSize(14);
+    l->setFont(f);
+    return l;
+}
+
 QLabel* text(const QString& t, QWidget* parent = nullptr) {
     auto* l = new QLabel(t, parent);
     l->setWordWrap(true);
@@ -703,12 +797,7 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     intro->setTitle(QStringLiteral("<span style='font-size:17px; font-weight:bold'>%1</span>").arg(tr("Welcome to the Jog Wheel Setup Wizard")));
     intro->setPixmap(QWizard::WatermarkPixmap, watermark());
     auto* il = new QVBoxLayout(intro);
-    il->addWidget(text(tr("This wizard measures your DJ controller's jog wheels, so that one turn of your hand is one "
-                          "turn of the record in Mixxx.")));
-    il->addWidget(text(tr("You'll need a <b>mark on the platter</b> you can follow round: a logo, a sticker, the grip "
-                          "dots. A bit of tape will do.")));
-    il->addWidget(text(tr("Nothing is sent to the controller, and Mixxx keeps running while you do this.")));
-    il->addSpacing(8);
+    il->addWidget(step(1, tr("Choose your controller.")));
     auto* row = new QHBoxLayout;
     row->addWidget(new QLabel(tr("Controller:")));
     auto* ports = new QComboBox;
@@ -719,8 +808,11 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     il->addLayout(row);
     auto* none = text(QString());
     il->addWidget(none);
+    il->addSpacing(8);
+    il->addWidget(step(2, tr("Find a <b>mark on its platter</b>: a logo, a sticker, the grip dots. A bit of tape will do.")));
+    il->addSpacing(8);
+    il->addWidget(step(3, tr("Click <b>Next</b>.")));
     il->addStretch();
-    il->addWidget(text(tr("To continue, click Next.")));
     const auto fill = [this, ports, none, intro] {
         ports->clear();
         const QStringList names = m_demo ? QStringList{tr("Demo controller")} : Input::ports();
@@ -754,13 +846,21 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     // 2. Find the jog: what it sends as it's touched and turned
     auto* find = new Page;
     find->setTitle(tr("Find the Jog Wheel"));
-    find->setSubTitle(tr("Touch the top of the left jog wheel and turn it a little, back and forth."));
-    auto* fl = new QVBoxLayout(find);
+    find->setSubTitle(tr("Step 1 of 3"));   // (the band across the top: the steps are in the page)
+    auto* fl = new QHBoxLayout(find);
+    auto* fSide = new QVBoxLayout;
+    fSide->addWidget(new HandDemo(true));
+    fSide->addWidget(step(1, tr("<b>Touch the top</b> of the <b>left</b> jog wheel.")));
+    fSide->addWidget(step(2, tr("Turn it a little, back and forth.")));
+    fSide->addWidget(step(3, tr("Let go.")));
+    auto* fStatus = text(QString());
+    fSide->addSpacing(6);
+    fSide->addWidget(fStatus);
+    fSide->addStretch();
+    fl->addLayout(fSide, 1);
     auto* fPlatter = new Platter;
     fPlatter->big = tr("Waiting…");
     fl->addWidget(fPlatter, 1);
-    auto* fStatus = text(QString());
-    fl->addWidget(fStatus);
     struct Cc {
         int n = 0, twos = 0, offset = 0;
         QSet<int> values;
@@ -825,12 +925,9 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
             m_s.touchNote = c.touchNote;
             fPlatter->big = tr("Found it");
             fPlatter->active = true;
-            fPlatter->small = tr("control %1 on channel %2").arg(m_s.cc).arg((m_s.st & 0x0F) + 1);
+            fPlatter->small.clear();
             fPlatter->update();
-            const QString touch = m_s.hasTouch ? tr("Its top is touch-sensitive (note %1): a turn is counted from touch to let go.").arg(m_s.touchNote)
-                    : c.touchCand ? tr("Let go of the wheel, so its touch can be found too.")
-                                  : tr("No touch found on its top: a turn is counted from moving to a stop.");
-            fStatus->setText(tr("It sends %1.").arg(m_s.encName()) + QStringLiteral("<br>") + touch);
+            fStatus->setText(c.touchCand && !m_s.hasTouch ? tr("<b>Now let go.</b>") : tr("<b>Done.</b> Click Next."));
             find->changed();
         };
     };
@@ -846,21 +943,30 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     // 3. Three full turns, mark to mark
     auto* turns = new Page;
     turns->setTitle(tr("Measure One Turn"));
-    turns->setSubTitle(tr("Turn the jog wheel exactly one full turn, three times."));
+    turns->setSubTitle(tr("Step 2 of 3"));   // (the band across the top: the steps are in the page)
     auto* tl = new QHBoxLayout(turns);
-    auto* tPlatter = new Platter;
-    tl->addWidget(tPlatter, 1);
     auto* tSide = new QVBoxLayout;
-    tSide->addWidget(text(tr("<ol style='margin-left:-24px'><li>Find a mark on the platter and point it at the <b style='color:#d22b1e'>red arrow</b>.</li>"
-                             "<li>Touch the top and turn it <b>clockwise</b>, until the mark is back at the arrow.</li>"
-                             "<li>Let go. Then once more, and once more.</li></ol>")));
+    const auto handRow = [](bool onTop, QLabel* l) {
+        auto* r = new QHBoxLayout;
+        r->addWidget(new HandDemo(onTop), 0, Qt::AlignTop);
+        r->addWidget(l, 1);
+        return r;
+    };
+    tSide->addLayout(handRow(false, step(1, tr("Turn it by its <b>edge</b> until your mark is at the "
+                                               "<b style='color:#d22b1e'>red arrow</b>. <b>Don't touch the top.</b>"))));
+    tSide->addLayout(handRow(true, step(2, tr("<b>Touch the top</b> and turn it <b>clockwise</b>, once round, until the "
+                                              "mark is back at the arrow. Let go."))));
+    tSide->addWidget(step(3, tr("Do it <b>3 times</b>.")));
+    tSide->addSpacing(6);
     auto* tBlocks = new Blocks;
     tBlocks->labels = {tr("Turn 1"), tr("Turn 2"), tr("Turn 3")};
     tSide->addWidget(tBlocks);
     auto* tStatus = text(QString());
     tSide->addWidget(tStatus);
     tSide->addStretch();
-    tl->addLayout(tSide, 1);
+    tl->addLayout(tSide, 3);
+    auto* tPlatter = new Platter;
+    tl->addWidget(tPlatter, 2);
     struct Turn {
         bool on = false;
         int sum = 0;
@@ -876,7 +982,7 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
         tPlatter->angle = est > 0 ? cur->sum * 360.0 / est : 0;
         tPlatter->active = cur->on;
         tPlatter->big = cur->on || cur->sum ? tr("%1 steps").arg(std::abs(cur->sum)) : tr("Ready");
-        tPlatter->small = est > 0 ? tr("a turn so far: about %1 steps").arg(est) : tr("turn until the mark is back at the arrow");
+        tPlatter->small.clear();
         tPlatter->update();
         tBlocks->done = static_cast<int>(m_s.turns.size());
         tBlocks->labels = {};
@@ -887,8 +993,8 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
         if (m_s.turns.size() >= 3) {
             const auto [lo, hi] = std::minmax_element(m_s.turns.begin(), m_s.turns.end());
             const double spread = (*hi - *lo) / double(m_s.measured());
-            tStatus->setText(spread <= 0.04 ? tr("<b>Done.</b> One turn is %1 steps.").arg(m_s.stepsPerTurn())
-                                            : tr("These are more than 4 % apart: turn it once more, carefully mark to mark (the last three count)."));
+            tStatus->setText(spread <= 0.04 ? tr("<b>Done.</b> Click Next.")
+                                            : tr("<b>Once more:</b> mark to the arrow, round to the arrow."));
         } else {
             tStatus->setText(QString());
         }
@@ -952,12 +1058,13 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     // 4. Fast: how many steps one message holds
     auto* fast = new Page;
     fast->setTitle(tr("Fast Moves"));
-    fast->setSubTitle(tr("Now scratch back and forth quickly, for a few seconds."));
+    fast->setSubTitle(tr("Step 3 of 3"));   // (the band across the top: the steps are in the page)
     auto* xl = new QVBoxLayout(fast);
-    xl->addWidget(text(tr("Turned fast, some jog wheels put several steps into one message. Mixxx's mapping has to count "
-                          "every one, or a fast scratch goes less far than your hand.")));
+    auto* xRow = new QHBoxLayout;
+    xRow->addWidget(new HandDemo(true), 0, Qt::AlignTop);
+    xRow->addWidget(step(1, tr("<b>Touch the top</b> and scratch back and forth, <b>fast</b>, for a few seconds.")), 1);
+    xl->addLayout(xRow);
     xl->addSpacing(10);
-    xl->addWidget(new QLabel(tr("Steps in one message:")));
     auto* meter = new Meter;
     xl->addWidget(meter);
     auto* xStatus = text(QString());
@@ -987,8 +1094,7 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
             m_s.maxStep = std::max(m_s.maxStep, step);
             const bool enough = *fastMsgs >= 150 && m_clock.elapsed() - *fastStart >= 2000;
             if (enough) {
-                xStatus->setText(m_s.maxStep > 1 ? tr("<b>Done.</b> Up to %1 steps in one message.").arg(m_s.maxStep)
-                                                 : tr("<b>Done.</b> One step a message, however fast."));
+                xStatus->setText(tr("<b>Done.</b> Click Next."));
             }
             fast->changed();
         };
@@ -1004,6 +1110,7 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     auto* summary = text(QString());
     dl->addWidget(summary);
     dl->addSpacing(6);
+    dl->addWidget(step(1, tr("Click <b>Write It into Mixxx's Mapping</b>.")));
     auto* apply = m_apply = new QPushButton(tr("Write It into Mixxx's Mapping"));
     auto* applyRow = new QHBoxLayout;
     applyRow->addWidget(apply);
@@ -1013,7 +1120,8 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     applied->setTextInteractionFlags(Qt::TextSelectableByMouse);
     dl->addWidget(applied);
     dl->addStretch();
-    dl->addWidget(text(tr("To close this wizard, click Finish.")));
+    auto* closeStep = step(2, tr("Click <b>Finish</b>."));
+    dl->addWidget(closeStep);
     doneP->enter = [this, summary, applied, apply] {
         m_page = nullptr;
         m_in.close();
@@ -1022,13 +1130,9 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
         for (int t : std::as_const(m_s.turns)) {
             turnsText << QString::number(t);
         }
-        summary->setText(tr("You have measured <b>%1</b>.").arg(m_s.port.toHtmlEscaped()) + QStringLiteral("<br><br>") +
-                tr("One turn: <b>%1 steps</b> (your turns: %2)").arg(spt).arg(turnsText.join(QStringLiteral(", "))) + QStringLiteral("<br>") +
-                tr("It sends: %1").arg(m_s.encName()) + QStringLiteral("<br>") +
-                (m_s.maxStep > 1 ? tr("Fast: up to <b>%1 steps</b> in one message").arg(m_s.maxStep) : tr("Fast: one step a message")) +
-                QStringLiteral("<br><br>") +
-                tr("Mixxx makes a record turn once for every %1 steps when its mapping says so. The button writes a copy of "
-                   "the mapping Mixxx uses for this controller that does (its own files are left as they are).").arg(spt));
+        summary->setText(QStringLiteral("<b>%1</b><br>").arg(m_s.port.toHtmlEscaped()) +
+                tr("One turn: <b>%1 steps</b> (%2)").arg(spt).arg(turnsText.join(QStringLiteral(", "))) + QStringLiteral("<br>") +
+                (m_s.maxStep > 1 ? tr("Fast: up to <b>%1 steps</b> a message").arg(m_s.maxStep) : tr("Fast: 1 step a message")));
         applied->setText(QString());
         apply->setEnabled(true);
     };

@@ -46,6 +46,7 @@ class Hardware : public QObject {
     QString m_port;
     bool m_d34 = false;
     QString m_pads[2];
+    bool m_shift[2] = {false, false};
 };
 
 } // namespace zc
