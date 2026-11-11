@@ -674,6 +674,7 @@ class JogWizard : public QWizard {
     QString m_shotDir;
     std::function<void(quint8, quint8, quint8)> m_page;   // the page in front's own reading
     QPushButton* m_apply = nullptr;
+    bool m_written = false;   // the mapping written (Finish then closes without asking)
     bool turnsDone() const {   // three turns, within 4 % of each other
         if (m_s.turns.size() < 3) {
             return false;
@@ -1077,6 +1078,7 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     auto* closeStep = step(2, tr("Click <b>Finish</b>."));
     dl->addWidget(closeStep);
     doneP->enter = [this, summary, applied, apply] {
+        m_written = false;
         m_page = nullptr;
         m_in.close();
         const int spt = m_s.stepsPerTurn();
@@ -1090,15 +1092,47 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
         applied->setText(QString());
         apply->setEnabled(true);
     };
-    connect(apply, &QPushButton::clicked, this, [this, applied, apply] {
+    // Written: true once it is (or there was nothing to write: the demo)
+    const auto writeIt = [this, applied, apply] {
         if (m_demo && !demoWrites()) {
             applied->setText(tr("(Demo: nothing written.)"));
-            return;
+            m_written = true;
+            return true;
         }
         const Applied a = applyToMapping(m_s);
         applied->setText((a.ok ? QString() : QStringLiteral("<b>%1</b> ").arg(tr("Not written:"))) + a.text.toHtmlEscaped().replace(QLatin1Char('\n'), QStringLiteral("<br>")));
         apply->setEnabled(!a.ok);
-    });
+        m_written = a.ok;
+        return a.ok;
+    };
+    connect(apply, &QPushButton::clicked, this, writeIt);
+    // Finish without writing it: ask (Yes writes and closes; No closes; Cancel stays)
+    doneP->leave = [this, writeIt] {
+        if (m_written) {
+            return true;
+        }
+        QMessageBox box(QMessageBox::Question, windowTitle(), tr("Save this into Mixxx's mapping before closing?"),
+                QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, this);
+        box.setInformativeText(tr("One turn: %1 steps.").arg(m_s.stepsPerTurn()));
+        box.setDefaultButton(QMessageBox::Yes);
+        box.setStyle(fusion());
+        box.setPalette(eraPalette());
+        for (QWidget* w : box.findChildren<QWidget*>()) {
+            w->setStyle(fusion());
+            w->setPalette(eraPalette());
+            if (qobject_cast<QPushButton*>(w)) {
+                w->setStyleSheet(QString::fromLatin1(kEraSheet));
+            }
+        }
+        switch (box.exec()) {
+        case QMessageBox::Yes:
+            return writeIt();   // (not written: stay, the reason on the page)
+        case QMessageBox::No:
+            return true;
+        default:
+            return false;
+        }
+    };
     setPage(kDone, doneP);
 
     // Fusion under every part of it (a style isn't handed down to children), the wizard's own buttons too
@@ -1179,6 +1213,15 @@ void JogWizard::runDemo() {
         if (demoWrites()) {
             m_apply->click();
             shot(QStringLiteral("7-written"));
+        } else if (!m_shotDir.isEmpty()) {   // Finish without writing: the question (drawn, then Cancel)
+            QTimer::singleShot(600, this, [this] {
+                if (QWidget* box = QApplication::activeModalWidget()) {
+                    box->grab().save(QStringLiteral("%1/8-ask.png").arg(m_shotDir));
+                    shot(QStringLiteral("8-behind"));
+                    static_cast<QDialog*>(box)->reject();
+                }
+            });
+            button(QWizard::FinishButton)->click();
         }
         if (!m_shotDir.isEmpty()) {
             QCoreApplication::quit();

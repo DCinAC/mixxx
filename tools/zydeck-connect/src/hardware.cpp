@@ -74,7 +74,7 @@ Hardware::Event Hardware::read(const QByteArray& msg) {
         return {QStringLiteral("d34"), {}, false};
     }
     // Its mode keys: mode n is note 0x0F + n - 1 on deck A's channel 2 / deck B's 3, and its pads are block n - 1
-    // (Hercules' MIDI chart for the Inpulse 300, the MK2's layout as its mapping has it)
+    // (Hercules' MIDI chart for the Inpulse 300; heard so on the MK2 too, 2026-11-12: SHIFT + a key sends mode 5-8's)
     if ((status == 0x91 || status == 0x92) && note >= 0x0F && note <= 0x16) {
         return {status == 0x91 ? QStringLiteral("pads0") : QStringLiteral("pads1"), QString::fromLatin1(kBlocks[note - 0x0F]), true};
     }
@@ -94,7 +94,8 @@ void Hardware::feed(const QString& port, const QByteArray& msg) {
     if (msg[2] == 0) {
         return;
     }
-    // A mode key as the wizard heard it (deck A's; deck B's one channel up), SHIFT or not
+    // A mode key as the pad-mode wizard heard it (deck A's; deck B's one channel up), SHIFT or not: for a controller
+    // that doesn't keep to the chart (the MK2 does)
     bool learned = false;
     for (const Key& k : std::as_const(m_learned)) {
         for (int side = 0; side < 2 && !learned; ++side) {
@@ -105,11 +106,6 @@ void Hardware::feed(const QString& port, const QByteArray& msg) {
         }
     }
     if (e.what.isEmpty()) {
-        return;
-    }
-    // Not learned: with SHIFT held a mode key picks the second mode of four, and which note that sends isn't in the
-    // charts that could be read: its first pad says
-    if (e.set && !learned && m_shift[e.what == QLatin1String("pads1") ? 1 : 0]) {
         return;
     }
     m_port = port;
