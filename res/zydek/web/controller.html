@@ -712,8 +712,16 @@ const assetUrl = path => !REMOTE.on ? path : REMOTE.http ? `${REMOTE.http}${path
 // =====================================================================================================
 // Touch handling: every control captures its finger until it lifts (pointer capture)
 // =====================================================================================================
-// (in zydeck-knob.js, shared with the phone page's mixer: the touch dispatch, palms, predicted points and the knobs)
-const { active, isPalm, drag, startDrag, RAW_INPUT, realtimeInput, predicted, polar, arc, knob } = zydeckTouch({
+// (in zydeck-knob.js, shared with the phone page's mixer: the touch dispatch, palms, Precision's heard values and the knobs)
+const { active, isPalm, drag, startDrag, RAW_INPUT, realtimeInput, heardValue, polar, arc, knob } = zydeckTouch({
+  // Precision: a held control shows Mixxx's own value: its element's (el.mixxx: the master knobs), or its getter read
+  // through what Mixxx last said for that deck's fields (heard(), kept even while our own echo is ignored)
+  heard: (get, ctx, el) => {
+    if (el.mixxx) return el.mixxx();
+    if (!ctx?._mx) return undefined;
+    const v = get(new Proxy(ctx, { get: (t, k) => (t._mx && Object.hasOwn(t._mx, k) ? t._mx[k] : t[k]) }));
+    return Number.isFinite(v) ? v : undefined;
+  },
   settings: () => S, mm, rect: cachedRect, tick: el => tick(el), holdMs: () => FX_HOLD_MS,   // (the knobs held for something: the FX knobs, for the FX menu)
   beat: ctx => { const d = ctx || deckOf(0); return 60 / (d.bpm * (1 + d.tempo / 100)); },
 });
@@ -723,6 +731,8 @@ addEventListener("contextmenu", e => e.preventDefault());
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const h = (tag, cls, html) => { const el = document.createElement(tag); if (cls) el.className = cls; if (html != null) el.innerHTML = html; return el; };
 
+// a master control's own value as Mixxx last said it (Precision shows it while held)
+const mixxxOf = (el, k) => { el.mixxx = () => master._mx?.[k]; return el; };
 // ---- fader: a touch on its track jumps the cap there and follows at once; a touch on the cap itself never moves
 // it, and dragging it starts after 2 mm (so a touch can't nudge the level)
 function fader(get, set, label, horizontal, target = () => null) {
@@ -739,7 +749,8 @@ function fader(get, set, label, horizontal, target = () => null) {
   const valueAt = (g, p) => clamp(horizontal ? (p - g.a) / g.len : 1 - (p - g.a) / g.len, 0, 1);
   el.paint = shown => {
     if (shown != null && el.hold) el.hold.shown = shown;   // held: other repaints keep the finger's place
-    const ctx = el.hold ? el.hold.ctx : target(), g = geom(), v = shown ?? el.hold?.shown ?? get(ctx), r = cachedRect(el);
+    const ctx = el.hold ? el.hold.ctx : target(), g = geom(), r = cachedRect(el);
+    const v = (el.hold ? heardValue(get, ctx, el) : undefined) ?? shown ?? el.hold?.shown ?? get(ctx);   // (Precision: where Mixxx has it)
     const px = (capCenter(g, v) - (horizontal ? r.left : r.top) - mm(3)).toFixed(1) + "px";
     if (px !== el._px) { el._px = px; cap.style[horizontal ? "left" : "top"] = px; }
     if (label) setText(el.querySelector(".lbl"), label(ctx));
@@ -766,8 +777,7 @@ function fader(get, set, label, horizontal, target = () => null) {
       }
       const at = ev => clamp(st.v + ((horizontal ? ev.clientX : ev.clientY) - st.p) / st.g.len * (horizontal ? 1 : -1), 0, 1);
       set(at(e), st.ctx);
-      const p = predicted(e);
-      el.paint(p ? at(p) : undefined);   // drawn where the finger is going
+      el.paint(at(e));
     },
     up: () => { el.classList.remove("held"); el.hold = null; el.paint(); },
   });
@@ -783,9 +793,9 @@ function buildTop() {
   const box = document.getElementById("topknobs");
   box.innerHTML = "";
   ui.top = [
-    knob("MASTER", () => master.main, v => { master.main = v; send("master", v); }, .8, false),
-    knob("PHONES", () => master.phones, v => { master.phones = v; send("phones", v); }, .6, false),
-    knob("CUE MIX", () => master.mix, v => { master.mix = v; send("headMix", v); }, .5, true),
+    mixxxOf(knob("MASTER", () => master.main, v => { master.main = v; send("master", v); }, .8, false), "main"),
+    mixxxOf(knob("PHONES", () => master.phones, v => { master.phones = v; send("phones", v); }, .6, false), "phones"),
+    mixxxOf(knob("CUE MIX", () => master.mix, v => { master.mix = v; send("headMix", v); }, .5, true), "mix"),
   ];
   ui.top.forEach(k => { box.appendChild(k); k.paint(); });
 }
@@ -1521,7 +1531,7 @@ function buildPhone() {
   lower.append(decksEl[0], buildPhoneMixer(), decksEl[1]);
   mid.append(h("div"), strips[0], strips[1], lower);   // 2 mm of glass above the top strip
   app.replaceChildren(L.col, mid, R.col);
-  ui.xf = fader(() => master.xf, v => { master.xf = v; send("crossfader", v); }, null, true);
+  ui.xf = mixxxOf(fader(() => master.xf, v => { master.xf = v; send("crossfader", v); }, null, true), "xf");
   ui.top = [];
   requestAnimationFrame(paintAll);
 }
@@ -1551,7 +1561,7 @@ function build() {
   document.getElementById("dl").replaceChildren(buildSide(0));
   document.getElementById("mixwrap").replaceChildren(buildMixer());
   document.getElementById("dr").replaceChildren(buildSide(1));
-  ui.xf = fader(() => master.xf, v => { master.xf = v; send("crossfader", v); }, null, true);
+  ui.xf = mixxxOf(fader(() => master.xf, v => { master.xf = v; send("crossfader", v); }, null, true), "xf");
   buildTop();
   buildLoops();
   placeChrome();
@@ -3327,6 +3337,9 @@ const setCtl = (group, key, value, param) => mxSend({ set: [group, key, value, p
 // Ignore Mixxx's echo of a value we just set ourselves for a moment, so a held control doesn't jitter.
 const markLocal = (o, k) => { (o._t ??= {})[k] = performance.now(); };
 const isLocal = (o, k) => o._t && performance.now() - (o._t[k] || 0) < 400;
+// What Mixxx last said each value is, kept even while that echo is ignored: a held control shows it in Precision
+// (Settings › Touch), so it's repainted as it comes
+const heard = (o, k, v, region) => { (o._mx ??= {})[k] = v; if (isLocal(o, k) && S.inputMode !== "realtime") markDirty(region); };
 
 function scratchBy(d, seconds) {
   d.tickAcc = (d.tickAcc || 0) + seconds / REV_SECONDS * TICKS_PER_REV;
@@ -3459,15 +3472,17 @@ function applyCv(name, v, ts) {
       case "loop_end_position": d.loopOut = v; return tinyLoop(d);
       case "track_samples": d.trackSamples = v; return;
       case "cue_point": d.mainCue = v; return;                              // samples; drawn on the strip
-      case "volume": if (!isLocal(d, "vol")) upd("vol", v, "mixer"); return;
-      case "pregain": if (!isLocal(d, "gain")) upd("gain", v, "mixer"); return;
+      case "volume": heard(d, "vol", v, "mixer"); if (!isLocal(d, "vol")) upd("vol", v, "mixer"); return;
+      case "pregain": heard(d, "gain", v, "mixer"); if (!isLocal(d, "gain")) upd("gain", v, "mixer"); return;
     }
   } else if ((m = /^\[EqualizerRack1_\[Channel(\d)\]_Effect1\]$/.exec(group))) {
     const d = decks[m[1] - 1], f = { parameter3: "high", parameter2: "mid", parameter1: "low" }[key];
+    if (d && f) heard(d, f, v, "mixer");
     if (!d || !f || isLocal(d, f) || d[f] === v) return;
     d[f] = v; markDirty("mixer");
   } else if ((m = /^\[QuickEffectRack1_\[Channel(\d)\]\]$/.exec(group))) {
     const d = decks[m[1] - 1];
+    if (d) heard(d, "filter", v, "mixer");
     if (!d || isLocal(d, "filter") || d.filter === v) return;
     d.filter = v; markDirty("mixer");
   } else if ((m = /^\[Sampler(\d+)\]$/.exec(group))) {
@@ -3487,6 +3502,7 @@ function applyCv(name, v, ts) {
     markDirty("all");
   } else if (group === MAIN_GROUP) {
     const f = Object.keys(MAIN).find(k => MAIN[k] === key);
+    if (f) heard(master, f, v, "top");
     if (!f || isLocal(master, f) || master[f] === v) return;
     master[f] = v; markDirty("top");
   }

@@ -252,6 +252,7 @@
   .mx .n { color: var(--acc); font-weight: 700; font-size: 13px; }
   /* the deck page's knobs (zydeck-knob.js), and their look */
   .knob { display: flex; flex-direction: column; align-items: center; width: 100%; touch-action: none; }
+  body.kpinch .mx { touch-action: none; }
   .knob svg { width: min(var(--kmax), 100%); height: auto; display: block; overflow: visible; }
   .knob .kbg { fill: #222; stroke: #3a3a3a; stroke-width: 1.5; }
   .knob .ktrack { fill: none; stroke: #2e2e2e; stroke-width: 3; stroke-linecap: round; }
@@ -1285,7 +1286,12 @@ let ctlS = null;
 const ctlSettings = () => ctlS || (ctlS = (() => {
   try { return { ...CTL_DEF, ...JSON.parse(localStorage.getItem(CTL_KEY) || "{}") }; } catch { return { ...CTL_DEF }; }
 })());
-const ctlLook = () => document.body.classList.toggle("kc-dark", ctlSettings().knobCentre === "dark");
+const ctlLook = () => {
+  document.body.classList.toggle("kc-dark", ctlSettings().knobCentre === "dark");
+  // Pinch: a finger may land beside a knob, on the strip; the strip mustn't scroll the page then (the browser would
+  // take the two fingers as its own gesture and cancel the pinch). Page turns still work (the swipe is read by hand)
+  document.body.classList.toggle("kpinch", ctlSettings().knobMode === "pinch");
+};
 addEventListener("storage", e => { if (e.key === CTL_KEY) { ctlS = null; ctlLook(); } });   // (changed in the deck view)
 ctlLook();
 const { knob } = zydeckTouch({

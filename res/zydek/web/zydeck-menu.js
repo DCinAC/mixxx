@@ -339,9 +339,9 @@
       desc: "What's on the 32 sampler pads, with each pad's mode and tempo setting. Loading one fills the pads." },
     // Controller › Touch
     { id: "input", sec: "touch", name: "Touch input", kind: "seg", show: () => !!ctl(),
-      opts: () => ctl()?.rawInput ? [["precision", "Precision"], ["realtime", "Real-time"]] : [["precision", "Precision"]], ...C("inputMode", "precision"),
-      st: () => ctl() && !ctl().rawInput ? "Real-time needs ZyDeck's own app on this device" : "",
-      desc: "Precision: moves line up with the screen, drawn ahead of the finger. Real-time: each move goes to Mixxx the moment it arrives." },
+      opts: () => [["precision", "Precision"], ["realtime", "Real-time"]], ...C("inputMode", "precision"),
+      st: () => ctl() && !ctl().rawInput && S().inputMode === "realtime" ? "Here moves reach Mixxx once a frame: sending each the moment it arrives needs ZyDeck's own app" : "",
+      desc: "Precision: a knob or fader you hold shows where Mixxx has it. Real-time: it follows your finger, and in ZyDeck's app each move goes to Mixxx the moment it arrives." },
     { id: "knob", sec: "touch", name: "Knob gesture", kind: "seg", opts: () => [["drag", "Drag"], ["spin", "Spin"], ["pinch", "Pinch"]], ...C("knobMode", "drag"),
       desc: "Drag: up or right turns it up. Spin: circle the knob; the farther out, the finer. Pinch: two fingers on the knob, twisted as a real one (one finger still drags)." },
     { id: "sens", sec: "touch", name: "Tempo sensitivity", kind: "slider", min: .04, max: .4, step: .01, ...C("sens", .16),

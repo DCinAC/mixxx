@@ -9,6 +9,7 @@
 //   beat(ctx)   seconds a beat of what the knob controls (the shooting star runs one pass a beat)
 //   holdMs()    how long a knob with a hold action is held still for it (default 1000)
 //   controls    what a finger in Pinch mode can land on without starting the knob beside it (a selector)
+//   heard(get, ctx, el)  what Mixxx last said a held control's value is (Precision shows that), or undefined
 window.zydeckTouch = function (env) {
   const cfg = env.settings, mm = env.mm, cachedRect = env.rect || (el => el.getBoundingClientRect());
   const tick = el => env.tick?.(el), holdMs = () => env.holdMs?.() ?? 1000;
@@ -37,11 +38,13 @@ window.zydeckTouch = function (env) {
     active.set(e.pointerId, { h, st });
     return true;
   }
-  // Touch moves. Precision: as the browser delivers them, once a frame, lined up with drawing (and with the predicted
-  // points the knobs and faders draw ahead with). Real-time: each one the moment it arrives (pointerrawupdate),
-  // so controls reach Mixxx up to a frame sooner; only in a secure context (this device's own page).
+  // Touch input (Settings › Touch). Precision: a held knob or fader shows where Mixxx has it (env.heard: what Mixxx
+  // last said), moves taken as the browser delivers them, once a frame. Real-time: it follows the finger, and each
+  // move is taken the moment it arrives (pointerrawupdate: up to a frame sooner; only in a secure context, this
+  // device's own page)
   const RAW_INPUT = "onpointerrawupdate" in window;
-  const realtimeInput = () => cfg().inputMode === "realtime" && RAW_INPUT;
+  const realtimeMode = () => cfg().inputMode === "realtime";
+  const realtimeInput = () => realtimeMode() && RAW_INPUT;
   const onMove = e => { const a = active.get(e.pointerId); if (a && a.h.move) a.h.move(e, a.st); };
   addEventListener("pointermove", e => { if (!realtimeInput()) onMove(e); });
   if (RAW_INPUT) addEventListener("pointerrawupdate", e => { if (realtimeInput()) onMove(e); });
@@ -49,9 +52,16 @@ window.zydeckTouch = function (env) {
     const a = active.get(e.pointerId);
     if (a) { active.delete(e.pointerId); if (a.h.up) a.h.up(e, a.st); }
   }));
-  // Where the finger is about to be (Chrome predicts a frame or so ahead): knobs and faders are drawn there, so
-  // they don't trail the finger by the screen's own delay. Values sent are the real ones.
-  const predicted = e => { const p = e.getPredictedEvents?.(); return p && p.length ? p[p.length - 1] : null; };
+  // A held control's value as Mixxx has it, in Precision (undefined: show the finger's)
+  const heardValue = (get, ctx, el) => (realtimeMode() || !env.heard ? undefined : env.heard(get, ctx, el));
+
+  // A knob answers a touch that starts within its radius and KNOB_REACH_MM more (not its label, nor the box round it);
+  // a pinch's fingers, by their midpoint (pinchKnob: the same reach)
+  const KNOB_REACH_MM = 3;
+  const knobAt = (k, x, y) => {
+    const r = cachedRect(k.querySelector("svg"));
+    return r.width > 0 && Math.hypot(x - (r.left + r.width / 2), y - (r.top + r.height / 2)) <= Math.min(r.width, r.height) / 2 + mm(KNOB_REACH_MM);
+  };
 
   // ---- knob: grab and drag only; up or right = clockwise; ~40 mm of drag per full turn; double-tap resets
   function polar(a, r = 15) { const t = (a - 90) * Math.PI / 180; return [20 + r * Math.cos(t), 20 + r * Math.sin(t)]; }
@@ -160,7 +170,8 @@ window.zydeckTouch = function (env) {
       const st = pick.d.k === pick.st.el ? pick.st : moveTo(pick.st, pick.d.k);
       if (st) { claim(e, st); return; }
     }
-    if (e.target.closest?.(controls)) return;
+    const ctl = e.target.closest?.(controls);
+    if (ctl && !(ctl.classList.contains("knob") && !knobAt(ctl, at.x, at.y))) return;   // (a knob's box beside its face: nothing in particular)
     if (!pending && reachKnob(at, discs)) pend(e, at, null);   // (a partner for it: the "if (pending)" above)
   }, true);
 
@@ -182,7 +193,7 @@ window.zydeckTouch = function (env) {
   // What fingers a and b pinch: the knob under their midpoint (within its disc and PINCH_MID_MM more), unless both
   // fingers are right on other knobs' faces (PINCH_FACE of their radius: a finger each on two knobs) or more than
   // PINCH_BETWEEN of another knob's width is under the line between them. That knob's disc, or null
-  const PINCH_MID_MM = 2, PINCH_FACE = .7, PINCH_BETWEEN = .5;
+  const PINCH_MID_MM = KNOB_REACH_MM, PINCH_FACE = .7, PINCH_BETWEEN = .5;
   function pinchKnob(a, b, discs) {
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     let best = null, bd = Infinity;
@@ -219,7 +230,7 @@ window.zydeckTouch = function (env) {
   // A one-finger gesture on knob k for finger pid, down already at `at`
   function startOn(k, pid, at) {
     if (!k?._drag) return null;
-    const ev = { clientX: at.x, clientY: at.y, pointerId: pid, pointerType: "touch", preventDefault() {} };
+    const ev = { clientX: at.x, clientY: at.y, pointerId: pid, pointerType: "touch", zydekPinch: true, preventDefault() {} };
     return startDrag(k, k._drag, ev) ? active.get(pid)?.st || null : null;
   }
   // st moved to knob k (the pinch's midpoint is on k): its own knob goes back as it was
@@ -306,7 +317,8 @@ window.zydeckTouch = function (env) {
     const karc = el.querySelector(".karc"), kptr = el.querySelector(".kptr");
     el.paint = shown => {
       if (shown != null && el.hold) el.hold.shown = shown;   // held: other repaints keep the finger's place
-      const v = shown ?? el.hold?.shown ?? get(el.hold ? el.hold.ctx : target());
+      const mixxx = el.hold ? heardValue(get, el.hold.ctx, el) : undefined;   // (Precision: where Mixxx has it)
+      const v = mixxx ?? shown ?? el.hold?.shown ?? get(el.hold ? el.hold.ctx : target());
       if (v === el._v) return;
       el._v = v;
       const a = -135 + v * 270;
@@ -319,6 +331,7 @@ window.zydeckTouch = function (env) {
     };
     drag(el, {
       down: e => {
+        if (!e.zydekPinch && !knobAt(el, e.clientX, e.clientY)) return false;   // (beside it: not this knob's)
         const now = performance.now(), ctx = target();
         if (def != null && now - lastTap > 70 && now - lastTap < 300) { set(def, ctx); el.paint(); lastTap = 0; return false; }   // (70 ms: a bounce isn't a double tap)
         lastTap = now;
@@ -413,12 +426,7 @@ window.zydeckTouch = function (env) {
           turnTo(st, (st.raw ?? st.v) + delta / mm(40));
         }
         set(st.v, st.ctx);
-        const p = cfg().knobMode !== "spin" && !st.atCentre && predicted(e);
-        if (p) {   // drawn a little ahead, where the finger is going
-          const px = p.clientX - e.clientX, py = p.clientY - e.clientY;
-          const ahead = st.axis ? px * st.axis[0] + py * st.axis[1] : (px - py) / Math.SQRT2;
-          el.paint(clamp(st.v + ahead / mm(40), 0, 1));
-        } else el.paint();
+        el.paint(st.v);
       },
       up: (e, st) => {
         knobHoldOff(st);
@@ -431,5 +439,5 @@ window.zydeckTouch = function (env) {
     return el;
   }
 
-  return { active, isPalm, drag, startDrag, RAW_INPUT, realtimeInput, predicted, polar, arc, knob };
+  return { active, isPalm, drag, startDrag, RAW_INPUT, realtimeInput, heardValue, polar, arc, knob };
 };
