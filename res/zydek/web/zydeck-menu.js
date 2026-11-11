@@ -397,7 +397,29 @@
   function lampOf(b, s) { const p = b.querySelector(".zpl"); if (p) p.className = "zpl" + (s ? " " + s : ""); }
 
   let ui = null;                 // the drawn menu: {root, layout, tab, rows: [{r, el, upd}], ...}
-  let curTab = "system";
+  // Where the menu was left: its tab and each tab's scroll, kept for this run of the app. sessionStorage lives as long
+  // as the WebView (or the browser's tab): closing the menu or reloading the page keeps it; a restart starts at the top.
+  const spot = (() => { try { return JSON.parse(sessionStorage.getItem("zmenu.spot")) || {}; } catch { return {}; } })();
+  spot.top = spot.top || {};
+  let curTab = spot.tab || "system";
+  let restoreTo = null, restoreUntil = 0, spotTimer = 0;
+  const spotKey = () => `${host.page}:${ui.layout}:${curTab}`;
+  const keepSpot = () => { clearTimeout(spotTimer); try { sessionStorage.setItem("zmenu.spot", JSON.stringify(spot)); } catch {} };
+  function saveSpot() {   // on scroll (not while it's being put back, nor while searching)
+    if (!ui || restoreTo != null || ui.q.value.trim() || !isOpen()) return;
+    spot.tab = curTab; spot.top[spotKey()] = Math.round(ui.layout === "page" ? scrollY : ui.rows.scrollTop);
+    clearTimeout(spotTimer); spotTimer = setTimeout(keepSpot, 250);
+  }
+  // Put back once drawn, and again as rows fill in (loads) for 2 s, until the hand takes over
+  function restoreSpot() {
+    if (!ui || restoreTo == null) return;
+    if (performance.now() > restoreUntil) { restoreTo = null; return; }
+    if (ui.layout === "page") scrollTo({ top: restoreTo }); else ui.rows.scrollTop = restoreTo;
+  }
+  function aimSpot() { restoreTo = ui.q.value.trim() ? null : (spot.top[spotKey()] || 0); restoreUntil = performance.now() + 2000; restoreSpot(); }
+  ["pointerdown", "wheel", "keydown"].forEach(t => addEventListener(t, () => { restoreTo = null; }, { capture: true, passive: true }));
+  addEventListener("pagehide", keepSpot);
+  addEventListener("load", () => setTimeout(restoreSpot, 0));   // after the browser's own restore of the page's scroll on reload
   function paintLook() { if (ui) ui.root.classList.toggle("hw", (S().menuLook || "d") === "d"), ui.root.classList.toggle("el", (S().menuLook || "d") !== "d"); }
 
   function rowEl(r) {
@@ -558,7 +580,7 @@
   function refresh() {
     if (!ui || refreshing) return;
     refreshing = true;
-    requestAnimationFrame(() => { refreshing = false; if (ui) { paintLook(); ui.pin.upd(); ui.list.forEach(x => x.upd()); paintHeadState(); } });
+    requestAnimationFrame(() => { refreshing = false; if (ui) { paintLook(); ui.pin.upd(); ui.list.forEach(x => x.upd()); paintHeadState(); restoreSpot(); } });
   }
   function paintHeadState() {
     if (!ui) return;
@@ -590,7 +612,7 @@
     ui.tabs = Object.entries(TABS).map(([t, name]) => {
       const b = key(`<i class="zs" aria-hidden="true"></i>${name}`, "s");
       b._tab = t; b.setAttribute("role", "tab");
-      b.addEventListener("click", () => { ui.q.value = ""; curTab = t; draw(); if (layout === "page") scrollTo({ top: 0 }); else ui.rows.scrollTop = 0; });
+      b.addEventListener("click", () => { ui.q.value = ""; curTab = spot.tab = t; keepSpot(); draw(); aimSpot(); });   // where this tab was left
       $(".zm-tabs").appendChild(b); return b;
     });
     ui.q.addEventListener("input", draw);
@@ -598,16 +620,18 @@
     ui.fs.addEventListener("click", () => { host.fsToggled?.(); (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen({ navigationUI: "hide" })).catch(() => {}); close(); });
     ui.x.hidden = layout === "page";
     ui.x.addEventListener("click", close);
-    if (layout === "window") { box.onclick = e => { if (e.target === box) close(); }; ui.rows.addEventListener("scroll", onScroll, { passive: true }); }
+    if (layout === "window") { box.onclick = e => { if (e.target === box) close(); }; ui.rows.addEventListener("scroll", () => { onScroll(); saveSpot(); }, { passive: true }); }
     paintLook();
     draw();
+    aimSpot();
   }
-  addEventListener("scroll", () => { if (ui?.layout === "page") onScroll(); }, { passive: true });
+  addEventListener("scroll", () => { if (ui?.layout === "page") { onScroll(); saveSpot(); } }, { passive: true });
   document.addEventListener("fullscreenchange", refresh);
 
   let winBox = null, pageBox = null;   // the page's place, drawn again when a window over it closes
+  /// tab: the one to show the first time this run; after that the menu opens where it was left.
   function open({ tab, layout = "window", into, q } = {}) {
-    if (tab) curTab = tab;
+    if (tab && !spot.tab) curTab = tab;
     if (layout === "page") pageBox = into;
     if (layout === "window") {
       if (!winBox) { winBox = el("div", "zm-win"); document.body.appendChild(winBox); }
@@ -615,10 +639,11 @@
       winBox.classList.add("open");
       build(winBox, "window");
     } else build(into, "page");
-    if (q) { ui.q.value = q; draw(); }
+    if (q) { ui.q.value = q; restoreTo = null; draw(); }
     loadAll();
   }
   function close() {
+    keepSpot();
     if (ui?.layout === "window") {
       winBox.classList.remove("open"); winBox.replaceChildren(); ui = null; host.closed?.();
       if (pageBox?.isConnected) build(pageBox, "page");

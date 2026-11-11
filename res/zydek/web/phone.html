@@ -888,7 +888,8 @@ function showPage(p) {
     if (!mixShown) { mixShown = true; requestAnimationFrame(() => { scrollTo(0, mixPages()[1]); setTimeout(() => mixScrollTo(0, 700), 350); }); }
   }
 }
-document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); scrollTo(0, 0); }));
+// (Settings opens where it was left: zydeck-menu.js puts its scroll back)
+document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { showPage(b.dataset.page); if (b.dataset.page !== "set") scrollTo(0, 0); }));
 
 // ---------------------------------------------------------------------------------------------------
 // Decks: live state over /ws (like the tablet controller), waveforms from /waveform/<id>
@@ -2546,7 +2547,7 @@ lookMenu(); setInterval(lookMenu, 2000);
 ZydeckMenu.setup({
   page: "phone", toast, ctl: () => deckFrame().contentWindow.ZydeckMenu?.providers.controller,
   mm: () => { try { return getComputedStyle(deckFrame().contentDocument.documentElement).getPropertyValue("--mm").trim(); } catch { return ""; } },
-  go: p => { showPage(p); scrollTo(0, 0); }, openLogin,
+  go: p => { showPage(p); if (p !== "set") scrollTo(0, 0); }, openLogin,
   introDefaults: { style: INTRO_STYLE_DEFAULT, full: INTRO_FULL_DEFAULT },
   changed(key, v) {
     if (key === "keyNotation") loadTracks();
@@ -2557,7 +2558,7 @@ ZydeckMenu.setup({
 addEventListener("message", e => {
   if (e.origin !== location.origin || e.data?.zydek !== "open-menu") return;
   if (innerWidth > innerHeight) ZydeckMenu.open({ tab: e.data.tab, layout: "window" });
-  else { showPage("set"); scrollTo(0, 0); }
+  else showPage("set");
 });
 matchMedia("(orientation: landscape)").addEventListener("change", () => ZydeckMenu.close());
 
