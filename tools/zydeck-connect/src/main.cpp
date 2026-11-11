@@ -18,6 +18,7 @@
 
 #include "core.h"
 #include "discovery.h"
+#include "jogwizard.h"
 #include "setup.h"
 #include "system.h"
 #include "window.h"
@@ -47,6 +48,10 @@ int main(int argc, char** argv) {
     QCommandLineOption frames(QStringLiteral("frames"), QStringLiteral("Draw the window every 25 ms for 1.4 s into DIR (the tag coming out) and quit."), QStringLiteral("DIR"));
     frames.setFlags(QCommandLineOption::HiddenFromHelp);
     args.addOption(frames);
+    args.addOption({QStringLiteral("jog-wizard"), QStringLiteral("Open only the jog wheel setup (beside a ZyDeck Connect that's running).")});
+    QCommandLineOption jogDemo(QStringLiteral("jog-demo"), QStringLiteral("Run the jog wheel setup on made-up messages, drawing each page into DIR, and quit."), QStringLiteral("DIR"));
+    jogDemo.setFlags(QCommandLineOption::HiddenFromHelp);
+    args.addOption(jogDemo);
     args.process(*app);
 
     if (args.isSet(QStringLiteral("write-mapping"))) {
@@ -72,6 +77,14 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (args.isSet(QStringLiteral("jog-wizard")) || args.isSet(jogDemo)) {   // (no port of its own: alongside Connect)
+        static_cast<QApplication*>(app.get())->setQuitOnLastWindowClosed(true);
+        if (args.isSet(jogDemo)) {
+            QDir().mkpath(args.value(jogDemo));
+        }
+        zc::showJogWizard(nullptr, args.isSet(jogDemo), args.value(jogDemo));
+        return app->exec();
+    }
     zc::Core core;
     if (!core.listen()) {
         const QString why = QObject::tr("Port %1 is taken: ZyDeck Connect (or the old ZyDeck Link) is already running.").arg(zc::kTcpPort);

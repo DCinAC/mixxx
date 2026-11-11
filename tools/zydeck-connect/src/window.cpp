@@ -1,5 +1,7 @@
 #include "window.h"
 
+#include "jogwizard.h"
+
 #include <QAction>
 #include <QJsonObject>
 #include <QJsonDocument>
@@ -640,6 +642,7 @@ void Window::updateTray() {
     });
     m_menu->addAction(tr("Open ZyDeck Connect"), this, showIt);
     m_menu->addAction(tr("Set Up Mixxx Again"), this, [this] { setUpMixxx(); });
+    m_menu->addAction(tr("Set Up Jog Wheels…"), this, [] { showJogWizard(); });
     m_menu->addAction(tr("Discord Bot…"), this, [this] { discordBot(); });
     m_menu->addAction(tr("Downloader…"), this, [] {   // (the phone's Web tab, served here to this computer: core.cpp)
         QDesktopServices::openUrl(QUrl(QStringLiteral("http://127.0.0.1:%1/downloader").arg(kTcpPort)));

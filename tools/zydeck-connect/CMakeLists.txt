@@ -30,6 +30,7 @@ qt_add_executable(zydeck-connect WIN32 MACOSX_BUNDLE
   src/library.cpp src/library.h
   src/midi.cpp src/midi.h
   src/hardware.cpp src/hardware.h
+  src/jogwizard.cpp src/jogwizard.h
   src/system.cpp src/system.h
   src/setup.cpp src/setup.h
   src/discovery.cpp src/discovery.h
