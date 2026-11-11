@@ -2563,8 +2563,12 @@ function platterFrame() {
   for (const d of decks) {
     if (!d) continue;
     const n = d.n, pos = Number.isFinite(d.pos) ? d.pos : 0;
+    if (S.scrBase === "cdj") {   // vinyl: Mixxx's own spinning record's angle (WSpinnyBase::calculateAngle: from the track's start)
+      platter.ang[n] = (pos * Math.PI * 2 * (100 / 3 / 60) * platterSpeed()) % (Math.PI * 2); platter.at[n] = pos;
+      continue;
+    }
     if (platter.at[n] == null) { platter.at[n] = pos; platter.ang[n] = platter.ang[n] || 0; continue; }
-    const perSec = S.scrBase === "cdj" ? Math.PI * 2 / 1.8 * platterSpeed() : Wmm / deckSpan(d) / PLATTER.R;   // radians per track second
+    const perSec = Wmm / deckSpan(d) / PLATTER.R;   // 1:1 waveform: radians per track second (the tempo's: added up)
     platter.ang[n] = (platter.ang[n] + (pos - platter.at[n]) * perSec) % (Math.PI * 2); platter.at[n] = pos;
   }
   // the images: made again only when the size changes (mostly blur: a CSS pixel per pixel is plenty)
