@@ -3443,6 +3443,17 @@ function applyCv(name, v, ts) {
     const upd = (k, val, part = "deck") => { if (d[k] !== val) { d[k] = val; markDirty(part, d); } };
     const hc = /^hotcue_(\d+)_position$/.exec(key);
     if (hc) { const at = d.cuePos ??= []; if (at[hc[1] - 1] !== v) { at[hc[1] - 1] = v; if ((S.cueTime || "off") !== "off") markDirty("deck", d); } return; }
+    // A pad's hot cue (set? its colour), as Mixxx has it now: subscribed, so a page that links up later gets them all at
+    // once (the mapping's own hot cue messages come only as one changes, and at its start)
+    const hs = /^hotcue_(\d+)_(status|color)$/.exec(key);
+    if (hs) {
+      const k = hs[1] - 1, st = d.cueSt ??= [], col = d.cueCol ??= [];
+      (hs[2] === "status" ? st : col)[k] = v;
+      if (st[k] === undefined) return;   // (its colour before whether it's set)
+      const was = d.cues[k], now = st[k] > 0 ? { c: Math.max(0, col[k] ?? 0) & 0xFFFFFF } : null;
+      if ((was?.c ?? null) !== (now?.c ?? null)) { d.cues[k] = now; loadCueLabels(d); markDirty("deck", d); }
+      return;
+    }
     switch (key) {
       case "playposition": {   // drawn by the animation loop
         const now = performance.now();
@@ -3528,7 +3539,7 @@ function subscribeAll() {
     for (const k of ["play", "play_latched", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch", "key", "visual_key_distance", "sync_enabled", "sync_mode", "keylock", "quantize", "slip_enabled",
       "pfl", "mute", "loop_enabled", "beatloop_size",
       "loop_start_position", "loop_end_position", "track_samples", "cue_point",
-      ...[1, 2, 3, 4, 5, 6, 7, 8].map(k => `hotcue_${k}_position`)]) sub.push([ch(n), k, 0]);
+      ...[1, 2, 3, 4, 5, 6, 7, 8].flatMap(k => [`hotcue_${k}_position`, `hotcue_${k}_status`, `hotcue_${k}_color`])]) sub.push([ch(n), k, 0]);
     sub.push([ch(n), "playposition", 1]);                  // polled ~30/s
     for (const f of ["vol", "gain", "high", "mid", "low", "filter"]) sub.push([...MIXER[f](n), 2]);
   }
