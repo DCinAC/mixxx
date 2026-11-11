@@ -101,27 +101,50 @@ public class ZydekLink {
     // Android's Wi-Fi power saving holds what arrives until the radio wakes for the router's next beacon (every
     // ~100 ms): the computer's deck positions came in clumps 100 ms apart (up to 0.7 s), and a scratch's grab reached
     // Mixxx late. A low-latency lock (the one games and calls use) keeps it awake while ZyDeck is linked over Wi-Fi;
-    // Android honours it only while the app is in front with the screen on. No permission beyond WAKE_LOCK.
-    private static android.net.wifi.WifiManager.WifiLock s_wifiLock;
+    // Android honours it only while the app is in front with the screen on, so a high-performance lock goes with it
+    // (power saving off with the screen off too, where Android still honours that one). No permission beyond WAKE_LOCK.
+    // Held for any of: this device controlling a computer (LOCK_COMPUTER), this device's page linked to another
+    // ZyDeck (LOCK_LINKED_TO: the tablet driving the phone), another device's page linked to this one (LOCK_LINKED_FROM:
+    // the phone being driven; its touches would otherwise wait at the router for the phone's radio to wake).
+    public static final int LOCK_COMPUTER = 1, LOCK_LINKED_TO = 2, LOCK_LINKED_FROM = 4;
+    private static int s_lockReasons;
+    private static android.net.wifi.WifiManager.WifiLock s_wifiLock, s_wifiLockPerf;
 
-    public static synchronized void setLowLatency(boolean on) {
+    /// The computer link's (the hub's choosePath)
+    public static void setLowLatency(boolean on) {
+        setLowLatencyFor(LOCK_COMPUTER, on);
+    }
+
+    public static synchronized void setLowLatencyFor(int reason, boolean on) {
         if (s_context == null) {
             return;
         }
-        if (on && s_wifiLock == null) {
+        final int was = s_lockReasons;
+        s_lockReasons = on ? (s_lockReasons | reason) : (s_lockReasons & ~reason);
+        if (s_lockReasons != 0 && s_wifiLock == null) {
             android.net.wifi.WifiManager wifi = (android.net.wifi.WifiManager) s_context.getSystemService(Context.WIFI_SERVICE);
             if (wifi == null) {
                 return;
             }
-            int mode = Build.VERSION.SDK_INT >= 29 ? android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
-                                                   : android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF;
-            s_wifiLock = wifi.createWifiLock(mode, "ZyDeck:controller");
-            s_wifiLock.setReferenceCounted(false);
-            s_wifiLock.acquire();
-            Log.i(TAG, "Wi-Fi kept awake (low latency) while linked");
-        } else if (!on && s_wifiLock != null) {
-            s_wifiLock.release();
-            s_wifiLock = null;
+            if (Build.VERSION.SDK_INT >= 29) {
+                s_wifiLock = wifi.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "ZyDeck:link");
+                s_wifiLock.setReferenceCounted(false);
+                s_wifiLock.acquire();
+            }
+            s_wifiLockPerf = wifi.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "ZyDeck:link-perf");
+            s_wifiLockPerf.setReferenceCounted(false);
+            s_wifiLockPerf.acquire();
+            if (s_wifiLock == null) {
+                s_wifiLock = s_wifiLockPerf;
+            }
+            Log.i(TAG, "Wi-Fi kept awake (low latency) while linked: " + s_lockReasons);
+        } else if (s_lockReasons == 0 && s_wifiLock != null) {
+            if (s_wifiLock != s_wifiLockPerf) {
+                s_wifiLock.release();
+            }
+            s_wifiLockPerf.release();
+            s_wifiLock = s_wifiLockPerf = null;
+            Log.i(TAG, "Wi-Fi power saving back (was " + was + ")");
         }
     }
 

@@ -439,6 +439,8 @@ class Hub : public QObject {
     };
     QHash<QString, PairAsk> m_pairAsks;   // by the asking device's id for the question
     QHash<QTcpSocket*, QString> m_ctlRoles;
+    QSet<QTcpSocket*> m_linkedPages;   // /ws connections from another device's page (Link devices): Wi-Fi kept awake
+    void updateLinkedLock();
 
     struct Ping {
         QTcpSocket* pClient;

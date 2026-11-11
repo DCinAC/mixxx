@@ -1385,6 +1385,10 @@ QJsonArray Hub::lanUrls() const {
 void Hub::onWsOpened(QTcpSocket* pClient, const QString& path, const HttpServer::Query& query) {
     if (path == QLatin1String("/ws")) {
         m_server.sendText(pClient, QJsonDocument(snapshot()).toJson(QJsonDocument::Compact));
+        if (query.value(QStringLiteral("_local")) == QLatin1String("0")) {
+            m_linkedPages.insert(pClient);
+            updateLinkedLock();
+        }
     } else if (path == QLatin1String("/ctl")) {
         m_ctlRoles.insert(pClient, query.value(QStringLiteral("role"), QStringLiteral("controller")));
         sendCtl(pClient, {{"type", "settings"}, {"settings", m_ctlSettings}});
@@ -1400,6 +1404,20 @@ void Hub::onWsClosed(QTcpSocket* pClient, const QString& path) {
         m_ctlRoles.remove(pClient);
         broadcastPresence();
     }
+    if (m_linkedPages.remove(pClient)) {
+        updateLinkedLock();
+    }
+}
+
+/// Another device's page driving this one over Wi-Fi: its touches reach this device only when its radio is awake, and
+/// Android's power saving wakes it for the router's beacon (~100 ms, more): the touches came in clumps, late. The
+/// same low-latency lock as the computer link's, while any such page is connected.
+void Hub::updateLinkedLock() {
+#ifdef Q_OS_ANDROID
+    QJniObject::callStaticMethod<void>("org/mixxx/ZydekLink", "setLowLatencyFor", "(IZ)V",
+            static_cast<jint>(4), static_cast<jboolean>(!m_linkedPages.isEmpty()));
+#endif
+    profileEvent(QStringLiteral("linkedPages"), {{"n", static_cast<int>(m_linkedPages.size())}});
 }
 
 void Hub::onWsText(QTcpSocket* pClient, const QString& path, const QByteArray& text) {
