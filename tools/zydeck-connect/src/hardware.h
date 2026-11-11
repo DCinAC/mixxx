@@ -7,7 +7,9 @@
 // Known: Hercules DJControl Inpulse 300 MK2 with its 4-deck mapping (Assistant switches the decks to 3-4; Mixxx's
 // mapping keeps that, so it's counted here: back to 1-2 when the mappings start again).
 
+#include <QDateTime>
 #include <QJsonObject>
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QTimer>
@@ -35,6 +37,15 @@ class Hardware : public QObject {
     };
     static Event read(const QByteArray& msg);
 
+    /// What its mode keys send, as the pad-mode wizard (padwizard.h) heard them on deck A (deck B: one channel up)
+    struct Key {
+        quint8 st = 0, note = 0;
+        bool shift = false;   // with SHIFT held
+        int block = 0;        // its pads' block: kBlocks
+    };
+    static QString learnedFile();
+    static QString blockName(int block);
+
   signals:
     void changed(const QJsonObject& state);   // with "ev"
 
@@ -47,6 +58,9 @@ class Hardware : public QObject {
     bool m_d34 = false;
     QString m_pads[2];
     bool m_shift[2] = {false, false};
+    void loadLearned();   // (again whenever the file changes)
+    QList<Key> m_learned;
+    QDateTime m_learnedAt;
 };
 
 } // namespace zc

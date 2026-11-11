@@ -1,6 +1,10 @@
 #include "hardware.h"
 
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
+#include <QJsonDocument>
+#include <QStandardPaths>
 
 #include "midi.h"
 
@@ -24,6 +28,34 @@ Hardware::Hardware(Midi* midi, QObject* parent)
     m_look.setInterval(2000);   // (as often as Midi looks for MIDI inputs)
     connect(&m_look, &QTimer::timeout, this, &Hardware::present);
     m_look.start();
+    loadLearned();
+}
+
+QString Hardware::learnedFile() {
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/inpulse-pad-modes.json");
+}
+
+QString Hardware::blockName(int block) {
+    return block >= 0 && block < 8 ? QString::fromLatin1(kBlocks[block]) : QString();
+}
+
+void Hardware::loadLearned() {
+    const QFileInfo fi(learnedFile());
+    if (fi.lastModified() == m_learnedAt) {
+        return;
+    }
+    m_learnedAt = fi.lastModified();
+    m_learned.clear();
+    QFile f(fi.filePath());
+    if (!f.open(QIODevice::ReadOnly)) {
+        return;
+    }
+    const QJsonArray keys = QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("keys")).toArray();
+    for (const QJsonValue& v : keys) {
+        const QJsonObject k = v.toObject();
+        m_learned.append({static_cast<quint8>(k.value(QStringLiteral("st")).toInt()), static_cast<quint8>(k.value(QStringLiteral("note")).toInt()),
+                k.value(QStringLiteral("shift")).toBool(), k.value(QStringLiteral("block")).toInt()});
+    }
 }
 
 bool Hardware::wants(const QString& port, const QByteArray& msg) {
@@ -58,13 +90,26 @@ void Hardware::feed(const QString& port, const QByteArray& msg) {
         m_shift[status - 0x91] = msg[2] != 0;
         return;
     }
-    const Event e = read(msg);
-    if (e.what.isEmpty() || msg[2] == 0) {
+    Event e = read(msg);
+    if (msg[2] == 0) {
         return;
     }
-    // With SHIFT held a mode key picks the second mode of four; which note that sends isn't in the charts that could be
-    // read: its first pad says
-    if (e.set && m_shift[e.what == QLatin1String("pads1") ? 1 : 0]) {
+    // A mode key as the wizard heard it (deck A's; deck B's one channel up), SHIFT or not
+    bool learned = false;
+    for (const Key& k : std::as_const(m_learned)) {
+        for (int side = 0; side < 2 && !learned; ++side) {
+            if (status == k.st + side && static_cast<quint8>(msg[1]) == k.note && m_shift[side] == k.shift && !blockName(k.block).isEmpty()) {
+                e = {side ? QStringLiteral("pads1") : QStringLiteral("pads0"), blockName(k.block), true};
+                learned = true;
+            }
+        }
+    }
+    if (e.what.isEmpty()) {
+        return;
+    }
+    // Not learned: with SHIFT held a mode key picks the second mode of four, and which note that sends isn't in the
+    // charts that could be read: its first pad says
+    if (e.set && !learned && m_shift[e.what == QLatin1String("pads1") ? 1 : 0]) {
         return;
     }
     m_port = port;
@@ -113,6 +158,7 @@ QJsonObject Hardware::state() const {
 }
 
 void Hardware::present() {
+    loadLearned();
     const QString p = port();
     if (p == m_port) {
         return;

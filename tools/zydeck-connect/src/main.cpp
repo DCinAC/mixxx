@@ -19,6 +19,7 @@
 #include "core.h"
 #include "discovery.h"
 #include "jogwizard.h"
+#include "padwizard.h"
 #include "setup.h"
 #include "system.h"
 #include "window.h"
@@ -49,6 +50,7 @@ int main(int argc, char** argv) {
     frames.setFlags(QCommandLineOption::HiddenFromHelp);
     args.addOption(frames);
     args.addOption({QStringLiteral("jog-wizard"), QStringLiteral("Open only the jog wheel setup (beside a ZyDeck Connect that's running).")});
+    args.addOption({QStringLiteral("pad-wizard"), QStringLiteral("Hear what the Inpulse's pad-mode keys send (once), beside a ZyDeck Connect that's running.")});
     QCommandLineOption jogDemo(QStringLiteral("jog-demo"), QStringLiteral("Run the jog wheel setup on made-up messages, drawing each page into DIR, and quit."), QStringLiteral("DIR"));
     jogDemo.setFlags(QCommandLineOption::HiddenFromHelp);
     args.addOption(jogDemo);
@@ -77,6 +79,11 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (args.isSet(QStringLiteral("pad-wizard"))) {   // (no port of its own either)
+        static_cast<QApplication*>(app.get())->setQuitOnLastWindowClosed(true);
+        zc::showPadWizard();
+        return app->exec();
+    }
     if (args.isSet(QStringLiteral("jog-wizard")) || args.isSet(jogDemo)) {   // (no port of its own: alongside Connect)
         static_cast<QApplication*>(app.get())->setQuitOnLastWindowClosed(true);
         if (args.isSet(jogDemo)) {

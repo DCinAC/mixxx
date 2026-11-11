@@ -31,6 +31,7 @@
 #include "RtMidi.h"
 #include "library.h"   // (mixxxDir)
 #include "midi.h"      // (kPortName)
+#include "midiin.h"
 
 namespace zc {
 
@@ -101,75 +102,8 @@ struct Session {
     }
 };
 
-// ---- the controller's MIDI input, read only ---------------------------------------------------------------------
-
-class Input {
-  public:
-    std::function<void(quint8, quint8, quint8)> onMessage;
-    QPointer<QObject> context;   // (where onMessage runs: RtMidi calls back on its own thread)
-
-    ~Input() { close(); }
-
-    static QStringList ports() {
-        QStringList names;
-        try {
-            RtMidiIn probe(RtMidi::UNSPECIFIED, "ZyDeck jog setup probe");
-            for (unsigned i = 0; i < probe.getPortCount(); ++i) {
-                const QString n = QString::fromStdString(probe.getPortName(i));
-                if (!n.contains(QLatin1String(kPortName)) && !n.contains(QLatin1String("ZyDeck")) && !n.contains(QLatin1String("Through"))) {
-                    names.append(n);
-                }
-            }
-        } catch (const RtMidiError&) {
-        }
-        return names;
-    }
-
-    bool open(const QString& name) {
-        close();
-        try {
-            m_in = std::make_unique<RtMidiIn>(RtMidi::UNSPECIFIED, "ZyDeck jog setup", 1000);
-            for (unsigned i = 0; i < m_in->getPortCount(); ++i) {
-                if (QString::fromStdString(m_in->getPortName(i)) == name) {
-                    m_in->setCallback(&Input::callback, this);
-                    m_in->ignoreTypes(true, true, true);
-                    m_in->openPort(i, "ZyDeck jog setup");
-                    return true;
-                }
-            }
-        } catch (const RtMidiError&) {
-        }
-        m_in.reset();
-        return false;
-    }
-
-    void close() {
-        if (m_in) {
-            try {
-                m_in->closePort();
-            } catch (const RtMidiError&) {
-            }
-            m_in.reset();
-        }
-    }
-
-    void inject(quint8 st, quint8 d1, quint8 d2) {   // (the demo)
-        if (onMessage) {
-            onMessage(st, d1, d2);
-        }
-    }
-
-  private:
-    static void callback(double, std::vector<unsigned char>* m, void* user) {
-        auto* self = static_cast<Input*>(user);
-        if (!m || m->size() != 3 || !self->context) {
-            return;
-        }
-        const quint8 st = (*m)[0], d1 = (*m)[1], d2 = (*m)[2];
-        QMetaObject::invokeMethod(self->context, [self, st, d1, d2] { self->inject(st, d1, d2); }, Qt::QueuedConnection);
-    }
-    std::unique_ptr<RtMidiIn> m_in;
-};
+// The controller's MIDI input, read only (midiin.h)
+using Input = MidiReader;
 
 // ---- the look ----------------------------------------------------------------------------------------------------
 
@@ -250,11 +184,71 @@ QPixmap logo() {
     return px;
 }
 
+// The hand: a pointer of the old pixel kind (an open hand), filled blue. Drawn from its cells: the outline is every
+// cell beside the hand
+void paintHand(QPainter& p, QPointF at, qreal cell) {
+    static const char* const kRows[] = {
+            "      XX        ",
+            "      XX XX     ",
+            "   XX XX XX     ",
+            "   XX XX XX XX  ",
+            "   XX XX XX XX  ",
+            "   XX XX XX XX  ",
+            "   XX XX XX XX  ",
+            "   XX XX XX XX  ",
+            "   XX XX XX XX  ",
+            "XX XXXXXXXXXXX  ",
+            "XXXXXXXXXXXXXX  ",
+            " XXXXXXXXXXXXX  ",
+            " XXXXXXXXXXXXX  ",
+            "  XXXXXXXXXXXX  ",
+            "  XXXXXXXXXXXX  ",
+            "   XXXXXXXXXXX  ",
+            "   XXXXXXXXXXX  ",
+            "    XXXXXXXXXX  ",
+            "     XXXXXXXX   ",
+    };
+    const int rows = int(std::size(kRows)), cols = 16;
+    const auto in = [&](int x, int y) { return y >= 0 && y < rows && x >= 0 && x < cols && kRows[y][x] == 'X'; };
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing, false);
+    for (int y = -1; y <= rows; ++y) {
+        for (int x = -1; x <= cols; ++x) {
+            const QRectF r(at.x() + (x + 1) * cell, at.y() + (y + 1) * cell, cell, cell);
+            if (in(x, y)) {
+                const double t = y / double(rows - 1);   // light at the fingertips, deep at the wrist
+                p.fillRect(r, QColor::fromRgbF(0.80 - 0.62 * t, 0.88 - 0.50 * t, 1.0 - 0.15 * t));
+            } else if (in(x - 1, y) || in(x + 1, y) || in(x, y - 1) || in(x, y + 1)) {
+                p.fillRect(r, QColor(0x0b, 0x1f, 0x4f));
+            }
+        }
+    }
+    p.restore();
+}
+
 // The jog wheel as it's being turned: the red arrow is where the mark starts and ends (12 o'clock); the drawn mark
 // turns with the steps once one turn's steps are known
 class Platter : public QWidget {
   public:
-    using QWidget::QWidget;
+    // The hand showing what to do (two frames, up and down: turning it): on its edge, or on its top
+    enum class Hand { None, Edge, Top };
+    explicit Platter(QWidget* parent = nullptr)
+            : QWidget(parent) {
+        m_tick.setInterval(450);
+        connect(&m_tick, &QTimer::timeout, this, [this] {
+            m_frame ^= 1;
+            update();
+        });
+    }
+    void setHand(Hand h) {
+        if (h == m_hand) {
+            return;
+        }
+        m_hand = h;
+        h == Hand::None ? m_tick.stop() : m_tick.start();
+        update();
+    }
+    Hand hand() const { return m_hand; }
     double angle = 0;        // degrees, clockwise
     bool showMark = false;   // known how far a step is
     bool active = false;     // being touched / turned
@@ -326,7 +320,18 @@ class Platter : public QWidget {
         p.setFont(f);
         p.setPen(QColor(0x55, 0x55, 0x55));
         p.drawText(QRectF(0, c.y() + R + 28, width(), 16), Qt::AlignHCenter | Qt::AlignTop, small);
+        if (m_hand != Hand::None) {
+            const qreal cell = std::max(2.0, std::round(R / 36)), w = 18 * cell, h = 21 * cell, dy = (m_frame ? 1 : -1) * cell * 3;
+            const QPointF at = m_hand == Hand::Edge ? QPointF(c.x() + R - w * 0.4, c.y() - h * 0.45 + dy)
+                                                    : QPointF(c.x() + R * 0.18, c.y() - R * 0.62 + dy);
+            paintHand(p, at, cell);
+        }
     }
+
+  private:
+    Hand m_hand = Hand::None;
+    int m_frame = 0;
+    QTimer m_tick;
 };
 
 // A row of boxes that fill green, as the old progress bars did: done of n
@@ -359,99 +364,6 @@ class Blocks : public QWidget {
             p.drawText(QRect(r.left(), 22, r.width(), 16), Qt::AlignHCenter, labels.value(i));
         }
     }
-};
-
-// The hand: a pointer of the old pixel kind (an open hand), filled blue. Drawn from its cells: the outline is every
-// cell beside the hand
-void paintHand(QPainter& p, QPointF at, qreal cell) {
-    static const char* const kRows[] = {
-            "      XX        ",
-            "      XX XX     ",
-            "   XX XX XX     ",
-            "   XX XX XX XX  ",
-            "   XX XX XX XX  ",
-            "   XX XX XX XX  ",
-            "   XX XX XX XX  ",
-            "   XX XX XX XX  ",
-            "   XX XX XX XX  ",
-            "XX XXXXXXXXXXX  ",
-            "XXXXXXXXXXXXXX  ",
-            " XXXXXXXXXXXXX  ",
-            " XXXXXXXXXXXXX  ",
-            "  XXXXXXXXXXXX  ",
-            "  XXXXXXXXXXXX  ",
-            "   XXXXXXXXXXX  ",
-            "   XXXXXXXXXXX  ",
-            "    XXXXXXXXXX  ",
-            "     XXXXXXXX   ",
-    };
-    const int rows = int(std::size(kRows)), cols = 16;
-    const auto in = [&](int x, int y) { return y >= 0 && y < rows && x >= 0 && x < cols && kRows[y][x] == 'X'; };
-    p.save();
-    p.setRenderHint(QPainter::Antialiasing, false);
-    for (int y = -1; y <= rows; ++y) {
-        for (int x = -1; x <= cols; ++x) {
-            const QRectF r(at.x() + (x + 1) * cell, at.y() + (y + 1) * cell, cell, cell);
-            if (in(x, y)) {
-                const double t = y / double(rows - 1);   // light at the fingertips, deep at the wrist
-                p.fillRect(r, QColor::fromRgbF(0.80 - 0.62 * t, 0.88 - 0.50 * t, 1.0 - 0.15 * t));
-            } else if (in(x - 1, y) || in(x + 1, y) || in(x, y - 1) || in(x, y + 1)) {
-                p.fillRect(r, QColor(0x0b, 0x1f, 0x4f));
-            }
-        }
-    }
-    p.restore();
-}
-
-// A little platter with the hand on it, two frames: on its edge (turning it there) or on its top
-class HandDemo : public QWidget {
-  public:
-    explicit HandDemo(bool onTop, QWidget* parent = nullptr)
-            : QWidget(parent),
-              m_onTop(onTop) {
-        setFixedSize(112, 88);
-        m_tick.setInterval(450);
-        connect(&m_tick, &QTimer::timeout, this, [this] {
-            m_frame ^= 1;
-            update();
-        });
-    }
-
-  protected:
-    void showEvent(QShowEvent*) override { m_tick.start(); }
-    void hideEvent(QHideEvent*) override { m_tick.stop(); }
-    void paintEvent(QPaintEvent*) override {
-        QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing);
-        const QPointF c(42, 46);
-        const qreal R = 34;
-        QPainterPath arrow;
-        arrow.moveTo(c.x() - 5, c.y() - R - 9);
-        arrow.lineTo(c.x() + 5, c.y() - R - 9);
-        arrow.lineTo(c.x(), c.y() - R - 1);
-        arrow.closeSubpath();
-        p.setPen(Qt::NoPen);
-        p.setBrush(kRed);
-        p.drawPath(arrow);
-        QRadialGradient metal(c - QPointF(12, 14), R * 1.5);
-        metal.setColorAt(0, QColor(0xfb, 0xfb, 0xfb));
-        metal.setColorAt(1, QColor(0x86, 0x8e, 0x9a));
-        p.setPen(QPen(QColor(0x5a, 0x60, 0x6a), 1));
-        p.setBrush(metal);
-        p.drawEllipse(c, R, R);
-        p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0x17, 0x17, 0x19));
-        p.drawEllipse(c, R - 5, R - 5);
-        p.setBrush(QColor(0xe0, 0x8c, 0x22));
-        p.drawEllipse(c, R * 0.36, R * 0.36);
-        const qreal dy = m_frame ? 5 : -5;   // up, down: turning it
-        paintHand(p, m_onTop ? QPointF(c.x() - 8, c.y() - 22 + dy) : QPointF(c.x() + R - 12, c.y() - 18 + dy), 2);
-    }
-
-  private:
-    bool m_onTop;
-    int m_frame = 0;
-    QTimer m_tick;
 };
 
 // A meter for the fast page: how many steps one message held, the most so far marked
@@ -762,6 +674,13 @@ class JogWizard : public QWizard {
     QString m_shotDir;
     std::function<void(quint8, quint8, quint8)> m_page;   // the page in front's own reading
     QPushButton* m_apply = nullptr;
+    bool turnsDone() const {   // three turns, within 4 % of each other
+        if (m_s.turns.size() < 3) {
+            return false;
+        }
+        const auto [lo, hi] = std::minmax_element(m_s.turns.begin(), m_s.turns.end());
+        return (*hi - *lo) / double(m_s.measured()) <= 0.04;
+    }
     static bool demoWrites() { return !qEnvironmentVariableIsEmpty("ZC_JOG_DEMO_WRITE"); }   // (a made-up HOME: its checks)
     QElapsedTimer m_clock;
 };
@@ -843,23 +762,38 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     setPage(kIntro, intro);
     fill();
 
+    // The hand comes off while the jog is touched or moved, and back after 10 s of nothing (to show again what to do)
+    const auto handBack = [this](Platter* pl, std::function<Platter::Hand()> which) {
+        auto* t = new QTimer(this);
+        t->setSingleShot(true);
+        t->setInterval(10000);
+        connect(t, &QTimer::timeout, pl, [pl, which] { pl->setHand(which()); });
+        return [pl, t] {   // (activity)
+            pl->setHand(Platter::Hand::None);
+            t->start();
+        };
+    };
+    // One instruction at a time, above the platter
+    const auto instruction = [] {
+        auto* l = new QLabel;
+        l->setWordWrap(true);
+        l->setTextFormat(Qt::RichText);
+        l->setAlignment(Qt::AlignHCenter);
+        l->setMinimumHeight(44);
+        QFont f = l->font();
+        f.setPixelSize(15);
+        l->setFont(f);
+        return l;
+    };
+
     // 2. Find the jog: what it sends as it's touched and turned
     auto* find = new Page;
     find->setTitle(tr("Find the Jog Wheel"));
-    find->setSubTitle(tr("Step 1 of 3"));   // (the band across the top: the steps are in the page)
-    auto* fl = new QHBoxLayout(find);
-    auto* fSide = new QVBoxLayout;
-    fSide->addWidget(new HandDemo(true));
-    fSide->addWidget(step(1, tr("<b>Touch the top</b> of the <b>left</b> jog wheel.")));
-    fSide->addWidget(step(2, tr("Turn it a little, back and forth.")));
-    fSide->addWidget(step(3, tr("Let go.")));
-    auto* fStatus = text(QString());
-    fSide->addSpacing(6);
-    fSide->addWidget(fStatus);
-    fSide->addStretch();
-    fl->addLayout(fSide, 1);
+    find->setSubTitle(tr("Step 1 of 3"));   // (the band across the top: what to do is in the page)
+    auto* fl = new QVBoxLayout(find);
+    auto* fSay = instruction();
+    fl->addWidget(fSay);
     auto* fPlatter = new Platter;
-    fPlatter->big = tr("Waiting…");
     fl->addWidget(fPlatter, 1);
     struct Cc {
         int n = 0, twos = 0, offset = 0;
@@ -870,17 +804,19 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     auto stats = std::make_shared<QHash<int, Cc>>();
     auto lastOn = std::make_shared<std::tuple<quint8, quint8, qint64>>(0, 0, -100000);
     auto offSeen = std::make_shared<bool>(false);
-    find->enter = [this, find, fPlatter, fStatus, stats, lastOn, offSeen] {
+    const auto fActive = handBack(fPlatter, [this] { return m_s.found ? Platter::Hand::None : Platter::Hand::Top; });
+    find->enter = [this, find, fPlatter, fSay, stats, lastOn, offSeen, fActive] {
         stats->clear();
         *lastOn = {0, 0, -100000};
         *offSeen = false;
         m_s.found = false;
         m_s.hasTouch = false;
+        fSay->setText(tr("<b>Touch the top</b> of the <b>left</b> jog wheel and turn it a little, back and forth."));
         fPlatter->big = tr("Waiting…");
         fPlatter->small.clear();
+        fPlatter->setHand(Platter::Hand::Top);
         fPlatter->update();
-        fStatus->setText(QString());
-        m_page = [this, find, fPlatter, fStatus, stats, lastOn, offSeen](quint8 st, quint8 d1, quint8 v) {
+        m_page = [this, find, fPlatter, fSay, stats, lastOn, offSeen, fActive](quint8 st, quint8 d1, quint8 v) {
             const qint64 now = m_clock.elapsed();
             if ((st & 0xF0) == 0x90 && v > 0) {
                 *lastOn = {st, d1, now};
@@ -890,6 +826,7 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
                 *offSeen = true;
             }
             if ((st & 0xF0) == 0xB0) {
+                fActive();
                 Cc& c = (*stats)[st << 8 | d1];
                 if (c.n == 0 && now - std::get<2>(*lastOn) < 2000) {   // a note just before it began: its touch, perhaps
                     c.touchCand = true;
@@ -925,9 +862,8 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
             m_s.touchNote = c.touchNote;
             fPlatter->big = tr("Found it");
             fPlatter->active = true;
-            fPlatter->small.clear();
             fPlatter->update();
-            fStatus->setText(c.touchCand && !m_s.hasTouch ? tr("<b>Now let go.</b>") : tr("<b>Done.</b> Click Next."));
+            fSay->setText(c.touchCand && !m_s.hasTouch ? tr("<b>Let go.</b>") : tr("<b>Done.</b> Click Next."));
             find->changed();
         };
     };
@@ -940,49 +876,44 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     };
     setPage(kFind, find);
 
-    // 3. Three full turns, mark to mark
+    // 3. Three full turns, mark to mark: first lined up by the edge (not counted), then once round by the top
     auto* turns = new Page;
     turns->setTitle(tr("Measure One Turn"));
-    turns->setSubTitle(tr("Step 2 of 3"));   // (the band across the top: the steps are in the page)
-    auto* tl = new QHBoxLayout(turns);
-    auto* tSide = new QVBoxLayout;
-    const auto handRow = [](bool onTop, QLabel* l) {
-        auto* r = new QHBoxLayout;
-        r->addWidget(new HandDemo(onTop), 0, Qt::AlignTop);
-        r->addWidget(l, 1);
-        return r;
-    };
-    tSide->addLayout(handRow(false, step(1, tr("Turn it by its <b>edge</b> until your mark is at the "
-                                               "<b style='color:#d22b1e'>red arrow</b>. <b>Don't touch the top.</b>"))));
-    tSide->addLayout(handRow(true, step(2, tr("<b>Touch the top</b> and turn it <b>clockwise</b>, once round, until the "
-                                              "mark is back at the arrow. Let go."))));
-    tSide->addWidget(step(3, tr("Do it <b>3 times</b>.")));
-    tSide->addSpacing(6);
+    turns->setSubTitle(tr("Step 2 of 3"));
+    auto* tl = new QVBoxLayout(turns);
+    auto* tSay = instruction();
+    tl->addWidget(tSay);
+    auto* tPlatter = new Platter;
+    tl->addWidget(tPlatter, 1);
     auto* tBlocks = new Blocks;
     tBlocks->labels = {tr("Turn 1"), tr("Turn 2"), tr("Turn 3")};
-    tSide->addWidget(tBlocks);
-    auto* tStatus = text(QString());
-    tSide->addWidget(tStatus);
-    tSide->addStretch();
-    tl->addLayout(tSide, 3);
-    auto* tPlatter = new Platter;
-    tl->addWidget(tPlatter, 2);
+    tBlocks->setMaximumWidth(420);
+    tl->addWidget(tBlocks, 0, Qt::AlignHCenter);
     struct Turn {
         bool on = false;
         int sum = 0;
-        qint64 lastMove = 0;
+        bool lining = true;   // lining the mark up (by the edge), not turning it round yet
     };
     auto cur = std::make_shared<Turn>();
-    auto idle = new QTimer(this);
+    auto idle = new QTimer(this);   // no touch-sensitive top: a turn ends when it stops
     idle->setSingleShot(true);
     idle->setInterval(800);
-    auto paintTurns = [this, tPlatter, tBlocks, tStatus, cur] {
+    auto edgeStill = new QTimer(this);   // turned by the edge, then left: lined up
+    edgeStill->setSingleShot(true);
+    edgeStill->setInterval(1000);
+    const auto tHand = [this, cur] {
+        if (turnsDone()) {
+            return Platter::Hand::None;
+        }
+        return cur->lining && m_s.hasTouch ? Platter::Hand::Edge : Platter::Hand::Top;
+    };
+    const auto tActive = handBack(tPlatter, tHand);
+    auto paintTurns = [this, tPlatter, tBlocks, tSay, cur] {
         const int est = m_s.measured();
         tPlatter->showMark = est > 0;
         tPlatter->angle = est > 0 ? cur->sum * 360.0 / est : 0;
         tPlatter->active = cur->on;
-        tPlatter->big = cur->on || cur->sum ? tr("%1 steps").arg(std::abs(cur->sum)) : tr("Ready");
-        tPlatter->small.clear();
+        tPlatter->big = cur->on || cur->sum ? tr("%1 steps").arg(std::abs(cur->sum)) : QString();
         tPlatter->update();
         tBlocks->done = static_cast<int>(m_s.turns.size());
         tBlocks->labels = {};
@@ -990,16 +921,19 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
             tBlocks->labels << (i < m_s.turns.size() ? tr("%1 steps").arg(m_s.turns[i]) : tr("Turn %1").arg(i + 1));
         }
         tBlocks->update();
-        if (m_s.turns.size() >= 3) {
-            const auto [lo, hi] = std::minmax_element(m_s.turns.begin(), m_s.turns.end());
-            const double spread = (*hi - *lo) / double(m_s.measured());
-            tStatus->setText(spread <= 0.04 ? tr("<b>Done.</b> Click Next.")
-                                            : tr("<b>Once more:</b> mark to the arrow, round to the arrow."));
+        if (turnsDone()) {
+            tSay->setText(tr("<b>Done.</b> Click Next."));
+        } else if (!m_s.hasTouch) {
+            tSay->setText(tr("Turn it <b>clockwise</b>, once round, from the <b style='color:#d22b1e'>red arrow</b> back to it. Then stop."));
+        } else if (cur->lining) {
+            tSay->setText(tr("Turn it by its <b>edge</b> until your mark is at the <b style='color:#d22b1e'>red arrow</b>. <b>Don't touch the top.</b>"));
+        } else if (m_s.turns.size() >= 3) {
+            tSay->setText(tr("These don't agree: <b>touch the top</b> and turn it once round again, arrow to arrow. Then let go."));
         } else {
-            tStatus->setText(QString());
+            tSay->setText(tr("<b>Touch the top</b> and turn it <b>clockwise</b>, once round, back to the arrow. Then let go."));
         }
     };
-    auto endTurn = [this, turns, cur, paintTurns] {
+    auto endTurn = [this, turns, cur, paintTurns, tPlatter, tHand] {
         if (!cur->on) {
             return;
         }
@@ -1010,96 +944,116 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
                 m_s.turns.removeFirst();
             }
         }
-        paintTurns();
         cur->sum = 0;
+        cur->lining = false;   // (the mark is at the arrow again: round once more from there)
+        paintTurns();
+        tPlatter->setHand(tHand());
         turns->changed();
     };
     connect(idle, &QTimer::timeout, this, endTurn);
-    turns->enter = [this, cur, idle, paintTurns, endTurn] {
+    connect(edgeStill, &QTimer::timeout, this, [cur, paintTurns, tPlatter, tHand] {
+        if (cur->lining && !cur->on) {
+            cur->lining = false;
+            paintTurns();
+            tPlatter->setHand(tHand());
+        }
+    });
+    turns->enter = [this, cur, idle, edgeStill, paintTurns, endTurn, tPlatter, tHand, tActive] {
         m_s.turns.clear();
         *cur = Turn{};
         paintTurns();
-        m_page = [this, cur, idle, paintTurns, endTurn](quint8 st, quint8 d1, quint8 v) {
+        tPlatter->setHand(tHand());
+        m_page = [this, cur, idle, edgeStill, paintTurns, endTurn, tPlatter, tHand, tActive](quint8 st, quint8 d1, quint8 v) {
             if (m_s.isTouch(st, d1)) {
                 if ((st & 0xF0) == 0x90 && v > 0) {
-                    *cur = Turn{true, 0, 0};
+                    tActive();
+                    *cur = Turn{true, 0, false};
                     paintTurns();
                 } else {
                     endTurn();
                 }
                 return;
             }
-            if (!m_s.isSteps(st, d1)) {
+            const bool steps = m_s.isSteps(st, d1);
+            if (!steps && st == m_s.st && (st & 0xF0) == 0xB0) {   // its edge (another control on its channel)
+                tActive();
+                if (cur->lining) {
+                    edgeStill->start();
+                }
                 return;
             }
+            if (!steps) {
+                return;
+            }
+            tActive();
             const int step = m_s.step(v);
             m_s.maxStep = std::max(m_s.maxStep, std::abs(step));
             if (!m_s.hasTouch) {   // no touch: a turn is from moving to a stop
                 if (!cur->on) {
-                    *cur = Turn{true, 0, 0};
+                    *cur = Turn{true, 0, false};
                 }
                 idle->start();
-            } else if (!cur->on) {
+            } else if (!cur->on) {   // turned without the top touched: by its edge
+                if (cur->lining) {
+                    edgeStill->start();
+                }
                 return;
             }
             cur->sum += step;
             paintTurns();
         };
     };
-    turns->complete = [this] {
-        if (m_s.turns.size() < 3) {
-            return false;
-        }
-        const auto [lo, hi] = std::minmax_element(m_s.turns.begin(), m_s.turns.end());
-        return (*hi - *lo) / double(m_s.measured()) <= 0.04;
-    };
+    turns->complete = [this] { return turnsDone(); };
     setPage(kTurns, turns);
 
     // 4. Fast: how many steps one message holds
     auto* fast = new Page;
     fast->setTitle(tr("Fast Moves"));
-    fast->setSubTitle(tr("Step 3 of 3"));   // (the band across the top: the steps are in the page)
+    fast->setSubTitle(tr("Step 3 of 3"));
     auto* xl = new QVBoxLayout(fast);
-    auto* xRow = new QHBoxLayout;
-    xRow->addWidget(new HandDemo(true), 0, Qt::AlignTop);
-    xRow->addWidget(step(1, tr("<b>Touch the top</b> and scratch back and forth, <b>fast</b>, for a few seconds.")), 1);
-    xl->addLayout(xRow);
-    xl->addSpacing(10);
+    auto* xSay = instruction();
+    xl->addWidget(xSay);
+    auto* xPlatter = new Platter;
+    xl->addWidget(xPlatter, 1);
     auto* meter = new Meter;
-    xl->addWidget(meter);
-    auto* xStatus = text(QString());
-    xl->addWidget(xStatus);
-    xl->addStretch();
+    meter->setMaximumWidth(420);
+    xl->addWidget(meter, 0, Qt::AlignHCenter);
     auto fastMsgs = std::make_shared<int>(0);
     auto fastStart = std::make_shared<qint64>(0);
-    fast->enter = [this, fast, meter, xStatus, fastMsgs, fastStart] {
+    const auto fastDone = [this, fastMsgs, fastStart] { return *fastMsgs >= 150 && m_clock.elapsed() - *fastStart >= 2000; };
+    const auto xActive = handBack(xPlatter, [fastDone] { return fastDone() ? Platter::Hand::None : Platter::Hand::Top; });
+    fast->enter = [this, fast, meter, xSay, xPlatter, fastMsgs, fastStart, fastDone, xActive] {
         *fastMsgs = 0;
         *fastStart = 0;
         meter->now = 0;
         meter->peak = 0;
         meter->update();
-        xStatus->setText(QString());
-        m_page = [this, fast, meter, xStatus, fastMsgs, fastStart](quint8 st, quint8 d1, quint8 v) {
+        xSay->setText(tr("<b>Touch the top</b> and scratch back and forth, <b>fast</b>, for a few seconds."));
+        xPlatter->setHand(Platter::Hand::Top);
+        m_page = [this, fast, meter, xSay, xPlatter, fastMsgs, fastStart, fastDone, xActive](quint8 st, quint8 d1, quint8 v) {
             if (!m_s.isSteps(st, d1)) {
                 return;
             }
-            const int step = std::abs(m_s.step(v));
+            xActive();
+            const int step = m_s.step(v);
             if (*fastMsgs == 0) {
                 *fastStart = m_clock.elapsed();
             }
             ++*fastMsgs;
-            meter->now = std::min(step, meter->top);
+            xPlatter->angle += step * 360.0 / std::max(1, m_s.stepsPerTurn());
+            xPlatter->showMark = true;
+            xPlatter->update();
+            meter->now = std::min(std::abs(step), meter->top);
             meter->peak = std::max(meter->peak, meter->now);
             meter->update();
-            m_s.maxStep = std::max(m_s.maxStep, step);
-            const bool enough = *fastMsgs >= 150 && m_clock.elapsed() - *fastStart >= 2000;
-            if (enough) {
-                xStatus->setText(tr("<b>Done.</b> Click Next."));
+            m_s.maxStep = std::max(m_s.maxStep, std::abs(step));
+            if (fastDone()) {
+                xSay->setText(tr("<b>Done.</b> Click Next."));
             }
             fast->changed();
         };
     };
-    fast->complete = [this, fastMsgs, fastStart] { return *fastMsgs >= 150 && m_clock.elapsed() - *fastStart >= 2000; };
+    fast->complete = fastDone;
     setPage(kFast, fast);
 
     // 5. What was found, and into Mixxx with it
@@ -1196,6 +1150,11 @@ void JogWizard::runDemo() {
     turn(60, 1, 15);
     at(100, [send] { send(0x91, 0x08, 0x00); });
     at(300, [this] { shot(QStringLiteral("2-found")); next(); });
+    at(300, [this] { shot(QStringLiteral("3a-lining")); });
+    for (int i = 0; i < 20; ++i) {   // lined up by the edge (B1 09)
+        at(20, [send] { send(0xB1, 0x09, 0x01); });
+    }
+    at(1300, [this] { shot(QStringLiteral("3b-touch")); });
     for (int n : {509, 513, 507}) {
         at(400, [send] { send(0x91, 0x08, 0x7F); });
         turn(n / 2, 1, 12);
