@@ -307,9 +307,11 @@
       desc: "Each session's report: the delays (median, 95th and 99th percentile, worst) cable and Wi-Fi apart, what happened when, your marks; to download too." },
 
     // Controller › Decks
-    { id: "hwfollow", sec: "decks", name: "Follow the DJ controller", kind: "toggle", show: () => !!ctl(), ...C("hwFollow", false, v => v && ctl()?.hwSync?.()),
+    { id: "hwpads", sec: "decks", name: "Follow the controller's pad mode", kind: "toggle", show: () => !!ctl(), ...C("hwPads", false, v => v && ctl()?.hwSync?.()),
       st: () => ctl()?.hw?.() || "",
-      desc: "Controller mode: the decks here take the pad mode of the computer's DJ controller (Hercules Inpulse 300 MK2), and switch to decks 3-4 with it. Only that way: switching decks or pad modes here never touches the controller." },
+      desc: "Controller mode: the pads here switch mode with the computer's DJ controller (Hercules Inpulse 300 MK2). Only that way: changing the pad mode here never touches the controller." },
+    { id: "hwdecks", sec: "decks", name: "Follow the controller's decks 3-4", kind: "toggle", show: () => !!ctl(), ...C("hwDecks", false, v => v && ctl()?.hwSync?.()),
+      desc: "Controller mode: the decks here switch to 3-4 and back with the computer's DJ controller (its Assistant button). Only that way: switching decks here never touches the controller." },
     { id: "newtrack", sec: "decks", name: "On a new track", kind: "custom", build: buildNewTrack, show: () => !!ctl(),
       desc: "KEY LOCK, QUANTIZE and SLIP when a deck loads a track: on, off, or as they were." },
     { id: "dir", sec: "decks", name: "Tempo direction", kind: "seg", opts: () => [[true, "Down = faster"], [false, "Up = faster"]], ...C("fasterDown", true),

@@ -121,6 +121,7 @@
   //   back on the same readings, straight play no rougher.)
   function posUpdate(d, p, now, ts) {   // p in seconds
     const t = Math.min(now, hubTime(ts, now));
+    if (d.jog) return;   // (drawn from the computer's jog meanwhile: it seeds the model again as it's done)
     const nominal = d.playing ? d.ratio || 1 : 0;
     if (d.pt === undefined || Math.abs(p - posModel(d, t)) > .3) {   // a jump: follow it
       d.hist = [[t, p]];

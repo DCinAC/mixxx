@@ -548,7 +548,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwFollow: false, jogScale: 0 };
+const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwPads: null, hwDecks: null, jogScale: 0 };
 const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
@@ -561,6 +561,9 @@ if (PHONE) {
 }
 let S = (() => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") }; } catch { return { ...DEFAULTS }; } })();
 if (PHONE) S.layout = "phone";
+// "Follow the DJ controller" became two: its pad modes, its decks 3-4 (each as the one was)
+if (S.hwPads == null) S.hwPads = !!S.hwFollow;
+if (S.hwDecks == null) S.hwDecks = !!S.hwFollow;
 // Older settings: knobs became Drag by default (the one-axis drags are gone). True if it changed something.
 // Knobs became 10.5 mm on phones too (they were 8.5): a phone still on the old default moves.
 function migrateSettings(o) {
@@ -3667,8 +3670,9 @@ function loadCueLabels(d) {
   }, 250));
 }
 
-// The computer's DJ controller ("hw": ZyDeck Connect reads it, read only, and the hub passes it on). With S.hwFollow
-// the decks here follow it: its pad modes, and its decks 3-4 switch (the Inpulse 300 MK2's 4-deck mapping: Assistant).
+// The computer's DJ controller ("hw": ZyDeck Connect reads it, read only, and the hub passes it on). The decks here
+// follow it, each part as asked: its pad modes (S.hwPads), its decks 3-4 switch (S.hwDecks: the Inpulse 300 MK2's
+// 4-deck mapping, Assistant).
 // One way only: switching decks or pad modes here sends it nothing. Its pad modes, as this page's: the 4-deck mapping
 // puts its stems where the controller's Slicer is.
 const HW_MODES = { hotcue: "cue", roll: "roll", slicer: "stem", sampler: "smpl", toneplay: "key", beatjump: "jump", fx: "fx", slicerloop: "loop" };
@@ -3676,14 +3680,14 @@ let HW = {};
 function onHw(hw) {
   HW = hw || {};
   ZydeckMenu.refresh();
-  if (S.hwFollow && HW.dev && live) hwApply(HW.ev);
+  if ((S.hwPads || S.hwDecks) && HW.dev && live) hwApply(HW.ev);
 }
 // ev: what it just did ("d34", "pads0", "pads1"); none: take all of it (following just turned on, or it just came)
 function hwApply(ev) {
   if (!HW.dev) return;
   const d34 = !!HW.d34;
-  if (!ev || ev === "d34") { sides[0] = d34 ? 2 : 0; sides[1] = d34 ? 3 : 1; }
-  for (const s of [0, 1]) {
+  if (S.hwDecks && (!ev || ev === "d34")) { sides[0] = d34 ? 2 : 0; sides[1] = d34 ? 3 : 1; }
+  for (const s of S.hwPads ? [0, 1] : []) {
     if (ev && ev !== "d34" && ev !== `pads${s}`) continue;
     const m = HW_MODES[HW.pads?.[s]], d = decks[(d34 ? 2 : 0) + s];   // (the deck that side of it plays, shown here or not)
     if (m && d) d.mode = m;
