@@ -138,6 +138,8 @@
   .strip .loop b { position: absolute; left: 0; top: 0; width: var(--ltag); height: var(--ltag); line-height: var(--ltag); text-align: center;
     font-size: calc(var(--ltag) * .85); color: #fff; background: #bbbbbb; transform: scaleX(var(--inv, 1)); transform-origin: 0 0; }
   .strip .loop.on b { background: #00b400; }
+  .strip .lc { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--c) 40%, transparent); pointer-events: none; }
+  .strip .lc.on { box-shadow: inset 0 0 0 2px var(--c); }
   /* SLIP, as Mixxx draws it: while the track runs on underneath (a loop, a scratch, CENSOR), the top half shows
      where it is, one-sided on black, in an outline that breathes (25-75 % #e0e0e0 over 1.6 s, fading out below) */
   .strip .slipghost { position: absolute; left: 0; right: 0; top: 0; height: 50%; background: #000; display: none; pointer-events: none;
@@ -248,6 +250,8 @@
   .pad.tint { background: color-mix(in srgb, var(--c) 15%, var(--pad)); border-color: color-mix(in srgb, var(--c) 45%, var(--edge)); color: color-mix(in srgb, var(--c) 80%, #ddd); }
   .pad.off { opacity: .3; }
   .pad.armed { outline: 3px dashed var(--err); outline-offset: -5px; }
+  .pad .lp { position: absolute; top: 3px; right: 5px; font-style: normal; font-size: calc(var(--mm) * 1.7); font-weight: 700; opacity: .9; }
+  .pad.loopon::after { content: ""; position: absolute; inset: 4px; border: 2px solid var(--fg, #111); border-radius: calc(var(--mm) * 1); pointer-events: none; }
   .pad.down { background: #fff !important; border-color: #fff !important; color: #111 !important; transform: scale(.97); }
 
   /* tempo: a touchpad lane, no jump */
@@ -1784,7 +1788,9 @@ function paintPad(s, k) {
       // its time in the track, in a lower corner (S.cueTime: left / right / off)
       const t = c && S.cueTime && S.cueTime !== "off" ? (live ? cueSec(d, d.cuePos?.[k]) : c.pos) : null;
       const tm = t != null ? `<i class="ct ${S.cueTime === "right" ? "r" : "l"}">${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}</i>` : "";
-      setPad(el, (c ? "lit" : "") + (d.shift && c ? " armed" : ""), (lbl ? `${k + 1}<span class="lbl">${lbl.replace(/</g, "&lt;")}</span>` : `${k + 1}`) + tm,
+      // a saved loop: ↻ and its length in beats in the top corner, a ring while its loop plays
+      const lp = cueLoop(d, k), lt = lp ? `<i class="lp">↻${lp.beats ? ` ${fmtBeats(Math.round(lp.beats * 100) / 100)}` : ""}</i>` : "";
+      setPad(el, (c ? "lit" : "") + (d.shift && c ? " armed" : "") + (lp?.on ? " loopon" : ""), (lbl ? `${k + 1}<span class="lbl">${lbl.replace(/</g, "&lt;")}</span>` : `${k + 1}`) + tm + lt,
         c && rgb(c.c), c && fgFor(c.c)); break; }
     case "roll": {
       const arrow = runArrow(d, k);
@@ -2907,7 +2913,7 @@ function askUnload(s, u) {
 // Cue marks and the loop, as elements riding on the waveform's layer (their labels kept unsqueezed)
 function paintMarks(u, d, base, dpr, f, cssH) {
   const lr = loopRange(d), marks = cueMarks(d);
-  const key = `${base}|${cssH}|${lr ? lr.join() + d.loopOn : ""}|${marks.map(m => m.t.toFixed(4) + m.color + m.label).join()}|${d.strVer || 0}`;
+  const key = `${base}|${cssH}|${lr ? lr.join() + d.loopOn : ""}|${marks.map(m => m.t.toFixed(4) + m.color + m.label + (m.end ? `~${m.end.toFixed(4)}${m.on ? "!" : ""}` : "")).join()}|${d.strVer || 0}`;
   if (u.marksKey !== key) {
     u.marksKey = key;
     u.marks?.remove();
@@ -2929,6 +2935,12 @@ function paintMarks(u, d, base, dpr, f, cssH) {
       sm.style.left = x(sc.s); sm.style.setProperty("--c", SECTION_COLORS[sc.label] || "#888");
       box.appendChild(sm);
     });
+    // saved loops (loop hot cues), as Mixxx draws them: their range in the cue's colour at 40 %, under the marks
+    for (const m of marks) if (m.end) {
+      const lc = h("div", `lc${m.on ? " on" : ""}`);
+      lc.style.left = x(m.t); lc.style.width = `${((m.end - m.t) * base / dpr).toFixed(2)}px`; lc.style.setProperty("--c", m.color);
+      box.appendChild(lc);
+    }
     for (const m of marks) {
       const cm = h("div", `cm${m.top ? " top" : ""}`, `<b>${m.label}</b>`);
       cm.style.left = x(m.t); cm.style.setProperty("--c", m.color); cm.style.setProperty("--ink", inkOn(m.color));
@@ -2999,13 +3011,21 @@ const hexColor = v => "#" + (v & 0xffffff).toString(16).padStart(6, "0");
 // This deck's cue marks: [{t (seconds), color, label, top}]. Live, Mixxx gives the positions in samples
 // (-1 = none) and the hub the hot cue colours; the simulation keeps seconds.
 const cueSec = (d, v) => v >= 0 && d.trackSamples > 0 && d.dur > 0 ? v / d.trackSamples * d.dur : null;   // samples -> seconds
+// Hot cue k as a saved loop (Mixxx: a loop hot cue): {t, end (seconds), beats (at the track's own tempo), on (playing
+// its loop)}, or null for a plain cue
+function cueLoop(d, k) {
+  if (!live || !d.cues[k] || d.cueType?.[k] !== 4) return null;
+  const t = cueSec(d, d.cuePos?.[k]), end = cueSec(d, d.cueEnd?.[k]);
+  if (t == null || end == null || !(end > t)) return null;
+  return { t, end, beats: d.bpm > 0 ? (end - t) * d.bpm / 60 : null, on: d.cueSt?.[k] === 2 };
+}
 function cueMarks(d) {
   const sec = v => cueSec(d, v);
   const marks = [], main = live ? sec(d.mainCue) : d.cuePoint;
   if (main != null && (live || main > 0)) marks.push({ t: main, color: "#ff0000", label: "CUE", top: true });
   for (let k = 0; k < 8; k++) {
-    const c = d.cues[k], t = live ? sec(d.cuePos?.[k]) : c && c.pos;
-    if (t != null) marks.push({ t, color: c ? hexColor(c.c) : "#00d9ff", label: String(k + 1) });
+    const c = d.cues[k], t = live ? sec(d.cuePos?.[k]) : c && c.pos, lp = cueLoop(d, k);
+    if (t != null) marks.push({ t, color: c ? hexColor(c.c) : "#00d9ff", label: String(k + 1), end: lp?.end, on: lp?.on });
   }
   return marks;
 }
@@ -3449,9 +3469,16 @@ function applyCv(name, v, ts) {
     if (hc) { const at = d.cuePos ??= []; if (at[hc[1] - 1] !== v) { at[hc[1] - 1] = v; if ((S.cueTime || "off") !== "off") markDirty("deck", d); } return; }
     // A pad's hot cue (set? its colour), as Mixxx has it now: subscribed, so a page that links up later gets them all at
     // once (the mapping's own hot cue messages come only as one changes, and at its start)
-    const hs = /^hotcue_(\d+)_(status|color)$/.exec(key);
+    // A saved loop (Mixxx's loop hot cue): type 4, with an end; status 2 while its loop plays
+    const hs = /^hotcue_(\d+)_(status|color|type|endposition)$/.exec(key);
     if (hs) {
       const k = hs[1] - 1, st = d.cueSt ??= [], col = d.cueCol ??= [];
+      if (hs[2] === "type" || hs[2] === "endposition") {
+        const at = hs[2] === "type" ? (d.cueType ??= []) : (d.cueEnd ??= []);
+        if (at[k] !== v) { at[k] = v; markDirty("deck", d); }
+        return;
+      }
+      if (hs[2] === "status" && st[k] !== undefined && (st[k] === 2) !== (v === 2)) markDirty("deck", d);   // (its loop on or off)
       (hs[2] === "status" ? st : col)[k] = v;
       if (st[k] === undefined) return;   // (its colour before whether it's set)
       const was = d.cues[k], now = st[k] > 0 ? { c: Math.max(0, col[k] ?? 0) & 0xFFFFFF } : null;
@@ -3543,7 +3570,7 @@ function subscribeAll() {
     for (const k of ["play", "play_latched", "track_loaded", "duration", "rate_ratio", "file_bpm", "pitch", "key", "visual_key_distance", "sync_enabled", "sync_mode", "keylock", "quantize", "slip_enabled",
       "pfl", "mute", "loop_enabled", "beatloop_size",
       "loop_start_position", "loop_end_position", "track_samples", "cue_point",
-      ...[1, 2, 3, 4, 5, 6, 7, 8].flatMap(k => [`hotcue_${k}_position`, `hotcue_${k}_status`, `hotcue_${k}_color`])]) sub.push([ch(n), k, 0]);
+      ...[1, 2, 3, 4, 5, 6, 7, 8].flatMap(k => ["position", "status", "color", "type", "endposition"].map(f => `hotcue_${k}_${f}`))]) sub.push([ch(n), k, 0]);
     sub.push([ch(n), "playposition", 1]);                  // polled ~30/s
     for (const f of ["vol", "gain", "high", "mid", "low", "filter"]) sub.push([...MIXER[f](n), 2]);
   }
