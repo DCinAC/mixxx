@@ -833,16 +833,19 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     fl->addWidget(fPlatter, 1);
     struct Cc {
         int n = 0, twos = 0, offset = 0;
+        int held = 0;   // of them while a note was held down (the top touched): its top's steps
         QSet<int> values;
         quint8 touchSt = 0, touchNote = 0;
         bool touchCand = false;
     };
+    auto heldNotes = std::make_shared<QList<QPair<quint8, quint8>>>();   // notes on, not yet off (status, note)
     auto stats = std::make_shared<QHash<int, Cc>>();
     auto lastOn = std::make_shared<std::tuple<quint8, quint8, qint64>>(0, 0, -100000);
     auto offSeen = std::make_shared<bool>(false);
     const auto fActive = handBack(fPlatter, [this] { return m_s.found ? Platter::Hand::None : Platter::Hand::Top; });
-    find->enter = [this, find, fPlatter, fSay, stats, lastOn, offSeen, fActive] {
+    find->enter = [this, find, fPlatter, fSay, stats, lastOn, offSeen, fActive, heldNotes] {
         stats->clear();
+        heldNotes->clear();
         *lastOn = {0, 0, -100000};
         *offSeen = false;
         m_s.found = false;
@@ -852,12 +855,16 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
         fPlatter->small.clear();
         fPlatter->setHand(Platter::Hand::Top);
         fPlatter->update();
-        m_page = [this, find, fPlatter, fSay, stats, lastOn, offSeen, fActive](quint8 st, quint8 d1, quint8 v) {
+        m_page = [this, find, fPlatter, fSay, stats, lastOn, offSeen, fActive, heldNotes](quint8 st, quint8 d1, quint8 v) {
             const qint64 now = m_clock.elapsed();
             if ((st & 0xF0) == 0x90 && v > 0) {
                 *lastOn = {st, d1, now};
+                heldNotes->append({st, d1});
             }
             const bool off = (st & 0xF0) == 0x80 || ((st & 0xF0) == 0x90 && v == 0);
+            if (off) {
+                heldNotes->removeIf([st, d1](const QPair<quint8, quint8>& h) { return h.second == d1 && (h.first & 0x0F) == (st & 0x0F); });
+            }
             if (off && m_s.found && st % 16 == m_s.touchSt % 16 && d1 == m_s.touchNote) {
                 *offSeen = true;
             }
@@ -870,16 +877,33 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
                     c.touchNote = std::get<1>(*lastOn);
                 }
                 ++c.n;
+                // a note held on the same channel as it turns: the top's touch (a wheel whose top and edge send
+                // different controls, as the Inpulse's: the top's is the one turned while touched)
+                for (const auto& h : std::as_const(*heldNotes)) {
+                    if ((h.first & 0x0F) == (st & 0x0F)) {
+                        ++c.held;
+                        c.touchCand = true;
+                        c.touchSt = h.first;
+                        c.touchNote = h.second;
+                        break;
+                    }
+                }
                 c.twos += (v >= 1 && v <= 15) || (v >= 113 && v <= 127);
                 c.offset += v >= 49 && v <= 79 && v != 64;
                 c.values.insert(v);
             }
-            // the busiest control change, once it's clearly a wheel
+            // the busiest control change while touched, once it's clearly a wheel (none turned touched: the busiest)
             int best = -1, bestN = 0;
-            for (auto it = stats->cbegin(); it != stats->cend(); ++it) {
-                if (it.value().n > bestN) {
-                    best = it.key();
-                    bestN = it.value().n;
+            for (const bool touched : {true, false}) {
+                for (auto it = stats->cbegin(); it != stats->cend(); ++it) {
+                    const int n = touched ? it.value().held : it.value().n;
+                    if (n > bestN) {
+                        best = it.key();
+                        bestN = n;
+                    }
+                }
+                if (bestN >= 40) {
+                    break;
                 }
             }
             if (best < 0 || bestN < 40) {
@@ -1011,10 +1035,20 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
                 return;
             }
             const bool steps = m_s.isSteps(st, d1);
-            if (!steps && st == m_s.st && (st & 0xF0) == 0xB0) {   // its edge (another control on its channel)
+            // Turned without the top touched (its edge's own control, or its steps untouched): lining the mark up
+            // again, so what was counted of this turn is gone
+            const auto untouched = [cur, edgeStill, paintTurns, tPlatter, tHand] {
+                if (!cur->lining || cur->sum) {
+                    *cur = Turn{};
+                    paintTurns();
+                    tPlatter->setHand(tHand());
+                }
+                edgeStill->start();
+            };
+            if (!steps && (st & 0x0F) == (m_s.st & 0x0F) && (st & 0xF0) == 0xB0) {   // its edge (another control on its channel)
                 tActive();
-                if (cur->lining) {
-                    edgeStill->start();
+                if (!cur->on && m_s.hasTouch) {
+                    untouched();
                 }
                 return;
             }
@@ -1030,9 +1064,7 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
                 }
                 idle->start();
             } else if (!cur->on) {   // turned without the top touched: by its edge
-                if (cur->lining) {
-                    edgeStill->start();
-                }
+                untouched();
                 return;
             }
             cur->sum += step;
@@ -1237,6 +1269,9 @@ void JogWizard::runDemo() {
         }
     };
     at(400, [this] { shot(QStringLiteral("1-welcome")); next(); });
+    for (int i = 0; i < 80; ++i) {   // turned by the edge first (more of it than the top's): not the one to pick
+        at(5, [send] { send(0xB1, 0x09, 0x01); });
+    }
     at(500, [send] { send(0x91, 0x08, 0x7F); });
     turn(60, 1, 15);
     at(100, [send] { send(0x91, 0x08, 0x00); });
@@ -1254,6 +1289,13 @@ void JogWizard::runDemo() {
         }
         turn(n - n / 2, 1, 12);
         at(150, [send] { send(0x91, 0x08, 0x00); });
+        if (n == 509) {   // then turned by the edge halfway round (lining up again: nothing counted), and left
+            for (int i = 0; i < 25; ++i) {
+                at(10, [send] { send(0xB1, 0x09, 0x01); });
+            }
+            at(100, [this] { shot(QStringLiteral("3c-relining")); });
+            at(1200, [] {});
+        }
     }
     at(400, [this] { shot(QStringLiteral("4-measured")); next(); });
     for (int i = 0; i < 40; ++i) {
