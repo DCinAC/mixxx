@@ -337,9 +337,10 @@ TabletPads.init = function () {
         })(d);
     }
 
-    // Controller page: poll fast-changing values (play position) ~30 times a second, and tell the pad server
+    // Controller page: poll fast-changing values (play position) every 20 ms (Mixxx's shortest timer; it moves the
+    // play position only 15 times a second, so this is how late a move can reach the page), and tell the pad server
     // the mapping (re)started so it re-sends the page's subscriptions.
-    TabletPads._pollTimer = engine.beginTimer(33, TabletPads.pollTick);
+    TabletPads._pollTimer = engine.beginTimer(20, TabletPads.pollTick);
     midi.sendSysexMsg([0xF0, 0x7D, 0x5F, 0xF7], 4);
 
     for (var u = 0; u < 4; u++) {

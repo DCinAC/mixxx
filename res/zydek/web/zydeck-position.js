@@ -1,7 +1,7 @@
 // ZyDeck: where a playing track is, and where to draw it: one copy for every page that draws a waveform against
 // the sound (the deck page, the phone page's decks, the calibration page), so they can't disagree.
 //
-// Play position between Mixxx's updates (about 30 a second, only when it changed). Each update carries the hub's
+// Play position between Mixxx's updates (15 a second, only when it changed). Each update carries the hub's
 // clock (ts, ms) from the moment Mixxx reported the position, so network delay doesn't jitter the timing: hub time
 // maps onto this page's clock through the fastest delivery seen in the last 5 s. Between updates the position runs
 // on at the speed the updates show, at most 250 ms past the last one (no update means it stopped). What's drawn is
@@ -109,9 +109,14 @@
     d.shown = shown;
     return shown;
   }
-  // Mixxx moves the position once per audio buffer (~21 ms) and it's read every 33 ms, so single steps say
-  // 0.6x or 1.3x in turn. The speed is the deck's tempo unless the last 300 ms clearly say otherwise
-  // (scratching, nudging), and each reading moves the drawing only 15 % of the way to it.
+  // Mixxx updates a deck's playposition 15 times a second (enginebuffer.cpp kPlaypositionUpdateRate) and the mapping
+  // reads it every 20-33 ms, so a reading is up to that late, and two in a row can say 0.6x or 1.3x.
+  // - Playing straight on: the speed is the deck's tempo, and each reading moves the drawing only 15 % of the way to it
+  //   (smooth through that jitter).
+  // - Scratching or nudging (the last 300 ms say another speed, or a reading lands 40 ms or more off the model): the
+  //   speed of the last 150 ms, and up to 80 % of the way, the more the further off. (Measured on the tablet,
+  //   2026-11-12: the drawing trailed a scratch by 80-90 ms with only the smooth way; this way about none, and played
+  //   back on the same readings, straight play no rougher.)
   function posUpdate(d, p, now, ts) {   // p in seconds
     const t = Math.min(now, hubTime(ts, now));
     const nominal = d.playing ? d.ratio || 1 : 0;
@@ -122,16 +127,22 @@
     const hist = d.hist || (d.hist = []);
     hist.push([t, p]);
     while (hist.length > 2 && t - hist[0][0] > 300) hist.shift();
-    let v = nominal;
-    if (hist.length >= 4) {
-      const mt = hist.reduce((a, x) => a + x[0], 0) / hist.length, mp = hist.reduce((a, x) => a + x[1], 0) / hist.length;
+    const slope = within => {   // track seconds a second through the readings of the last `within` ms
+      const h = hist.filter(x => t - x[0] <= within);
+      if (h.length < 2) return null;
+      const mt = h.reduce((a, x) => a + x[0], 0) / h.length, mp = h.reduce((a, x) => a + x[1], 0) / h.length;
       let num = 0, den = 0;
-      for (const [ht, hp] of hist) { num += (ht - mt) * (hp - mp); den += (ht - mt) ** 2; }
-      const slope = den ? num / den * 1000 : nominal;
-      if (Math.abs(slope - nominal) > .08) v = slope;
+      for (const [ht, hp] of h) { num += (ht - mt) * (hp - mp); den += (ht - mt) ** 2; }
+      return den ? num / den * 1000 : null;
+    };
+    const pred = posModel(d, t), off = Math.abs(p - pred);
+    const steady = hist.length >= 4 ? slope(300) : null;
+    let v = nominal, k = .15;
+    if ((steady !== null && Math.abs(steady - nominal) > .08) || off > .04) {
+      v = slope(150) ?? steady ?? nominal;
+      k = Math.min(.8, Math.max(.15, (off - .02) / .06 * .8));
     }
-    const pred = posModel(d, t);
-    d.pp = pred + (p - pred) * .15; d.pt = t; d.pv = v;
+    d.pp = pred + (p - pred) * k; d.pt = t; d.pv = v;
   }
   // stopped (play off): frozen where Mixxx is
   const posStop = (d, now) => { if (d.pt !== undefined) posSeed(d, posModel(d, now), 0, now); };
