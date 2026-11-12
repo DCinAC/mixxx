@@ -891,7 +891,7 @@ function buildFxStrip(s, u) {
     const name = h("button"), on = h("button");
     const level = knob("LEVEL", () => fxState[unit() - 1].mix, v => { fxState[unit() - 1].mix = v; setCtl(fxUnitG(unit()), "mix", v); }, null);
     bindPress(name, holdOrTap(() => fxMenu(s), () => fxCycle(deckOf(s), unit(), 0, deckOf(s).shift ? -1 : 1), name, FX_HOLD_MS));
-    // BEAT: a knob that snaps from ⅛ to 8 beats, a tick for each step
+    // BEAT: a knob that snaps from ¼ to 32 beats, a tick for each step
     const beatIdx = () => Math.max(0, FX_BEAT_STEPS.indexOf(fxBeat[unit() - 1]));
     let lastStep = -1;
     const beats = knob("BEAT", () => beatIdx() / (FX_BEAT_STEPS.length - 1), v => {
@@ -2130,7 +2130,7 @@ function fxPress(d, k, down, e, el, s) {
   if (!down) return;
   if (cell === "level" || cell === "mix" || cell.startsWith("knob")) return;   // knobs handle their own touches
   if (cell === "beat") {   // cycles (SHIFT: backwards); Multi-FX sets all three
-    const i = FX_BEATS.indexOf(fxBeat[u - 1]), next = FX_BEATS[(i + (d.shift ? FX_BEATS.length - 1 : 1)) % FX_BEATS.length] ?? 1;
+    const B = FX_BEAT_STEPS, i = B.indexOf(fxBeat[u - 1]), next = i < 0 ? 1 : B[(i + (d.shift ? B.length - 1 : 1)) % B.length];
     return fxSetBeats(u, S.fxLayout === "multi" ? 0 : 1, next);
   }
   if (cell.startsWith("beat")) return fxSetBeats(u, 1, (d.shift ? FX_BEATS_SHIFT : FX_BEATS)[+cell.slice(4)]);
@@ -3229,8 +3229,10 @@ const fxLive = Array.from({ length: 4 }, () => new Array(7).fill(0));
 const fxState = Array.from({ length: 4 }, () => ({ mix: 1, enabled: [0, 0, 0], meta: [.5, .5, .5], loaded: [0, 0, 0], route: [0, 0, 0, 0] }));
 let fxNames = [];
 const fxBeat = [1, 1, 1, 1];
-const FX_BEATS = [.5, 1, 2, 4], FX_BEATS_SHIFT = [.125, .25, 8, 16];
-const FX_BEAT_STEPS = [.125, .25, .5, 1, 2, 4, 8];   // the strip's BEAT knob
+// Beat lengths, ¼ to 32 beats and ¾: the BEAT pads (SHIFT: the second row), and the strip's BEAT knob and the phone's
+// BEAT key, every one (an effect's own range limits what it takes: Echo's goes to 2)
+const FX_BEATS = [.5, .75, 1, 2], FX_BEATS_SHIFT = [.25, 4, 8, 16];
+const FX_BEAT_STEPS = [.25, .5, .75, 1, 2, 4, 8, 16, 32];
 // A knob's click as it snaps to the next step: the device's short tick (the app's), on a device that can vibrate
 // (a tablet usually can't: nothing then; a centre knob shows it's home by its arc going)
 const VIBRATES = (() => { try { const b = window.ZydekAndroid || parent.ZydekAndroid; return !!(b?.tick && b.hasVibrator?.()); } catch { return false; } })();
@@ -3239,7 +3241,7 @@ const fxUnitOf = d => d.n % 2 ? 1 : 2;
 const fxUnitG = u => `[EffectRack1_EffectUnit${u}]`;
 const fxSlotG = (u, j) => `[EffectRack1_EffectUnit${u}_Effect${j + 1}]`;
 const fxName = (u, j) => { const i = fxState[u - 1].loaded[j]; return i > 0 && fxNames[i - 1] ? fxNames[i - 1] : REMOTE.on ? `FX ${j + 1}` : "—"; };
-const beatText = b => b < 1 ? (b === .5 ? "½" : b === .25 ? "¼" : "⅛") : String(b);
+const beatText = b => ({ .25: "¼", .5: "½", .75: "¾" })[b] || String(b);
 // A change of FX layout changes Mixxx too, not just the look: Beat FX is one effect a unit (its slot 1) at the beat
 // length it shows, so the other two slots, which Multi-FX may have left on, go off (Beat FX has nothing to show them by)
 function applyFxLayout() {
