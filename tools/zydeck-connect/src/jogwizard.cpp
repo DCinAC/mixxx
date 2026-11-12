@@ -4,6 +4,7 @@
 #include <QComboBox>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
 #include <QFontDatabase>
@@ -16,7 +17,9 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSet>
+#include <QSpinBox>
 #include <QStyleFactory>
+#include <QThread>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWizard>
@@ -53,6 +56,11 @@ struct Session {
     int lastAbs = -1;
     QList<int> turns;        // steps in each full turn
     int maxStep = 0;         // the most steps in one message (turned fast)
+    // How far Mixxx's record goes for one turn of the jog (degrees). Mixxx's scratching reads the jog every "1 ms",
+    // and counts each read as 1 ms: on macOS they come about 1.1 ms apart, so a turn scratches that much further.
+    // Written as that much more steps a turn, which takes it back out.
+    int mixxxDeg = 360;
+    int writtenSteps() const { return int(std::lround(stepsPerTurn() * mixxxDeg / 360.0)); }
 
     int step(quint8 v) {
         switch (enc) {
@@ -564,22 +572,23 @@ Applied applyToMapping(const Session& s) {
         bool numeric = false;
         arg.toDouble(&numeric);
         if (numeric) {
-            js.replace(m.capturedStart(1), m.capturedLength(1), QString::number(s.stepsPerTurn()));
+            js.replace(m.capturedStart(1), m.capturedLength(1), QString::number(s.writtenSteps()));
             stepsSet = true;
         } else {
             const QString ident = arg.section(QLatin1Char('.'), -1);
             const QRegularExpression setRe(QStringLiteral(R"(\b%1\s*=\s*(\d+))").arg(QRegularExpression::escape(ident)));
             const QRegularExpressionMatch sm = setRe.match(js);
             if (sm.hasMatch()) {
-                js.replace(sm.capturedStart(1), sm.capturedLength(1), QString::number(s.stepsPerTurn()));
+                js.replace(sm.capturedStart(1), sm.capturedLength(1), QString::number(s.writtenSteps()));
                 stepsSet = true;
             }
         }
     }
     if (stepsSet) {
-        done << QObject::tr("one turn = %1 steps").arg(s.stepsPerTurn());
+        done << (s.writtenSteps() == s.stepsPerTurn() ? QObject::tr("one turn = %1 steps").arg(s.stepsPerTurn())
+                        : QObject::tr("one turn = %1 steps, written as %2 for Mixxx's %3°").arg(s.stepsPerTurn()).arg(s.writtenSteps()).arg(s.mixxxDeg));
     } else {
-        notDone << QObject::tr("its steps per turn (set it to %1 by hand)").arg(s.stepsPerTurn());
+        notDone << QObject::tr("its steps per turn (set it to %1 by hand)").arg(s.writtenSteps());
     }
     if (s.maxStep > 1 && s.enc == Enc::Twos) {   // "value < 0x40 ? 1 : -1": every message one step, whatever it held
         static const QRegularExpression flatRe(QStringLiteral(R"(\b(\w+)\s*<\s*(?:0x40|64)\s*\)?\s*\?\s*1\s*:\s*-1\b)"));
@@ -622,6 +631,31 @@ Applied applyToMapping(const Session& s) {
     }
     text += QStringLiteral("\n\n") + QObject::tr("In Mixxx: Preferences › Controllers › %1 › Load Mapping: \"%2\", then Apply.").arg(s.port, shown);
     return {true, text};
+}
+
+/// How long a "1 ms" timer really takes here, on a thread of its own as Mixxx's controllers have (ms; ~300 ms to find)
+double oneMsTimer() {
+    double ms = 1.0;
+    QThread* t = QThread::create([&ms] {
+        QEventLoop loop;
+        QElapsedTimer clock;
+        QTimer timer;
+        timer.setInterval(1);   // (Mixxx: QObject::startTimer(1))
+        int n = 0;
+        QObject::connect(&timer, &QTimer::timeout, &loop, [&] {
+            if (++n == 300) {
+                ms = clock.nsecsElapsed() / 1e6 / n;
+                loop.quit();
+            }
+        });
+        clock.start();
+        timer.start();
+        loop.exec();
+    });
+    t->start();
+    t->wait(3000);
+    delete t;
+    return ms;
 }
 
 // ---- the wizard --------------------------------------------------------------------------------------------------
@@ -674,7 +708,8 @@ class JogWizard : public QWizard {
     QString m_shotDir;
     std::function<void(quint8, quint8, quint8)> m_page;   // the page in front's own reading
     QPushButton* m_apply = nullptr;
-    bool m_written = false;   // the mapping written (Finish then closes without asking)
+    bool m_written = false;
+    bool m_degSet = false;   // Mixxx's degrees a turn measured (or put in)   // the mapping written (Finish then closes without asking)
     bool turnsDone() const {   // three turns, within 4 % of each other
         if (m_s.turns.size() < 3) {
             return false;
@@ -1065,7 +1100,17 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     auto* summary = text(QString());
     dl->addWidget(summary);
     dl->addSpacing(6);
-    dl->addWidget(step(1, tr("Click <b>Write It into Mixxx's Mapping</b>.")));
+    dl->addWidget(step(1, tr("Mixxx's record goes this far for one turn of yours:")));
+    auto* deg = new QSpinBox;
+    deg->setRange(300, 450);
+    deg->setSuffix(QStringLiteral("°"));
+    auto* degRow = new QHBoxLayout;
+    degRow->addSpacing(28);
+    degRow->addWidget(deg);
+    degRow->addStretch();
+    dl->addLayout(degRow);
+    dl->addSpacing(6);
+    dl->addWidget(step(2, tr("Click <b>Write It into Mixxx's Mapping</b>.")));
     auto* apply = m_apply = new QPushButton(tr("Write It into Mixxx's Mapping"));
     auto* applyRow = new QHBoxLayout;
     applyRow->addWidget(apply);
@@ -1075,12 +1120,24 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
     applied->setTextInteractionFlags(Qt::TextSelectableByMouse);
     dl->addWidget(applied);
     dl->addStretch();
-    auto* closeStep = step(2, tr("Click <b>Finish</b>."));
+    auto* closeStep = step(3, tr("Click <b>Finish</b>."));
     dl->addWidget(closeStep);
-    doneP->enter = [this, summary, applied, apply] {
+    connect(deg, &QSpinBox::valueChanged, this, [this, apply](int v) {
+        if (v != m_s.mixxxDeg) {
+            m_s.mixxxDeg = v;
+            m_written = false;
+            apply->setEnabled(true);   // (again, with the new one)
+        }
+    });
+    doneP->enter = [this, summary, applied, apply, deg] {
         m_written = false;
         m_page = nullptr;
         m_in.close();
+        if (!m_degSet) {   // measured once; what's put in after stays
+            m_s.mixxxDeg = int(std::lround(360 * oneMsTimer()));
+            m_degSet = true;
+        }
+        deg->setValue(m_s.mixxxDeg);
         const int spt = m_s.stepsPerTurn();
         QStringList turnsText;
         for (int t : std::as_const(m_s.turns)) {
@@ -1113,7 +1170,7 @@ JogWizard::JogWizard(QWidget* parent, bool demo, const QString& shotDir)
         }
         QMessageBox box(QMessageBox::Question, windowTitle(), tr("Save this into Mixxx's mapping before closing?"),
                 QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, this);
-        box.setInformativeText(tr("One turn: %1 steps.").arg(m_s.stepsPerTurn()));
+        box.setInformativeText(tr("One turn: %1 steps (Mixxx: %2°).").arg(m_s.stepsPerTurn()).arg(m_s.mixxxDeg));
         box.setDefaultButton(QMessageBox::Yes);
         box.setStyle(fusion());
         box.setPalette(eraPalette());
