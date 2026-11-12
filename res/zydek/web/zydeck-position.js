@@ -83,6 +83,8 @@
   // Any other jump (a cue, a loop, a seek) is drawn as it happens.
   function posAt(d, now, lat = 0) {
     frameAt(now);
+    const j = jogShown(d, now, lat);
+    if (j !== undefined) return j;
     const exact = visual(d, now);
     const target = posModel(d, now, lat - ahead());
     const dt = d.shownAt ? Math.min((now - d.shownAt) / 1000, .1) : 0;
@@ -144,6 +146,55 @@
     }
     d.pp = pred + (p - pred) * k; d.pt = t; d.pv = v;
   }
+  // ---- the computer's DJ controller's jog (controller mode: ZyDeck Connect passes on its steps as they're turned) ----
+  // While its top is touched (and Mixxx scratches: the mapping's call, the page's to make) the record is drawn from the
+  // hand: each step moves it 1.8 s / 512 (a 33 1/3 record, the Inpulse's 512 steps a turn) times jogScale, the part
+  // Mixxx really moves for one (its scratch clock runs late on macOS: further, learnt by the page as it scratches).
+  // Mixxx's play position runs ~100 ms behind a hand, so it's left out until the hand lets go; then for 150 ms the
+  // record goes on as Mixxx takes it back (at the deck's speed, or stopped), and the model above takes over from there.
+  const JOG_STEP = (60 / (100 / 3)) / 512;
+  const jogCfg = { scale: 1 };
+  // touch: 0 let go, 1 touched, 2 touched with SHIFT (the mapping seeks: 4 steps a step); ticks: turned since the last
+  function posJog(d, touch, ticks, t, scratching) {
+    let j = d.jog;
+    if (touch && scratching) {
+      if (!j || !j.on) {
+        const p0 = d.shown ?? posModel(d, t);
+        j = d.jog = { on: true, p: p0, hist: [[t, p0]], steps: 0 };
+      }
+      if (ticks) {
+        const n = ticks * (touch === 2 ? 4 : 1);
+        j.p += n * JOG_STEP * jogCfg.scale; j.steps += n;
+        j.hist.push([t, j.p]);
+        while (j.hist.length > 2 && t - j.hist[1][0] > 500) j.hist.shift();
+      }
+    } else if (j && j.on) { j.on = false; j.off = t; j.hist.push([t, j.p]); }
+  }
+  function jogAt(j, t) {   // where the hand had it at t
+    const h = j.hist;
+    if (t >= h[h.length - 1][0]) return h[h.length - 1][1];
+    for (let i = h.length - 1; i > 0; i--) if (h[i - 1][0] <= t) {
+      const [ta, pa] = h[i - 1], [tb, pb] = h[i];
+      return tb > ta ? pa + (pb - pa) * (t - ta) / (tb - ta) : pb;
+    }
+    return h[0][1];
+  }
+  function jogShown(d, now, lat) {   // what to draw from the hand (undefined: not now)
+    const j = d.jog;
+    if (!j) return undefined;
+    const at = now - lat * 1000;   // (heard: the sound's delay later, as everything else is drawn)
+    if (j.on || at - j.off < 150) {
+      let p = jogAt(j, at);
+      if (!j.on && at > j.off) p += (d.playing ? d.ratio || 1 : 0) * (at - j.off) / 1000;
+      d.shown = p; d.shownAt = now;
+      return p;
+    }
+    d.jog = null;   // let go a while ago: the model again, from here
+    posSeed(d, d.shown, d.playing ? d.ratio || 1 : 0, now);
+    d.shown = d.pp; d.hist = [[now, d.pp]];
+    return undefined;
+  }
+
   // stopped (play off): frozen where Mixxx is
   const posStop = (d, now) => { if (d.pt !== undefined) posSeed(d, posModel(d, now), 0, now); };
 
@@ -179,6 +230,6 @@
     d.slipP = Math.abs(t - model) > .15 ? t : model + (t - model) * .3; d.slipAt = now;
   }
 
-  window.ZydeckPos = { slipModel, onSlip, hubTime, posSeed, posModel, posAt, posUpdate, posStop, posVisual, waveColumns, clockSync, clockStart,
+  window.ZydeckPos = { posJog, jogCfg, JOG_STEP, slipModel, onSlip, hubTime, posSeed, posModel, posAt, posUpdate, posStop, posVisual, waveColumns, clockSync, clockStart,
     clockPong, setLatency, ahead };
 })();

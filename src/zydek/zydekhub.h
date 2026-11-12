@@ -22,6 +22,7 @@
 #include "zydek/zydekhttpserver.h"
 #include "zydek/zydekstructurecache.h"
 #include "zydek/zydeklibrary.h"
+#include "zydek/zydeckshared.h"
 
 class QTcpSocket;
 class VisualPlayPosition;
@@ -321,6 +322,9 @@ class Hub : public QObject {
     // which follow its pad modes and decks 3-4 if asked to. Nothing goes back to it.
     void hardwareIn(const QJsonObject& state);
     QJsonObject m_hardware;
+    void jogIn(const zydeck::shared::Jog& jog);   // its jog, turned (kJog)
+    int m_jogSeq = 0;
+    qint64 m_jogAt = -1;   // (m_clock ms: the last one counted)
     // a loaded track's cue and grid edits, saved to Mixxx's library as they're made (not only at eject)
     void watchTrackEdits(const QString& group, const TrackPointer& pTrack);
     void saveEditedTracks();

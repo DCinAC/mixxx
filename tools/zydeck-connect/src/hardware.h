@@ -5,7 +5,9 @@
 // (zydeckshared.h kHardware); a page switching its own decks or pad modes never comes back this way.
 //
 // Known: Hercules DJControl Inpulse 300 MK2 with its 4-deck mapping (Assistant switches the decks to 3-4; Mixxx's
-// mapping keeps that, so it's counted here: back to 1-2 when the mappings start again).
+// mapping keeps that, so it's counted here: back to 1-2 when the mappings start again). Its jog wheels too: their
+// steps while the top is touched (what the mapping scratches with), passed on as they come (kJog), and its vinyl
+// button (the mapping's scratchButtonState: on, a touch scratches a playing deck; off, it bends it).
 
 #include <QDateTime>
 #include <QJsonObject>
@@ -13,6 +15,8 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
+
+#include "zydeckshared.h"
 
 namespace zc {
 
@@ -48,6 +52,7 @@ class Hardware : public QObject {
 
   signals:
     void changed(const QJsonObject& state);   // with "ev"
+    void jogged(const zydeck::shared::Jog& jog);   // (seq: Core's)
 
   private:
     QString port() const;   // the known controller's MIDI input, "" without one
@@ -58,6 +63,12 @@ class Hardware : public QObject {
     bool m_d34 = false;
     QString m_pads[2];
     bool m_shift[2] = {false, false};
+    bool m_vinyl = true;          // the mapping's scratchButtonState (on as it starts)
+    int m_touch[2] = {0, 0};      // the jogs' tops: 0 let go, 1 touched, 2 touched with SHIFT
+    int m_ticks[2] = {0, 0};      // turned since last passed on
+    QTimer m_jogSend;             // (steps a few ms together: one message, not one a step)
+    void jogFeed(quint8 status, quint8 d1, quint8 v);
+    void jogOut(int side);
     void loadLearned();   // (again whenever the file changes)
     QList<Key> m_learned;
     QDateTime m_learnedAt;

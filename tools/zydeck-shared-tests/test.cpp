@@ -66,6 +66,23 @@ int main(int argc, char** argv) {
     check(sysexJson(msg) == offer, QStringLiteral("sysexJson(sysexText(offer)) isn't the offer"));
     check(sysexJson(QByteArray::fromHex("f07d61f7")).isEmpty(), QStringLiteral("sysexJson of an empty message isn't {}"));
 
+    // the jog's message (kJog): both ways round, over the cable and as a Wi-Fi line, the far ends of its numbers too
+    for (const Jog& j : {Jog{0, 1, 3, 1}, Jog{1, 2, -3, 16383}, Jog{0, 0, 0, 0}, Jog{1, 1, 8191, 77}, Jog{0, 1, -8192, 9000}}) {
+        Jog got;
+        const QByteArray m = jogSysex(j);
+        bool sevenBit = true;
+        for (int i = 1; i + 1 < m.size(); ++i) {
+            sevenBit = sevenBit && static_cast<unsigned char>(m[i]) < 0x80;
+        }
+        check(sevenBit && jogFromSysex(m, &got) && got.side == j.side && got.touch == j.touch && got.ticks == j.ticks && got.seq == j.seq,
+                QStringLiteral("jogSysex/jogFromSysex: ticks %1, seq %2 don't come back").arg(j.ticks).arg(j.seq));
+        const QByteArray line = jogLine(j);
+        check(line.startsWith("G ") && jogFromLine(line.mid(2), &got) && got.ticks == j.ticks && got.seq == j.seq && got.touch == j.touch,
+                QStringLiteral("jogLine/jogFromLine: %1 doesn't come back").arg(QString::fromLatin1(line.trimmed())));
+    }
+    Jog none;
+    check(!jogFromSysex(sysexText(kHardware, {}), &none), QStringLiteral("jogFromSysex took a kHardware message"));
+
     std::printf("C++: %s\n", failures ? "WRONG" : "all right");
     return failures ? 1 : 0;
 }

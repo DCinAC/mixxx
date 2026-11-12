@@ -4212,6 +4212,10 @@ void Hub::remoteMessage(const QByteArray& msg, bool viaUsb) {
         hardwareIn(zydeck::shared::sysexJson(msg));   // (over the cable; the same comes as "H" over Wi-Fi)
         return;
     }
+    if (zydeck::shared::Jog jog; zydeck::shared::jogFromSysex(msg, &jog)) {
+        jogIn(jog);   // (over the cable; the same comes as "G" over Wi-Fi)
+        return;
+    }
     if (msg.size() >= 4 && byte(0) == 0xF0 && byte(1) == 0x7D && (byte(2) == kLinkOffer || byte(2) == kNameReply)) {
         const QJsonObject j = zydeck::shared::sysexJson(msg);
         if (byte(2) == kLinkOffer) {
@@ -4365,6 +4369,10 @@ void Hub::linkLine(const QByteArray& line) {
         }
     } else if (line.startsWith("H ")) {
         hardwareIn(QJsonDocument::fromJson(line.mid(2)).object());
+    } else if (line.startsWith("G ")) {
+        if (zydeck::shared::Jog jog; zydeck::shared::jogFromLine(line.mid(2), &jog)) {
+            jogIn(jog);
+        }
     } else if (line.startsWith("J ")) {
         const QJsonObject j = QJsonDocument::fromJson(line.mid(2)).object();
         if (j.contains(QStringLiteral("n")) && nameFits(j)) {
@@ -4831,6 +4839,20 @@ void Hub::hardwareIn(const QJsonObject& state) {
     m_hardware = state;
     m_hardware.remove(QStringLiteral("ev"));   // (a page coming later takes the state, not the last change)
     emitJson({{"t", "hw"}, {"hw", state}});
+}
+
+// The computer's DJ controller's jog as it's turned (zydeckshared.h kJog): to the pages, which draw the record from
+// it while it's touched. On the cable with Wi-Fi linked too each comes both ways: the first counts (by its number;
+// numbers start again with a new ZyDeck Connect: after a second without, any number counts)
+void Hub::jogIn(const zydeck::shared::Jog& jog) {
+    const qint64 now = m_clock.elapsed();
+    const int ahead = (jog.seq - m_jogSeq) & 0x3FFF;
+    if (m_jogAt >= 0 && now - m_jogAt < 1000 && (ahead == 0 || ahead >= 0x2000)) {
+        return;   // (had it, or older)
+    }
+    m_jogSeq = jog.seq;
+    m_jogAt = now;
+    emitJson({{"t", "jog"}, {"s", jog.side}, {"h", jog.touch}, {"n", jog.ticks}, {"ts", static_cast<double>(m_clock.nsecsElapsed()) / 1e6}});
 }
 
 void Hub::emitJson(const QJsonObject& message) {

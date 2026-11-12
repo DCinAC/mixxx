@@ -145,6 +145,7 @@ Core::Core(QObject* parent)
     connect(m_midi, &Midi::hardware, m_hardware, &Hardware::feed);
     connect(this, &Core::mixxxMappingStarted, m_hardware, &Hardware::mappingsStarted);
     connect(m_hardware, &Hardware::changed, this, &Core::hardwareOut);
+    connect(m_hardware, &Hardware::jogged, this, &Core::jogOut);
     connect(m_profiler, &Profiler::tell, this, [this](const QJsonObject& control) {   // the session profiler: all the devices
         const QByteArray line = "P " + QJsonDocument(control).toJson(QJsonDocument::Compact) + '\n';
         for (auto it = m_clients.cbegin(); it != m_clients.cend(); ++it) {
@@ -221,6 +222,19 @@ void Core::hardwareOut(const QJsonObject& state) {
         }
     }
     m_midi->toDevices(sysexText(zydeck::shared::kHardware, state));
+}
+
+// Its jogs as they're turned: to every device, over the cable and Wi-Fi both (a device on the cable keeps Wi-Fi linked
+// too): numbered, so it counts each once, whichever comes first
+void Core::jogOut(zydeck::shared::Jog jog) {
+    jog.seq = m_jogSeq = (m_jogSeq + 1) & 0x3FFF;
+    const QByteArray line = zydeck::shared::jogLine(jog);
+    for (auto c = m_clients.cbegin(); c != m_clients.cend(); ++c) {
+        if (c.value()->linked) {
+            c.key()->write(line);
+        }
+    }
+    m_midi->toDevices(zydeck::shared::jogSysex(jog));
 }
 
 bool Core::listen() {

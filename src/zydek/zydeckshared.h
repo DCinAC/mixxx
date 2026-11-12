@@ -29,6 +29,55 @@ inline constexpr quint8 kNameReply = 0x63;   // computer -> device: {"s", "i", "
 // "d34"; absent: the state as it stands, for one that just connected)}. Over Wi-Fi the same JSON as a line "H <json>".
 // {} : none (any more).
 inline constexpr quint8 kHardware = 0x64;
+// computer -> device: that controller's jog wheel as it's turned with its top touched (read only, as above), for the
+// pages to draw the record from the hand itself rather than from Mixxx's play position (15 updates a second, behind
+// the hand): F0 7D 65 <side> <touch> <ticks: 14-bit two's complement, LSB first> <seq: 14 bits, LSB first> F7.
+// side 0 = deck A, 1 = deck B (the decks they play: the "d34" above); touch 0 = let go, 1 = touched, 2 = touched with
+// SHIFT (the mapping seeks: 4 ticks a tick); ticks: the steps turned since the last one (sent as they come, a few ms
+// apart at most), + clockwise; seq: one more each message, the same message over the cable and Wi-Fi counted once.
+// Over Wi-Fi a line "G <side> <touch> <ticks> <seq>".
+inline constexpr quint8 kJog = 0x65;
+
+struct Jog {
+    int side = 0, touch = 0, ticks = 0, seq = 0;
+};
+
+inline QByteArray jogSysex(const Jog& j) {
+    const int t = j.ticks & 0x3FFF, q = j.seq & 0x3FFF;
+    QByteArray m;
+    for (int b : {0xF0, 0x7D, int(kJog), j.side & 0x7F, j.touch & 0x7F, t & 0x7F, t >> 7, q & 0x7F, q >> 7, 0xF7}) {
+        m.append(static_cast<char>(b));
+    }
+    return m;
+}
+
+/// A jogSysex() message's contents (false: it isn't one)
+inline bool jogFromSysex(const QByteArray& m, Jog* j) {
+    if (m.size() != 10 || static_cast<quint8>(m[0]) != 0xF0 || m[1] != 0x7D || static_cast<quint8>(m[2]) != kJog ||
+            static_cast<quint8>(m[9]) != 0xF7) {
+        return false;
+    }
+    const auto b = [&m](int i) { return static_cast<int>(static_cast<quint8>(m[i]) & 0x7F); };
+    const int t = b(5) | b(6) << 7;
+    *j = {b(3), b(4), t >= 0x2000 ? t - 0x4000 : t, b(7) | b(8) << 7};
+    return true;
+}
+
+inline QByteArray jogLine(const Jog& j) {
+    return "G " + QByteArray::number(j.side) + ' ' + QByteArray::number(j.touch) + ' ' + QByteArray::number(j.ticks) + ' ' +
+            QByteArray::number(j.seq & 0x3FFF) + '\n';
+}
+
+/// A jogLine()'s contents, from after "G " (false: not one)
+inline bool jogFromLine(const QByteArray& rest, Jog* j) {
+    const QList<QByteArray> f = rest.trimmed().split(' ');
+    if (f.size() != 4) {
+        return false;
+    }
+    bool ok[4];
+    *j = {f[0].toInt(&ok[0]), f[1].toInt(&ok[1]), f[2].toInt(&ok[2]), f[3].toInt(&ok[3])};
+    return ok[0] && ok[1] && ok[2] && ok[3];
+}
 
 /// F0 7D <kind> <hex of the JSON> F7
 inline QByteArray sysexText(quint8 kind, const QJsonObject& obj) {

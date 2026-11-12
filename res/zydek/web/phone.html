@@ -185,6 +185,7 @@
   #ctlmode .st.ok { color: var(--play); }
   #ctlmode .steps { color: var(--dim); font-size: 13px; margin: 10px 0 0; padding-left: 18px; }
   #ctlmode .steps li { margin: 4px 0; }
+  #ctlmode .warn { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.4; color: #ffb84d; background: rgba(255, 184, 77, .1); }
   #ctlmode .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   #ctlmode .row button { flex: 1 1 140px; min-height: 46px; }
   #ctlmode .row .go { border-color: #3a6ea5; color: #8cc4ff; }
@@ -1021,7 +1022,7 @@ function onRemote(r) {
   document.body.classList.toggle("remotelib", lib);
   if (lib !== hadLib || (lib && was.http !== r.http)) { loadViews(); loadTracks(); }   // (another library now)
   showLink();
-  if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi: you can unplug the USB cable`, "ok");
+  if (r.via === "wifi" && was.via !== "wifi") toast(`Linked to ${r.computer || "the computer"} over Wi-Fi. It lags: for DJing, use the USB cable (MIDI)`, "ok");
   if (!!was.on !== !!r.on || was.http !== r.http) decks.forEach(d => { loadWaveform(d, d.wfFor); loadBeats(d, d.beatsFor); });
   paintCtlMode();
   webNote();
@@ -1031,7 +1032,7 @@ function paintCtlMode() {
   if (!r.on) { box.innerHTML = ""; return; }
   const comp = esc(r.computer || "the computer");
   let st, ok = false, steps = "";
-  if (r.via === "wifi") { st = r.live ? `Controlling Mixxx on ${comp} over Wi-Fi. You can unplug the USB cable.` : `Linked to ${comp}, but Mixxx isn't answering.`; ok = r.live; }
+  if (r.via === "wifi") { st = r.live ? `Controlling Mixxx on ${comp} over Wi-Fi.` : `Linked to ${comp}, but Mixxx isn't answering.`; ok = r.live; }
   else if (r.usb === 2) { st = r.live ? "Controlling Mixxx on the computer over USB." : "USB MIDI is ready. Mixxx on the computer isn't answering yet."; ok = r.live; }
   else if (r.linking) st = `Linking to ${comp} over Wi-Fi…`;
   else if (r.usb === 1) st = "The cable is plugged in, but not set to MIDI.";
@@ -1043,6 +1044,10 @@ function paintCtlMode() {
       : `<li>In Mixxx: Preferences › Controllers › ${r.via === "wifi" ? "<b>ZyDeck Connect</b>" : "this phone"} › load <b>ZyDeck</b> and tick Enabled. ` +
         `Mixxx only finds MIDI devices when it starts: restart it if the phone isn't listed.</li>`) +
     `<li>Optional: run <b>ZyDeck Connect</b> on the computer for track names, waveforms and the wireless link.</li></ol>`;
+  // Over Wi-Fi, always: it lags, and the cable as MIDI doesn't (Android's own setting: nothing for developers)
+  if (r.via === "wifi") steps += `<div class="warn">Wi-Fi lags: often 50 ms or more, and in bursts, so the decks and the jog follow late. ` +
+    `For DJing, use the USB cable: ${r.usb === 1 ? "it's plugged in, so pull down Android's notifications, tap the USB one and choose <b>MIDI</b>."
+      : "plug it into the computer, then pull down Android's notifications, tap the USB one and choose <b>MIDI</b>."}</div>`;
   const lib = r.on && r.http;   // (the computer's library below: this folds into a line)
   box.innerHTML = (lib ? `<details><summary>${st}</summary>` : `<h3>Controller mode</h3><div class="st${ok ? " ok" : ""}">${st}</div>`) + steps +
     (r.live && !lib ? `<div class="hint" style="margin-top:8px;color:var(--dim);font-size:13px">Turn the phone sideways for the decks.</div>` : "") +

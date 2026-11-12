@@ -120,7 +120,9 @@
     ["controller", "screen", "Screen"],
   ];
   const onOff = (get, set) => ({ kind: "toggle", get, set });
-  const remoteText = r => !r.on ? "Off" : r.via === "wifi" ? (r.live ? `Mixxx on ${r.computer || "the computer"} · Wi-Fi` : `Linked to ${r.computer || "the computer"} · not answering`)
+  // Wi-Fi: always said, and what to do instead (the cable as MIDI: Android's own, no developer settings)
+  const WIFI_WARN = "Wi-Fi lags (often 50 ms or more, in bursts). For DJing, plug in the USB cable and choose MIDI in Android's USB notification.";
+  const remoteText = r => !r.on ? "Off" : r.via === "wifi" ? (r.live ? `Mixxx on ${r.computer || "the computer"} · Wi-Fi. ${WIFI_WARN}` : `Linked to ${r.computer || "the computer"} · not answering`)
     : r.usb === 2 ? (r.live ? "Mixxx on the computer · USB" : "USB MIDI ready · Mixxx not answering")
     : r.usb === 1 ? "Cable in, but not set to MIDI (Android's USB notification)" : "Plug in the USB cable, or start ZyDeck Connect";
   const botLine = b => !b.bot ? "Live · the bot isn't signed in to Discord"
@@ -146,7 +148,7 @@
       more: "Forget them all, and each one asks again next time." },
     { id: "ctlmode", sec: "conn", name: "Controller mode", ...onOff(() => !!sys.remote.on, v => api(`/api/controller?on=${v ? 1 : 0}`).then(() => { sys.remote.on = v; refresh(); })),
       desc: "Control Mixxx or other DJ software on a computer, over USB or Wi-Fi.", st: () => sys.remote.on ? remoteText(sys.remote) : "",
-      more: "Over the USB cable: choose MIDI in Android's USB notification, then in Mixxx open Preferences › Controllers, pick this device and load the ZyDeck mapping. With ZyDeck Connect running on the computer it links over Wi-Fi, so the cable can go; track names and waveforms need ZyDeck Connect too." },
+      more: "Use the USB cable: choose MIDI in Android's USB notification, then in Mixxx open Preferences › Controllers, pick this device and load the ZyDeck mapping. It's the quickest and steadiest link: the decks, the platters and the jog follow Mixxx closely. ZyDeck Connect on the computer adds track names and waveforms, and can link over Wi-Fi too, but Wi-Fi lags, so keep it for when there's no cable." },
     { id: "midi", sec: "conn", name: "MIDI layout", kind: "seg", opts: () => [["zydeck", "ZyDeck"], ["standard", "Standard"]],
       get: () => sys.remote.layout || "zydeck", set: v => api(`/api/controller?layout=${v}`).then(() => { sys.remote.layout = v; refresh(); }),
       desc: "ZyDeck for Mixxx; Standard for MIDI Learn in Serato, rekordbox or Traktor.",
