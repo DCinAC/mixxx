@@ -17,6 +17,8 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
   a "stem" folder in the original's own folder when that's on a network drive (the NAS), else in ZyDeck Web; Connect's
   note in ZyDeck Web names both. It takes over the original's beat grid, key, cues, colour, rating, crates and
   playlists, and the original's comment starts with "stem available". `src/zydeck/stems.*`, `src/zydeck/webfolder.*`.
+- **Roll**: a beat roll as an effect (ZyDeck's PAD FX): it records the next 1/16 to 4 beats as it's switched on and
+  repeats them, the track still playing underneath as the unit's MIX says (Mixxx's own roll takes the deck over).
 - **Sidechain**: the beat pump effect from ZyDeck on Android (the sound drops on each beat, or every 1/2 or 1/4 beat,
   and swells back, locked to the beat grid), so both have the same effects.
 - **The effects list for ZyDeck**: `zydeck-effects.json` in the settings folder, Mixxx's visible effects in order,
@@ -62,7 +64,7 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 | `CMakeLists.txt` | the `ZYDECK` option, including `cmake/zydeck.cmake` (before Ebur128) |
 | `src/library/library.cpp` | adds the Fits deck feature after Auto DJ and starts ZyDeck Web (and their includes) |
 | `src/widget/wtrackmenu.cpp` | "Make Stems (ZyDeck)" after the Analyze menu (and its include) |
-| `src/effects/backends/builtin/builtinbackend.cpp` | registers the Sidechain effect (`src/zydeck/sidechaineffect.*`, the same as ZyDeck on Android) |
+| `src/effects/backends/builtin/builtinbackend.cpp` | registers the Sidechain and Roll effects (`src/zydeck/sidechaineffect.*`, `rolleffect.*`, the same as ZyDeck on Android) |
 | `src/engine/readaheadmanager.cpp`, `src/engine/cachingreader/cachingreader.cpp` | read further ahead, with a bigger cache (network music folders) |
 | `src/main.cpp` | macOS: raises the open-file limit from 256 (Mixxx's ~100 threads hold ~200 of them as Qt wake-up pipes; analysing a new stem file ran out, and Qt aborted) |
 | `src/widget/woverview.cpp`, `src/waveform/widgets/allshader/waveformwidget.cpp` | add the phrases to the overview and the scrolling waveform, and the bars and time left (`src/zydeck/phrases.*`) |
