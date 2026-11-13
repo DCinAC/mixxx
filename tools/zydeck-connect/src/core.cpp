@@ -427,6 +427,13 @@ void Core::connection() {
             if (c && c->linked) {
                 m_seen.remove(c->device);
                 emit changed();
+                bool any = false;
+                for (const Client* other : std::as_const(m_clients)) {
+                    any = any || other->linked;
+                }
+                if (!any) {   // (no device left to show a PAD FX pad's editor: the controller's SHIFT + pad is the pad)
+                    m_midi->toMixxx(zydeck::shared::setControlSysex(QStringLiteral("[ZyDeck]"), QStringLiteral("padfx_shift_edits"), 0));
+                }
             }
             delete c;
             s->deleteLater();

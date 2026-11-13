@@ -182,6 +182,15 @@ void Hardware::feed(const QString& port, const QByteArray& msg) {
     if (msg[2] == 0) {
         return;
     }
+    // SHIFT + a pad in its LOOP mode or SHIFT + LOOP's (Mixxx ZyDeck's PAD FX 1, 2): that pad's editor, on a device
+    // mirroring the controller (the mapping leaves the effect off then: [ZyDeck],padfx_shift_edits)
+    if ((status == 0x96 || status == 0x97) && (d1 & 0x08) && ((d1 >> 4) == 1 || (d1 >> 4) == 5)) {
+        QJsonObject s = state();
+        s.insert(QStringLiteral("ev"), QStringLiteral("padedit"));
+        s.insert(QStringLiteral("side"), status - 0x96);
+        s.insert(QStringLiteral("pad"), ((d1 >> 4) == 5 ? 8 : 0) + (d1 & 0x07) + 1);
+        emit changed(s);
+    }
     // A mode key as the pad-mode wizard heard it (deck A's; deck B's one channel up), SHIFT or not: for a controller
     // that doesn't keep to the chart (the MK2 does)
     bool learned = false;

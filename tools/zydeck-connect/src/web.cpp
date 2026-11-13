@@ -483,6 +483,57 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
     const auto arg = [&query](const char* name) {
         return query.queryItemValue(QString::fromLatin1(name), QUrl::FullyDecoded);
     };
+    // PAD FX's presets (Mixxx ZyDeck's: src/zydeck/padfx.h), for a device's pads and its pad editor: "padfx" as they
+    // are (with the effects' list, to name them); "padfx/edit?pad=P" and preset=<json> (one set), from=U,S (what unit
+    // U's slot S has, saved), or reset=1: asked of Mixxx ZyDeck (zydeck-padfx-edit.json), which writes them again
+    if (what == QLatin1String("padfx") || what == QLatin1String("padfx/edit")) {
+        const QString dir = mixxxDir();
+        QFile file(dir + QStringLiteral("/zydeck-padfx.json"));
+        if (dir.isEmpty() || !file.exists()) {
+            *status = 404;
+            return {{"ok", false}, {"error", "PAD FX comes with Mixxx ZyDeck: it isn't running here (or is older)"}};
+        }
+        if (what == QLatin1String("padfx")) {
+            QJsonObject out{{"ok", true}};
+            if (file.open(QIODevice::ReadOnly)) {
+                out.insert(QStringLiteral("pads"), QJsonDocument::fromJson(file.readAll()).object().value(QStringLiteral("pads")));
+            }
+            QJsonObject names;   // (each effect's name by its id: Mixxx ZyDeck's list)
+            QFile list(dir + QStringLiteral("/zydeck-effects.json"));
+            if (list.open(QIODevice::ReadOnly)) {
+                for (const QJsonValue& e : QJsonDocument::fromJson(list.readAll()).object().value(QStringLiteral("effects")).toArray()) {
+                    names.insert(e.toObject().value(QStringLiteral("id")).toString(), e.toObject().value(QStringLiteral("name")));
+                }
+            }
+            out.insert(QStringLiteral("names"), names);
+            return out;
+        }
+        const int pad = arg("pad").toInt();
+        if (pad < 1 || pad > 32) {
+            *status = 400;
+            return {{"ok", false}, {"error", "No such pad"}};
+        }
+        QJsonObject edit{{"pad", pad}};
+        if (arg("reset") == QLatin1String("1")) {
+            edit.insert(QStringLiteral("reset"), true);
+        } else if (!arg("from").isEmpty()) {
+            const QStringList us = arg("from").split(QLatin1Char(','));
+            edit.insert(QStringLiteral("from"), QJsonObject{{"unit", us.value(0).toInt()}, {"slot", us.value(1).toInt()}});
+        } else {
+            const QJsonDocument preset = QJsonDocument::fromJson(arg("preset").toUtf8());
+            if (!preset.isObject()) {
+                *status = 400;
+                return {{"ok", false}, {"error", "No preset"}};
+            }
+            edit.insert(QStringLiteral("preset"), preset.object());
+        }
+        QSaveFile out(dir + QStringLiteral("/zydeck-padfx-edit.json"));
+        if (!out.open(QIODevice::WriteOnly) || out.write(QJsonDocument(edit).toJson(QJsonDocument::Compact)) < 0 || !out.commit()) {
+            *status = 500;
+            return {{"ok", false}, {"error", "Couldn't write to Mixxx's settings folder"}};
+        }
+        return {{"ok", true}};
+    }
     if (what == QLatin1String("job")) {
         const Job* j = m_jobs.value(arg("id"));
         if (!j) {

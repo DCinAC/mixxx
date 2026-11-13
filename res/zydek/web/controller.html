@@ -247,6 +247,13 @@
   .padopts button.on { border-color: var(--cue); color: var(--cue); background: color-mix(in srgb, var(--cue) 12%, #1c1c1c); }
   .padopts .wide2 { grid-column: span 2; }
   .padopts .full { grid-column: 1 / -1; height: calc(var(--mm) * 6.5) !important; }
+  .pfxopts { width: min(92vw, calc(var(--mm) * 70)); }
+  .pfxopts .pfxlist, .pfxopts .pfxbeats { display: flex; flex-wrap: wrap; gap: calc(var(--mm) * .6); height: auto !important;
+    max-height: calc(var(--mm) * 20); overflow-y: auto; }
+  .pfxopts .pfxlist button, .pfxopts .pfxbeats button { height: calc(var(--mm) * 5.5); padding: 0 calc(var(--mm) * 1.2); flex: 0 0 auto; }
+  .pfxopts .pfxlist button.on, .pfxopts .pfxbeats button.on { border-color: var(--fx); color: var(--fx); background: color-mix(in srgb, var(--fx) 14%, #1c1c1c); }
+  .pfxopts .wide2pfx { height: calc(var(--mm) * 13); }
+  .pfxopts .pfxnote, .pfxopts .pfxnone { color: var(--dim); font-size: calc(var(--mm) * 1.6); height: auto !important; }
   .padopts button small { display: block; font-size: calc(var(--mm) * 1.4); opacity: .8; margin-top: calc(var(--mm) * .3); }
   .padopts .clear { color: var(--err); }
   .pad .n { position: absolute; left: calc(var(--mm) * 1); top: calc(var(--mm) * .8); font-size: calc(var(--mm) * 1.6); opacity: .6; }
@@ -556,7 +563,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwPads: null, hwDecks: null, jogScale: 0, pfxMix: .5, pfxMeta: null };
+const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwPads: null, hwDecks: null, jogScale: 0, pfxPads: null };
 const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
@@ -953,22 +960,16 @@ function buildFxStrip(s, u) {
 // and the unit's MIX (how much of the effect against the track: half and half, a roll still has the track under it)
 function buildPfxStrip(s) {
   const el = h("div", "fxset pfxset"), name = h("button", "pfxname");
-  const last = () => { const d = deckOf(s); return d.pfxLast ?? 0; };
-  const meta = knob("INTENSITY", () => pfxMeta(last()), v => {
-    const id = last();
-    S.pfxMeta = { ...(S.pfxMeta || {}), [id]: Math.round(v * 1000) / 1000 }; pfxSave();
-    for (const x of decks) for (const o of x.pfxHeld || []) if (o && o.id === id && o.j >= 0) { fxState[o.u - 1].meta[o.j] = v; setCtl(fxSlotG(o.u, o.j), "meta", v); }
-  }, null);
-  const mix = knob("MIX", () => S.pfxMix ?? .5, v => {
-    S.pfxMix = v; pfxSave();
-    const u = pfxUnit(deckOf(s)); fxState[u - 1].mix = v; if (live) setCtl(fxUnitG(u), "mix", v);
-  }, null);
-  el.append(name, meta, mix);
+  const last = () => { const d = deckOf(s); return d.pfxLast ?? (d.pfxPage || 0) * 8; };
+  bindPress(name, down => { if (down) pfxMenu(deckOf(s), last(), name); });   // (its menu, as SHIFT + the pad)
+  const level = knob("LEVEL/DEPTH", () => pfxPad(last()).level, v => { pfxSet(last(), { level: Math.round(v * 1000) / 1000 }); pfxLive(last(), "level", v); }, null);
+  const meta = knob("INTENSITY", () => pfxMetaOf(pfxPad(last())), v => { pfxSet(last(), { meta: Math.round(v * 1000) / 1000 }); pfxLive(last(), "meta", v); }, null);
+  el.append(name, level, meta);
   return { el, paint: () => {
-    const d = deckOf(s), id = last(), p = PFX_ALL[id], held = (d.pfxHeld || []).some(o => o && o.id === id);
-    setHTML(name, `${pfxName(p.fx)}${p.beats ? " " + beatText(p.beats) : ""}<small>${held ? "on" : "last pad"} · unit ${pfxUnit(d)}</small>`);
+    const d = deckOf(s), id = last(), p = pfxPad(id), held = (d.pfxHeld || []).some(o => o && o.id === id);
+    setHTML(name, `${p.name || pfxName(p.fx)}${p.beats ? " " + beatText(p.beats) : ""}<small>${held ? "on" : "pad " + ((id & 7) + 1)} · ${pfxRemote ? "Mixxx's" : "unit " + pfxUnit(d)}</small>`);
     name.classList.toggle("on", held);
-    meta.paint(); mix.paint();
+    level.paint(); meta.paint();
   } };
 }
 
@@ -3218,7 +3219,7 @@ ZydeckMenu.provide("controller", {
   reset() { S = { ...DEFAULTS }; saveSettings(); applySettings(); tellApp(); build(); },
   deckDefaults: () => deckDefaults,
   hw: () => (HW.dev ? `${HW.dev} on the computer${HW.d34 ? " · decks 3-4" : ""}` : "No DJ controller seen on the computer (ZyDeck Connect reads it)"),
-  hwSync: () => hwApply(),
+  hwSync: () => { pfxShiftEdits(); hwApply(); },
   shiftRun,
   peek(id, on) { peeking = on ? performance.now() : 0; schedulePaint(); },
   loopRun: mode => (mode === "roll") === PHONE ? null   // (LOOP pads on the phone, ROLL pads on the tablet)
@@ -3325,45 +3326,79 @@ async function fxSetBeats(u, slot, b, quiet = false) {
     if (!r.ok && !quiet) toast(r.error || "No beat length for this effect");
   } catch {}
 }
-// PAD FX (as rekordbox's): each pad an effect, on while it's held, on effect unit 3 (decks 1, 3) or 4 (decks 2, 4):
-// Beat FX's units 1 and 2 aren't touched. 8 pads, SHIFT the other 8. A pad's effect goes in the unit's slot that has
-// it already (the rolls share one: only their length changes), else in one that isn't on, the longest unused; its
-// beat length and INTENSITY are set before it goes on. Roll is ZyDeck's (Mixxx ZyDeck's): it repeats the beats after
-// the press, the track still playing under it as MIX says. Only the deck holding a pad goes through its unit.
-// Two pages (PAD FX 1, 2: the mode key again, or the Inpulse's LOOP / SHIFT + LOOP), each 8 pads and 8 with SHIFT
-const PFX_PADS = [
-  [["Roll", .25], ["Roll", .5], ["Roll", 1], ["Roll", 2], ["Echo", .5], ["Echo", .75], ["Reverb"], ["Flanger", 4]],
-  [["Roll", .0625], ["Roll", .125], ["Roll", .75], ["Roll", 4], ["Echo", 1], ["Phaser", 2], ["Filter"], ["Tremolo/Trans", .25]],
-  [["Echo", .25], ["Echo", 2], ["Sidechain", 1], ["Sidechain", .5], ["Phaser", 1], ["Flanger", 1], ["Bitcrusher"], ["Filter"]],
-  [["Tremolo/Trans", .5], ["Autopan", 1], ["Glitch", .125], ["Distortion"], ["Pitch Shift"], ["White Noise"], ["Moog Filter"], ["Reverb"]],
-];
-const pfxBank = d => (d.pfxPage || 0) * 2 + (d.shift ? 1 : 0);
-const PFX_ALL = PFX_PADS.flat().map(([fx, beats], id) => ({ id, fx, beats }));
-const PFX_START = { Roll: 0, Filter: .3 };   // the INTENSITY a pad starts at (else the middle): a roll that doesn't fade
+// PAD FX (as rekordbox's): 16 pads, two pages of 8 (PAD FX 1, 2: the mode key again, or the Inpulse's LOOP /
+// SHIFT + LOOP), each a preset of one effect: its beat length, LEVEL/DEPTH (the unit's wet/dry mix while it's on) and
+// INTENSITY (its meta knob); on while the pad's held. SHIFT + a pad: its menu (as a sampler pad's).
+// With Mixxx ZyDeck (controller mode), its presets and its PAD FX run it ([ChannelN],zydeck_padfx_P, src/zydeck/
+// padfx.h): the same ones its skin's pads and the controller's play, every parameter kept (Mixxx's own editor
+// edits those). Otherwise here: effect unit 3 (decks 1, 3) or 4 (decks 2, 4), Beat FX's 1 and 2 untouched; a pad's
+// effect goes in the unit's slot that has it already (the rolls share one: only their length changes), else in one
+// that isn't on, the longest unused; its values are set before it goes on; only the deck holding a pad goes through.
+const PFX_DEFAULT = [["Roll", .25, .5, 0], ["Roll", .5, .5, 0], ["Roll", 1, .5, 0], ["Roll", 2, .5, 0], ["Echo", .5, .5],
+  ["Echo", .75, .5], ["Reverb", 0, .5], ["Flanger", 4, .7], ["Roll", .125, .5, 0], ["Roll", .75, .5, 0], ["Echo", 1, .5],
+  ["Phaser", 2, .7], ["Filter", 0, 1, .3], ["Filter", 0, 1, .7], ["Tremolo/Trans", .25, 1], ["Sidechain", 1, 1]]
+  .map(([fx, beats, level, meta], i) => ({ fx, beats: beats || 0, level, meta: meta ?? -1, name: ({ 12: "LPF", 13: "HPF" })[i] || "" }));
+let pfxRemote = null;   // Mixxx ZyDeck's: {pads: [16 × {fx, beats, level, meta, name, raw}], ids: {name: id}}; null: here
+const pfxPads = () => pfxRemote ? pfxRemote.pads : PFX_DEFAULT.map((p, i) => ({ ...p, ...(S.pfxPads?.[i] || {}) }));
+const pfxPad = id => ({ id, ...pfxPads()[id] });
 const pfxUnit = d => d.n % 2 ? 3 : 4;
-const pfxName = fx => ({ "Tremolo/Trans": "Trans", "White Noise": "Noise", "Moog Filter": "Moog", "Pitch Shift": "Pitch", Sidechain: "Pump", Bitcrusher: "Crush", Distortion: "Distort" })[fx] || fx;
-const pfxMeta = id => S.pfxMeta?.[id] ?? PFX_START[PFX_ALL[id].fx] ?? .5;
-let pfxSaveT = 0;
-const pfxSave = () => { clearTimeout(pfxSaveT); pfxSaveT = setTimeout(saveSettings, 400); };
+const pfxName = fx => ({ "Tremolo/Trans": "Trans", "White Noise": "Noise", "Moog Filter": "Moog", "Pitch Shift": "Pitch", Sidechain: "Pump", Bitcrusher: "Crush", Distortion: "Distort" })[fx] || fx || "—";
+const pfxMetaOf = p => p.meta >= 0 ? p.meta : .5;
 const pfxUsed = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];   // when each slot of each unit was last taken
-function paintPfx(el, s, k) {
-  const d = deckOf(s), p = PFX_ALL[pfxBank(d) * 8 + k], held = d.pfxHeld?.[k];
-  const there = !live || !fxNames.length || fxNames.includes(p.fx);
-  setPad(el, held ? "lit" : there ? "tint" : "off",
-    `${pfxName(p.fx).toUpperCase()}<small>${p.beats ? `${beatText(p.beats)} beat${p.beats > 1 ? "s" : ""}` : "&nbsp;"}</small>`, "var(--fx)");
+// Mixxx ZyDeck's presets, through ZyDeck Connect (again as they change: [ZyDeck],padfx_version)
+async function pfxLoad() {
+  if (!REMOTE.on || !REMOTE.http) { pfxRemote = null; return; }
+  try {
+    const r = await (await fetch(`${REMOTE.http}/web/padfx?k=${encodeURIComponent(REMOTE.key || "")}`, { cache: "no-store" })).json();
+    if (!r.ok || !Array.isArray(r.pads)) throw 0;
+    const names = r.names || {}, ids = {};
+    for (const [id, name] of Object.entries(names)) ids[name] = id;
+    pfxRemote = { ids, pads: r.pads.map(x => ({ fx: x.effect ? names[x.effect] || x.effect.split(".").pop() : "", beats: x.beats || 0,
+      level: x.level ?? .5, meta: x.meta ?? -1, name: x.name || "", raw: x })) };
+  } catch { pfxRemote = null; }
+  pfxShiftEdits();
+  markDirty("all"); schedulePaint();
 }
-// Going into PAD FX: the first pads' effects into the unit's slots ahead (not on), so the first press is at once
+// Mixxx ZyDeck's mapping leaves the controller's SHIFT + PAD FX pad to this device (its menu) while it mirrors it
+function pfxShiftEdits() {
+  if (live && REMOTE.on && pfxRemote) setCtl("[ZyDeck]", "padfx_shift_edits", S.hwPads ? 1 : 0);
+}
+// A preset changed: Mixxx ZyDeck's (Connect asks it; it says so with padfx_version), or this device's own
+let pfxSetT = 0;
+function pfxSet(id, change) {
+  if (pfxRemote) {
+    const p = pfxRemote.pads[id];
+    Object.assign(p, change);
+    const raw = { ...p.raw, level: p.level, meta: p.meta, name: p.name, beats: p.beats };
+    if ("fx" in change) { raw.effect = pfxRemote.ids[p.fx] || ""; raw.backend = ""; raw.params = {}; }
+    if (raw.beats > 0 && !("fx" in change)) { /* (its beats knob: the backend sets it from "beats") */ }
+    p.raw = raw;
+    clearTimeout(pfxSetT);
+    pfxSetT = setTimeout(() => fetch(`${REMOTE.http}/web/padfx/edit?k=${encodeURIComponent(REMOTE.key || "")}&pad=${id + 1}&preset=${encodeURIComponent(JSON.stringify(raw))}`).catch(() => {}), 300);
+  } else {
+    const all = [...(S.pfxPads || [])];
+    all[id] = { ...(all[id] || {}), ...change };
+    S.pfxPads = all; clearTimeout(pfxSetT); pfxSetT = setTimeout(saveSettings, 400);
+  }
+  markDirty("all"); schedulePaint();
+}
+function paintPfx(el, s, k) {
+  const d = deckOf(s), id = (d.pfxPage || 0) * 8 + k, p = pfxPad(id), held = d.pfxHeld?.[k];
+  const there = !!p.fx && (!live || pfxRemote || !fxNames.length || fxNames.includes(p.fx));
+  setPad(el, held ? "lit" : there ? "tint" : "off",
+    `${(p.name || pfxName(p.fx)).toUpperCase()}<small>${p.beats ? `${beatText(p.beats)} beat${p.beats > 1 ? "s" : ""}` : "&nbsp;"}</small>`, "var(--fx)");
+}
+// Going into PAD FX (this device's own): the page's effects into the unit's slots ahead (not on), so the first press is at once
 function pfxPrep(d) {
-  if (!live || !fxNames.length) return;
-  const u = pfxUnit(d), f = fxState[u - 1];
-  const want = [...new Set(PFX_PADS[(d.pfxPage || 0) * 2].map(([fx]) => fx))].map(fx => fxNames.indexOf(fx) + 1).filter(i => i > 0);
+  if (!live || pfxRemote || !fxNames.length) return;
+  const u = pfxUnit(d), f = fxState[u - 1], page = (d.pfxPage || 0) * 8;
+  const want = [...new Set(pfxPads().slice(page, page + 8).map(p => p.fx))].map(fx => fxNames.indexOf(fx) + 1).filter(i => i > 0);
   for (const i of want) {
     if (f.loaded.includes(i)) continue;
     const j = [0, 1, 2].find(x => !f.enabled[x] && !want.includes(f.loaded[x]));
     if (j === undefined) break;
     f.loaded[j] = i; setCtl(fxSlotG(u, j), "loaded_effect", i);
   }
-  if (Math.abs(f.mix - (S.pfxMix ?? .5)) > .001) { f.mix = S.pfxMix ?? .5; setCtl(fxUnitG(u), "mix", f.mix); }
 }
 function pfxPress(d, k, down, s) {
   const held = d.pfxHeld ??= [];
@@ -3371,22 +3406,34 @@ function pfxPress(d, k, down, s) {
     const o = held[k];
     if (!o) return;
     held[k] = null;
-    if (live && o.j >= 0) {
+    if (live && o.remote) setCtl(ch(d.n), `zydeck_padfx_${o.id + 1}`, 0);
+    else if (live && o.j >= 0) {
       const other = decks.flatMap(x => x.pfxHeld || []).find(x => x && x.u === o.u && x.j === o.j);
-      if (other) { if (other.beats) fxSetBeats(other.u, other.j + 1, other.beats, true); }   // (another pad on it: its length)
+      if (other) { if (other.beats) fxSetBeats(other.u, other.j + 1, other.beats, true); setCtl(fxUnitG(other.u), "mix", other.level); }
       else { fxState[o.u - 1].enabled[o.j] = 0; setCtl(fxSlotG(o.u, o.j), "enabled", 0); }
     }
     paintSide(s);
     return;
   }
   if (held[k]) return;
-  const p = PFX_ALL[pfxBank(d) * 8 + k];
-  if (d.shift) shiftUsed(d);
+  const p = pfxPad((d.pfxPage || 0) * 8 + k);
   d.pfxLast = p.id;
+  if (d.shift) {   // SHIFT: its menu
+    shiftUsed(d); paintSide(s);
+    pfxMenu(d, p.id, ui.sides[s]?.pads[k]);
+    return;
+  }
   if (!live) { held[k] = { ...p, u: pfxUnit(d), j: -1 }; paintSide(s); return; }
+  if (pfxRemote) {
+    held[k] = { ...p, remote: true };
+    setCtl(ch(d.n), `zydeck_padfx_${p.id + 1}`, 1);
+    paintSide(s);
+    return;
+  }
   const u = pfxUnit(d), f = fxState[u - 1], i = fxNames.indexOf(p.fx) + 1;
   if (!i) {
-    toast(!fxNames.length ? fxNone() : p.fx === "Roll" ? "No Roll effect in this Mixxx: it comes with ZyDeck's Mixxx (update it)" : `No ${p.fx} effect in Mixxx`);
+    toast(!fxNames.length ? fxNone() : !p.fx ? "An empty pad: SHIFT + the pad to give it an effect"
+      : p.fx === "Roll" ? "No Roll effect in this Mixxx: it comes with ZyDeck's Mixxx (update it)" : `No ${p.fx} effect in Mixxx`);
     paintSide(s);
     return;
   }
@@ -3403,12 +3450,97 @@ function pfxPress(d, k, down, s) {
   const o = d.n > 2 ? d.n - 2 : d.n + 2;
   if (f.route[o - 1] && !decks[o - 1].pfxHeld?.some(Boolean)) { f.route[o - 1] = 0; setCtl(fxUnitG(u), `group_${ch(o)}_enable`, 0); }
   if (!f.route[d.n - 1]) fxRoute(d, u);
-  if (Math.abs(f.mix - (S.pfxMix ?? .5)) > .001) { f.mix = S.pfxMix ?? .5; setCtl(fxUnitG(u), "mix", f.mix); }
+  f.mix = p.level; setCtl(fxUnitG(u), "mix", p.level);
   if (p.beats) fxSetBeats(u, j + 1, p.beats, true);   // (before it goes on: a roll takes its length as it starts)
-  f.meta[j] = pfxMeta(p.id); setCtl(fxSlotG(u, j), "meta", f.meta[j]);
+  f.meta[j] = pfxMetaOf(p); setCtl(fxSlotG(u, j), "meta", f.meta[j]);
   f.enabled[j] = 1; setCtl(fxSlotG(u, j), "enabled", 1);
   held[k] = { ...p, u, j };
   paintSide(s);
+}
+// A held pad's LEVEL/DEPTH and INTENSITY as they're turned: its unit's mix, and the meta of the slots on in it
+function pfxLive(id, what, v) {
+  for (const x of decks) {
+    if (!(x.pfxHeld || []).some(o => o && o.id === id)) continue;
+    const u = pfxUnit(x), f = fxState[u - 1];
+    if (what === "level") { f.mix = v; setCtl(fxUnitG(u), "mix", v); }
+    else for (const j of [0, 1, 2]) if (f.enabled[j]) { f.meta[j] = v; setCtl(fxSlotG(u, j), "meta", v); }
+  }
+}
+const PFX_BEATS = [.0625, .125, .25, .5, .75, 1, 2, 4, 8, 16, 32];
+// A pad's menu (SHIFT + the pad here, or on the controller this device mirrors): its effect, beat length, LEVEL/DEPTH
+// and INTENSITY, an FX unit's effect taken as it is, or the default back
+function pfxMenu(d, id, anchor) {
+  document.querySelector(".padopts")?.remove(); document.querySelector(".padveil")?.remove();
+  const veil = h("div", "padveil"), box = h("div", "padopts pfxopts");
+  const close = () => { box.remove(); veil.remove(); paintAll(); };
+  veil.addEventListener("pointerdown", e => { e.stopPropagation(); close(); });
+  const render = () => {
+    const p = pfxPad(id);
+    box.innerHTML = "";
+    box.append(h("div", "t", `PAD FX ${(id >> 3) + 1} · pad ${(id & 7) + 1}<small>${pfxName(p.fx)}${p.beats ? " " + beatText(p.beats) : ""}</small>`));
+    // its effect
+    const list = h("div", "pfxlist full");
+    const names = pfxRemote ? Object.keys(pfxRemote.ids) : fxNames;
+    if (!names.length) list.append(h("div", "pfxnone", fxNone()));
+    for (const name of names) {
+      const b = h("button", name === p.fx ? "on" : "", pfxName(name));
+      bindPress(b, down => { if (down) { pfxSet(id, { fx: name, meta: -1 }); render(); } });
+      list.append(b);
+    }
+    box.append(list);
+    // its beat length (where its effect has one)
+    const k = fxBeatKnobs[fxNames.indexOf(p.fx)];
+    const beats = h("div", "pfxbeats full");
+    for (const b of PFX_BEATS) {
+      if (k && (b < k.min - 1e-9 || b > k.max + 1e-9)) continue;
+      const bt = h("button", Math.abs(b - p.beats) < 1e-6 ? "on" : "", beatText(b));
+      bindPress(bt, down => { if (down) { pfxSet(id, { beats: b }); render(); } });
+      beats.append(bt);
+    }
+    const none = h("button", p.beats ? "" : "on", "—");
+    bindPress(none, down => { if (down) { pfxSet(id, { beats: 0 }); render(); } });
+    beats.append(none);
+    box.append(beats);
+    const level = knob("LEVEL/DEPTH", () => pfxPad(id).level, v => { pfxSet(id, { level: Math.round(v * 1000) / 1000 }); pfxLive(id, "level", v); }, null);
+    const meta = knob("INTENSITY", () => pfxMetaOf(pfxPad(id)), v => { pfxSet(id, { meta: Math.round(v * 1000) / 1000 }); pfxLive(id, "meta", v); }, null);
+    level.classList.add("wide2pfx"); meta.classList.add("wide2pfx");
+    box.append(level, meta);
+    // what the deck's own FX unit has (its first effect), as it is
+    const take = h("button", "", `TAKE FX ${fxUnitOf(d)}<small>as it is</small>`);
+    bindPress(take, down => {
+      if (!down) return;
+      const u = fxUnitOf(d), f = fxState[u - 1];
+      if (pfxRemote) {
+        fetch(`${REMOTE.http}/web/padfx/edit?k=${encodeURIComponent(REMOTE.key || "")}&pad=${id + 1}&from=${u},1`).then(() => setTimeout(pfxLoad, 600)).catch(() => {});
+        toast(`Pad ${(id & 7) + 1}: FX ${u}'s effect, as it is`);
+      } else {
+        const name = fxNames[f.loaded[0] - 1];
+        if (!name) { toast(`FX ${u} has no effect in its first slot`); return; }
+        pfxSet(id, { fx: name, level: f.mix, meta: f.meta[0], beats: fxBeat[u - 1] || 0 });
+      }
+      close();
+    });
+    const reset = h("button", "clear", "DEFAULT");
+    bindPress(reset, down => {
+      if (!down) return;
+      if (pfxRemote) fetch(`${REMOTE.http}/web/padfx/edit?k=${encodeURIComponent(REMOTE.key || "")}&pad=${id + 1}&reset=1`).then(() => setTimeout(pfxLoad, 600)).catch(() => {});
+      else { const all = [...(S.pfxPads || [])]; all[id] = null; S.pfxPads = all; saveSettings(); }
+      close();
+    });
+    const rename = h("button", "", "✎ NAME");
+    bindPress(rename, down => {
+      if (!down) return;
+      close();
+      askText(`Name for PAD FX pad ${(id & 7) + 1}`, pfxPad(id).name || "", name => pfxSet(id, { name: name.trim() }));
+    });
+    box.append(take, rename, reset);
+    if (pfxRemote) box.append(h("div", "pfxnote full", "Each of its parameters: in Mixxx, SHIFT + the pad (or right-click it)"));
+  };
+  render();
+  document.body.append(veil, box);
+  const r = (anchor || document.body).getBoundingClientRect(), bw = box.offsetWidth, bh = box.offsetHeight;
+  box.style.left = `${clamp(r.left + r.width / 2 - bw / 2, 8, innerWidth - bw - 8)}px`;
+  box.style.top = `${clamp(r.top - bh - 8, 8, innerHeight - bh - 8)}px`;
 }
 
 // The effects as a unit's slots number them: Mixxx here (the hub), or in controller mode Mixxx on the computer, from
@@ -3598,6 +3730,7 @@ function applyCv(name, v, ts) {
   if (name === "[App],output_latency_ms") { remoteLat = Math.max(0, v) / 1000; useRemoteLat(); return; }
   if (name === "[App],audio_latency_overload_count") { remoteXruns = v; return; }
   const comma = name.indexOf(","), group = name.slice(0, comma), key = name.slice(comma + 1);
+  if (name === "[ZyDeck],padfx_version") { pfxLoad(); return; }
   let m;
   if ((m = /^\[Channel(\d)\]$/.exec(group))) {
     const d = decks[m[1] - 1];
@@ -3701,6 +3834,7 @@ function applyCv(name, v, ts) {
 const slipSubs = () => [1, 2, 3, 4].map(n => [ch(n), "zydeck_slip_seconds", 0]);   // (the computer's slip; here: the hub's "slip")
 function subscribeAll() {
   const sub = [];
+  if (REMOTE.on) { sub.push(["[ZyDeck]", "padfx_version", 0]); pfxLoad(); }   // (Mixxx ZyDeck's PAD FX presets)
   for (const u of [1, 2, 3, 4]) {   // the FX panel's units, and PAD FX's
     sub.push([fxUnitG(u), "mix", 0], ...[1, 2, 3, 4].map(n => [fxUnitG(u), `group_${ch(n)}_enable`, 0]));
     for (let j = 0; j < 3; j++) for (const k of ["enabled", "meta", "loaded_effect"]) sub.push([fxSlotG(u, j), k, 0]);
@@ -3847,6 +3981,15 @@ let HW = {};
 function onHw(hw) {
   HW = hw || {};
   ZydeckMenu.refresh();
+  if (HW.ev === "padedit") {   // SHIFT + a PAD FX pad on the controller: its menu here, while mirroring it
+    if (!S.hwPads || !live) return;
+    const d = decks[(HW.d34 ? 2 : 0) + (HW.side || 0)], id = (HW.pad || 1) - 1;
+    if (!d) return;
+    d.mode = "pfx"; d.pfxPage = id >> 3; d.pfxLast = id; paintAll();
+    const s = sides.indexOf(d.n - 1);
+    pfxMenu(d, id, s >= 0 ? ui.sides[s]?.pads[id & 7] : null);
+    return;
+  }
   if ((S.hwPads || S.hwDecks) && HW.dev && live) hwApply(HW.ev);
 }
 // ev: what it just did ("d34", "pads0", "pads1"); none: take all of it (following just turned on, or it just came)
