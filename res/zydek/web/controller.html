@@ -2963,7 +2963,9 @@ async function loadBeats(d, id, keep = false) {   // keep: show the old beats un
     try {
       const url = assetUrl(`/beats/${id}`);
       if (!url) return;
-      const r = await fetch(url);
+      // (never the browser's copy: ZyDeck Connect used to let it keep a grid, and a not-there-yet, 5 minutes, and a
+      // grid analysed or edited since is at the same address)
+      const r = await fetch(url, { cache: "no-store" });
       if (!REMOTE.on && r.status === 404 && tries >= 3) return;
       if (r.status === 202) wait = 15000;
       if (r.status === 200) {
@@ -3061,7 +3063,8 @@ async function loadWaveform(d, id) {
     try {
       const url = assetUrl(`/waveform/${id}`);
       if (!url) return;
-      const r = await fetch(REMOTE.on ? url : `${url}?stems=1`);   // the hub's: each stem's level too, when it has stems
+      // (the hub's: each stem's level too, when it has stems; tried again: not the browser's copy of a not-there-yet)
+      const r = await fetch(REMOTE.on ? url : `${url}?stems=1`, tries ? { cache: "no-store" } : {});
       if (!REMOTE.on && r.status === 404 && tries >= 3) return;   // not on a deck (its name can come a moment early)
       if (r.status === 202) wait = 15000;   // (or sooner: the "wf" push)
       if (r.ok && r.status === 200) {

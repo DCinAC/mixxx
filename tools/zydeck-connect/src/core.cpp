@@ -679,14 +679,17 @@ void Core::http(QTcpSocket* s, const QByteArray& request) {
     static const QRegularExpression route(QStringLiteral(R"(^GET /(waveform|beats)/(\d+)(?:\?k=([0-9a-f]+))?)"));
     const QRegularExpressionMatch m = route.match(QString::fromLatin1(request));
     QPointer<QTcpSocket> guard(s);
-    const auto respond = [this, guard](int status, const QByteArray& body, const QByteArray& headers) {
-        QMetaObject::invokeMethod(this, [guard, status, body, headers] {
+    // (cache: the browser may keep it 5 minutes: a waveform. Never a grid, which is analysed or edited at the same
+    // address, nor a not-there-yet, which would stay so after it's there)
+    const auto respond = [this, guard](int status, const QByteArray& body, const QByteArray& headers, bool cache = false) {
+        QMetaObject::invokeMethod(this, [guard, status, body, headers, cache] {
             if (!guard) {
                 return;
             }
             QByteArray head = "HTTP/1.1 " + QByteArray::number(status) + (status == 200 ? " OK" : " No") + "\r\n";
             head += "Content-Length: " + QByteArray::number(body.size()) + "\r\n";
-            head += "Access-Control-Allow-Origin: *\r\nCache-Control: max-age=300\r\nConnection: close\r\n" + headers + "\r\n";
+            head += "Access-Control-Allow-Origin: *\r\nCache-Control: " + QByteArray(cache && status == 200 ? "max-age=300" : "no-store") +
+                    "\r\nConnection: close\r\n" + headers + "\r\n";
             guard->write(head + body);
             guard->disconnectFromHost();
         });
@@ -709,7 +712,7 @@ void Core::http(QTcpSocket* s, const QByteArray& request) {
                 if (data.isEmpty()) {
                     respond(404, "not found\n", "Content-Type: text/plain\r\n");
                 } else {
-                    respond(200, qCompress(data, 5).mid(4), "Content-Type: application/octet-stream\r\nContent-Encoding: deflate\r\n");
+                    respond(200, qCompress(data, 5).mid(4), "Content-Type: application/octet-stream\r\nContent-Encoding: deflate\r\n", true);
                 }
             });
         } else {

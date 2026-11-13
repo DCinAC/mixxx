@@ -919,7 +919,9 @@ function onDeckName(d, n) {
 async function deckAsset(path, tries) {
   const url = assetUrl(path);
   if (!url) return "stop";
-  const r = await fetch(url);
+  // (the beats never the browser's copy, nor a try again: ZyDeck Connect used to let it keep them, and a
+  // not-there-yet, 5 minutes, and a grid analysed or edited since is at the same address)
+  const r = await fetch(url, path.startsWith("/beats/") || tries ? { cache: "no-store" } : {});
   if (r.status === 200) return r;
   if (!remote.on && r.status === 404 && tries >= 3) return "stop";   // (its name can come a moment early)
   return r.status === 202 ? 15000 : 2000;
