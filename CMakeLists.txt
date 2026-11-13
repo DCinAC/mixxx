@@ -1271,6 +1271,7 @@ add_library(
   src/zydek/zydeckstructure.cpp
   src/zydek/zydecklibraryquery.cpp
   src/zydek/zydekstructurecache.cpp
+  src/zydeck/padfx.cpp
   src/zydek/zydekdiscordrelay.cpp
   src/zydek/zydekhub.cpp
   src/zydek/zydeklibrary.cpp

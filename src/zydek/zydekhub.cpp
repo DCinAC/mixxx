@@ -54,6 +54,7 @@
 #include "effects/effectslot.h"
 #include "effects/visibleeffectslist.h"
 #include "qml/qmleffectsmanagerproxy.h"
+#include "zydeck/padfx.h"
 #include "qml/qmlsoundmanagerproxy.h"
 #include "soundio/sounddevice.h"
 #include "soundio/soundmanager.h"
@@ -340,6 +341,21 @@ Hub::Hub(UserSettingsPointer pConfig, QObject* pParent)
     m_visualTimer.setInterval(16);
     connect(&m_visualTimer, &QTimer::timeout, this, &Hub::visualTick);
     m_visualTimer.start();
+    // PAD FX (src/zydeck/padfx.h, the same as Mixxx ZyDeck's on a computer): its pads' controls ([ChannelN],
+    // zydeck_padfx_P) and presets, once Mixxx's effects are up; on Mixxx's own thread, as its effects are
+    auto* pPadFx = new QTimer(this);
+    pPadFx->setInterval(500);
+    connect(pPadFx, &QTimer::timeout, this, [this, pPadFx] {
+        const std::shared_ptr<EffectsManager> pEffects = mixxx::qml::QmlEffectsManagerProxy::registeredManager();
+        if (!pEffects) {
+            return;
+        }
+        pPadFx->stop();
+        pPadFx->deleteLater();
+        const UserSettingsPointer pConfig = m_pConfig;
+        QMetaObject::invokeMethod(qApp, [pEffects, pConfig] { zydeck::setUpPadFx(pEffects, pConfig); });
+    });
+    pPadFx->start();
 }
 
 #ifdef Q_OS_ANDROID
@@ -1078,6 +1094,55 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
     }
     if (path == QLatin1String("/api/stemfx")) {   // ?deck=1..4&fx=0..3
         return result(stemFx(arg("deck").toInt() - 1, arg("fx").toInt()));
+    }
+    // PAD FX's presets (src/zydeck/padfx.h), as ZyDeck Connect's /web/padfx: "padfx" as they are, with the menu they're
+    // picked from and the effects' names by id; "padfx/edit?pad=P" and preset=<json>, from=U,S or reset=1
+    if (path == QLatin1String("/api/padfx") || path == QLatin1String("/api/padfx/edit")) {
+        const QString dir = m_pConfig->getSettingsPath();
+        QFile file(dir + QStringLiteral("/zydeck-padfx.json"));
+        if (!file.exists()) {
+            return result({{"ok", false}, {"error", "PAD FX isn't set up yet"}});
+        }
+        if (path == QLatin1String("/api/padfx")) {
+            QJsonObject out{{"ok", true}};
+            if (file.open(QIODevice::ReadOnly)) {
+                const QJsonObject all = QJsonDocument::fromJson(file.readAll()).object();
+                out.insert(QStringLiteral("pads"), all.value(QStringLiteral("pads")));
+                out.insert(QStringLiteral("menu"), all.value(QStringLiteral("menu")));
+            }
+            QJsonObject names;
+            runOnMain(qApp, [&names] {
+                const std::shared_ptr<EffectsManager> pEffects = mixxx::qml::QmlEffectsManagerProxy::registeredManager();
+                const VisibleEffectsListPointer pList = pEffects ? pEffects->getVisibleEffectsList() : VisibleEffectsListPointer();
+                if (pList) {
+                    for (const EffectManifestPointer& pManifest : pList->getList()) {
+                        names.insert(pManifest->id(), pManifest->displayName().isEmpty() ? pManifest->name() : pManifest->displayName());
+                    }
+                }
+            });
+            out.insert(QStringLiteral("names"), names);
+            return json(out);
+        }
+        const int pad = arg("pad").toInt();
+        if (pad < 1 || pad > 16) {
+            return result({{"ok", false}, {"error", "No such pad"}});
+        }
+        QJsonObject edit{{"pad", pad}};
+        if (arg("reset") == QLatin1String("1")) {
+            edit.insert(QStringLiteral("reset"), true);
+        } else if (!arg("from").isEmpty()) {
+            const QStringList us = arg("from").split(QLatin1Char(','));
+            edit.insert(QStringLiteral("from"), QJsonObject{{"unit", us.value(0).toInt()}, {"slot", us.value(1).toInt()}});
+        } else {
+            const QJsonDocument preset = QJsonDocument::fromJson(arg("preset").toUtf8());
+            if (!preset.isObject()) {
+                return result({{"ok", false}, {"error", "No preset"}});
+            }
+            edit.insert(QStringLiteral("preset"), preset.object());
+        }
+        QSaveFile out(dir + QStringLiteral("/zydeck-padfx-edit.json"));
+        const bool ok = out.open(QIODevice::WriteOnly) && out.write(QJsonDocument(edit).toJson(QJsonDocument::Compact)) >= 0 && out.commit();
+        return result(ok ? QJsonObject{{"ok", true}} : QJsonObject{{"ok", false}, {"error", "Couldn't write it"}});
     }
     if (path == QLatin1String("/api/fx/beats")) {   // ?unit=1..4&slot=1..3 (0: every slot)&beats=0.5
         return result(setFxBeats(arg("unit").toInt(), arg("slot").toInt(), arg("beats").toDouble()));

@@ -3348,11 +3348,15 @@ const pfxUnit = d => d.n % 2 ? 3 : 4;
 const pfxName = fx => ({ "Backward Roll": "Back Roll", "Tremolo/Trans": "Trans", "White Noise": "Noise", "Moog Filter": "Moog", "Pitch Shift": "Pitch", Sidechain: "Pump", Bitcrusher: "Crush", Distortion: "Distort" })[fx] || fx || "—";
 const pfxMetaOf = p => p.meta >= 0 ? p.meta : .5;
 const pfxUsed = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];   // when each slot of each unit was last taken
-// Mixxx ZyDeck's presets, through ZyDeck Connect (again as they change: [ZyDeck],padfx_version)
+// PAD FX's presets, where its Mixxx keeps them: the computer's (ZyDeck Connect's /web/padfx) in controller mode, else
+// this device's own Mixxx (the hub's /api/padfx, the same PAD FX: src/zydeck/padfx.h)
+const pfxApi = (path, qs = "") => REMOTE.on ? `${REMOTE.http}/web/padfx${path}?k=${encodeURIComponent(REMOTE.key || "")}${qs ? "&" + qs : ""}`
+  : `/api/padfx${path}${qs ? "?" + qs : ""}`;
+// Mixxx ZyDeck's presets (again as they change: [ZyDeck],padfx_version)
 async function pfxLoad() {
-  if (!REMOTE.on || !REMOTE.http) { pfxRemote = null; return; }
+  if (!live || REMOTE.on && !REMOTE.http) { pfxRemote = null; return; }
   try {
-    const r = await (await fetch(`${REMOTE.http}/web/padfx?k=${encodeURIComponent(REMOTE.key || "")}`, { cache: "no-store" })).json();
+    const r = await (await fetch(pfxApi(""), { cache: "no-store" })).json();
     if (!r.ok || !Array.isArray(r.pads)) throw 0;
     const names = r.names || {}, ids = {};
     for (const [id, name] of Object.entries(names)) ids[name] = id;
@@ -3374,7 +3378,7 @@ function pfxPick(id, raw) {   // a preset from the menu, whole (Mixxx ZyDeck's)
   Object.assign(p, { fx: pfxRemote.ids && Object.keys(pfxRemote.ids).find(n => pfxRemote.ids[n] === raw.effect) || raw.name || "",
     beats: raw.beats || 0, level: raw.level ?? .5, meta: raw.meta ?? -1, name: raw.name || "", release: !!raw.release, hold: raw.hold !== false, raw });
   clearTimeout(pfxSetT);
-  fetch(`${REMOTE.http}/web/padfx/edit?k=${encodeURIComponent(REMOTE.key || "")}&pad=${id + 1}&preset=${encodeURIComponent(JSON.stringify(raw))}`).catch(() => {});
+  fetch(pfxApi("/edit", `pad=${id + 1}&preset=${encodeURIComponent(JSON.stringify(raw))}`)).catch(() => {});
   markDirty("all"); schedulePaint();
 }
 function pfxSet(id, change) {
@@ -3386,7 +3390,7 @@ function pfxSet(id, change) {
     if (raw.beats > 0 && !("fx" in change)) { /* (its beats knob: the backend sets it from "beats") */ }
     p.raw = raw;
     clearTimeout(pfxSetT);
-    pfxSetT = setTimeout(() => fetch(`${REMOTE.http}/web/padfx/edit?k=${encodeURIComponent(REMOTE.key || "")}&pad=${id + 1}&preset=${encodeURIComponent(JSON.stringify(raw))}`).catch(() => {}), 300);
+    pfxSetT = setTimeout(() => fetch(pfxApi("/edit", `pad=${id + 1}&preset=${encodeURIComponent(JSON.stringify(raw))}`)).catch(() => {}), 300);
   } else {
     const all = [...(S.pfxPads || [])];
     all[id] = { ...(all[id] || {}), ...change };
@@ -3512,7 +3516,7 @@ function pfxMenu(d, id, anchor) {
         bindPress(b, down => { if (down) { pfxSet(id, { fx: name, meta: -1, name: "", release: false }); render(); } });
         list.append(b);
       }
-      if (!pfxRemote) list.append(h("div", "pfxnone", "BEAT, COLOR, SCENE and RELEASE FX come with Mixxx ZyDeck (controller mode)"));
+      if (!pfxRemote) list.append(h("div", "pfxnone", "BEAT, COLOR, SCENE and RELEASE FX: this Mixxx hasn't PAD FX's presets (update ZyDeck)"));
     } else {
       for (const e of pfxRemote.menu.filter(e => e.category === pfxMenuCat)) {
         const b = h("button", (p.name || "") === (e.raw.name || "") && p.raw?.effect === e.raw.effect ? "on" : "", e.name);
@@ -3549,7 +3553,7 @@ function pfxMenu(d, id, anchor) {
       if (!down) return;
       const u = fxUnitOf(d), f = fxState[u - 1];
       if (pfxRemote) {
-        fetch(`${REMOTE.http}/web/padfx/edit?k=${encodeURIComponent(REMOTE.key || "")}&pad=${id + 1}&from=${u},1`).then(() => setTimeout(pfxLoad, 600)).catch(() => {});
+        fetch(pfxApi("/edit", `pad=${id + 1}&from=${u},1`)).then(() => setTimeout(pfxLoad, 600)).catch(() => {});
         toast(`Pad ${(id & 7) + 1}: FX ${u}'s effect, as it is`);
       } else {
         const name = fxNames[f.loaded[0] - 1];
@@ -3561,7 +3565,7 @@ function pfxMenu(d, id, anchor) {
     const reset = h("button", "clear", "DEFAULT");
     bindPress(reset, down => {
       if (!down) return;
-      if (pfxRemote) fetch(`${REMOTE.http}/web/padfx/edit?k=${encodeURIComponent(REMOTE.key || "")}&pad=${id + 1}&reset=1`).then(() => setTimeout(pfxLoad, 600)).catch(() => {});
+      if (pfxRemote) fetch(pfxApi("/edit", `pad=${id + 1}&reset=1`)).then(() => setTimeout(pfxLoad, 600)).catch(() => {});
       else { const all = [...(S.pfxPads || [])]; all[id] = null; S.pfxPads = all; saveSettings(); }
       close();
     });
@@ -3872,7 +3876,7 @@ function applyCv(name, v, ts) {
 const slipSubs = () => [1, 2, 3, 4].map(n => [ch(n), "zydeck_slip_seconds", 0]);   // (the computer's slip; here: the hub's "slip")
 function subscribeAll() {
   const sub = [];
-  if (REMOTE.on) { sub.push(["[ZyDeck]", "padfx_version", 0]); pfxLoad(); }   // (Mixxx ZyDeck's PAD FX presets)
+  sub.push(["[ZyDeck]", "padfx_version", 0]); pfxLoad();   // (PAD FX's presets: the computer's Mixxx ZyDeck's, or this phone's Mixxx's)
   for (const u of [1, 2, 3, 4]) {   // the FX panel's units, and PAD FX's
     sub.push([fxUnitG(u), "mix", 0], ...[1, 2, 3, 4].map(n => [fxUnitG(u), `group_${ch(n)}_enable`, 0]));
     for (let j = 0; j < 3; j++) for (const k of ["enabled", "meta", "loaded_effect"]) sub.push([fxSlotG(u, j), k, 0]);
