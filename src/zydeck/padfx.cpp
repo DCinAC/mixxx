@@ -10,6 +10,7 @@
 #include <QSaveFile>
 #include <QTimer>
 #include <array>
+#include <cmath>
 #include <vector>
 
 #include "control/controlobject.h"
@@ -97,6 +98,9 @@ std::array<Preset, kPads> defaults() {
     }};
 }
 
+class PadFx;
+PadFx* s_pPadFx = nullptr;
+
 class PadFx : public QObject {
   public:
     PadFx(const std::shared_ptr<EffectsManager>& pEffects, UserSettingsPointer pConfig)
@@ -119,10 +123,33 @@ class PadFx : public QObject {
             }
         }
         QFile::remove(m_edit);   // (one a previous run left: not now)
+        s_pPadFx = this;
         auto* pTimer = new QTimer(this);
         pTimer->setInterval(250);
         connect(pTimer, &QTimer::timeout, this, &PadFx::takeEdit);
         pTimer->start();
+    }
+
+    PadFxLabel label(int pad) const {
+        if (pad < 0 || pad >= kPads) {
+            return {};
+        }
+        const Preset& p = m_presets[pad];
+        const EffectManifestPointer pManifest = manifestOf(p);
+        if (p.effect.isEmpty()) {
+            return {};
+        }
+        PadFxLabel l;
+        l.name = !p.name.isEmpty() ? p.name
+                : pManifest        ? (pManifest->shortName().isEmpty() ? pManifest->name() : pManifest->shortName())
+                                   : p.effect.section('.', -1);
+        if (p.beats > 0) {
+            static const QHash<int, QString> fractions{{625, QStringLiteral("1/16")}, {1250, QStringLiteral("1/8")},
+                    {2500, QStringLiteral("1/4")}, {5000, QStringLiteral("1/2")}, {7500, QStringLiteral("3/4")}};
+            const int k = static_cast<int>(std::lround(p.beats * 10000));
+            l.beats = fractions.value(k, QString::number(p.beats));
+        }
+        return l;
     }
 
   private:
@@ -380,6 +407,10 @@ class PadFx : public QObject {
 };
 
 } // namespace
+
+PadFxLabel padFxLabel(int pad) {
+    return s_pPadFx ? s_pPadFx->label(pad) : PadFxLabel();
+}
 
 void setUpPadFx(const std::shared_ptr<EffectsManager>& pEffects, UserSettingsPointer pConfig) {
     if (pEffects) {

@@ -57,6 +57,12 @@ Description:
         </Children>
       </WidgetGroup><!-- 4/8 Hotcues -->
 
+      <!-- ZyDeck: the deck's pads in place of the hot cues -->
+      <Template src="skins:LateNight/helpers/skin_settings_button_2state.xml">
+        <SetVariable name="Text">ZyDeck Pads</SetVariable>
+        <SetVariable name="Setting">[Skin],zydeck_pads</SetVariable>
+      </Template>
+
       <!-- Intro & Outro cues -->
       <Template src="skins:LateNight/helpers/skin_settings_button_2state.xml">
         <SetVariable name="TooltipId">show_intro_outro_cues</SetVariable>

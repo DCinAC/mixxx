@@ -5,6 +5,7 @@
 #include "zydeck/decklist.h"
 #include "zydeck/effectlist.h"
 #include "zydeck/padfx.h"
+#include "zydeck/padgrid.h"
 #include "zydeck/phrases.h"
 #include "zydeck/prefetch.h"
 #include "zydeck/slipposition.h"
@@ -560,6 +561,7 @@ void CoreServices::initialize() {
 #ifdef __ZYDECK__   // ZyDeck: the effects list, for a phone or tablet driving this Mixxx (zydeck/effectlist.h)
     zydeck::watchEffectList(m_pEffectsManager, pConfig);
     zydeck::setUpPadFx(m_pEffectsManager, pConfig);   // (PAD FX: its pads' controls and presets, zydeck/padfx.h)
+    zydeck::watchPadGrids();   // (the decks' pads in the skin: zydeck/padgrid.h)
     zydeck::watchDecks(pConfig);   // (what's on each deck, likewise: zydeck/decklist.h)
     zydeck::prefetchNetworkTracks();   // (a track from a NAS read whole as it loads: zydeck/prefetch.h)
     zydeck::publishSlipPositions();   // (the slip position, as a control for the devices: zydeck/slipposition.h)

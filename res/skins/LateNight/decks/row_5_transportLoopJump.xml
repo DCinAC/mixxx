@@ -107,6 +107,19 @@
           <WidgetGroup><Size>2f,0min</Size></WidgetGroup><!--  = 2-10px wide -->
           <WidgetGroup><SizePolicy>i,min</SizePolicy><MaximumSize>8,</MaximumSize></WidgetGroup>
 
+          <!-- ZyDeck: the deck's pads (src/zydeck/padgrid.*) in place of the hot cues, twice as tall, with [Skin],zydeck_pads -->
+          <WidgetGroup>
+            <ObjectName>ZyDeckPads_<Variable name="Group"/></ObjectName>
+            <Layout>vertical</Layout>
+            <SizePolicy>me,f</SizePolicy>
+            <MinimumSize>176,110</MinimumSize>
+            <MaximumSize>320,110</MaximumSize>
+            <Connection>
+              <ConfigKey>[Skin],zydeck_pads</ConfigKey>
+              <BindProperty>visible</BindProperty>
+            </Connection>
+          </WidgetGroup>
+
           <WidgetGroup><!-- HotCues -->
             <Layout>vertical</Layout>
             <SizePolicy>max,min</SizePolicy>
@@ -176,7 +189,7 @@
               </WidgetStack><!-- HotCues (3-4 / 5-8) -->
             </Children>
             <Connection>
-              <ConfigKey>[Skin],show_hotcues</ConfigKey>
+              <ConfigKey>[Skin],zydeck_hotcues_shown</ConfigKey><!-- ZyDeck: show_hotcues, unless the pads are -->
               <BindProperty>visible</BindProperty>
             </Connection>
           </WidgetGroup><!-- HotCues -->

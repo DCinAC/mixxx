@@ -8,6 +8,7 @@ target_sources(
     src/zydeck/webfolder.cpp
     src/zydeck/stems.cpp
     src/zydeck/padfx.cpp
+    src/zydeck/padgrid.cpp
     src/zydeck/rolleffect.cpp
     src/zydeck/sidechaineffect.cpp
     src/zydeck/effectlist.cpp

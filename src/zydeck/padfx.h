@@ -26,4 +26,12 @@ namespace zydeck {
 // U, "slot": S}} saves what that slot has as it is, {"pad": P, "reset": true} puts the default back.
 void setUpPadFx(const std::shared_ptr<EffectsManager>& pEffects, UserSettingsPointer pConfig);
 
+/// What pad P (0-31) says: its preset's name, else its effect's short name and its beat length ("ROLL", "1/4"); ""
+/// for an empty pad. (Mixxx ZyDeck's pads in the skin show it; [ZyDeck],padfx_version says when it changes.)
+struct PadFxLabel {
+    QString name;
+    QString beats;
+};
+PadFxLabel padFxLabel(int pad);
+
 } // namespace zydeck
