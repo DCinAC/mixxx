@@ -31,6 +31,7 @@
 #endif
 #include "effects/backends/builtin/gaineffect.h"
 #include "effects/backends/builtin/tremoloeffect.h"
+#include "effects/backends/builtin/rolleffect.h"
 #include "effects/backends/builtin/sidechaineffect.h"
 #include "effects/backends/builtin/whitenoiseeffect.h"
 
@@ -64,6 +65,7 @@ BuiltInBackend::BuiltInBackend() {
     registerEffect<KeyComparisonEffect>();
     registerEffect<TremoloEffect>();
     registerEffect<SidechainEffect>();   // Zydek
+    registerEffect<RollEffect>();   // ZyDeck: a roll that mixes with the track (Pad FX)
 #ifdef __RUBBERBAND__
     registerEffect<PitchShiftEffect>();
 #endif

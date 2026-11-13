@@ -1328,6 +1328,7 @@ add_library(
   src/effects/backends/builtin/reverbeffect.cpp
   src/effects/backends/builtin/threebandbiquadeqeffect.cpp
   src/effects/backends/builtin/tremoloeffect.cpp
+  src/effects/backends/builtin/rolleffect.cpp
   src/effects/backends/builtin/sidechaineffect.cpp
   src/effects/backends/builtin/whitenoiseeffect.cpp
   src/effects/backends/effectmanifest.cpp

@@ -204,6 +204,10 @@
   .fxstrip button { font-size: calc(var(--mm) * 1.8); padding: 0 calc(var(--mm) * .5); overflow: hidden; }
   .fxstrip button small { display: block; font-size: calc(var(--mm) * 1.35); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .fxstrip button.on { border-color: var(--fx); color: var(--fx); background: color-mix(in srgb, var(--fx) 14%, #1c1c1c); }
+  .fxstrip .fxset { display: contents; }
+  .fxstrip .fxset[hidden] { display: none; }
+  .fxstrip .pfxname { grid-column: span 2; color: var(--fx); }
+  .fxstrip .pfxname.on { background: var(--fx); color: #111; }
   .fxstrip .beats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; }
   .fxstrip .beats button { font-size: calc(var(--mm) * 1.9); padding: 0; }
   .fxstrip .knob { --knob: calc(var(--mm) * 8.5); --acc: #777; justify-content: center; }
@@ -552,7 +556,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwPads: null, hwDecks: null, jogScale: 0 };
+const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwPads: null, hwDecks: null, jogScale: 0, pfxMix: .5, pfxMeta: null };
 const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
@@ -850,10 +854,10 @@ function buildSide(s) {
 
   // pad modes + pads
   const modes = h("div", "modes");
-  // (no FX mode: the FX strip under the pads has it all)
-  u.modes = ["cue", "roll", "stem", "smpl", "jump"].map(m => {
-    const b = h("button", "", m.toUpperCase()); b.dataset.mode = m;
-    bindPress(b, down => { if (!down) return; const d = deckOf(s); d.mode = m; shiftUsed(d); paintSide(s); });
+  // (no FX mode: the FX strip under the pads has it all; PAD FX is effects held on by the pads, rekordbox's way)
+  u.modes = ["cue", "roll", "stem", "smpl", "jump", "pfx"].map(m => {
+    const b = h("button", "", m === "pfx" ? "PAD FX" : m.toUpperCase()); b.dataset.mode = m;
+    bindPress(b, down => { if (!down) return; const d = deckOf(s); d.mode = m; shiftUsed(d); if (m === "pfx") pfxPrep(d); paintSide(s); });
     modes.appendChild(b); return b;
   });
   const pads = buildPads(s, u, 8);
@@ -870,6 +874,17 @@ function buildFxStrip(s, u) {
   const el = h("div", "fxstrip");
   const unit = () => fxUnitOf(deckOf(s));
   u.fx = { el, paint: () => {} };
+  const pfx = buildPfxStrip(s);   // (in PAD FX mode, in its place)
+  const strip = el;
+  const done = () => {
+    const inner = u.fx.paint;
+    const box = h("div", "fxset"); box.append(...strip.childNodes); strip.append(box, pfx.el);
+    u.fx.paint = () => {
+      const on = deckOf(s).mode === "pfx";
+      box.hidden = on; pfx.el.hidden = !on;
+      if (on) pfx.paint(); else inner();
+    };
+  };
   if (S.fxLayout === "multi") {
     const hold = { onHold: () => fxMenu(s), fill: () => [el] };   // hold anywhere on the row: the FX menu
     const knobs = [0, 1, 2].map(j => knob("FX", () => fxState[unit() - 1].meta[j],
@@ -925,7 +940,31 @@ function buildFxStrip(s, u) {
       level.paint();
     };
   }
+  done();
   return el;
+}
+
+// PAD FX's strip: the pad last pressed (held: lit), its INTENSITY (its effect's meta knob; each pad keeps its own)
+// and the unit's MIX (how much of the effect against the track: half and half, a roll still has the track under it)
+function buildPfxStrip(s) {
+  const el = h("div", "fxset pfxset"), name = h("button", "pfxname");
+  const last = () => { const d = deckOf(s); return d.pfxLast ?? 0; };
+  const meta = knob("INTENSITY", () => pfxMeta(last()), v => {
+    const id = last();
+    S.pfxMeta = { ...(S.pfxMeta || {}), [id]: Math.round(v * 1000) / 1000 }; pfxSave();
+    for (const x of decks) for (const o of x.pfxHeld || []) if (o && o.id === id && o.j >= 0) { fxState[o.u - 1].meta[o.j] = v; setCtl(fxSlotG(o.u, o.j), "meta", v); }
+  }, null);
+  const mix = knob("MIX", () => S.pfxMix ?? .5, v => {
+    S.pfxMix = v; pfxSave();
+    const u = pfxUnit(deckOf(s)); fxState[u - 1].mix = v; if (live) setCtl(fxUnitG(u), "mix", v);
+  }, null);
+  el.append(name, meta, mix);
+  return { el, paint: () => {
+    const d = deckOf(s), id = last(), p = PFX_ALL[id], held = (d.pfxHeld || []).some(o => o && o.id === id);
+    setHTML(name, `${pfxName(p.fx)}${p.beats ? " " + beatText(p.beats) : ""}<small>${held ? "on" : "last pad"} · unit ${pfxUnit(d)}</small>`);
+    name.classList.toggle("on", held);
+    meta.paint(); mix.paint();
+  } };
 }
 
 // Tempo lane, TEMPO BOOST and SHIFT for side s (both layouts).
@@ -1843,6 +1882,7 @@ function paintPad(s, k) {
     case "smpl": paintSamplerPad(el, (d.n % 2 ? 0 : 8) + k); break;
     case "jump": setPad(el, "tint", ["−1", "+1", "−2", "+2", "−4", "+4", "−8", "+8"][padIndex(d, k)], "var(--jump)"); break;
     case "fx": paintFxCell(el, s, k); break;
+    case "pfx": paintPfx(el, s, k); break;
   }
 }
 
@@ -2208,6 +2248,7 @@ function beatOf(d, t) {
 function padPress(s, k, down, e, el) {
   const d = deckOf(s), beat = 60 / d.bpm;
   k = padIndex(d, k);
+  if (d.mode === "pfx" || (!down && d.pfxHeld?.[k])) return pfxPress(d, k, down, s);   // (let go after leaving the mode too)
   if (d.mode === "key") {
     if (!down) { if (k === 2 && live) send("keyAction", d.n, "sync_key", 0); return; }
     if (k < 2 && d.shift) {   // back to the track's own key
@@ -3244,7 +3285,7 @@ const fxUnitOf = d => d.n % 2 ? 1 : 2;
 const fxUnitG = u => `[EffectRack1_EffectUnit${u}]`;
 const fxSlotG = (u, j) => `[EffectRack1_EffectUnit${u}_Effect${j + 1}]`;
 const fxName = (u, j) => { const i = fxState[u - 1].loaded[j]; return i > 0 && fxNames[i - 1] ? fxNames[i - 1] : REMOTE.on ? `FX ${j + 1}` : "—"; };
-const beatText = b => ({ .25: "¼", .5: "½", .75: "¾" })[b] || String(b);
+const beatText = b => ({ .0625: "1/16", .125: "⅛", .25: "¼", .5: "½", .75: "¾" })[b] || String(b);
 // A change of FX layout changes Mixxx too, not just the look: Beat FX is one effect a unit (its slot 1) at the beat
 // length it shows, so the other two slots, which Multi-FX may have left on, go off (Beat FX has nothing to show them by)
 function applyFxLayout() {
@@ -3277,6 +3318,88 @@ async function fxSetBeats(u, slot, b, quiet = false) {
     if (!r.ok && !quiet) toast(r.error || "No beat length for this effect");
   } catch {}
 }
+// PAD FX (as rekordbox's): each pad an effect, on while it's held, on effect unit 3 (decks 1, 3) or 4 (decks 2, 4):
+// Beat FX's units 1 and 2 aren't touched. 8 pads, SHIFT the other 8. A pad's effect goes in the unit's slot that has
+// it already (the rolls share one: only their length changes), else in one that isn't on, the longest unused; its
+// beat length and INTENSITY are set before it goes on. Roll is ZyDeck's (Mixxx ZyDeck's): it repeats the beats after
+// the press, the track still playing under it as MIX says. Only the deck holding a pad goes through its unit.
+const PFX_PADS = [
+  [["Roll", .25], ["Roll", .5], ["Roll", 1], ["Roll", 2], ["Echo", .5], ["Echo", .75], ["Reverb"], ["Flanger", 4]],
+  [["Roll", .0625], ["Roll", .125], ["Roll", .75], ["Roll", 4], ["Echo", 1], ["Phaser", 2], ["Filter"], ["Tremolo/Trans", .25]],
+];
+const PFX_ALL = PFX_PADS.flat().map(([fx, beats], id) => ({ id, fx, beats }));
+const PFX_START = { Roll: 0, Filter: .3 };   // the INTENSITY a pad starts at (else the middle): a roll that doesn't fade
+const pfxUnit = d => d.n % 2 ? 3 : 4;
+const pfxName = fx => ({ "Tremolo/Trans": "Trans" })[fx] || fx;
+const pfxMeta = id => S.pfxMeta?.[id] ?? PFX_START[PFX_ALL[id].fx] ?? .5;
+let pfxSaveT = 0;
+const pfxSave = () => { clearTimeout(pfxSaveT); pfxSaveT = setTimeout(saveSettings, 400); };
+const pfxUsed = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];   // when each slot of each unit was last taken
+function paintPfx(el, s, k) {
+  const d = deckOf(s), p = PFX_ALL[(d.shift ? 8 : 0) + k], held = d.pfxHeld?.[k];
+  const there = !live || !fxNames.length || fxNames.includes(p.fx);
+  setPad(el, held ? "lit" : there ? "tint" : "off",
+    `${pfxName(p.fx).toUpperCase()}<small>${p.beats ? `${beatText(p.beats)} beat${p.beats > 1 ? "s" : ""}` : "&nbsp;"}</small>`, "var(--fx)");
+}
+// Going into PAD FX: the first pads' effects into the unit's slots ahead (not on), so the first press is at once
+function pfxPrep(d) {
+  if (!live || !fxNames.length) return;
+  const u = pfxUnit(d), f = fxState[u - 1];
+  const want = [...new Set(PFX_PADS[0].map(([fx]) => fx))].map(fx => fxNames.indexOf(fx) + 1).filter(i => i > 0);
+  for (const i of want) {
+    if (f.loaded.includes(i)) continue;
+    const j = [0, 1, 2].find(x => !f.enabled[x] && !want.includes(f.loaded[x]));
+    if (j === undefined) break;
+    f.loaded[j] = i; setCtl(fxSlotG(u, j), "loaded_effect", i);
+  }
+  if (Math.abs(f.mix - (S.pfxMix ?? .5)) > .001) { f.mix = S.pfxMix ?? .5; setCtl(fxUnitG(u), "mix", f.mix); }
+}
+function pfxPress(d, k, down, s) {
+  const held = d.pfxHeld ??= [];
+  if (!down) {
+    const o = held[k];
+    if (!o) return;
+    held[k] = null;
+    if (live && o.j >= 0) {
+      const other = decks.flatMap(x => x.pfxHeld || []).find(x => x && x.u === o.u && x.j === o.j);
+      if (other) { if (other.beats) fxSetBeats(other.u, other.j + 1, other.beats, true); }   // (another pad on it: its length)
+      else { fxState[o.u - 1].enabled[o.j] = 0; setCtl(fxSlotG(o.u, o.j), "enabled", 0); }
+    }
+    paintSide(s);
+    return;
+  }
+  if (held[k]) return;
+  const p = PFX_ALL[(d.shift ? 8 : 0) + k];
+  if (d.shift) shiftUsed(d);
+  d.pfxLast = p.id;
+  if (!live) { held[k] = { ...p, u: pfxUnit(d), j: -1 }; paintSide(s); return; }
+  const u = pfxUnit(d), f = fxState[u - 1], i = fxNames.indexOf(p.fx) + 1;
+  if (!i) {
+    toast(!fxNames.length ? fxNone() : p.fx === "Roll" ? "No Roll effect in this Mixxx: it comes with ZyDeck's Mixxx (update it)" : `No ${p.fx} effect in Mixxx`);
+    paintSide(s);
+    return;
+  }
+  let j = [0, 1, 2].find(x => f.loaded[x] === i);
+  if (j === undefined) {
+    const busy = new Set(decks.flatMap(x => x.pfxHeld || []).filter(o => o && o.u === u).map(o => o.j));
+    const free = [0, 1, 2].filter(x => !busy.has(x)).sort((a, b) => pfxUsed[u - 1][a] - pfxUsed[u - 1][b]);
+    if (!free.length) return;   // (three effects held on this unit already)
+    j = free[0];
+    f.loaded[j] = i; setCtl(fxSlotG(u, j), "loaded_effect", i);
+  }
+  pfxUsed[u - 1][j] = performance.now();
+  // only this deck through the unit: the other deck on it, unless it's holding a pad itself
+  const o = d.n > 2 ? d.n - 2 : d.n + 2;
+  if (f.route[o - 1] && !decks[o - 1].pfxHeld?.some(Boolean)) { f.route[o - 1] = 0; setCtl(fxUnitG(u), `group_${ch(o)}_enable`, 0); }
+  if (!f.route[d.n - 1]) fxRoute(d, u);
+  if (Math.abs(f.mix - (S.pfxMix ?? .5)) > .001) { f.mix = S.pfxMix ?? .5; setCtl(fxUnitG(u), "mix", f.mix); }
+  if (p.beats) fxSetBeats(u, j + 1, p.beats, true);   // (before it goes on: a roll takes its length as it starts)
+  f.meta[j] = pfxMeta(p.id); setCtl(fxSlotG(u, j), "meta", f.meta[j]);
+  f.enabled[j] = 1; setCtl(fxSlotG(u, j), "enabled", 1);
+  held[k] = { ...p, u, j };
+  paintSide(s);
+}
+
 // The effects as a unit's slots number them: Mixxx here (the hub), or in controller mode Mixxx on the computer, from
 // ZyDeck Connect over the Wi-Fi link (the last list that computer gave, at once; then its list now). A new list builds
 // the Hardware FX menu ahead (fxPrewarm), so it opens without a wait
@@ -3567,7 +3690,7 @@ function applyCv(name, v, ts) {
 const slipSubs = () => [1, 2, 3, 4].map(n => [ch(n), "zydeck_slip_seconds", 0]);   // (the computer's slip; here: the hub's "slip")
 function subscribeAll() {
   const sub = [];
-  for (const u of [1, 2]) {   // the FX panel's units
+  for (const u of [1, 2, 3, 4]) {   // the FX panel's units, and PAD FX's
     sub.push([fxUnitG(u), "mix", 0], ...[1, 2, 3, 4].map(n => [fxUnitG(u), `group_${ch(n)}_enable`, 0]));
     for (let j = 0; j < 3; j++) for (const k of ["enabled", "meta", "loaded_effect"]) sub.push([fxSlotG(u, j), k, 0]);
   }
