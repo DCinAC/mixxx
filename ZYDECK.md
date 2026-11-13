@@ -30,7 +30,8 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 - **Intro and outro from the phrases**: a track whose first section is an intro, or last an outro, gets those cues
   from them (each only where the track has none yet).
 - **Roll**: a beat roll as an effect (ZyDeck's PAD FX): it records the next 1/16 to 4 beats as it's switched on and
-  repeats them, the track still playing underneath as the unit's MIX says (Mixxx's own roll takes the deck over).
+  repeats them, the track still playing underneath as the unit's MIX says (Mixxx's own roll takes the deck over);
+  and Backward Roll, its repeats played backwards. `src/zydeck/rolleffect.*`.
 - **Sidechain**: the beat pump effect from ZyDeck on Android (the sound drops on each beat, or every 1/2 or 1/4 beat,
   and swells back, locked to the beat grid), so both have the same effects.
 - **The effects list for ZyDeck**: `zydeck-effects.json` in the settings folder, Mixxx's visible effects in order,

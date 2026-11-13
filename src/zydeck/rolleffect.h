@@ -13,6 +13,8 @@
 // then repeats them until it's switched off. The track keeps playing underneath: the effect unit's MIX sets how
 // much of each is heard (half and half at the middle), unlike Mixxx's own roll, which takes the deck's sound over.
 // Fade (the meta knob): each repeat a little quieter. While it records, it lets the track through as it is.
+// Backward Roll (BackwardRollEffect): the same, its repeats played backwards (the first, as it records, can't be: an
+// effect hears nothing before it's on; the first backwards one starts where that ends, so they join without a jump).
 class RollState : public EffectState {
   public:
     // 4 seconds: 4 beats down to 60 BPM (a longer roll is cut to what fits)
@@ -42,6 +44,7 @@ class RollState : public EffectState {
         beforeFilled = 0;
         length = 0;
         beats = 0;
+        passes = 0;
         lastFraction = -1;
         gain = 1;
     }
@@ -56,6 +59,7 @@ class RollState : public EffectState {
     SINT beforeFilled = 0;        // and how much of it has been (none: switched on without waiting, no seam)
     SINT length = 0;              // the loop's frames (its beats at the tempo it started at)
     double beats = 0;             // the length it was asked for (a new one while it repeats: shorter, or again)
+    int passes = 0;               // repeats begun
     double lastFraction = -1;     // where in the beat the last frame was
     double gain = 1;              // the repeats' level (Fade)
 };
@@ -79,6 +83,10 @@ class RollEffect : public EffectProcessorImpl<RollState> {
             const EffectEnableState enableState,
             const GroupFeatureState& groupFeatures) override;
 
+  protected:
+    static EffectManifestPointer manifest(bool backward);
+    bool m_backward = false;
+
   private:
     QString debugString() const {
         return getId();
@@ -89,4 +97,13 @@ class RollEffect : public EffectProcessorImpl<RollState> {
     EngineEffectParameterPointer m_pQuantizeParameter;
 
     DISALLOW_COPY_AND_ASSIGN(RollEffect);
+};
+
+class BackwardRollEffect : public RollEffect {
+  public:
+    BackwardRollEffect() {
+        m_backward = true;
+    }
+    static QString getId();
+    static EffectManifestPointer getManifest();
 };

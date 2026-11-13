@@ -75,6 +75,7 @@ BuiltInBackend::BuiltInBackend() {
 #ifdef __ZYDECK__   // ZyDeck: the Sidechain pump and the Roll (zydeck/), as in ZyDeck on Android
     registerEffect<SidechainEffect>();
     registerEffect<RollEffect>();
+    registerEffect<BackwardRollEffect>();
 #endif
     registerEffect<AutoGainControlEffect>();
     registerEffect<GainEffect>();

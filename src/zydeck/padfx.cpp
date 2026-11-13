@@ -46,7 +46,7 @@ namespace {
 
 constexpr int kDecks = 4;
 constexpr int kPads = 16;
-constexpr int kFileVersion = 2;   // (1: 32 pads, a SHIFT layer on each page: started again from the defaults)
+constexpr int kFileVersion = 3;   // (1: 32 pads, a SHIFT layer on each page: the defaults again; 2: Backward Roll not yet)
 constexpr int kSlots = 3;
 
 struct Preset {
@@ -94,6 +94,7 @@ Preset preset(const char* id, double beats, double level, double meta = -1, cons
 }
 std::array<Preset, kPads> defaults() {
     const char* roll = "org.zydeck.effects.roll";
+    const char* backroll = "org.zydeck.effects.backroll";
     const char* echo = "org.mixxx.effects.echo";
     const char* reverb = "org.mixxx.effects.reverb";
     const char* flanger = "org.mixxx.effects.flanger";
@@ -106,7 +107,7 @@ std::array<Preset, kPads> defaults() {
             preset(roll, 0.25, 0.5, 0), preset(roll, 0.5, 0.5, 0), preset(roll, 1, 0.5, 0), preset(roll, 2, 0.5, 0),
             preset(echo, 0.5, 0.5), preset(echo, 0.75, 0.5), preset(reverb, 0, 0.5), preset(flanger, 4, 0.7),
             // page 2
-            preset(roll, 0.125, 0.5, 0), preset(roll, 0.75, 0.5, 0), preset(echo, 1, 0.5), preset(phaser, 2, 0.7),
+            preset(backroll, 0.25, 0.5, 0), preset(backroll, 0.5, 0.5, 0), preset(echo, 1, 0.5), preset(phaser, 2, 0.7),
             preset(filter, 0, 1, 0.3, "LPF"), preset(filter, 0, 1, 0.7, "HPF"), preset(tremolo, 0.25, 1), preset(pump, 1, 1),
     }};
 }
@@ -384,7 +385,8 @@ class PadFx : public QObject {
             return;
         }
         const QJsonObject file = QJsonDocument::fromJson(f.readAll()).object();
-        if (file.value(QStringLiteral("version")).toInt() != kFileVersion) {
+        const int version = file.value(QStringLiteral("version")).toInt();
+        if (version != kFileVersion && version != 2) {
             f.close();
             save();   // (an older layout: the defaults)
             return;
@@ -394,6 +396,18 @@ class PadFx : public QObject {
             if (pads[p].isObject()) {
                 m_presets[p] = Preset::fromJson(pads[p].toObject());
             }
+        }
+        if (version == 2) {   // page 2's first two pads, as they came (rolls of 1/8 and 3/4): now Backward Roll's
+            const double was[2] = {0.125, 0.75};
+            for (int i = 0; i < 2; ++i) {
+                const Preset& p = m_presets[8 + i];
+                if (p.effect == QLatin1String("org.zydeck.effects.roll") && std::abs(p.beats - was[i]) < 1e-9 &&
+                        p.name.isEmpty() && p.params.isEmpty() && std::abs(p.level - 0.5) < 1e-9) {
+                    m_presets[8 + i] = defaults()[8 + i];
+                }
+            }
+            f.close();
+            save();
         }
     }
     void save() {
