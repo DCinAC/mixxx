@@ -70,6 +70,7 @@ QList<Phrase> phrasesFrom(const QJsonObject& structure) {
         p.start = o.value(QStringLiteral("s")).toDouble();
         p.end = o.value(QStringLiteral("e")).toDouble();
         p.color = sectionColor(name);
+        p.label = name;
         if (l != letter || name != label) {   // (a run of the same one: tagged once)
             p.tag = QStringLiteral("%1 %2").arg(l, name);
         }
@@ -254,9 +255,45 @@ void Phrases::again(const QString& group, int id, int ms) {
     });
 }
 
+namespace {
+// The intro and outro cues from the sections: an intro first, an outro last (a run of them as one); each cue only
+// where the track has none yet (-1), so Mixxx's own (its analysis sets the intro's start and the outro's end where
+// the sound starts and stops) and one set by hand stay
+void fillIntroOutro(const QString& group, const QList<Phrase>& phrases) {
+    const double rate = ControlObject::get(ConfigKey(group, QStringLiteral("track_samplerate")));
+    if (phrases.isEmpty() || rate <= 0) {
+        return;
+    }
+    const auto is = [](const Phrase& p, const char* kind) { return p.label.compare(QLatin1String(kind), Qt::CaseInsensitive) == 0; };
+    const auto put = [&](const char* key, double seconds) {
+        const ConfigKey ck(group, QString::fromLatin1(key));
+        if (ControlObject::get(ck) < 0 && seconds >= 0) {
+            ControlObject::set(ck, std::round(seconds * rate) * 2);   // (positions count both channels' samples)
+        }
+    };
+    if (is(phrases.first(), "intro")) {
+        int i = 0;
+        while (i + 1 < phrases.size() && is(phrases[i + 1], "intro")) {
+            ++i;
+        }
+        put("intro_start_position", phrases.first().start);
+        put("intro_end_position", phrases[i].end);
+    }
+    if (is(phrases.last(), "outro")) {
+        int i = static_cast<int>(phrases.size()) - 1;
+        while (i > 0 && is(phrases[i - 1], "outro")) {
+            --i;
+        }
+        put("outro_start_position", phrases[i].start);
+        put("outro_end_position", phrases.last().end);
+    }
+}
+} // namespace
+
 void Phrases::set(const QString& group, QList<Phrase> phrases) {
     m_decks[group].phrases = std::move(phrases);
     ++m_version;
+    fillIntroOutro(group, m_decks[group].phrases);
     emit changed(group);
 }
 

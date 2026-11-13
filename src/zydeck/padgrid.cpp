@@ -25,14 +25,31 @@ enum Mode { HotCue = 0, PadFx1 = 1, PadFx2 = 2, Sampler = 3, Stems = 4, kModes =
 const char* const kModeNames[kModes] = {"HOT CUE", "PAD FX 1", "PAD FX 2", "SAMPLER", "STEMS"};
 const char* const kModeShort[kModes] = {"CUE", "FX 1", "FX 2", "SMPL", "STEM"};
 
-const QColor kBack(0x1a, 0x1a, 0x1a);
-const QColor kPad(0x2b, 0x2b, 0x2b);
-const QColor kEdge(0x3c, 0x3c, 0x3c);
-const QColor kText(0xd6, 0xd6, 0xd6);
-const QColor kDim(0x77, 0x77, 0x77);
-const QColor kFx(0xb0, 0x6c, 0xff);
-const QColor kSampler(0xff, 0x9a, 0x2e);
-const QColor kStem(0x3c, 0xc8, 0xff);
+// LateNight's look (PaleMoon): square buttons, a 1 px near-black edge round a face of #1e1e20 with a faint light on it
+// (btn_embedded_square.svg: #dcdcdc at 7 %), pressed a shade darker; its FX 3/4 teal for PAD FX (units 3 and 4)
+const QColor kFace(0x1e, 0x1e, 0x20);
+const QColor kEdge(0x00, 0x00, 0x01);
+const QColor kSheen(0xdc, 0xdc, 0xdc, 18);
+const QColor kPress(0x00, 0x00, 0x00, 80);
+const QColor kTabOn(0x3a, 0x3a, 0x3c);
+const QColor kText(0xbb, 0xbb, 0xbb);
+const QColor kDim(0x66, 0x66, 0x66);
+const QColor kFx(0x14, 0x66, 0x74);
+const QColor kFxOn(0x25, 0x7b, 0x82);
+const QColor kSampler(0xb2, 0x4c, 0x12);
+const QColor kStem(0x39, 0x55, 0x79);
+
+// One LateNight button: its edge, its face (colour: a set pad's, else the plain face), its sheen, pressed darker
+void button(QPainter& p, const QRectF& r, const QColor& face, bool pressed) {
+    const QRect box = r.toAlignedRect();
+    p.fillRect(box, kEdge);
+    const QRect inner = box.adjusted(1, 1, -1, -1);
+    p.fillRect(inner, face);
+    p.fillRect(inner, kSheen);
+    if (pressed) {
+        p.fillRect(inner, kPress);
+    }
+}
 
 double get(const QString& group, const QString& key) {
     const ControlObject* pCo = ControlObject::getControl(ConfigKey(group, key), ControlFlag::NoWarnIfMissing);
@@ -75,58 +92,42 @@ class PadGrid : public QWidget {
   protected:
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing);
-        p.fillRect(rect(), kBack);
         const int mode = this->mode();
-        // the modes' row
-        QFont small = font();
-        small.setPixelSize(9);
-        small.setBold(true);
+        QFont small(QStringLiteral("Open Sans Semibold"));
+        small.setPixelSize(10);
         p.setFont(small);
+        // the modes' row
         for (int m = 0; m < kModes; ++m) {
             const QRectF r = tabRect(m);
             const bool on = m == mode;
-            p.setPen(Qt::NoPen);
-            p.setBrush(on ? QColor(0x44, 0x44, 0x44) : kPad);
-            p.drawRoundedRect(r, 2, 2);
-            p.setPen(on ? (m == PadFx1 || m == PadFx2 ? kFx : kText) : kDim);
-            p.drawText(r, Qt::AlignCenter, QString::fromLatin1(width() > 260 ? kModeNames[m] : kModeShort[m]));
+            button(p, r, on ? kTabOn : kFace, false);
+            p.setPen(on ? QColor(0xee, 0xee, 0xee) : kDim);
+            p.drawText(r, Qt::AlignCenter, QString::fromLatin1(width() > 300 ? kModeNames[m] : kModeShort[m]));
         }
         // the pads
         const QList<Pad> pads = this->pads();
-        QFont big = font();
-        big.setPixelSize(std::max(9, std::min(13, padRect(0).toRect().height() / 4)));
-        big.setBold(true);
+        QFont big(QStringLiteral("Open Sans Semibold"));
+        big.setPixelSize(std::clamp(static_cast<int>(padRect(0).height() / 3.2), 10, 14));
         for (int k = 0; k < 8; ++k) {
             const QRectF r = padRect(k);
             const Pad& pad = pads.value(k);
             const bool there = pad.color.isValid();
-            QColor fill = !there ? kPad : pad.lit ? pad.color : pad.color.darker(330);
-            p.setPen(QPen(there ? pad.color.darker(pad.lit ? 100 : 180) : kEdge, 1));
-            p.setBrush(fill);
-            p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 3, 3);
-            if (k == m_down) {
-                p.setPen(QPen(Qt::white, 1.5));
-                p.setBrush(Qt::NoBrush);
-                p.drawRoundedRect(r.adjusted(1, 1, -1, -1), 3, 3);
-            }
-            const QColor ink = pad.lit && there ? (pad.color.lightness() > 140 ? QColor(0x14, 0x14, 0x14) : Qt::white)
-                    : there                    ? kText
-                                               : kDim;
+            const QColor face = there ? pad.color : kFace;   // (as Mixxx's: a set hot cue in its colour)
+            button(p, r, face, k == m_down);
+            const QColor ink = !there ? kDim : face.lightness() > 150 ? QColor(0x14, 0x14, 0x14) : QColor(0xee, 0xee, 0xee);
             p.setPen(ink);
             p.setFont(big);
-            const QRectF inner = r.adjusted(3, 2, -3, -2);
-            p.drawText(inner, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextWordWrap,
-                    QFontMetrics(big).elidedText(pad.top, Qt::ElideRight, static_cast<int>(inner.width() * 2)));
+            const QRectF inner = r.adjusted(4, 2, -4, -2);
+            p.drawText(inner, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextWordWrap, pad.top);
             if (!pad.bottom.isEmpty()) {
                 p.setFont(small);
                 p.drawText(inner, Qt::AlignHCenter | Qt::AlignBottom, pad.bottom);
             }
         }
-        if (shifted()) {   // (SHIFT's layer)
+        if (shifted()) {   // (SHIFT held: its layer)
             p.setPen(kDim);
             p.setFont(small);
-            p.drawText(rect().adjusted(0, 0, -2, 0), Qt::AlignRight | Qt::AlignBottom, QStringLiteral("SHIFT"));
+            p.drawText(QRectF(0, 0, width() - 2, 14), Qt::AlignRight | Qt::AlignVCenter, QStringLiteral("SHIFT"));
         }
     }
 
@@ -170,12 +171,17 @@ class PadGrid : public QWidget {
     QRectF tabRect(int m) const {
         constexpr int modes = kModes;
         const double w = (width() - (modes - 1) * 2.0) / modes;
-        return {m * (w + 2), 0, w, 14};
+        return {std::round(m * (w + 2)), 0, std::round(w), 16};
+    }
+    // (the height it's shown in: a deck row with less room than the pads ask for cuts them, so they fit what shows)
+    double shownHeight() const {
+        const QRect seen = visibleRegion().boundingRect();
+        return seen.isEmpty() ? height() : std::min(height(), seen.bottom() + 1);
     }
     QRectF padRect(int k) const {
-        const double top = 17, gap = 3;
-        const double w = (width() - 3 * gap) / 4, h = (height() - top - gap) / 2;
-        return {(k % 4) * (w + gap), top + (k / 4) * (h + gap), w, h};
+        const double top = 18, gap = 2;
+        const double w = (width() - 3 * gap) / 4, h = (shownHeight() - top - gap) / 2;
+        return {std::round((k % 4) * (w + gap)), std::round(top + (k / 4) * (h + gap)), std::round(w), std::round(h)};
     }
     QString samplerGroup(int k) const {
         // decks 1, 3: samplers 1-8; decks 2, 4: 9-16 (as ZyDeck's pads; Mixxx with fewer: the ones there are)
@@ -220,14 +226,14 @@ class PadGrid : public QWidget {
         case PadFx1:
         case PadFx2:
             for (int k = 0; k < 8; ++k) {
-                const int p = (mode == PadFx2 ? 16 : 0) + (shift ? 8 : 0) + k;
+                const int p = (mode == PadFx2 ? 8 : 0) + k;
                 const PadFxLabel l = padFxLabel(p);
                 Pad pad;
                 if (!l.name.isEmpty()) {
                     pad.top = l.name.toUpper();
                     pad.bottom = l.beats;
-                    pad.color = kFx;
                     pad.lit = get(m_group, QStringLiteral("zydeck_padfx_%1").arg(p + 1)) > 0;
+                    pad.color = pad.lit ? kFxOn : kFx;
                 }
                 out.append(pad);
             }
@@ -241,8 +247,8 @@ class PadGrid : public QWidget {
                     pad.top = pTrack ? pTrack->getTitle() : QString();
                     pad.bottom = QString::number((m_deck % 2 ? 0 : 8) + k + 1);
                     if (pTrack) {
-                        pad.color = kSampler;
                         pad.lit = get(g, QStringLiteral("play")) > 0;
+                        pad.color = pad.lit ? kSampler : QColor(0x2e, 0x2e, 0x30);
                     }
                 }
                 out.append(pad);
@@ -257,8 +263,8 @@ class PadGrid : public QWidget {
                     pad.top = QStringLiteral("STEM %1").arg(k + 1);
                     pad.bottom = get(g, QStringLiteral("mute")) > 0 ? QStringLiteral("muted") : QString();
                     const double c = get(g, QStringLiteral("color"));
-                    pad.color = c > 0 ? QColor(static_cast<QRgb>(c)) : kStem;
                     pad.lit = get(g, QStringLiteral("mute")) <= 0;
+                    pad.color = !pad.lit ? QColor(0x2e, 0x2e, 0x30) : c > 0 ? QColor(static_cast<QRgb>(c)) : kStem;
                 }
                 out.append(pad);
             }
@@ -269,7 +275,8 @@ class PadGrid : public QWidget {
     }
 
     QString signature() const {
-        QString s = QString::number(mode()) + (shifted() ? "s" : "") + QString::number(m_down) + QString::number(width());
+        QString s = QString::number(mode()) + (shifted() ? "s" : "") + QString::number(m_down) + QString::number(width()) + 'x' +
+                QString::number(shownHeight());
         s += QString::number(get(QStringLiteral("[ZyDeck]"), QStringLiteral("padfx_version")));
         for (const Pad& pad : pads()) {
             s += '|' + pad.top + '/' + pad.bottom + '/' + pad.color.name() + (pad.lit ? "!" : "");
@@ -293,9 +300,17 @@ class PadGrid : public QWidget {
             return;
         }
         case PadFx1:
-        case PadFx2:
-            set(m_group, QStringLiteral("zydeck_padfx_%1").arg((mode == PadFx2 ? 16 : 0) + (shift ? 8 : 0) + k + 1), down ? 1 : 0);
+        case PadFx2: {
+            const int p = (mode == PadFx2 ? 8 : 0) + k;
+            if (shift || right) {   // SHIFT (or the right button): the pad's editor, as a sampler pad's menu
+                if (down) {
+                    editPadFx(p, window());
+                }
+                return;
+            }
+            set(m_group, QStringLiteral("zydeck_padfx_%1").arg(p + 1), down ? 1 : 0);
             return;
+        }
         case Sampler: {
             if (!down) {
                 return;

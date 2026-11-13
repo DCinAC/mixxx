@@ -17,6 +17,17 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
   a "stem" folder in the original's own folder when that's on a network drive (the NAS), else in ZyDeck Web; Connect's
   note in ZyDeck Web names both. It takes over the original's beat grid, key, cues, colour, rating, crates and
   playlists, and the original's comment starts with "stem available". `src/zydeck/stems.*`, `src/zydeck/webfolder.*`.
+- **PAD FX**: rekordbox's Pad FX: 16 pads (two pages of 8), each a preset of one effect with every parameter, its beat
+  length, LEVEL/DEPTH (wet/dry) and meta knob, on while held, on effect units 3 (decks 1, 3) and 4 (decks 2, 4).
+  `[ChannelN],zydeck_padfx_P` is the pad (the skin's pads, a controller's mapping, a phone or tablet through Connect);
+  presets in `zydeck-padfx.json`, edited in Mixxx (SHIFT + a pad, or right-click it) or from a device
+  (`zydeck-padfx-edit.json`). `src/zydeck/padfx.*`.
+- **The deck's pads**: in LateNight, in place of the hot cues and twice as tall (the deck gear menu's "ZyDeck Pads"):
+  8 pads for the deck's pad mode (HOT CUE, PAD FX 1/2, SAMPLER, STEMS), as rekordbox and Serato show them, following
+  the DJ controller's mode through Connect (`[ChannelN],zydeck_pad_mode`, `zydeck_pad_shift`). A ZyDeck widget put in
+  a skin group named `ZyDeckPads_[ChannelN]` as it's shown, so no skin parser hook. `src/zydeck/padgrid.*`.
+- **Intro and outro from the phrases**: a track whose first section is an intro, or last an outro, gets those cues
+  from them (each only where the track has none yet).
 - **Roll**: a beat roll as an effect (ZyDeck's PAD FX): it records the next 1/16 to 4 beats as it's switched on and
   repeats them, the track still playing underneath as the unit's MIX says (Mixxx's own roll takes the deck over).
 - **Sidechain**: the beat pump effect from ZyDeck on Android (the sound drops on each beat, or every 1/2 or 1/4 beat,
@@ -68,8 +79,9 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 | `src/engine/readaheadmanager.cpp`, `src/engine/cachingreader/cachingreader.cpp` | read further ahead, with a bigger cache (network music folders) |
 | `src/main.cpp` | macOS: raises the open-file limit from 256 (Mixxx's ~100 threads hold ~200 of them as Qt wake-up pipes; analysing a new stem file ran out, and Qt aborted) |
 | `src/widget/woverview.cpp`, `src/waveform/widgets/allshader/waveformwidget.cpp` | add the phrases to the overview and the scrolling waveform, and the bars and time left (`src/zydeck/phrases.*`) |
-| `res/skins/LateNight/skin.xml`, `skin_settings.xml` | the Bars & Time Left switch |
+| `res/skins/LateNight/skin.xml`, `skin_settings.xml` | the Bars & Time Left switch, and ZyDeck Pads' (`[Skin],zydeck_pads`) |
+| `res/skins/LateNight/decks/row_5_transportLoopJump.xml`, `helpers/skin_settings_full_deck.xml` | the deck's pads in place of the hot cues, and their switch in the deck gear menu |
 | `res/skins/LateNight/decks/deck_mini.xml`, `style_palemoon.qss` | the key above the big library: PaleMoon drew it blank (no box rule for WKey to draw in), and room for all of it |
-| `src/coreservices.cpp` | writes the effects list and the decks' tracks for ZyDeck Connect once effects are set up (`src/zydeck/effectlist.*`, `decklist.*`), loads a track into a deck, or previews it, when Connect asks (a device's library page and "download and load to deck": `loadrequest.*`), runs Mixxx's Auto DJ as a device asks through Connect (`autodjrequest.*`), and sets up the Live Broadcasting connection to the ZyDeck Discord bot that Connect hands over (`discordbroadcast.*`) |
+| `src/coreservices.cpp` | writes the effects list and the decks' tracks for ZyDeck Connect once effects are set up (`src/zydeck/effectlist.*`, `decklist.*`), sets up PAD FX and the decks' pads (`padfx.*`, `padgrid.*`), loads a track into a deck, or previews it, when Connect asks (a device's library page and "download and load to deck": `loadrequest.*`), runs Mixxx's Auto DJ as a device asks through Connect (`autodjrequest.*`), and sets up the Live Broadcasting connection to the ZyDeck Discord bot that Connect hands over (`discordbroadcast.*`) |
 
 Based on upstream `main` at 64c1cbec91 (2026-11-06, 2.7.0-alpha).

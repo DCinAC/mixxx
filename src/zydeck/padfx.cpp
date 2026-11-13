@@ -1,6 +1,17 @@
 #include "zydeck/padfx.h"
 
+#include <QCheckBox>
+#include <QComboBox>
 #include <QCoreApplication>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QSlider>
+#include <QVBoxLayout>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QHash>
@@ -8,7 +19,10 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QPointer>
+#include <QSignalBlocker>
 #include <QTimer>
+#include <functional>
 #include <array>
 #include <cmath>
 #include <vector>
@@ -23,13 +37,15 @@
 #include "effects/effectparameterslotbase.h"
 #include "effects/effectslot.h"
 #include "effects/effectsmanager.h"
+#include "effects/visibleeffectslist.h"
 
 namespace zydeck {
 
 namespace {
 
 constexpr int kDecks = 4;
-constexpr int kPads = 32;
+constexpr int kPads = 16;
+constexpr int kFileVersion = 2;   // (1: 32 pads, a SHIFT layer on each page: started again from the defaults)
 constexpr int kSlots = 3;
 
 struct Preset {
@@ -65,8 +81,9 @@ struct Preset {
 };
 
 // The pads to start with: rolls that keep the track under them (level 1/2), and the usual beat FX
-Preset preset(const char* id, double beats, double level, double meta = -1) {
+Preset preset(const char* id, double beats, double level, double meta = -1, const char* name = "") {
     Preset p;
+    p.name = QString::fromLatin1(name);
     p.effect = QString::fromLatin1(id);
     p.backend = EffectsBackend::backendTypeToString(EffectBackendType::BuiltIn);
     p.beats = beats;
@@ -84,17 +101,12 @@ std::array<Preset, kPads> defaults() {
     const char* tremolo = "org.mixxx.effects.tremolo";
     const char* pump = "org.zydeck.effects.sidechain";
     return {{
-            // page 1, then with SHIFT
+            // page 1
             preset(roll, 0.25, 0.5, 0), preset(roll, 0.5, 0.5, 0), preset(roll, 1, 0.5, 0), preset(roll, 2, 0.5, 0),
             preset(echo, 0.5, 0.5), preset(echo, 0.75, 0.5), preset(reverb, 0, 0.5), preset(flanger, 4, 0.7),
-            preset(roll, 0.0625, 0.5, 0), preset(roll, 0.125, 0.5, 0), preset(roll, 0.75, 0.5, 0), preset(roll, 4, 0.5, 0),
-            preset(echo, 1, 0.5), preset(phaser, 2, 0.7), preset(filter, 0, 1, 0.3), preset(tremolo, 0.25, 1),
-            // page 2, then with SHIFT
-            preset(echo, 0.25, 0.5), preset(echo, 2, 0.5), preset(pump, 1, 1), preset(pump, 0.5, 1),
-            preset(phaser, 1, 0.7), preset(flanger, 1, 0.7), preset("org.mixxx.effects.bitcrusher", 0, 1), preset(filter, 0, 1, 0.7),
-            preset(tremolo, 0.5, 1), preset("org.mixxx.effects.autopan", 1, 1), preset("org.mixxx.effects.glitch", 0.125, 0.7),
-            preset("org.mixxx.effects.distortion", 0, 1), preset("org.mixxx.effects.pitchshift", 0, 1),
-            preset("org.mixxx.effects.whitenoise", 0, 0.5), preset("org.mixxx.effects.moogladder4filter", 0, 1), preset(reverb, 0, 0.8),
+            // page 2
+            preset(roll, 0.125, 0.5, 0), preset(roll, 0.75, 0.5, 0), preset(echo, 1, 0.5), preset(phaser, 2, 0.7),
+            preset(filter, 0, 1, 0.3, "LPF"), preset(filter, 0, 1, 0.7, "HPF"), preset(tremolo, 0.25, 1), preset(pump, 1, 1),
     }};
 }
 
@@ -108,7 +120,8 @@ class PadFx : public QObject {
               m_pEffects(pEffects),
               m_file(pConfig->getSettingsPath() + QStringLiteral("/zydeck-padfx.json")),
               m_edit(pConfig->getSettingsPath() + QStringLiteral("/zydeck-padfx-edit.json")),
-              m_version(ConfigKey(QStringLiteral("[ZyDeck]"), QStringLiteral("padfx_version"))) {
+              m_version(ConfigKey(QStringLiteral("[ZyDeck]"), QStringLiteral("padfx_version"))),
+              m_shiftEdits(ConfigKey(QStringLiteral("[ZyDeck]"), QStringLiteral("padfx_shift_edits"))) {
         m_presets = defaults();
         load();
         m_clock.start();
@@ -150,6 +163,29 @@ class PadFx : public QObject {
             l.beats = fractions.value(k, QString::number(p.beats));
         }
         return l;
+    }
+
+    // (the editor's)
+    Preset preset(int pad) const {
+        return pad >= 0 && pad < kPads ? m_presets[pad] : Preset();
+    }
+    void setPreset(int pad, const Preset& p) {
+        if (pad >= 0 && pad < kPads) {
+            m_presets[pad] = p;
+            save();
+        }
+    }
+    Preset defaultPreset(int pad) const {
+        return pad >= 0 && pad < kPads ? defaults()[pad] : Preset();
+    }
+    Preset captured(int unit, int slot) const {
+        return capture(unit, slot);
+    }
+    std::shared_ptr<EffectsManager> effects() const {
+        return m_pEffects;
+    }
+    EffectManifestPointer manifest(const Preset& p) const {
+        return manifestOf(p);
     }
 
   private:
@@ -346,7 +382,13 @@ class PadFx : public QObject {
             save();   // (the defaults: there for ZyDeck Connect to show)
             return;
         }
-        const QJsonArray pads = QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("pads")).toArray();
+        const QJsonObject file = QJsonDocument::fromJson(f.readAll()).object();
+        if (file.value(QStringLiteral("version")).toInt() != kFileVersion) {
+            f.close();
+            save();   // (an older layout: the defaults)
+            return;
+        }
+        const QJsonArray pads = file.value(QStringLiteral("pads")).toArray();
         for (int p = 0; p < kPads && p < pads.size(); ++p) {
             if (pads[p].isObject()) {
                 m_presets[p] = Preset::fromJson(pads[p].toObject());
@@ -360,7 +402,7 @@ class PadFx : public QObject {
         }
         QSaveFile f(m_file);
         if (f.open(QIODevice::WriteOnly)) {
-            f.write(QJsonDocument(QJsonObject{{"pads", pads}}).toJson(QJsonDocument::Compact));
+            f.write(QJsonDocument(QJsonObject{{"version", kFileVersion}, {"pads", pads}}).toJson(QJsonDocument::Compact));
             f.commit();
         }
         m_version.set(m_version.get() + 1);
@@ -399,6 +441,7 @@ class PadFx : public QObject {
     QString m_file;
     QString m_edit;
     ControlObject m_version;
+    ControlObject m_shiftEdits;
     std::array<Preset, kPads> m_presets;
     std::array<std::array<ControlPushButton*, kPads>, kDecks> m_pads{};
     std::array<std::array<Held, kPads>, kDecks> m_held{};
@@ -410,6 +453,211 @@ class PadFx : public QObject {
 
 PadFxLabel padFxLabel(int pad) {
     return s_pPadFx ? s_pPadFx->label(pad) : PadFxLabel();
+}
+
+namespace {
+// The pad editor: a window per pad (a second press brings it forward)
+QHash<int, QPointer<QDialog>> s_editors;
+
+// A knob's place (0-1000) and back, as Mixxx's knobs go: logarithmic ones by the ratio
+double knobValue(const EffectManifestParameterPointer& pInfo, int x) {
+    const double lo = pInfo->getMinimum(), hi = pInfo->getMaximum(), t = x / 1000.0;
+    if (pInfo->valueScaler() == EffectManifestParameter::ValueScaler::Logarithmic && lo > 0 && hi > lo) {
+        return lo * std::pow(hi / lo, t);
+    }
+    return lo + (hi - lo) * t;
+}
+int knobPlace(const EffectManifestParameterPointer& pInfo, double v) {
+    const double lo = pInfo->getMinimum(), hi = pInfo->getMaximum();
+    double t = 0;
+    if (pInfo->valueScaler() == EffectManifestParameter::ValueScaler::Logarithmic && lo > 0 && hi > lo && v > 0) {
+        t = std::log(v / lo) / std::log(hi / lo);
+    } else if (hi > lo) {
+        t = (v - lo) / (hi - lo);
+    }
+    return static_cast<int>(std::lround(std::clamp(t, 0.0, 1.0) * 1000));
+}
+bool inBeats(const EffectManifestPointer& pManifest, const EffectManifestParameterPointer& pInfo, int knob) {
+    return pInfo->unitsHint() == EffectManifestParameter::UnitsHint::Beats ||
+            (knob == 0 && pManifest->id() == QLatin1String("org.mixxx.effects.flanger"));
+}
+QString beatsText(double b) {
+    static const QHash<int, QString> fractions{{625, QStringLiteral("1/16")}, {1250, QStringLiteral("1/8")},
+            {2500, QStringLiteral("1/4")}, {5000, QStringLiteral("1/2")}, {7500, QStringLiteral("3/4")}};
+    return fractions.value(static_cast<int>(std::lround(b * 10000)), QString::number(b));
+}
+} // namespace
+
+void editPadFx(int pad, QWidget* pParent) {
+    if (!s_pPadFx || pad < 0 || pad >= kPads) {
+        return;
+    }
+    if (QDialog* pOpen = s_editors.value(pad)) {
+        pOpen->raise();
+        pOpen->activateWindow();
+        return;
+    }
+    PadFx* const pFx = s_pPadFx;
+    auto* pDialog = new QDialog(pParent);
+    s_editors.insert(pad, pDialog);
+    pDialog->setAttribute(Qt::WA_DeleteOnClose);
+    pDialog->setWindowTitle(QStringLiteral("PAD FX %1 · pad %2").arg(pad / 8 + 1).arg(pad % 8 + 1));
+    auto* pOuter = new QVBoxLayout(pDialog);
+    auto* pTop = new QFormLayout();
+    auto* pName = new QLineEdit(pDialog);
+    auto* pEffect = new QComboBox(pDialog);
+    pTop->addRow(QObject::tr("Name"), pName);
+    pTop->addRow(QObject::tr("Effect"), pEffect);
+    auto* pLevel = new QSlider(Qt::Horizontal, pDialog);
+    pLevel->setRange(0, 100);
+    auto* pLevelText = new QLabel(pDialog);
+    auto* pLevelRow = new QHBoxLayout();
+    pLevelRow->addWidget(pLevel);
+    pLevelRow->addWidget(pLevelText);
+    pTop->addRow(QObject::tr("LEVEL/DEPTH"), pLevelRow);
+    auto* pMeta = new QSlider(Qt::Horizontal, pDialog);
+    pMeta->setRange(0, 100);
+    pTop->addRow(QObject::tr("Intensity (meta)"), pMeta);
+    pOuter->addLayout(pTop);
+    auto* pParamsBox = new QWidget(pDialog);
+    auto* pParams = new QFormLayout(pParamsBox);
+    pParams->setContentsMargins(0, 6, 0, 6);
+    pOuter->addWidget(pParamsBox);
+    // what an FX unit's slot has now, as it is
+    auto* pTakeRow = new QHBoxLayout();
+    auto* pFrom = new QComboBox(pDialog);
+    for (int u = 1; u <= 4; ++u) {
+        for (int j = 1; j <= 3; ++j) {
+            pFrom->addItem(QObject::tr("FX unit %1, effect %2").arg(u).arg(j), QPoint(u, j));
+        }
+    }
+    auto* pTake = new QPushButton(QObject::tr("Take as it is"), pDialog);
+    pTakeRow->addWidget(pFrom, 1);
+    pTakeRow->addWidget(pTake);
+    pOuter->addLayout(pTakeRow);
+    auto* pButtons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel | QDialogButtonBox::RestoreDefaults, pDialog);
+    pOuter->addWidget(pButtons);
+
+    // the preset as edited
+    auto pEdit = std::make_shared<Preset>(pFx->preset(pad));
+    const VisibleEffectsListPointer pList = pFx->effects()->getVisibleEffectsList();
+    const QList<EffectManifestPointer> manifests = pList ? pList->getList() : QList<EffectManifestPointer>();
+    pEffect->addItem(QObject::tr("(empty pad)"));
+    for (const EffectManifestPointer& pManifest : manifests) {
+        pEffect->addItem(pManifest->displayName().isEmpty() ? pManifest->name() : pManifest->displayName());
+    }
+    // (filled from pEdit: its parameters' rows made again for its effect)
+    auto fill = std::make_shared<std::function<void()>>();
+    *fill = [=]() {
+        const EffectManifestPointer pManifest = pFx->manifest(*pEdit);
+        pName->setText(pEdit->name);
+        pName->setPlaceholderText(pManifest ? pManifest->name() : QString());
+        const QSignalBlocker block(pEffect);
+        int at = 0;
+        for (int i = 0; i < manifests.size(); ++i) {
+            if (pManifest && *manifests[i] == *pManifest) {
+                at = i + 1;
+            }
+        }
+        pEffect->setCurrentIndex(at);
+        pLevel->setValue(static_cast<int>(std::lround(pEdit->level * 100)));
+        pLevelText->setText(QStringLiteral("%1 %").arg(pLevel->value()));
+        pMeta->setValue(static_cast<int>(std::lround((pEdit->meta >= 0 ? pEdit->meta : pManifest ? pManifest->metaknobDefault() : 0.5) * 100)));
+        pMeta->setEnabled(pManifest != nullptr);
+        while (pParams->rowCount()) {
+            pParams->removeRow(0);
+        }
+        if (!pManifest) {
+            return;
+        }
+        int knob = 0;
+        for (const EffectManifestParameterPointer& pInfo : pManifest->parameters()) {
+            const QString id = pInfo->id();
+            const double now = pEdit->params.value(id).toDouble(pInfo->getDefault());
+            if (pInfo->parameterType() == EffectManifestParameter::ParameterType::Button) {
+                auto* pBox = new QCheckBox(pParamsBox);
+                pBox->setChecked(now > 0.5);
+                QObject::connect(pBox, &QCheckBox::toggled, pBox, [pEdit, id](bool on) { pEdit->params.insert(id, on ? 1 : 0); });
+                pParams->addRow(pInfo->name(), pBox);
+                continue;
+            }
+            if (inBeats(pManifest, pInfo, knob++)) {   // its length in beats: as the pads say it
+                auto* pBeats = new QComboBox(pParamsBox);
+                const double shown = pEdit->beats > 0 ? pEdit->beats : now;
+                for (const double b : {1.0 / 16, 1.0 / 8, 0.25, 0.5, 0.75, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0}) {
+                    if (b >= pInfo->getMinimum() - 1e-9 && b <= pInfo->getMaximum() + 1e-9) {
+                        pBeats->addItem(beatsText(b) + (b > 1 ? QObject::tr(" beats") : QObject::tr(" beat")), b);
+                        if (std::abs(b - shown) < 1e-6) {
+                            pBeats->setCurrentIndex(pBeats->count() - 1);
+                        }
+                    }
+                }
+                QObject::connect(pBeats, &QComboBox::currentIndexChanged, pBeats, [pEdit, pBeats, id](int) {
+                    pEdit->beats = pBeats->currentData().toDouble();
+                    pEdit->params.insert(id, pEdit->beats);
+                });
+                pParams->addRow(pInfo->name(), pBeats);
+                continue;
+            }
+            auto* pRow = new QWidget(pParamsBox);
+            auto* pRowLayout = new QHBoxLayout(pRow);
+            pRowLayout->setContentsMargins(0, 0, 0, 0);
+            auto* pSlider = new QSlider(Qt::Horizontal, pRow);
+            pSlider->setRange(0, 1000);
+            pSlider->setValue(knobPlace(pInfo, now));
+            auto* pValue = new QLabel(QString::number(now, 'g', 3), pRow);
+            pValue->setMinimumWidth(48);
+            pRowLayout->addWidget(pSlider, 1);
+            pRowLayout->addWidget(pValue);
+            QObject::connect(pSlider, &QSlider::valueChanged, pSlider, [pEdit, pInfo, pValue, id](int x) {
+                const double v = knobValue(pInfo, x);
+                pEdit->params.insert(id, v);
+                pValue->setText(QString::number(v, 'g', 3));
+            });
+            pParams->addRow(pInfo->name(), pRow);
+        }
+    };
+    (*fill)();
+
+    QObject::connect(pEffect, &QComboBox::currentIndexChanged, pDialog, [=](int i) {
+        Preset p;   // (another effect: its defaults)
+        p.level = pEdit->level;
+        p.name = pEdit->name;
+        if (i > 0 && i <= manifests.size()) {
+            p.effect = manifests[i - 1]->id();
+            p.backend = EffectsBackend::backendTypeToString(manifests[i - 1]->backendType());
+        }
+        *pEdit = p;
+        (*fill)();
+    });
+    QObject::connect(pName, &QLineEdit::textEdited, pDialog, [pEdit](const QString& t) { pEdit->name = t.trimmed(); });
+    QObject::connect(pLevel, &QSlider::valueChanged, pDialog, [pEdit, pLevelText](int v) {
+        pEdit->level = v / 100.0;
+        pLevelText->setText(QStringLiteral("%1 %").arg(v));
+    });
+    QObject::connect(pMeta, &QSlider::sliderMoved, pDialog, [pEdit](int v) { pEdit->meta = v / 100.0; });
+    QObject::connect(pTake, &QPushButton::clicked, pDialog, [=] {
+        const QPoint us = pFrom->currentData().toPoint();
+        const Preset p = pFx->captured(us.x(), us.y() - 1);
+        if (p.effect.isEmpty()) {
+            return;   // (nothing in that slot)
+        }
+        const QString name = pEdit->name;
+        *pEdit = p;
+        pEdit->name = name;
+        (*fill)();
+    });
+    QObject::connect(pButtons->button(QDialogButtonBox::RestoreDefaults), &QPushButton::clicked, pDialog, [=] {
+        *pEdit = pFx->defaultPreset(pad);
+        (*fill)();
+    });
+    QObject::connect(pButtons, &QDialogButtonBox::accepted, pDialog, [=] {
+        pFx->setPreset(pad, *pEdit);
+        pDialog->close();
+    });
+    QObject::connect(pButtons, &QDialogButtonBox::rejected, pDialog, &QDialog::close);
+    pDialog->resize(420, pDialog->sizeHint().height());
+    pDialog->show();
 }
 
 void setUpPadFx(const std::shared_ptr<EffectsManager>& pEffects, UserSettingsPointer pConfig) {

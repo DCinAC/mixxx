@@ -21,6 +21,8 @@ namespace zydeck {
 
 // ZyDeck: the phrases of the track on each deck, drawn in Mixxx as ZyDeck's pages draw them: a strip in each section's
 // colour along the bottom of the overview and the scrolling waveform, and a tag where a section starts ("B Chorus").
+// The track's intro and outro cues are filled from them too (Intro & Outro: where the first section is an intro, and
+// the last an outro), each only where the track has none yet, so one set by hand stays.
 // The sections are ZyDeck Connect's (zydeckstructure.h, as rekordbox's phrase analysis: /web/structure, or its file
 // zydeck-structure/<id>.json here when Connect isn't running). No Connect and no file: nothing is drawn.
 struct Phrase {
@@ -28,6 +30,7 @@ struct Phrase {
     double end = 0;
     QString tag;        // "B Chorus" where a section starts, "" where the one before goes on
     QColor color;
+    QString label;      // its kind ("Intro", "Chorus", "Outro"…)
 };
 
 class Phrases : public QObject {
