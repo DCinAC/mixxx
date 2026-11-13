@@ -857,7 +857,12 @@ function buildSide(s) {
   // (no FX mode: the FX strip under the pads has it all; PAD FX is effects held on by the pads, rekordbox's way)
   u.modes = ["cue", "roll", "stem", "smpl", "jump", "pfx"].map(m => {
     const b = h("button", "", m === "pfx" ? "PAD FX" : m.toUpperCase()); b.dataset.mode = m;
-    bindPress(b, down => { if (!down) return; const d = deckOf(s); d.mode = m; shiftUsed(d); if (m === "pfx") pfxPrep(d); paintSide(s); });
+    bindPress(b, down => {
+      if (!down) return;
+      const d = deckOf(s);
+      if (m === "pfx") { d.pfxPage = d.mode === "pfx" ? 1 - (d.pfxPage || 0) : d.pfxPage || 0; }   // (again: its other page)
+      d.mode = m; shiftUsed(d); if (m === "pfx") pfxPrep(d); paintSide(s);
+    });
     modes.appendChild(b); return b;
   });
   const pads = buildPads(s, u, 8);
@@ -1804,6 +1809,8 @@ function paintSide(s) {
   setHTML(u.key, `${keyName(d.curKey)}<small>KEY</small>`);
   u.key.classList.toggle("shifted", !!d.key);
   u.modes.forEach(b => b.classList.toggle("on", b.dataset.mode === d.mode));
+  const pfxKey = u.modes.find(b => b.dataset.mode === "pfx");
+  if (pfxKey) setText(pfxKey, `PAD FX ${(d.pfxPage || 0) + 1}`);
   if (u.mA) {   // phone: two mode buttons, SHIFT shows the other two
     u.deck.classList.toggle("d34", d.n > 2);
     setHTML(u.mA, two("HOT CUE", "FX", d.shift || d.mode === "fx"));
@@ -3323,20 +3330,24 @@ async function fxSetBeats(u, slot, b, quiet = false) {
 // it already (the rolls share one: only their length changes), else in one that isn't on, the longest unused; its
 // beat length and INTENSITY are set before it goes on. Roll is ZyDeck's (Mixxx ZyDeck's): it repeats the beats after
 // the press, the track still playing under it as MIX says. Only the deck holding a pad goes through its unit.
+// Two pages (PAD FX 1, 2: the mode key again, or the Inpulse's LOOP / SHIFT + LOOP), each 8 pads and 8 with SHIFT
 const PFX_PADS = [
   [["Roll", .25], ["Roll", .5], ["Roll", 1], ["Roll", 2], ["Echo", .5], ["Echo", .75], ["Reverb"], ["Flanger", 4]],
   [["Roll", .0625], ["Roll", .125], ["Roll", .75], ["Roll", 4], ["Echo", 1], ["Phaser", 2], ["Filter"], ["Tremolo/Trans", .25]],
+  [["Echo", .25], ["Echo", 2], ["Sidechain", 1], ["Sidechain", .5], ["Phaser", 1], ["Flanger", 1], ["Bitcrusher"], ["Filter"]],
+  [["Tremolo/Trans", .5], ["Autopan", 1], ["Glitch", .125], ["Distortion"], ["Pitch Shift"], ["White Noise"], ["Moog Filter"], ["Reverb"]],
 ];
+const pfxBank = d => (d.pfxPage || 0) * 2 + (d.shift ? 1 : 0);
 const PFX_ALL = PFX_PADS.flat().map(([fx, beats], id) => ({ id, fx, beats }));
 const PFX_START = { Roll: 0, Filter: .3 };   // the INTENSITY a pad starts at (else the middle): a roll that doesn't fade
 const pfxUnit = d => d.n % 2 ? 3 : 4;
-const pfxName = fx => ({ "Tremolo/Trans": "Trans" })[fx] || fx;
+const pfxName = fx => ({ "Tremolo/Trans": "Trans", "White Noise": "Noise", "Moog Filter": "Moog", "Pitch Shift": "Pitch", Sidechain: "Pump", Bitcrusher: "Crush", Distortion: "Distort" })[fx] || fx;
 const pfxMeta = id => S.pfxMeta?.[id] ?? PFX_START[PFX_ALL[id].fx] ?? .5;
 let pfxSaveT = 0;
 const pfxSave = () => { clearTimeout(pfxSaveT); pfxSaveT = setTimeout(saveSettings, 400); };
 const pfxUsed = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];   // when each slot of each unit was last taken
 function paintPfx(el, s, k) {
-  const d = deckOf(s), p = PFX_ALL[(d.shift ? 8 : 0) + k], held = d.pfxHeld?.[k];
+  const d = deckOf(s), p = PFX_ALL[pfxBank(d) * 8 + k], held = d.pfxHeld?.[k];
   const there = !live || !fxNames.length || fxNames.includes(p.fx);
   setPad(el, held ? "lit" : there ? "tint" : "off",
     `${pfxName(p.fx).toUpperCase()}<small>${p.beats ? `${beatText(p.beats)} beat${p.beats > 1 ? "s" : ""}` : "&nbsp;"}</small>`, "var(--fx)");
@@ -3345,7 +3356,7 @@ function paintPfx(el, s, k) {
 function pfxPrep(d) {
   if (!live || !fxNames.length) return;
   const u = pfxUnit(d), f = fxState[u - 1];
-  const want = [...new Set(PFX_PADS[0].map(([fx]) => fx))].map(fx => fxNames.indexOf(fx) + 1).filter(i => i > 0);
+  const want = [...new Set(PFX_PADS[(d.pfxPage || 0) * 2].map(([fx]) => fx))].map(fx => fxNames.indexOf(fx) + 1).filter(i => i > 0);
   for (const i of want) {
     if (f.loaded.includes(i)) continue;
     const j = [0, 1, 2].find(x => !f.enabled[x] && !want.includes(f.loaded[x]));
@@ -3369,7 +3380,7 @@ function pfxPress(d, k, down, s) {
     return;
   }
   if (held[k]) return;
-  const p = PFX_ALL[(d.shift ? 8 : 0) + k];
+  const p = PFX_ALL[pfxBank(d) * 8 + k];
   if (d.shift) shiftUsed(d);
   d.pfxLast = p.id;
   if (!live) { held[k] = { ...p, u: pfxUnit(d), j: -1 }; paintSide(s); return; }
@@ -3830,7 +3841,8 @@ function loadCueLabels(d) {
 // 4-deck mapping, Assistant).
 // One way only: switching decks or pad modes here sends it nothing. Its pad modes, as this page's: the 4-deck mapping
 // puts its stems where the controller's Slicer is.
-const HW_MODES = { hotcue: "cue", roll: "roll", slicer: "stem", sampler: "smpl", toneplay: "key", beatjump: "jump", fx: "fx", slicerloop: "loop" };
+// (its LOOP key, SHIFT + LOOP: PAD FX's two pages, "pfx1" here)
+const HW_MODES = { hotcue: "cue", roll: "pfx", slicer: "stem", sampler: "smpl", toneplay: "key", beatjump: "pfx1", fx: "fx", slicerloop: "loop" };
 let HW = {};
 function onHw(hw) {
   HW = hw || {};
@@ -3845,7 +3857,7 @@ function hwApply(ev) {
   for (const s of S.hwPads ? [0, 1] : []) {
     if (ev && ev !== "d34" && ev !== `pads${s}`) continue;
     const m = HW_MODES[HW.pads?.[s]], d = decks[(d34 ? 2 : 0) + s];   // (the deck that side of it plays, shown here or not)
-    if (m && d) d.mode = m;
+    if (m && d) { d.mode = m.startsWith("pfx") ? "pfx" : m; if (d.mode === "pfx") { d.pfxPage = m === "pfx1" ? 1 : 0; pfxPrep(d); } }
   }
   paintAll();
 }
