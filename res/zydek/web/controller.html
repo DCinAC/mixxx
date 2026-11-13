@@ -248,6 +248,9 @@
   .padopts .wide2 { grid-column: span 2; }
   .padopts .full { grid-column: 1 / -1; height: calc(var(--mm) * 6.5) !important; }
   .pfxopts { width: min(92vw, calc(var(--mm) * 70)); }
+  .pfxopts .pfxcats { display: grid; grid-template-columns: repeat(5, 1fr); gap: calc(var(--mm) * .6); height: auto !important; }
+  .pfxopts .pfxcats button { height: calc(var(--mm) * 6); font-size: calc(var(--mm) * 1.6); }
+  .pfxopts .pfxcats button.on { border-color: var(--fx); color: var(--fx); }
   .pfxopts .pfxlist, .pfxopts .pfxbeats { display: flex; flex-wrap: wrap; gap: calc(var(--mm) * .6); height: auto !important;
     max-height: calc(var(--mm) * 20); overflow-y: auto; }
   .pfxopts .pfxlist button, .pfxopts .pfxbeats button { height: calc(var(--mm) * 5.5); padding: 0 calc(var(--mm) * 1.2); flex: 0 0 auto; }
@@ -3293,7 +3296,7 @@ const fxUnitOf = d => d.n % 2 ? 1 : 2;
 const fxUnitG = u => `[EffectRack1_EffectUnit${u}]`;
 const fxSlotG = (u, j) => `[EffectRack1_EffectUnit${u}_Effect${j + 1}]`;
 const fxName = (u, j) => { const i = fxState[u - 1].loaded[j]; return i > 0 && fxNames[i - 1] ? fxNames[i - 1] : REMOTE.on ? `FX ${j + 1}` : "—"; };
-const beatText = b => ({ .0625: "1/16", .125: "⅛", .25: "¼", .5: "½", .75: "¾" })[b] || String(b);
+const beatText = b => ({ 3: "1/16", 4: "1/12", 6: "⅛", 8: "1/6", 12: "¼", 16: "⅓", 24: "½", 32: "⅔", 36: "¾" })[Math.round(b * 48)] || String(+(+b).toFixed(2));   // (triplets too)
 // A change of FX layout changes Mixxx too, not just the look: Beat FX is one effect a unit (its slot 1) at the beat
 // length it shows, so the other two slots, which Multi-FX may have left on, go off (Beat FX has nothing to show them by)
 function applyFxLayout() {
@@ -3353,8 +3356,9 @@ async function pfxLoad() {
     if (!r.ok || !Array.isArray(r.pads)) throw 0;
     const names = r.names || {}, ids = {};
     for (const [id, name] of Object.entries(names)) ids[name] = id;
-    pfxRemote = { ids, pads: r.pads.map(x => ({ fx: x.effect ? names[x.effect] || x.effect.split(".").pop() : "", beats: x.beats || 0,
-      level: x.level ?? .5, meta: x.meta ?? -1, name: x.name || "", raw: x })) };
+    const conv = x => ({ fx: x.effect ? names[x.effect] || x.effect.split(".").pop() : "", beats: x.beats || 0,
+      level: x.level ?? .5, meta: x.meta ?? -1, name: x.name || "", release: !!x.release, hold: x.hold !== false, raw: x });
+    pfxRemote = { ids, pads: r.pads.map(conv), menu: (r.menu || []).map(e => ({ category: e.category, name: e.name, raw: e.preset })) };
   } catch { pfxRemote = null; }
   pfxShiftEdits();
   markDirty("all"); schedulePaint();
@@ -3365,11 +3369,19 @@ function pfxShiftEdits() {
 }
 // A preset changed: Mixxx ZyDeck's (Connect asks it; it says so with padfx_version), or this device's own
 let pfxSetT = 0;
+function pfxPick(id, raw) {   // a preset from the menu, whole (Mixxx ZyDeck's)
+  const p = pfxRemote.pads[id];
+  Object.assign(p, { fx: pfxRemote.ids && Object.keys(pfxRemote.ids).find(n => pfxRemote.ids[n] === raw.effect) || raw.name || "",
+    beats: raw.beats || 0, level: raw.level ?? .5, meta: raw.meta ?? -1, name: raw.name || "", release: !!raw.release, hold: raw.hold !== false, raw });
+  clearTimeout(pfxSetT);
+  fetch(`${REMOTE.http}/web/padfx/edit?k=${encodeURIComponent(REMOTE.key || "")}&pad=${id + 1}&preset=${encodeURIComponent(JSON.stringify(raw))}`).catch(() => {});
+  markDirty("all"); schedulePaint();
+}
 function pfxSet(id, change) {
   if (pfxRemote) {
     const p = pfxRemote.pads[id];
     Object.assign(p, change);
-    const raw = { ...p.raw, level: p.level, meta: p.meta, name: p.name, beats: p.beats };
+    const raw = { ...p.raw, level: p.level, meta: p.meta, name: p.name, beats: p.beats, ...(p.release ? { hold: p.hold } : {}) };
     if ("fx" in change) { raw.effect = pfxRemote.ids[p.fx] || ""; raw.backend = ""; raw.params = {}; }
     if (raw.beats > 0 && !("fx" in change)) { /* (its beats knob: the backend sets it from "beats") */ }
     p.raw = raw;
@@ -3385,8 +3397,9 @@ function pfxSet(id, change) {
 function paintPfx(el, s, k) {
   const d = deckOf(s), id = (d.pfxPage || 0) * 8 + k, p = pfxPad(id), held = d.pfxHeld?.[k];
   const there = !!p.fx && (!live || pfxRemote || !fxNames.length || fxNames.includes(p.fx));
-  setPad(el, held ? "lit" : there ? "tint" : "off",
-    `${(p.name || pfxName(p.fx)).toUpperCase()}<small>${p.beats ? `${beatText(p.beats)} beat${p.beats > 1 ? "s" : ""}` : "&nbsp;"}</small>`, "var(--fx)");
+  const detail = p.beats ? `${beatText(p.beats)} beat${p.beats > 1 ? "s" : ""}` : "&nbsp;";
+  setPad(el, held ? "lit" : there || p.release ? "tint" : "off",   // (a RELEASE FX pad: R, and blue)
+    `${(p.name || pfxName(p.fx)).toUpperCase()}<small>${p.release ? `R · ${p.beats ? beatText(p.beats) : ""}` : detail}</small>`, p.release ? "var(--stem, #3c8cff)" : "var(--fx)");
 }
 // Going into PAD FX (this device's own): the page's effects into the unit's slots ahead (not on), so the first press is at once
 function pfxPrep(d) {
@@ -3466,7 +3479,8 @@ function pfxLive(id, what, v) {
     else for (const j of [0, 1, 2]) if (f.enabled[j]) { f.meta[j] = v; setCtl(fxSlotG(u, j), "meta", v); }
   }
 }
-const PFX_BEATS = [.0625, .125, .25, .5, .75, 1, 2, 4, 8, 16, 32];
+const PFX_BEATS = [.0625, .125, 1 / 6, .25, 1 / 3, .5, .75, 1, 2, 4, 8, 16, 32];
+let pfxMenuCat = "BEAT FX";   // (the menu's list last shown)
 // A pad's menu (SHIFT + the pad here, or on the controller this device mirrors): its effect, beat length, LEVEL/DEPTH
 // and INTENSITY, an FX unit's effect taken as it is, or the default back
 function pfxMenu(d, id, anchor) {
@@ -3478,16 +3492,40 @@ function pfxMenu(d, id, anchor) {
     const p = pfxPad(id);
     box.innerHTML = "";
     box.append(h("div", "t", `PAD FX ${(id >> 3) + 1} · pad ${(id & 7) + 1}<small>${pfxName(p.fx)}${p.beats ? " " + beatText(p.beats) : ""}</small>`));
-    // its effect
+    // its effect: a menu of two levels (as a DJ mixer's): BEAT, COLOR, SCENE, RELEASE FX (Mixxx ZyDeck's presets of
+    // its effects), and Mixxx's own effects as they come
+    const cats = (pfxRemote?.menu?.length ? ["BEAT FX", "COLOR FX", "SCENE FX", "RELEASE FX"] : []).concat("MIXXX FX");
+    pfxMenuCat = cats.includes(pfxMenuCat) ? pfxMenuCat : cats[0];
+    const tabs = h("div", "pfxcats full");
+    for (const c of cats) {
+      const b = h("button", c === pfxMenuCat ? "on" : "", c.replace(" FX", "<small>FX</small>"));
+      bindPress(b, down => { if (down) { pfxMenuCat = c; render(); } });
+      tabs.append(b);
+    }
+    box.append(tabs);
     const list = h("div", "pfxlist full");
-    const names = pfxRemote ? Object.keys(pfxRemote.ids) : fxNames;
-    if (!names.length) list.append(h("div", "pfxnone", fxNone()));
-    for (const name of names) {
-      const b = h("button", name === p.fx ? "on" : "", pfxName(name));
-      bindPress(b, down => { if (down) { pfxSet(id, { fx: name, meta: -1 }); render(); } });
-      list.append(b);
+    if (pfxMenuCat === "MIXXX FX") {
+      const names = pfxRemote ? Object.keys(pfxRemote.ids) : fxNames;
+      if (!names.length) list.append(h("div", "pfxnone", fxNone()));
+      for (const name of names) {
+        const b = h("button", name === p.fx && !p.name ? "on" : "", pfxName(name));
+        bindPress(b, down => { if (down) { pfxSet(id, { fx: name, meta: -1, name: "", release: false }); render(); } });
+        list.append(b);
+      }
+      if (!pfxRemote) list.append(h("div", "pfxnone", "BEAT, COLOR, SCENE and RELEASE FX come with Mixxx ZyDeck (controller mode)"));
+    } else {
+      for (const e of pfxRemote.menu.filter(e => e.category === pfxMenuCat)) {
+        const b = h("button", (p.name || "") === (e.raw.name || "") && p.raw?.effect === e.raw.effect ? "on" : "", e.name);
+        bindPress(b, down => { if (down) { pfxPick(id, e.raw); render(); } });
+        list.append(b);
+      }
     }
     box.append(list);
+    if (p.release) {   // (a RELEASE FX pad: held, or on and off by presses)
+      const hold = h("button", `full ${p.hold ? "on" : ""}`, `HOLD ${p.hold ? "ON" : "OFF"}<small>${p.hold ? "on while held" : "a press on, the next off"}</small>`);
+      bindPress(hold, down => { if (down) { pfxSet(id, { hold: !p.hold }); render(); } });
+      box.append(hold);
+    }
     // its beat length (where its effect has one)
     const k = fxBeatKnobs[fxNames.indexOf(p.fx)];
     const beats = h("div", "pfxbeats full");

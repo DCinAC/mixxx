@@ -3,8 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="org.mixxx"
     android:installLocation="auto"
-    android:versionCode="3063"
-    android:versionName="0.3.63r">
+    android:versionCode="3064"
+    android:versionName="0.3.64r">
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"  />
     <uses-permission android:name="android.permission.INTERNET"  />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>

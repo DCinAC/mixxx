@@ -72,7 +72,7 @@ EffectManifestPointer RollEffect::manifest(bool backward) {
     quantize->setShortName(QObject::tr("Quantize"));
     quantize->setDescription(QObject::tr(
             "Start on the next beat (a roll shorter than a beat: the next part of one as long), and round "
-            "the length to 1/16 beat"));
+            "the length to 1/16 beat or a triplet (1/12, 1/6, 1/3)"));
     quantize->setValueScaler(EffectManifestParameter::ValueScaler::Toggle);
     quantize->setUnitsHint(EffectManifestParameter::UnitsHint::Unknown);
     quantize->setRange(0, 1, 1);
@@ -104,7 +104,7 @@ void RollEffect::processChannel(
 
     double beats = std::clamp(m_pBeatsParameter->value(), kMinBeats, kMaxBeats);
     if (quantize) {
-        beats = std::max(kMinBeats, std::round(beats * 16) / 16);
+        beats = std::max(kMinBeats, std::round(beats * 48) / 48);   // (straight 1/16s and triplets: 1/12, 1/6, 1/3)
     }
     const double framesPerBeat = (grid ? gf.beat_length->seconds : kFreeBeatSeconds) * sampleRate;
     const SINT capacity = static_cast<SINT>(s.loop.size()) / channels;

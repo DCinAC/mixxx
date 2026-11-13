@@ -496,8 +496,10 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
         }
         if (what == QLatin1String("padfx")) {
             QJsonObject out{{"ok", true}};
-            if (file.open(QIODevice::ReadOnly)) {
-                out.insert(QStringLiteral("pads"), QJsonDocument::fromJson(file.readAll()).object().value(QStringLiteral("pads")));
+            if (file.open(QIODevice::ReadOnly)) {   // (its pads, and the menu their presets are picked from)
+                const QJsonObject all = QJsonDocument::fromJson(file.readAll()).object();
+                out.insert(QStringLiteral("pads"), all.value(QStringLiteral("pads")));
+                out.insert(QStringLiteral("menu"), all.value(QStringLiteral("menu")));
             }
             QJsonObject names;   // (each effect's name by its id: Mixxx ZyDeck's list)
             QFile list(dir + QStringLiteral("/zydeck-effects.json"));
