@@ -32,6 +32,12 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 - **Roll**: a beat roll as an effect (ZyDeck's PAD FX): it records the next 1/16 to 4 beats as it's switched on and
   repeats them, the track still playing underneath as the unit's MIX says (Mixxx's own roll takes the deck over);
   and Backward Roll, its repeats played backwards. `src/zydeck/rolleffect.*`.
+- **PAD FX's effects**: Beat Echo (repeats that can rise or fall in pitch, glide while held, tap three times, be
+  filtered or crushed, or ring out alone), Filter LFO, Sweep (a beat gate one way, a band sweep the other), Robot,
+  Reverb Rise (and fall) and Noise Riser. `src/zydeck/zydeckfx.*`. PAD FX's presets are picked from a menu of two
+  levels, as a DJ mixer's: BEAT, COLOR, SCENE and RELEASE FX (presets of these and Mixxx's effects), and Mixxx's own
+  effects; RELEASE FX pads end the deck's other pads and play Echo Out, or Brake or Backspin (the deck's own scratch
+  speed, slip on meanwhile).
 - **Sidechain**: the beat pump effect from ZyDeck on Android (the sound drops on each beat, or every 1/2 or 1/4 beat,
   and swells back, locked to the beat grid), so both have the same effects.
 - **The effects list for ZyDeck**: `zydeck-effects.json` in the settings folder, Mixxx's visible effects in order,
@@ -77,7 +83,7 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 | `CMakeLists.txt` | the `ZYDECK` option, including `cmake/zydeck.cmake` (before Ebur128) |
 | `src/library/library.cpp` | adds the Fits deck feature after Auto DJ and starts ZyDeck Web (and their includes) |
 | `src/widget/wtrackmenu.cpp` | "Make Stems (ZyDeck)" after the Analyze menu (and its include) |
-| `src/effects/backends/builtin/builtinbackend.cpp` | registers the Sidechain and Roll effects (`src/zydeck/sidechaineffect.*`, `rolleffect.*`, the same as ZyDeck on Android) |
+| `src/effects/backends/builtin/builtinbackend.cpp` | registers ZyDeck's effects (`src/zydeck/sidechaineffect.*`, `rolleffect.*`, `zydeckfx.*`, the same as ZyDeck on Android) |
 | `src/engine/readaheadmanager.cpp`, `src/engine/cachingreader/cachingreader.cpp` | read further ahead, with a bigger cache (network music folders) |
 | `src/main.cpp` | macOS: raises the open-file limit from 256 (Mixxx's ~100 threads hold ~200 of them as Qt wake-up pipes; analysing a new stem file ran out, and Qt aborted) |
 | `src/widget/woverview.cpp`, `src/waveform/widgets/allshader/waveformwidget.cpp` | add the phrases to the overview and the scrolling waveform, and the bars and time left (`src/zydeck/phrases.*`) |

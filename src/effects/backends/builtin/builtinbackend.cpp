@@ -34,6 +34,7 @@
 #include "effects/backends/builtin/whitenoiseeffect.h"
 #ifdef __ZYDECK__
 #include "zydeck/rolleffect.h"
+#include "zydeck/zydeckfx.h"
 #include "zydeck/sidechaineffect.h"
 #endif
 
@@ -76,6 +77,12 @@ BuiltInBackend::BuiltInBackend() {
     registerEffect<SidechainEffect>();
     registerEffect<RollEffect>();
     registerEffect<BackwardRollEffect>();
+    registerEffect<BeatEchoEffect>();
+    registerEffect<FilterLfoEffect>();
+    registerEffect<SweepEffect>();
+    registerEffect<RobotEffect>();
+    registerEffect<ReverbRiseEffect>();
+    registerEffect<NoiseRiserEffect>();
 #endif
     registerEffect<AutoGainControlEffect>();
     registerEffect<GainEffect>();

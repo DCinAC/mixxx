@@ -292,7 +292,10 @@ class PadGrid : public QWidget {
                     pad.top = l.name.toUpper();
                     pad.bottom = l.beats;
                     pad.lit = get(m_group, QStringLiteral("zydeck_padfx_%1").arg(p + 1)) > 0;
-                    pad.color = pad.lit ? kFxOn : kFx;
+                    pad.color = l.release ? (pad.lit ? QColor(0x4a, 0x6d, 0x9b) : kStem) : pad.lit ? kFxOn : kFx;
+                    if (l.release) {   // (a RELEASE FX pad: R, as on a DJ mixer's pads)
+                        pad.bottom = l.beats.isEmpty() ? QStringLiteral("R") : QStringLiteral("R \u00b7 ") + l.beats;
+                    }
                 }
                 out.append(pad);
             }

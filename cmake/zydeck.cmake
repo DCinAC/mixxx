@@ -10,6 +10,7 @@ target_sources(
     src/zydeck/padfx.cpp
     src/zydeck/padgrid.cpp
     src/zydeck/rolleffect.cpp
+    src/zydeck/zydeckfx.cpp
     src/zydeck/sidechaineffect.cpp
     src/zydeck/effectlist.cpp
     src/zydeck/decklist.cpp

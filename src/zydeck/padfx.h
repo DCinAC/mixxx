@@ -33,6 +33,7 @@ void setUpPadFx(const std::shared_ptr<EffectsManager>& pEffects, UserSettingsPoi
 struct PadFxLabel {
     QString name;
     QString beats;
+    bool release = false;   // (a RELEASE FX pad)
 };
 PadFxLabel padFxLabel(int pad);
 
