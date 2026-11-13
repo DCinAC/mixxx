@@ -17,16 +17,33 @@ QString RollEffect::getId() {
 }
 
 // static
+QString BackwardRollEffect::getId() {
+    return "org.zydeck.effects.backroll";
+}
+
+// static
 EffectManifestPointer RollEffect::getManifest() {
+    return manifest(false);
+}
+
+// static
+EffectManifestPointer BackwardRollEffect::getManifest() {
+    return manifest(true);
+}
+
+// static
+EffectManifestPointer RollEffect::manifest(bool backward) {
     EffectManifestPointer pManifest(new EffectManifest());
-    pManifest->setId(getId());
-    pManifest->setName(QObject::tr("Roll"));
-    pManifest->setShortName(QObject::tr("Roll"));
+    pManifest->setId(backward ? BackwardRollEffect::getId() : RollEffect::getId());
+    pManifest->setName(backward ? QObject::tr("Backward Roll") : QObject::tr("Roll"));
+    pManifest->setShortName(backward ? QObject::tr("Back Roll") : QObject::tr("Roll"));
     pManifest->setAuthor("ZyDeck");
     pManifest->setVersion("1.0");
-    pManifest->setDescription(QObject::tr(
-            "Records the next few beats as it's switched on and repeats them, the track still playing "
-            "underneath: the mix sets how much of each is heard"));
+    pManifest->setDescription(backward
+                    ? QObject::tr("Records the next few beats as it's switched on and repeats them backwards, the "
+                                  "track still playing underneath: the mix sets how much of each is heard")
+                    : QObject::tr("Records the next few beats as it's switched on and repeats them, the track still "
+                                  "playing underneath: the mix sets how much of each is heard"));
     pManifest->setEffectRampsFromDry(true);
     pManifest->setMetaknobDefault(0.0);
 
@@ -147,10 +164,34 @@ void RollEffect::processChannel(
                 s.loop[p * channels + c] = in[c];
             }
         } else {
+            if (s.played == 0) {
+                ++s.passes;
+            }
             p = s.played;
             s.played = (s.played + 1) % s.length;
             repeat = true;
             s.gain *= perFrame;
+        }
+        if (m_backward && repeat) {   // backwards: from its end to its start, a few ms' fade where it jumps back
+            const SINT q = s.length - 1 - p;
+            const SINT edge = std::min(s.seamFrames, s.length / 2);
+            double env = 1;
+            if (p >= s.length - edge) {
+                env = static_cast<double>(s.length - p) / (edge + 1);   // (to its start: out)
+            } else if (p < edge && s.passes > 1) {
+                env = static_cast<double>(p + 1) / (edge + 1);          // (from its end again: in; the first follows on)
+            }
+            const CSAMPLE_GAIN g = static_cast<CSAMPLE_GAIN>(s.gain * env);
+            for (int c = 0; c < channels; ++c) {
+                out[c] = g * s.loop[q * channels + c];
+            }
+            continue;
+        }
+        if (m_backward) {   // (recording, before the first backwards one: the track as it is, no seam)
+            for (int c = 0; c < channels; ++c) {
+                out[c] = in[c];
+            }
+            continue;
         }
         const SINT seam = std::min(s.beforeFilled, s.length / 2);
         const CSAMPLE_GAIN g = repeat ? static_cast<CSAMPLE_GAIN>(s.gain) : 1;

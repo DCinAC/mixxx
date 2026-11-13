@@ -302,7 +302,7 @@ const QHash<QString, QString>& builtinEffectNames() {
             {"org.mixxx.effects.parametriceq", "Parametric Equalizer"}, {"org.mixxx.effects.phaser", "Phaser"},
             {"org.mixxx.effects.pitchshift", "Pitch Shift"}, {"org.mixxx.effects.reverb", "Reverb"},
             {"org.mixxx.effects.threebandbiquadeq", "Biquad Equalizer"}, {"org.mixxx.effects.tremolo", "Tremolo/Trans"},
-            {"org.mixxx.effects.whitenoise", "White Noise"}, {"org.zydeck.effects.sidechain", "Sidechain"}, {"org.zydeck.effects.roll", "Roll"}};
+            {"org.mixxx.effects.whitenoise", "White Noise"}, {"org.zydeck.effects.sidechain", "Sidechain"}, {"org.zydeck.effects.roll", "Roll"}, {"org.zydeck.effects.backroll", "Backward Roll"}};
     return names;
 }
 // and their knob in beats ({knob, min, max}: a slot's parameterN), for the BEAT keys
@@ -314,7 +314,8 @@ const QHash<QString, QJsonObject>& builtinEffectBeats() {
             {"org.mixxx.effects.phaser", {{"knob", 1}, {"min", 0.0}, {"max", 4.0}}},
             {"org.mixxx.effects.tremolo", {{"knob", 2}, {"min", 0.25}, {"max", 8.0}}},
             {"org.zydeck.effects.sidechain", {{"knob", 2}, {"min", 0.25}, {"max", 4.0}}},
-            {"org.zydeck.effects.roll", {{"knob", 1}, {"min", 0.0625}, {"max", 4.0}}}};
+            {"org.zydeck.effects.roll", {{"knob", 1}, {"min", 0.0625}, {"max", 4.0}}},
+            {"org.zydeck.effects.backroll", {{"knob", 1}, {"min", 0.0625}, {"max", 4.0}}}};
     return beats;
 }
 } // namespace

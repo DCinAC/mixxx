@@ -66,6 +66,7 @@ BuiltInBackend::BuiltInBackend() {
     registerEffect<TremoloEffect>();
     registerEffect<SidechainEffect>();   // Zydek
     registerEffect<RollEffect>();   // ZyDeck: a roll that mixes with the track (Pad FX)
+    registerEffect<BackwardRollEffect>();   // ZyDeck: and backwards
 #ifdef __RUBBERBAND__
     registerEffect<PitchShiftEffect>();
 #endif

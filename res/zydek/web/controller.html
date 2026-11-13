@@ -3335,14 +3335,14 @@ async function fxSetBeats(u, slot, b, quiet = false) {
 // effect goes in the unit's slot that has it already (the rolls share one: only their length changes), else in one
 // that isn't on, the longest unused; its values are set before it goes on; only the deck holding a pad goes through.
 const PFX_DEFAULT = [["Roll", .25, .5, 0], ["Roll", .5, .5, 0], ["Roll", 1, .5, 0], ["Roll", 2, .5, 0], ["Echo", .5, .5],
-  ["Echo", .75, .5], ["Reverb", 0, .5], ["Flanger", 4, .7], ["Roll", .125, .5, 0], ["Roll", .75, .5, 0], ["Echo", 1, .5],
+  ["Echo", .75, .5], ["Reverb", 0, .5], ["Flanger", 4, .7], ["Backward Roll", .25, .5, 0], ["Backward Roll", .5, .5, 0], ["Echo", 1, .5],
   ["Phaser", 2, .7], ["Filter", 0, 1, .3], ["Filter", 0, 1, .7], ["Tremolo/Trans", .25, 1], ["Sidechain", 1, 1]]
   .map(([fx, beats, level, meta], i) => ({ fx, beats: beats || 0, level, meta: meta ?? -1, name: ({ 12: "LPF", 13: "HPF" })[i] || "" }));
 let pfxRemote = null;   // Mixxx ZyDeck's: {pads: [16 × {fx, beats, level, meta, name, raw}], ids: {name: id}}; null: here
 const pfxPads = () => pfxRemote ? pfxRemote.pads : PFX_DEFAULT.map((p, i) => ({ ...p, ...(S.pfxPads?.[i] || {}) }));
 const pfxPad = id => ({ id, ...pfxPads()[id] });
 const pfxUnit = d => d.n % 2 ? 3 : 4;
-const pfxName = fx => ({ "Tremolo/Trans": "Trans", "White Noise": "Noise", "Moog Filter": "Moog", "Pitch Shift": "Pitch", Sidechain: "Pump", Bitcrusher: "Crush", Distortion: "Distort" })[fx] || fx || "—";
+const pfxName = fx => ({ "Backward Roll": "Back Roll", "Tremolo/Trans": "Trans", "White Noise": "Noise", "Moog Filter": "Moog", "Pitch Shift": "Pitch", Sidechain: "Pump", Bitcrusher: "Crush", Distortion: "Distort" })[fx] || fx || "—";
 const pfxMetaOf = p => p.meta >= 0 ? p.meta : .5;
 const pfxUsed = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];   // when each slot of each unit was last taken
 // Mixxx ZyDeck's presets, through ZyDeck Connect (again as they change: [ZyDeck],padfx_version)
@@ -3433,7 +3433,7 @@ function pfxPress(d, k, down, s) {
   const u = pfxUnit(d), f = fxState[u - 1], i = fxNames.indexOf(p.fx) + 1;
   if (!i) {
     toast(!fxNames.length ? fxNone() : !p.fx ? "An empty pad: SHIFT + the pad to give it an effect"
-      : p.fx === "Roll" ? "No Roll effect in this Mixxx: it comes with ZyDeck's Mixxx (update it)" : `No ${p.fx} effect in Mixxx`);
+      : /Roll$/.test(p.fx) ? `No ${p.fx} effect in this Mixxx: it comes with ZyDeck's Mixxx (update it)` : `No ${p.fx} effect in Mixxx`);
     paintSide(s);
     return;
   }
