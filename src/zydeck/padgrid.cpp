@@ -38,6 +38,18 @@ const QColor kFx(0x14, 0x66, 0x74);
 const QColor kFxOn(0x25, 0x7b, 0x82);
 const QColor kSampler(0xb2, 0x4c, 0x12);
 const QColor kStem(0x39, 0x55, 0x79);
+constexpr int kGap = 2;    // (as LateNight's buttons sit)
+constexpr int kTabH = 18;
+
+QFont labelFont(int px, bool bold) {   // (LateNight's Open Sans, its own spacing, hinted to the pixel)
+    QFont f(QStringLiteral("Open Sans"));
+    f.setPixelSize(px);
+    f.setWeight(bold ? QFont::DemiBold : QFont::Normal);
+    f.setKerning(true);
+    f.setHintingPreference(QFont::PreferFullHinting);
+    f.setStyleStrategy(QFont::PreferAntialias);
+    return f;
+}
 
 // One LateNight button: its edge, its face (colour: a set pad's, else the plain face), its sheen, pressed darker
 void button(QPainter& p, const QRectF& r, const QColor& face, bool pressed) {
@@ -93,8 +105,7 @@ class PadGrid : public QWidget {
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         const int mode = this->mode();
-        QFont small(QStringLiteral("Open Sans Semibold"));
-        small.setPixelSize(10);
+        const QFont small = labelFont(10, true);
         p.setFont(small);
         // the modes' row
         for (int m = 0; m < kModes; ++m) {
@@ -106,8 +117,7 @@ class PadGrid : public QWidget {
         }
         // the pads
         const QList<Pad> pads = this->pads();
-        QFont big(QStringLiteral("Open Sans Semibold"));
-        big.setPixelSize(std::clamp(static_cast<int>(padRect(0).height() / 3.2), 10, 14));
+        const QFont big = labelFont(std::clamp(static_cast<int>(padRect(0).height() / 3.2), 11, 14), true);
         for (int k = 0; k < 8; ++k) {
             const QRectF r = padRect(k);
             const Pad& pad = pads.value(k);
@@ -117,17 +127,22 @@ class PadGrid : public QWidget {
             const QColor ink = !there ? kDim : face.lightness() > 150 ? QColor(0x14, 0x14, 0x14) : QColor(0xee, 0xee, 0xee);
             p.setPen(ink);
             p.setFont(big);
+            // its name in the middle, its detail under it (the two together centred when there's room)
             const QRectF inner = r.adjusted(4, 2, -4, -2);
-            p.drawText(inner, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextWordWrap, pad.top);
-            if (!pad.bottom.isEmpty()) {
+            const int lineH = QFontMetrics(big).height(), detailH = pad.bottom.isEmpty() ? 0 : QFontMetrics(small).height();
+            const int blockH = std::min<int>(static_cast<int>(inner.height()), lineH + detailH);
+            const QRectF name(inner.left(), std::round(inner.center().y() - blockH / 2.0), inner.width(), lineH);
+            p.drawText(name, Qt::AlignHCenter | Qt::AlignVCenter,
+                    QFontMetrics(big).elidedText(pad.top, Qt::ElideRight, static_cast<int>(inner.width())));
+            if (detailH) {
                 p.setFont(small);
-                p.drawText(inner, Qt::AlignHCenter | Qt::AlignBottom, pad.bottom);
+                p.drawText(QRectF(inner.left(), name.bottom(), inner.width(), detailH), Qt::AlignHCenter | Qt::AlignTop, pad.bottom);
             }
         }
         if (shifted()) {   // (SHIFT held: its layer)
             p.setPen(kDim);
             p.setFont(small);
-            p.drawText(QRectF(0, 0, width() - 2, 14), Qt::AlignRight | Qt::AlignVCenter, QStringLiteral("SHIFT"));
+            p.drawText(QRectF(0, 0, width() - 2, kTabH), Qt::AlignRight | Qt::AlignVCenter, QStringLiteral("SHIFT"));
         }
     }
 
@@ -164,14 +179,17 @@ class PadGrid : public QWidget {
     int mode() const {
         return std::clamp(static_cast<int>(get(m_group, QStringLiteral("zydeck_pad_mode"))), 0, kModes - 1);
     }
-    bool shifted() const {
-        return get(m_group, QStringLiteral("zydeck_pad_shift")) > 0 ||
-                QApplication::keyboardModifiers().testFlag(Qt::ShiftModifier);
+    bool shifted() const {   // (the controller's SHIFT: the keyboard's only with a click, not on show)
+        return get(m_group, QStringLiteral("zydeck_pad_shift")) > 0;
+    }
+    // (whole pixels: n cells of a width w with 2 px between, the remainder spread over the first ones)
+    static QRect cell(int i, int n, int w, int y, int h) {
+        const int room = w - (n - 1) * kGap, base = room / n, extra = room % n;
+        const int x = i * (base + kGap) + std::min(i, extra);
+        return {x, y, base + (i < extra ? 1 : 0), h};
     }
     QRectF tabRect(int m) const {
-        constexpr int modes = kModes;
-        const double w = (width() - (modes - 1) * 2.0) / modes;
-        return {std::round(m * (w + 2)), 0, std::round(w), 16};
+        return cell(m, kModes, width(), 0, kTabH);
     }
     // (the height it's shown in: a deck row with less room than the pads ask for cuts them, so they fit what shows)
     double shownHeight() const {
@@ -179,9 +197,9 @@ class PadGrid : public QWidget {
         return seen.isEmpty() ? height() : std::min(height(), seen.bottom() + 1);
     }
     QRectF padRect(int k) const {
-        const double top = 18, gap = 2;
-        const double w = (width() - 3 * gap) / 4, h = (shownHeight() - top - gap) / 2;
-        return {std::round((k % 4) * (w + gap)), std::round(top + (k / 4) * (h + gap)), std::round(w), std::round(h)};
+        const int top = kTabH + kGap, rows = static_cast<int>(shownHeight()) - top;
+        const int h1 = (rows - kGap) / 2, h2 = rows - kGap - h1;
+        return cell(k % 4, 4, width(), k < 4 ? top : top + h1 + kGap, k < 4 ? h1 : h2);
     }
     QString samplerGroup(int k) const {
         // decks 1, 3: samplers 1-8; decks 2, 4: 9-16 (as ZyDeck's pads; Mixxx with fewer: the ones there are)
