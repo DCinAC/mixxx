@@ -595,6 +595,8 @@ class PadFx : public QObject {
                 m_presets[p] = Preset::fromJson(pads[p].toObject());
             }
         }
+        f.close();
+        save();   // (written again as it starts: with this build's menu)
         if (version == 2) {   // page 2's first two pads, as they came (rolls of 1/8 and 3/4): now Backward Roll's
             const double was[2] = {0.125, 0.75};
             for (int i = 0; i < 2; ++i) {
