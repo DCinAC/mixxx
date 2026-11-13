@@ -20,10 +20,11 @@ at any time. The Android app (branch `stability`) is separate and stays as it is
 - **PAD FX**: rekordbox's Pad FX: 16 pads (two pages of 8), each a preset of one effect with every parameter, its beat
   length, LEVEL/DEPTH (wet/dry) and meta knob, on while held, on effect units 3 (decks 1, 3) and 4 (decks 2, 4).
   `[ChannelN],zydeck_padfx_P` is the pad (the skin's pads, a controller's mapping, a phone or tablet through Connect);
-  presets in `zydeck-padfx.json`, edited in Mixxx (SHIFT + a pad, or right-click it) or from a device
+  presets in `zydeck-padfx.json`, edited in Mixxx (SHIFT + a pad, or right-click it: a popup like the cue menu) or from a device
   (`zydeck-padfx-edit.json`). `src/zydeck/padfx.*`.
 - **The deck's pads**: in LateNight, in place of the hot cues and twice as tall (the deck gear menu's "ZyDeck Pads"):
-  8 pads for the deck's pad mode (HOT CUE, PAD FX 1/2, SAMPLER, STEMS), as rekordbox and Serato show them, following
+  8 pads for the deck's pad mode (one button goes through HOT CUE, ROLL, STEMS, SAMPLER, BEAT JUMP, PAD FX 1/2; a hot
+  cue's right button opens Mixxx's own cue menu), as rekordbox and Serato show them, following
   the DJ controller's mode through Connect (`[ChannelN],zydeck_pad_mode`, `zydeck_pad_shift`). A ZyDeck widget put in
   a skin group named `ZyDeckPads_[ChannelN]` as it's shown, so no skin parser hook. `src/zydeck/padgrid.*`.
 - **Intro and outro from the phrases**: a track whose first section is an intro, or last an outro, gets those cues

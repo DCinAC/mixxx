@@ -6,6 +6,7 @@
 
 class EffectsManager;
 class QWidget;
+class QPoint;
 
 namespace zydeck {
 
@@ -35,9 +36,10 @@ struct PadFxLabel {
 };
 PadFxLabel padFxLabel(int pad);
 
-/// Pad P's (0-15) editor, a window over pParent: its effect, each of its parameters, its beat length, LEVEL/DEPTH and
-/// meta knob, its name; or what an FX unit's slot has now, saved; or the default back.
-void editPadFx(int pad, QWidget* pParent);
+/// Pad P's (0-15) editor for the deck in group, as Mixxx's cue menu (a popup at the global point at): its name, its
+/// effect and each of its parameters, its beat length, LEVEL/DEPTH and meta knob; or empty, or what the deck's FX unit
+/// has now, or the default back. Kept as it's changed.
+void editPadFx(int pad, const QString& group, QWidget* pParent, const QPoint& at);
 
 // [ZyDeck],padfx_shift_edits: 1 while a phone or tablet mirrors the DJ controller (its "Mirror the physical
 // controller"): the controller's SHIFT + a PAD FX pad then opens that pad's editor there (ZyDeck Connect tells it)

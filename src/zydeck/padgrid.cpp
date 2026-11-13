@@ -14,6 +14,7 @@
 #include "mixer/playerinfo.h"
 #include "track/cue.h"
 #include "track/track.h"
+#include "widget/wcuemenupopup.h"
 #include "zydeck/padfx.h"
 
 namespace zydeck {
@@ -21,9 +22,16 @@ namespace zydeck {
 namespace {
 
 constexpr int kDecks = 4;
-enum Mode { HotCue = 0, PadFx1 = 1, PadFx2 = 2, Sampler = 3, Stems = 4, kModes = 5 };
-const char* const kModeNames[kModes] = {"HOT CUE", "PAD FX 1", "PAD FX 2", "SAMPLER", "STEMS"};
-const char* const kModeShort[kModes] = {"CUE", "FX 1", "FX 2", "SMPL", "STEM"};
+UserSettingsPointer s_config;
+// (the values: [ChannelN],zydeck_pad_mode, as ZyDeck Connect sends them; the order the mode button goes through them:
+// the tablet's six, PAD FX's two pages one after the other)
+enum Mode { HotCue = 0, PadFx1 = 1, PadFx2 = 2, Sampler = 3, Stems = 4, Roll = 5, Jump = 6, kModes = 7 };
+const char* const kModeNames[kModes] = {"HOT CUE", "PAD FX 1", "PAD FX 2", "SAMPLER", "STEMS", "ROLL", "BEAT JUMP"};
+const int kCycle[kModes] = {HotCue, Roll, Stems, Sampler, Jump, PadFx1, PadFx2};
+const char* const kRolls[8] = {"0.125", "0.25", "0.5", "1", "2", "4", "8", "16"};
+const char* const kRollText[8] = {"1/8", "1/4", "1/2", "1", "2", "4", "8", "16"};
+const int kJumps[8] = {-1, 1, -2, 2, -4, 4, -8, 8};   // (as the tablet's JUMP pads)
+const QColor kRollOn(0xb2, 0x4c, 0x12);   // (LateNight's active orange)
 
 // LateNight's look (PaleMoon): square buttons, a 1 px near-black edge round a face of #1e1e20 with a faint light on it
 // (btn_embedded_square.svg: #dcdcdc at 7 %), pressed a shade darker; its FX 3/4 teal for PAD FX (units 3 and 4)
@@ -107,13 +115,15 @@ class PadGrid : public QWidget {
         const int mode = this->mode();
         const QFont small = labelFont(10, true);
         p.setFont(small);
-        // the modes' row
-        for (int m = 0; m < kModes; ++m) {
-            const QRectF r = tabRect(m);
-            const bool on = m == mode;
-            button(p, r, on ? kTabOn : kFace, false);
-            p.setPen(on ? QColor(0xee, 0xee, 0xee) : kDim);
-            p.drawText(r, Qt::AlignCenter, QString::fromLatin1(width() > 300 ? kModeNames[m] : kModeShort[m]));
+        // the mode button: the mode, and where it goes next (a click: on; the right button: back)
+        {
+            const QRectF r = modeRect();
+            button(p, r, kTabOn, m_modeDown);
+            p.setPen(QColor(0xee, 0xee, 0xee));
+            p.drawText(r, Qt::AlignCenter, QString::fromLatin1(kModeNames[mode]));
+            p.setPen(kDim);
+            p.drawText(r.adjusted(6, 0, -6, 0), Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("\u2039"));
+            p.drawText(r.adjusted(6, 0, -6, 0), Qt::AlignRight | Qt::AlignVCenter, QStringLiteral("\u203a"));
         }
         // the pads
         const QList<Pad> pads = this->pads();
@@ -142,24 +152,29 @@ class PadGrid : public QWidget {
         if (shifted()) {   // (SHIFT held: its layer)
             p.setPen(kDim);
             p.setFont(small);
-            p.drawText(QRectF(0, 0, width() - 2, kTabH), Qt::AlignRight | Qt::AlignVCenter, QStringLiteral("SHIFT"));
+            p.drawText(modeRect().adjusted(0, 0, -18, 0), Qt::AlignRight | Qt::AlignVCenter, QStringLiteral("SHIFT"));
         }
     }
 
     void mousePressEvent(QMouseEvent* e) override {
         const QPointF at = e->position();
-        for (int m = 0; m < kModes; ++m) {
-            if (tabRect(m).contains(at)) {
-                set(m_group, QStringLiteral("zydeck_pad_mode"), m);
-                update();
-                return;
+        if (modeRect().contains(at)) {
+            int i = 0;
+            while (i < kModes && kCycle[i] != mode()) {
+                ++i;
             }
+            const int step = e->button() == Qt::RightButton ? kModes - 1 : 1;
+            set(m_group, QStringLiteral("zydeck_pad_mode"), kCycle[(i + step) % kModes]);
+            m_modeDown = true;
+            update();
+            return;
         }
         for (int k = 0; k < 8; ++k) {
             if (padRect(k).contains(at)) {
                 m_down = k;
                 m_downMode = mode();
-                m_downShift = shifted() || e->modifiers().testFlag(Qt::ShiftModifier);
+                m_downKeyShift = e->modifiers().testFlag(Qt::ShiftModifier);
+                m_downShift = shifted() || m_downKeyShift;
                 press(k, true, e->button() == Qt::RightButton);
                 update();
                 return;
@@ -167,6 +182,7 @@ class PadGrid : public QWidget {
         }
     }
     void mouseReleaseEvent(QMouseEvent* e) override {
+        m_modeDown = false;
         if (m_down >= 0) {
             const int k = m_down;
             press(k, false, e->button() == Qt::RightButton);
@@ -188,8 +204,8 @@ class PadGrid : public QWidget {
         const int x = i * (base + kGap) + std::min(i, extra);
         return {x, y, base + (i < extra ? 1 : 0), h};
     }
-    QRectF tabRect(int m) const {
-        return cell(m, kModes, width(), 0, kTabH);
+    QRectF modeRect() const {
+        return QRect(0, 0, width(), kTabH);
     }
     // (the height it's shown in: a deck row with less room than the pads ask for cuts them, so they fit what shows)
     double shownHeight() const {
@@ -200,6 +216,31 @@ class PadGrid : public QWidget {
         const int top = kTabH + kGap, rows = static_cast<int>(shownHeight()) - top;
         const int h1 = (rows - kGap) / 2, h2 = rows - kGap - h1;
         return cell(k % 4, 4, width(), k < 4 ? top : top + h1 + kGap, k < 4 ? h1 : h2);
+    }
+    // Mixxx's own cue menu for hot cue n (0-based), under pad k: its label, colour, kind, delete. Shift: deleted.
+    void cueMenu(int k, int n, bool deleteIt) {
+        const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(m_group);
+        if (!pTrack) {
+            return;
+        }
+        CuePointer pHotCue;
+        for (const CuePointer& pCue : pTrack->getCuePoints()) {
+            if (pCue->getHotCue() == n) {
+                pHotCue = pCue;
+            }
+        }
+        if (!pHotCue) {
+            return;
+        }
+        if (deleteIt) {
+            pTrack->removeCue(pHotCue);
+            return;
+        }
+        if (!m_pCueMenu) {
+            m_pCueMenu = new WCueMenuPopup(s_config, this);
+        }
+        m_pCueMenu->setTrackCueGroup(pTrack, pHotCue, m_group);
+        m_pCueMenu->popup(mapToGlobal(padRect(k).bottomLeft().toPoint()));
     }
     QString samplerGroup(int k) const {
         // decks 1, 3: samplers 1-8; decks 2, 4: 9-16 (as ZyDeck's pads; Mixxx with fewer: the ones there are)
@@ -272,6 +313,27 @@ class PadGrid : public QWidget {
                 out.append(pad);
             }
             break;
+        case Roll:
+            for (int k = 0; k < 8; ++k) {
+                Pad pad;
+                pad.top = QString::fromLatin1(kRollText[k]);
+                pad.bottom = k < 4 ? QStringLiteral("beat") : QStringLiteral("beats");
+                pad.lit = get(m_group, QStringLiteral("beatlooproll_%1_activate").arg(QString::fromLatin1(kRolls[k]))) > 0;
+                if (pad.lit) {
+                    pad.color = kRollOn;
+                }
+                out.append(pad);
+            }
+            break;
+        case Jump:
+            for (int k = 0; k < 8; ++k) {
+                Pad pad;
+                const int n = kJumps[k];
+                pad.top = n < 0 ? QStringLiteral("\u25c0 %1").arg(-n) : QStringLiteral("%1 \u25b6").arg(n);
+                pad.bottom = std::abs(n) > 1 ? QStringLiteral("beats") : QStringLiteral("beat");
+                out.append(pad);
+            }
+            break;
         case Stems: {
             const int stems = static_cast<int>(get(m_group, QStringLiteral("stem_count")));
             for (int k = 0; k < 8; ++k) {
@@ -308,21 +370,32 @@ class PadGrid : public QWidget {
         switch (mode) {
         case HotCue: {
             const int n = (shift ? 8 : 0) + k + 1;
-            if (right) {   // (the right button: clear it, as Mixxx's own hot cue buttons)
+            if (right) {   // the right button, as Mixxx's own hot cue buttons: its cue menu; with Shift, it goes
                 if (down) {
-                    set(m_group, QStringLiteral("hotcue_%1_clear").arg(n), 1);
+                    cueMenu(k, n - 1, m_downKeyShift);
                 }
                 return;
             }
             set(m_group, QStringLiteral("hotcue_%1_activate").arg(n), down ? 1 : 0);
             return;
         }
+        case Roll:
+            if (!right) {
+                set(m_group, QStringLiteral("beatlooproll_%1_activate").arg(QString::fromLatin1(kRolls[k])), down ? 1 : 0);
+            }
+            return;
+        case Jump:
+            if (down && !right) {
+                const int n = kJumps[k];
+                set(m_group, QStringLiteral("beatjump_%1_%2").arg(std::abs(n)).arg(n < 0 ? QStringLiteral("backward") : QStringLiteral("forward")), 1);
+            }
+            return;
         case PadFx1:
         case PadFx2: {
             const int p = (mode == PadFx2 ? 8 : 0) + k;
             if (shift || right) {   // SHIFT (or the right button): the pad's editor, as a sampler pad's menu
                 if (down) {
-                    editPadFx(p, window());
+                    editPadFx(p, m_group, this, mapToGlobal(padRect(k).bottomLeft().toPoint()));
                 }
                 return;
             }
@@ -349,9 +422,12 @@ class PadGrid : public QWidget {
     QString m_group;
     int m_deck;
     int m_down = -1;
+    bool m_modeDown = false;
     int m_downMode = 0;
     bool m_downShift = false;
+    bool m_downKeyShift = false;   // (the keyboard's alone)
     QString m_shown;
+    WCueMenuPopup* m_pCueMenu = nullptr;
 };
 
 // A skin widget named ZyDeckPads_[ChannelN], as it's first shown: the pads go in it
@@ -379,7 +455,8 @@ class Installer : public QObject {
 
 } // namespace
 
-void watchPadGrids() {
+void watchPadGrids(UserSettingsPointer pConfig) {
+    s_config = pConfig;
     for (int d = 1; d <= kDecks; ++d) {
         const QString group = QStringLiteral("[Channel%1]").arg(d);
         new ControlObject(ConfigKey(group, QStringLiteral("zydeck_pad_mode")));

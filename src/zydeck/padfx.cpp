@@ -3,9 +3,9 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
-#include <QDialog>
-#include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -457,7 +457,8 @@ PadFxLabel padFxLabel(int pad) {
 
 namespace {
 // The pad editor: a window per pad (a second press brings it forward)
-QHash<int, QPointer<QDialog>> s_editors;
+QHash<int, QPointer<QWidget>> s_editors;
+UserSettingsPointer s_config;
 
 // A knob's place (0-1000) and back, as Mixxx's knobs go: logarithmic ones by the ratio
 double knobValue(const EffectManifestParameterPointer& pInfo, int x) {
@@ -486,88 +487,151 @@ QString beatsText(double b) {
             {2500, QStringLiteral("1/4")}, {5000, QStringLiteral("1/2")}, {7500, QStringLiteral("3/4")}};
     return fractions.value(static_cast<int>(std::lround(b * 10000)), QString::number(b));
 }
+
+// Its look, as LateNight's cue menu (WCueMenuPopup, which the skin styles by its class name, so this says it again):
+// the scheme's text colour, a black label field, the library's button frames; FX 3/4's teal for what's on
+QString popupStyle() {
+    const QString scheme = s_config && s_config->getValueString(ConfigKey(QStringLiteral("[Config]"), QStringLiteral("Scheme")))
+                    .compare(QLatin1String("Classic"), Qt::CaseInsensitive) == 0
+            ? QStringLiteral("classic")
+            : QStringLiteral("palemoon");
+    return QStringLiteral(R"(
+#PadFxPopup, #PadFxPopup QLabel, #PadFxPopup QCheckBox { color: #c2b3a5; font-family: "Open Sans"; font-size: 12px; }
+#PadFxPopup QLabel#PadFxTitle { font-weight: 600; }
+#PadFxPopup QLineEdit { color: #c2b3a5; background-color: #000; border: none; border-radius: 0px; padding: 2px;
+  selection-color: #000; selection-background-color: #ccc; }
+#PadFxPopup QPushButton, #PadFxPopup QComboBox { color: #c2b3a5; outline: none; border-width: 2px; border-radius: 0px;
+  border-image: url(skins:LateNight/%1/buttons/btn_embedded_library.svg) 2 2 2 2; min-height: 20px; padding: 0 6px; }
+#PadFxPopup QPushButton:pressed, #PadFxPopup QPushButton:checked {
+  border-image: url(skins:LateNight/%1/buttons/btn_embedded_library_active.svg) 2 2 2 2; background-color: #146674; }
+#PadFxPopup QPushButton#PadFxEmpty:hover { background-color: #6c2e2e; }
+#PadFxPopup QComboBox QAbstractItemView { color: #c2b3a5; background-color: #0f0f0f; selection-background-color: #146674; border: 1px solid #000; }
+#PadFxPopup QSlider::groove:horizontal { height: 4px; background: #000; }
+#PadFxPopup QSlider::sub-page:horizontal { background: #146674; }
+#PadFxPopup QSlider::handle:horizontal { width: 6px; margin: -5px 0; background: #c2b3a5; }
+)").arg(scheme);
+}
 } // namespace
 
-void editPadFx(int pad, QWidget* pParent) {
+// Pad P's editor, under the pad, as Mixxx's cue menu is under a hot cue: what it is (PAD FX page · pad, the effect and
+// its beats), its name, its effect, each parameter, LEVEL/DEPTH and INTENSITY; on the right: empty it, take what the
+// deck's FX unit has, its default. Changes are kept as they're made (as the cue menu's); a click outside closes it.
+void editPadFx(int pad, const QString& group, QWidget* pParent, const QPoint& at) {
     if (!s_pPadFx || pad < 0 || pad >= kPads) {
         return;
     }
-    if (QDialog* pOpen = s_editors.value(pad)) {
-        pOpen->raise();
-        pOpen->activateWindow();
-        return;
+    if (QWidget* pOpen = s_editors.value(pad)) {
+        pOpen->close();
     }
     PadFx* const pFx = s_pPadFx;
-    auto* pDialog = new QDialog(pParent);
-    s_editors.insert(pad, pDialog);
-    pDialog->setAttribute(Qt::WA_DeleteOnClose);
-    pDialog->setWindowTitle(QStringLiteral("PAD FX %1 · pad %2").arg(pad / 8 + 1).arg(pad % 8 + 1));
-    auto* pOuter = new QVBoxLayout(pDialog);
-    auto* pTop = new QFormLayout();
-    auto* pName = new QLineEdit(pDialog);
-    auto* pEffect = new QComboBox(pDialog);
-    pTop->addRow(QObject::tr("Name"), pName);
-    pTop->addRow(QObject::tr("Effect"), pEffect);
-    auto* pLevel = new QSlider(Qt::Horizontal, pDialog);
-    pLevel->setRange(0, 100);
-    auto* pLevelText = new QLabel(pDialog);
-    auto* pLevelRow = new QHBoxLayout();
-    pLevelRow->addWidget(pLevel);
-    pLevelRow->addWidget(pLevelText);
-    pTop->addRow(QObject::tr("LEVEL/DEPTH"), pLevelRow);
-    auto* pMeta = new QSlider(Qt::Horizontal, pDialog);
-    pMeta->setRange(0, 100);
-    pTop->addRow(QObject::tr("Intensity (meta)"), pMeta);
-    pOuter->addLayout(pTop);
-    auto* pParamsBox = new QWidget(pDialog);
-    auto* pParams = new QFormLayout(pParamsBox);
-    pParams->setContentsMargins(0, 6, 0, 6);
-    pOuter->addWidget(pParamsBox);
-    // what an FX unit's slot has now, as it is
-    auto* pTakeRow = new QHBoxLayout();
-    auto* pFrom = new QComboBox(pDialog);
-    for (int u = 1; u <= 4; ++u) {
-        for (int j = 1; j <= 3; ++j) {
-            pFrom->addItem(QObject::tr("FX unit %1, effect %2").arg(u).arg(j), QPoint(u, j));
-        }
-    }
-    auto* pTake = new QPushButton(QObject::tr("Take as it is"), pDialog);
-    pTakeRow->addWidget(pFrom, 1);
-    pTakeRow->addWidget(pTake);
-    pOuter->addLayout(pTakeRow);
-    auto* pButtons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel | QDialogButtonBox::RestoreDefaults, pDialog);
-    pOuter->addWidget(pButtons);
+    auto* pPopup = new QWidget(pParent, Qt::Popup);
+    s_editors.insert(pad, pPopup);
+    pPopup->setAttribute(Qt::WA_DeleteOnClose);
+    pPopup->setAttribute(Qt::WA_StyledBackground);
+    pPopup->setObjectName(QStringLiteral("PadFxPopup"));
+    pPopup->setStyleSheet(popupStyle());
+    const int deck = group.mid(8, 1).toInt();
+    const int unit = deck % 2 ? 1 : 2;   // (the deck's own FX unit: its Beat FX)
 
-    // the preset as edited
+    auto* pTitle = new QLabel(QObject::tr("PAD FX %1 · %2").arg(pad / 8 + 1).arg(pad % 8 + 1), pPopup);
+    pTitle->setObjectName(QStringLiteral("PadFxTitle"));
+    auto* pWhat = new QLabel(pPopup);
+    auto* pName = new QLineEdit(pPopup);
+    pName->setToolTip(QObject::tr("The pad's name (empty: its effect's)"));
+    auto* pEffect = new QComboBox(pPopup);
+    pEffect->setToolTip(QObject::tr("Its effect"));
+    auto* pParamsBox = new QWidget(pPopup);
+    auto* pParams = new QFormLayout(pParamsBox);
+    pParams->setContentsMargins(0, 2, 0, 2);
+    pParams->setVerticalSpacing(3);
+    const auto slider = [pPopup](const QString& tip) {
+        auto* pS = new QSlider(Qt::Horizontal, pPopup);
+        pS->setRange(0, 100);
+        pS->setToolTip(tip);
+        pS->setMinimumWidth(150);
+        return pS;
+    };
+    auto* pLevel = slider(QObject::tr("LEVEL/DEPTH: how much of the effect against the track while the pad's held (the unit's mix)"));
+    auto* pMeta = slider(QObject::tr("INTENSITY: the effect's meta knob"));
+    auto* pMore = new QFormLayout();
+    pMore->setVerticalSpacing(3);
+    pMore->addRow(QObject::tr("LEVEL/DEPTH"), pLevel);
+    pMore->addRow(QObject::tr("INTENSITY"), pMeta);
+
+    auto* pEmpty = new QPushButton(QObject::tr("Empty"), pPopup);
+    pEmpty->setObjectName(QStringLiteral("PadFxEmpty"));
+    pEmpty->setToolTip(QObject::tr("No effect on this pad"));
+    auto* pTake = new QPushButton(QObject::tr("Take FX %1").arg(unit), pPopup);
+    pTake->setToolTip(QObject::tr("FX unit %1's effect (the first one on, else its first), with all its knobs and the unit's mix, as they are").arg(unit));
+    auto* pDefault = new QPushButton(QObject::tr("Default"), pPopup);
+    pDefault->setToolTip(QObject::tr("This pad as it came"));
+
+    auto* pHead = new QHBoxLayout();
+    pHead->addWidget(pTitle);
+    pHead->addStretch(1);
+    pHead->addWidget(pWhat);
+    auto* pLeft = new QVBoxLayout();
+    pLeft->addLayout(pHead);
+    pLeft->addWidget(pName);
+    pLeft->addWidget(pEffect);
+    pLeft->addWidget(pParamsBox);
+    pLeft->addLayout(pMore);
+    auto* pRight = new QVBoxLayout();
+    pRight->addWidget(pEmpty);
+    pRight->addWidget(pTake);
+    pRight->addStretch(1);
+    pRight->addWidget(pDefault);
+    auto* pMain = new QHBoxLayout(pPopup);
+    pMain->addLayout(pLeft);
+    pMain->addSpacing(5);
+    pMain->addLayout(pRight);
+
+    // the preset as edited, kept a moment after each change
     auto pEdit = std::make_shared<Preset>(pFx->preset(pad));
+    auto* pKeep = new QTimer(pPopup);
+    pKeep->setSingleShot(true);
+    pKeep->setInterval(300);
+    QObject::connect(pKeep, &QTimer::timeout, pPopup, [pFx, pad, pEdit] { pFx->setPreset(pad, *pEdit); });
+    QObject::connect(pPopup, &QObject::destroyed, pFx, [pFx, pad, pEdit, pKeep] {
+        Q_UNUSED(pKeep);
+        pFx->setPreset(pad, *pEdit);   // (closed meanwhile: kept)
+    });
+    const auto changed = [pKeep] { pKeep->start(); };
+
     const VisibleEffectsListPointer pList = pFx->effects()->getVisibleEffectsList();
     const QList<EffectManifestPointer> manifests = pList ? pList->getList() : QList<EffectManifestPointer>();
-    pEffect->addItem(QObject::tr("(empty pad)"));
+    pEffect->addItem(QObject::tr("(empty)"));
     for (const EffectManifestPointer& pManifest : manifests) {
         pEffect->addItem(pManifest->displayName().isEmpty() ? pManifest->name() : pManifest->displayName());
     }
-    // (filled from pEdit: its parameters' rows made again for its effect)
     auto fill = std::make_shared<std::function<void()>>();
     *fill = [=]() {
         const EffectManifestPointer pManifest = pFx->manifest(*pEdit);
+        pWhat->setText(pManifest ? (pEdit->beats > 0 ? QStringLiteral("%1 · %2").arg(pManifest->name(), beatsText(pEdit->beats)) : pManifest->name())
+                                 : QObject::tr("empty"));
         pName->setText(pEdit->name);
-        pName->setPlaceholderText(pManifest ? pManifest->name() : QString());
-        const QSignalBlocker block(pEffect);
-        int at = 0;
-        for (int i = 0; i < manifests.size(); ++i) {
-            if (pManifest && *manifests[i] == *pManifest) {
-                at = i + 1;
+        pName->setPlaceholderText(pManifest ? pManifest->name() : QObject::tr("Name"));
+        {
+            const QSignalBlocker block(pEffect);
+            int idx = 0;
+            for (int i = 0; i < manifests.size(); ++i) {
+                if (pManifest && *manifests[i] == *pManifest) {
+                    idx = i + 1;
+                }
             }
+            pEffect->setCurrentIndex(idx);
         }
-        pEffect->setCurrentIndex(at);
-        pLevel->setValue(static_cast<int>(std::lround(pEdit->level * 100)));
-        pLevelText->setText(QStringLiteral("%1 %").arg(pLevel->value()));
-        pMeta->setValue(static_cast<int>(std::lround((pEdit->meta >= 0 ? pEdit->meta : pManifest ? pManifest->metaknobDefault() : 0.5) * 100)));
+        {
+            const QSignalBlocker b1(pLevel), b2(pMeta);
+            pLevel->setValue(static_cast<int>(std::lround(pEdit->level * 100)));
+            pMeta->setValue(static_cast<int>(std::lround((pEdit->meta >= 0 ? pEdit->meta : pManifest ? pManifest->metaknobDefault() : 0.5) * 100)));
+        }
         pMeta->setEnabled(pManifest != nullptr);
         while (pParams->rowCount()) {
             pParams->removeRow(0);
         }
         if (!pManifest) {
+            pPopup->adjustSize();
             return;
         }
         int knob = 0;
@@ -577,49 +641,50 @@ void editPadFx(int pad, QWidget* pParent) {
             if (pInfo->parameterType() == EffectManifestParameter::ParameterType::Button) {
                 auto* pBox = new QCheckBox(pParamsBox);
                 pBox->setChecked(now > 0.5);
-                QObject::connect(pBox, &QCheckBox::toggled, pBox, [pEdit, id](bool on) { pEdit->params.insert(id, on ? 1 : 0); });
+                QObject::connect(pBox, &QCheckBox::toggled, pBox, [pEdit, id, changed](bool on) {
+                    pEdit->params.insert(id, on ? 1 : 0);
+                    changed();
+                });
                 pParams->addRow(pInfo->name(), pBox);
                 continue;
             }
-            if (inBeats(pManifest, pInfo, knob++)) {   // its length in beats: as the pads say it
+            if (inBeats(pManifest, pInfo, knob++)) {   // its length in beats, as the pads say it
                 auto* pBeats = new QComboBox(pParamsBox);
                 const double shown = pEdit->beats > 0 ? pEdit->beats : now;
                 for (const double b : {1.0 / 16, 1.0 / 8, 0.25, 0.5, 0.75, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0}) {
                     if (b >= pInfo->getMinimum() - 1e-9 && b <= pInfo->getMaximum() + 1e-9) {
-                        pBeats->addItem(beatsText(b) + (b > 1 ? QObject::tr(" beats") : QObject::tr(" beat")), b);
+                        pBeats->addItem(beatsText(b), b);
                         if (std::abs(b - shown) < 1e-6) {
                             pBeats->setCurrentIndex(pBeats->count() - 1);
                         }
                     }
                 }
-                QObject::connect(pBeats, &QComboBox::currentIndexChanged, pBeats, [pEdit, pBeats, id](int) {
+                QObject::connect(pBeats, &QComboBox::currentIndexChanged, pBeats, [=](int) {
                     pEdit->beats = pBeats->currentData().toDouble();
                     pEdit->params.insert(id, pEdit->beats);
+                    pWhat->setText(QStringLiteral("%1 · %2").arg(pManifest->name(), beatsText(pEdit->beats)));
+                    changed();
                 });
                 pParams->addRow(pInfo->name(), pBeats);
                 continue;
             }
-            auto* pRow = new QWidget(pParamsBox);
-            auto* pRowLayout = new QHBoxLayout(pRow);
-            pRowLayout->setContentsMargins(0, 0, 0, 0);
-            auto* pSlider = new QSlider(Qt::Horizontal, pRow);
-            pSlider->setRange(0, 1000);
-            pSlider->setValue(knobPlace(pInfo, now));
-            auto* pValue = new QLabel(QString::number(now, 'g', 3), pRow);
-            pValue->setMinimumWidth(48);
-            pRowLayout->addWidget(pSlider, 1);
-            pRowLayout->addWidget(pValue);
-            QObject::connect(pSlider, &QSlider::valueChanged, pSlider, [pEdit, pInfo, pValue, id](int x) {
+            auto* pS = new QSlider(Qt::Horizontal, pParamsBox);
+            pS->setRange(0, 1000);
+            pS->setValue(knobPlace(pInfo, now));
+            pS->setToolTip(QStringLiteral("%1: %2").arg(pInfo->name(), QString::number(now, 'g', 3)));
+            QObject::connect(pS, &QSlider::valueChanged, pS, [pEdit, pInfo, pS, id, changed](int x) {
                 const double v = knobValue(pInfo, x);
                 pEdit->params.insert(id, v);
-                pValue->setText(QString::number(v, 'g', 3));
+                pS->setToolTip(QStringLiteral("%1: %2").arg(pInfo->name(), QString::number(v, 'g', 3)));
+                changed();
             });
-            pParams->addRow(pInfo->name(), pRow);
+            pParams->addRow(pInfo->name(), pS);
         }
+        pPopup->adjustSize();
     };
     (*fill)();
 
-    QObject::connect(pEffect, &QComboBox::currentIndexChanged, pDialog, [=](int i) {
+    QObject::connect(pEffect, &QComboBox::currentIndexChanged, pPopup, [=](int i) {
         Preset p;   // (another effect: its defaults)
         p.level = pEdit->level;
         p.name = pEdit->name;
@@ -629,38 +694,62 @@ void editPadFx(int pad, QWidget* pParent) {
         }
         *pEdit = p;
         (*fill)();
+        changed();
     });
-    QObject::connect(pName, &QLineEdit::textEdited, pDialog, [pEdit](const QString& t) { pEdit->name = t.trimmed(); });
-    QObject::connect(pLevel, &QSlider::valueChanged, pDialog, [pEdit, pLevelText](int v) {
+    QObject::connect(pName, &QLineEdit::textEdited, pPopup, [pEdit, changed](const QString& t) {
+        pEdit->name = t.trimmed();
+        changed();
+    });
+    QObject::connect(pName, &QLineEdit::returnPressed, pPopup, &QWidget::close);
+    QObject::connect(pLevel, &QSlider::valueChanged, pPopup, [pEdit, changed](int v) {
         pEdit->level = v / 100.0;
-        pLevelText->setText(QStringLiteral("%1 %").arg(v));
+        changed();
     });
-    QObject::connect(pMeta, &QSlider::sliderMoved, pDialog, [pEdit](int v) { pEdit->meta = v / 100.0; });
-    QObject::connect(pTake, &QPushButton::clicked, pDialog, [=] {
-        const QPoint us = pFrom->currentData().toPoint();
-        const Preset p = pFx->captured(us.x(), us.y() - 1);
+    QObject::connect(pMeta, &QSlider::valueChanged, pPopup, [pEdit, changed](int v) {
+        pEdit->meta = v / 100.0;
+        changed();
+    });
+    QObject::connect(pEmpty, &QPushButton::clicked, pPopup, [=] {
+        *pEdit = Preset();
+        (*fill)();
+        changed();
+    });
+    QObject::connect(pTake, &QPushButton::clicked, pPopup, [=] {
+        int slot = 0;   // (the first effect on, else the first)
+        for (int j = 2; j >= 0; --j) {
+            if (ControlObject::get(ConfigKey(QStringLiteral("[EffectRack1_EffectUnit%1_Effect%2]").arg(unit).arg(j + 1), QStringLiteral("enabled"))) > 0) {
+                slot = j;
+            }
+        }
+        const Preset p = pFx->captured(unit, slot);
         if (p.effect.isEmpty()) {
-            return;   // (nothing in that slot)
+            return;
         }
         const QString name = pEdit->name;
         *pEdit = p;
         pEdit->name = name;
         (*fill)();
+        changed();
     });
-    QObject::connect(pButtons->button(QDialogButtonBox::RestoreDefaults), &QPushButton::clicked, pDialog, [=] {
+    QObject::connect(pDefault, &QPushButton::clicked, pPopup, [=] {
         *pEdit = pFx->defaultPreset(pad);
         (*fill)();
+        changed();
     });
-    QObject::connect(pButtons, &QDialogButtonBox::accepted, pDialog, [=] {
-        pFx->setPreset(pad, *pEdit);
-        pDialog->close();
-    });
-    QObject::connect(pButtons, &QDialogButtonBox::rejected, pDialog, &QDialog::close);
-    pDialog->resize(420, pDialog->sizeHint().height());
-    pDialog->show();
+    pPopup->adjustSize();
+    QPoint topLeft = at;
+    if (const QScreen* pScreen = QGuiApplication::screenAt(at)) {   // (on the screen, as Mixxx's popups)
+        const QRect area = pScreen->availableGeometry();
+        topLeft.setX(std::clamp(topLeft.x(), area.left(), area.right() - pPopup->width()));
+        topLeft.setY(topLeft.y() + pPopup->height() > area.bottom() ? at.y() - pPopup->height() - 60 : topLeft.y());
+    }
+    pPopup->move(topLeft);
+    pPopup->show();
+    pName->setFocus();
 }
 
 void setUpPadFx(const std::shared_ptr<EffectsManager>& pEffects, UserSettingsPointer pConfig) {
+    s_config = pConfig;
     if (pEffects) {
         new PadFx(pEffects, pConfig);
     }
