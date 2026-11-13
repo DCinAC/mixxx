@@ -82,7 +82,8 @@ bool Hardware::wants(const QString& port, const QByteArray& msg) {
     if ((st & 0xF0) != 0x90) {
         return false;
     }
-    return msg[2] != 0 || d1 == 0x04 || d1 == 0x08;   // (presses; SHIFT's letting go and the jogs' too)
+    // (presses; SHIFT's letting go, the jogs' and LOOP IN / OUT's too)
+    return msg[2] != 0 || d1 == 0x04 || d1 == 0x08 || ((st == 0x91 || st == 0x92) && (d1 == 0x09 || d1 == 0x0A));
 }
 
 // The jogs (status, note/control, value): touched on 0x91/0x92 note 8, with SHIFT 0x94/0x95; turned by the top,
@@ -91,7 +92,7 @@ void Hardware::jogFeed(quint8 st, quint8 d1, quint8 v) {
     const int hi = st & 0xF0, ch = st & 0x0F;
     if ((hi == 0x90 || hi == 0x80) && d1 == 0x08 && ch >= 1 && ch <= 5 && ch != 3) {
         const int side = (ch - 1) % 3;
-        const int touch = hi == 0x90 && v ? (ch >= 4 ? 2 : 1) : 0;
+        const int touch = hi == 0x90 && v && !m_loopHeld[side] ? (ch >= 4 ? 2 : 1) : 0;
         if (touch == 0 && m_touch[side] && (ch >= 4) != (m_touch[side] == 2)) {
             return;   // (the other one's letting go: SHIFT changed while it was held)
         }
@@ -113,6 +114,9 @@ void Hardware::jogFeed(quint8 st, quint8 d1, quint8 v) {
     }
     if (hi == 0xB0 && d1 == 0x0A && ch >= 1 && ch <= 5 && ch != 3) {
         const int side = (ch - 1) % 3;
+        if (m_loopHeld[side]) {
+            return;   // (adjusting a loop: the record doesn't move)
+        }
         if (!m_touch[side]) {
             m_touch[side] = ch >= 4 ? 2 : 1;   // (its touch missed: turned by the top is touched)
         }
@@ -154,6 +158,16 @@ void Hardware::feed(const QString& port, const QByteArray& msg) {
     const bool jogCh = ch == 1 || ch == 2 || ch == 4 || ch == 5;   // (decks A, B, and with SHIFT: not the pads' 6, 7)
     if ((status & 0xF0) == 0xB0 || (jogCh && d1 == 0x08) || (d1 == 0x01 && (status == 0x94 || status == 0x95))) {
         jogFeed(status, d1, static_cast<quint8>(msg[2]));
+        return;
+    }
+    if ((status == 0x91 || status == 0x92) && (d1 == 0x09 || d1 == 0x0A)) {   // LOOP IN / OUT, deck A / B
+        const int side = status - 0x91;
+        m_loopHeld[side] = msg[2] != 0;
+        if (m_loopHeld[side] && m_touch[side]) {   // (touched before: let go, as far as the devices know)
+            m_ticks[side] = 0;
+            m_touch[side] = 0;
+            jogOut(side);
+        }
         return;
     }
     if ((status == 0x91 || status == 0x92) && msg[1] == 0x04) {   // SHIFT, deck A / B

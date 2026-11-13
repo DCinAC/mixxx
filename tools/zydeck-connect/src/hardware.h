@@ -66,6 +66,7 @@ class Hardware : public QObject {
     bool m_vinyl = true;          // the mapping's scratchButtonState (on as it starts)
     int m_touch[2] = {0, 0};      // the jogs' tops: 0 let go, 1 touched, 2 touched with SHIFT
     int m_ticks[2] = {0, 0};      // turned since last passed on
+    bool m_loopHeld[2] = {false, false};   // LOOP IN or OUT held: the jog adjusts the loop (the mapping's), no scratch
     QTimer m_jogSend;             // (steps a few ms together: one message, not one a step)
     void jogFeed(quint8 status, quint8 d1, quint8 v);
     void jogOut(int side);
