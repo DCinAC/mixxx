@@ -146,6 +146,11 @@ Core::Core(QObject* parent)
     connect(this, &Core::mixxxMappingStarted, m_hardware, &Hardware::mappingsStarted);
     connect(m_hardware, &Hardware::changed, this, &Core::hardwareOut);
     connect(m_hardware, &Hardware::jogged, this, &Core::jogOut);
+    connect(m_hardware, &Hardware::changed, this, &Core::padsToMixxx);
+    connect(m_hardware, &Hardware::shifted, this, [this](int side, bool held) {
+        m_padShift[side] = held;
+        padsToMixxx(m_hardware->state());
+    });
     connect(m_profiler, &Profiler::tell, this, [this](const QJsonObject& control) {   // the session profiler: all the devices
         const QByteArray line = "P " + QJsonDocument(control).toJson(QJsonDocument::Compact) + '\n';
         for (auto it = m_clients.cbegin(); it != m_clients.cend(); ++it) {
@@ -222,6 +227,28 @@ void Core::hardwareOut(const QJsonObject& state) {
         }
     }
     m_midi->toDevices(sysexText(zydeck::shared::kHardware, state));
+}
+
+// The controller's pad mode and SHIFT, to Mixxx ZyDeck (its pads in the skin show what the controller's pads do):
+// [ChannelN],zydeck_pad_mode and zydeck_pad_shift for the decks its two sides play. The Inpulse's LOOP key is
+// PAD FX 1 there, SHIFT + LOOP PAD FX 2 (its pads trigger them); its other modes without a page there are left as
+// they were. Only to a Mixxx ZyDeck (the one with PAD FX: zydeck-padfx.json); never to the controller.
+void Core::padsToMixxx(const QJsonObject& state) {
+    if (state.isEmpty() || !QFileInfo::exists(mixxxDir() + QStringLiteral("/zydeck-padfx.json"))) {
+        return;
+    }
+    static const QHash<QString, int> modes{{QStringLiteral("hotcue"), 0}, {QStringLiteral("roll"), 1},
+            {QStringLiteral("beatjump"), 2}, {QStringLiteral("sampler"), 3}, {QStringLiteral("slicer"), 4}};
+    const bool d34 = state.value(QStringLiteral("d34")).toBool();
+    const QJsonArray pads = state.value(QStringLiteral("pads")).toArray();
+    for (int side = 0; side < 2; ++side) {
+        const QString group = QStringLiteral("[Channel%1]").arg((d34 ? 3 : 1) + side);
+        const QString mode = pads.at(side).toString();
+        if (modes.contains(mode)) {
+            m_midi->toMixxx(zydeck::shared::setControlSysex(group, QStringLiteral("zydeck_pad_mode"), modes.value(mode)));
+        }
+        m_midi->toMixxx(zydeck::shared::setControlSysex(group, QStringLiteral("zydeck_pad_shift"), m_padShift[side] ? 1 : 0));
+    }
 }
 
 // Its jogs as they're turned: to every device, over the cable and Wi-Fi both (a device on the cable keeps Wi-Fi linked

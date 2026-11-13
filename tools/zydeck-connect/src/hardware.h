@@ -53,6 +53,7 @@ class Hardware : public QObject {
   signals:
     void changed(const QJsonObject& state);   // with "ev"
     void jogged(const zydeck::shared::Jog& jog);   // (seq: Core's)
+    void shifted(int side, bool held);             // its SHIFT, deck A (0) or B (1)
 
   private:
     QString port() const;   // the known controller's MIDI input, "" without one

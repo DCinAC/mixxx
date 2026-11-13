@@ -115,6 +115,21 @@ inline QList<int> encodeValue(double v) {
     return out;
 }
 
+// The mapping's "set a control" (Zydek-Tablet.script.js, type 0x50): F0 7D 50 00 "group,key" 00 <v7> F7
+inline constexpr quint8 kSetControl = 0x50;
+inline QByteArray setControlSysex(const QString& group, const QString& key, double v) {
+    QByteArray msg("\xF0\x7D", 2);
+    msg.append(static_cast<char>(kSetControl));
+    msg.append('\0');
+    msg.append((group + QLatin1Char(',') + key).toLatin1());
+    msg.append('\0');
+    for (const int b : encodeValue(v)) {
+        msg.append(static_cast<char>(b));
+    }
+    msg.append(static_cast<char>(0xF7));
+    return msg;
+}
+
 inline double decodeValue(const QByteArray& bytes) {
     qint64 n = 0;
     for (int i = 0; i < kValueBytes && i < bytes.size(); ++i) {

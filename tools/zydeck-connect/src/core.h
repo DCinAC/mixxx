@@ -90,6 +90,8 @@ class Core : public QObject {
     Hardware* m_hardware;   // the DJ controller on this computer, read only: for the pages to follow
     void hardwareOut(const QJsonObject& state);
     void jogOut(zydeck::shared::Jog jog);   // its jogs, as they're turned (kJog)
+    void padsToMixxx(const QJsonObject& state);   // its pad mode and SHIFT, for Mixxx ZyDeck's pads in the skin
+    bool m_padShift[2] = {false, false};
     int m_jogSeq = 0;
     Profiler* m_profiler;
     QTcpServer m_server;

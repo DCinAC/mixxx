@@ -171,7 +171,11 @@ void Hardware::feed(const QString& port, const QByteArray& msg) {
         return;
     }
     if ((status == 0x91 || status == 0x92) && msg[1] == 0x04) {   // SHIFT, deck A / B
-        m_shift[status - 0x91] = msg[2] != 0;
+        const int side = status - 0x91;
+        if (m_shift[side] != (msg[2] != 0)) {
+            m_shift[side] = msg[2] != 0;
+            emit shifted(side, m_shift[side]);
+        }
         return;
     }
     Event e = read(msg);
