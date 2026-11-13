@@ -11,6 +11,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSlider>
+#include <QSpinBox>
 #include <QVBoxLayout>
 #include <QElapsedTimer>
 #include <QFile>
@@ -509,7 +510,57 @@ QString popupStyle() {
 #PadFxPopup QSlider::groove:horizontal { height: 4px; background: #000; }
 #PadFxPopup QSlider::sub-page:horizontal { background: #146674; }
 #PadFxPopup QSlider::handle:horizontal { width: 6px; margin: -5px 0; background: #c2b3a5; }
+#PadFxPopup QSpinBox { color: #c2b3a5; background-color: #000; border: none; border-radius: 0px; padding: 1px 3px;
+  selection-color: #000; selection-background-color: #ccc; }
+#PadFxPopup QCheckBox::indicator { width: 14px; height: 14px; background-color: #000; border: 1px solid #2a2a2a; border-radius: 0px; }
+#PadFxPopup QCheckBox::indicator:checked { background-color: #146674; image: none; border-color: #257b82; }
 )").arg(scheme);
+}
+} // namespace
+
+namespace {
+// A slider with its number beside it, 0-100 of its travel (whatever the slider's own range), typed in too
+QSpinBox* numberOf(QSlider* pSlider) {
+    return pSlider->property("zydeckNumber").value<QSpinBox*>();
+}
+void showNumber(QSlider* pSlider) {   // (after its value is set with its signals blocked)
+    if (QSpinBox* pNumber = numberOf(pSlider)) {
+        const QSignalBlocker block(pNumber);
+        const int span = pSlider->maximum() - pSlider->minimum();
+        pNumber->setValue(span > 0 ? static_cast<int>(std::lround((pSlider->value() - pSlider->minimum()) * 100.0 / span)) : 0);
+    }
+}
+// a row's name, as wide as every other row's: the sliders under one another
+QLabel* rowName(const QString& text, QWidget* pParent) {
+    auto* pLabel = new QLabel(text, pParent);
+    pLabel->setFixedWidth(96);
+    pLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    return pLabel;
+}
+QWidget* withNumber(QSlider* pSlider, QWidget* pParent) {
+    auto* pRow = new QWidget(pParent);
+    auto* pLayout = new QHBoxLayout(pRow);
+    pLayout->setContentsMargins(0, 0, 0, 0);
+    pLayout->setSpacing(6);
+    pSlider->setParent(pRow);
+    pSlider->setMinimumWidth(170);
+    auto* pNumber = new QSpinBox(pRow);
+    pNumber->setRange(0, 100);
+    pNumber->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    pNumber->setAlignment(Qt::AlignRight);
+    pNumber->setFixedWidth(40);
+    pNumber->setKeyboardTracking(false);   // (a typed number goes in as it's finished: Enter, or leaving the field)
+    pNumber->setToolTip(pSlider->toolTip());
+    pSlider->setProperty("zydeckNumber", QVariant::fromValue(pNumber));
+    pLayout->addWidget(pSlider, 1);
+    pLayout->addWidget(pNumber);
+    QObject::connect(pSlider, &QSlider::valueChanged, pNumber, [pSlider] { showNumber(pSlider); });
+    QObject::connect(pNumber, &QSpinBox::valueChanged, pSlider, [pSlider](int n) {
+        const int span = pSlider->maximum() - pSlider->minimum();
+        pSlider->setValue(pSlider->minimum() + static_cast<int>(std::lround(n * span / 100.0)));
+    });
+    showNumber(pSlider);
+    return pRow;
 }
 } // namespace
 
@@ -548,15 +599,14 @@ void editPadFx(int pad, const QString& group, QWidget* pParent, const QPoint& at
         auto* pS = new QSlider(Qt::Horizontal, pPopup);
         pS->setRange(0, 100);
         pS->setToolTip(tip);
-        pS->setMinimumWidth(150);
         return pS;
     };
     auto* pLevel = slider(QObject::tr("LEVEL/DEPTH: how much of the effect against the track while the pad's held (the unit's mix)"));
     auto* pMeta = slider(QObject::tr("INTENSITY: the effect's meta knob"));
     auto* pMore = new QFormLayout();
     pMore->setVerticalSpacing(3);
-    pMore->addRow(QObject::tr("LEVEL/DEPTH"), pLevel);
-    pMore->addRow(QObject::tr("INTENSITY"), pMeta);
+    pMore->addRow(rowName(QObject::tr("LEVEL/DEPTH"), pPopup), withNumber(pLevel, pPopup));
+    pMore->addRow(rowName(QObject::tr("INTENSITY"), pPopup), withNumber(pMeta, pPopup));
 
     auto* pEmpty = new QPushButton(QObject::tr("Empty"), pPopup);
     pEmpty->setObjectName(QStringLiteral("PadFxEmpty"));
@@ -626,6 +676,8 @@ void editPadFx(int pad, const QString& group, QWidget* pParent, const QPoint& at
             pLevel->setValue(static_cast<int>(std::lround(pEdit->level * 100)));
             pMeta->setValue(static_cast<int>(std::lround((pEdit->meta >= 0 ? pEdit->meta : pManifest ? pManifest->metaknobDefault() : 0.5) * 100)));
         }
+        showNumber(pLevel);
+        showNumber(pMeta);
         pMeta->setEnabled(pManifest != nullptr);
         while (pParams->rowCount()) {
             pParams->removeRow(0);
@@ -645,7 +697,7 @@ void editPadFx(int pad, const QString& group, QWidget* pParent, const QPoint& at
                     pEdit->params.insert(id, on ? 1 : 0);
                     changed();
                 });
-                pParams->addRow(pInfo->name(), pBox);
+                pParams->addRow(rowName(pInfo->name(), pParamsBox), pBox);
                 continue;
             }
             if (inBeats(pManifest, pInfo, knob++)) {   // its length in beats, as the pads say it
@@ -665,7 +717,7 @@ void editPadFx(int pad, const QString& group, QWidget* pParent, const QPoint& at
                     pWhat->setText(QStringLiteral("%1 · %2").arg(pManifest->name(), beatsText(pEdit->beats)));
                     changed();
                 });
-                pParams->addRow(pInfo->name(), pBeats);
+                pParams->addRow(rowName(pInfo->name(), pParamsBox), pBeats);
                 continue;
             }
             auto* pS = new QSlider(Qt::Horizontal, pParamsBox);
@@ -678,7 +730,7 @@ void editPadFx(int pad, const QString& group, QWidget* pParent, const QPoint& at
                 pS->setToolTip(QStringLiteral("%1: %2").arg(pInfo->name(), QString::number(v, 'g', 3)));
                 changed();
             });
-            pParams->addRow(pInfo->name(), pS);
+            pParams->addRow(rowName(pInfo->name(), pParamsBox), withNumber(pS, pParamsBox));
         }
         pPopup->adjustSize();
     };
