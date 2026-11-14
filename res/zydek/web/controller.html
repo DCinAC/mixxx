@@ -2812,6 +2812,14 @@ function frame(now) {
     if (sd !== d) sd.pos = 30 + (performance.now() - peeking) / 1000;
     const sec = deckSpan(sd);
     drawStripWave(u, sd, sd.pos - sec / 2, sec);           // the cursor stays in the middle; the waveform rolls
+    // (the session log: for 1.2 s after a scratch is let go, every other frame, the drawn speed and how far the
+    // drawing is from the sound, in ms ("r": "speed|gap"), to see a pull-back)
+    if (live && d.released && now - d.released < 1200 && frames % 2 === 0) {
+      const v = d._trT ? (d.pos - d._trP) / Math.max(.001, (now - d._trT) / 1000) : 0;
+      const gap = (ZydeckPos.posModel(d, now, latNow()) - d.pos) * 1000;
+      latTrace("r", s, `${Math.round(now - d.released)}:${v.toFixed(2)}|${Math.round(gap)}`);
+    }
+    d._trP = d.pos; d._trT = now;
     if (u.play) {   // PLAY: steady while playing; flashing with the beat (lit one, dark the next) only while a held CUE
       // plays it (letting go stops it); a track with no grid blinks instead
       const preview = d.playing && u.play.classList.contains("preview"), grid = d.bpm > 0;
