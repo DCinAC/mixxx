@@ -372,6 +372,13 @@
     { id: "palm", sec: "touch", name: "Palm rejection", kind: "slider", min: 0, max: 30, step: 1, ...C("palm", 18), show: () => ctl() && !ctl().phone,
       fmt: v => +v ? `${v} mm` : "Off", desc: "Ignores touches wider than this." },
     // Controller › Screen
+    { id: "panel", sec: "screen", name: "Waveform panel", kind: "seg",
+      opts: () => [["d", "Back to back"], ["b1", "Overview in nudge"], ["b2", "Overview on strip"], ["classic", "Classic"]], ...C("panel", "d"),
+      show: () => ctl() && !ctl().phone && S().layout !== "side",
+      desc: "Strips on top, Serato's three strips. Back to back: deck 1's waveform grows up and deck 2's down from the beat strip between them (their kicks right above and below each other), each deck's whole track in a row of its own. Overview in nudge: the whole track behind the nudge bars' words. Overview on strip: faintly over the platter strips. The nudge bars work the same in all of them; Classic is the two strips as before." },
+    { id: "beatstrip", sec: "screen", name: "Beat strip", kind: "slider", min: 8, max: 64, step: 4, ...C("beatStrip", 32),
+      fmt: v => `${Math.round(v)} beats`, show: () => ctl() && !ctl().phone && S().layout !== "side" && (S().panel || "d") !== "classic",
+      desc: "How many beats the strip between the decks shows: both decks' hits on one ruler, so two tracks in time have their hits right above each other (a bar line every 4 beats, the lamp's colour every 16)." },
     { id: "layout", sec: "screen", name: "Layout", kind: "seg", opts: () => [["stacked", "Strips on top"], ["side", "Side by side"]], ...C("layout", "stacked"), show: () => ctl() && !ctl().phone,
       desc: "Strips on top: both platter strips across the top, like Mixxx's waveforms (about twice as long)." },
     { id: "autofs", sec: "screen", name: "Fullscreen on first touch", kind: "toggle", ...C("autoFs", true), show: () => ctl() && !ctl().phone && !inApp(),

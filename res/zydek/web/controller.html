@@ -301,6 +301,33 @@
     grid-template-rows: calc(var(--mm) * 7) calc(var(--mm) * 19) var(--gap) calc(var(--mm) * 19) calc(var(--mm) * 7);
     grid-template-areas: "sl n0 sr" "sl s0 sr" "sl . sr" "sl s1 sr" "sl n1 sr"; }
   #sideL { grid-area: sl; } #sideR { grid-area: sr; } #strip0 { grid-area: s0; } #strip1 { grid-area: s1; }
+  /* ---- the waveform panel (S.panel, strips on top): Serato's three strips. "d" back to back: deck 1's strip grows
+     upwards and deck 2's downwards from the beat strip between them, each deck's whole-track overview in a row of its
+     own; "b1" the overviews behind the nudge bars' words; "b2" faintly over the platter strips; "classic" as before.
+     The nudge bars stay as they are in all of them. ---- */
+  #beatstrip, #ovw0, #ovw1 { display: none; min-width: 0; min-height: 0; position: relative; pointer-events: none; }
+  #beatstrip canvas, #ovw0 canvas, #ovw1 canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #app.stacked.panel-d #stack { grid-template-rows: calc(var(--mm) * 7) calc(var(--mm) * 3.5) calc(var(--mm) * 13.5) calc(var(--mm) * 8)
+    calc(var(--mm) * 13.5) calc(var(--mm) * 3.5) calc(var(--mm) * 7);
+    grid-template-areas: "sl n0 sr" "sl o0 sr" "sl s0 sr" "sl bs sr" "sl s1 sr" "sl o1 sr" "sl n1 sr"; }
+  #app.stacked.panel-b1 #stack, #app.stacked.panel-b2 #stack { grid-template-rows: calc(var(--mm) * 7) calc(var(--mm) * 15.5) calc(var(--mm) * 8)
+    calc(var(--mm) * 15.5) calc(var(--mm) * 7); grid-template-areas: "sl n0 sr" "sl s0 sr" "sl bs sr" "sl s1 sr" "sl n1 sr"; }
+  #app.stacked:is(.panel-d, .panel-b1, .panel-b2) #beatstrip { display: block; grid-area: bs; background: #050607; border-left: 1px solid #222; border-right: 1px solid #222; }
+  #app.stacked:is(.panel-d, .panel-b1, .panel-b2) :is(#ovw0, #ovw1) { display: block; }
+  #app.stacked.panel-d #ovw0 { grid-area: o0; background: #07080a; } #app.stacked.panel-d #ovw1 { grid-area: o1; background: #07080a; }
+  /* b1: over the nudge bar, added to it (screen: it only lights, never dims the words) */
+  #app.stacked.panel-b1 #ovw0 { grid-area: n0; z-index: 2; mix-blend-mode: screen; opacity: .5; }
+  #app.stacked.panel-b1 #ovw1 { grid-area: n1; z-index: 2; mix-blend-mode: screen; opacity: .5; }
+  /* b2: over the platter strip, as faint light: the waveform under it keeps all its brightness */
+  #app.stacked.panel-b2 #ovw0 { grid-area: s0; z-index: 2; mix-blend-mode: screen; opacity: .3; }
+  #app.stacked.panel-b2 #ovw1 { grid-area: s1; z-index: 2; mix-blend-mode: screen; opacity: .3; }
+  /* d: each half waveform grows from the beat strip's side, its gain and EQ scaling it from there */
+  #app.stacked.panel-d #strip0 :is(.wl, .sl, .bl) { transform-origin: 50% 100%; }
+  #app.stacked.panel-d #strip1 :is(.wl, .sl, .bl) { transform-origin: 50% 0; }
+  #app.stacked.panel-d #strip0 .strip .axis { top: auto; bottom: 0; }
+  #app.stacked.panel-d #strip1 .strip .axis { top: 0; }
+  #app.stacked:is(.panel-d, .panel-b1, .panel-b2) #strip0 .strip { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  #app.stacked:is(.panel-d, .panel-b1, .panel-b2) #strip1 .strip { border-top-left-radius: 0; border-top-right-radius: 0; }
   #nudge0 { grid-area: n0; } #nudge1 { grid-area: n1; }
   #nudge0, #nudge1 { display: grid; min-width: 0; }
   /* nudge bar on the outer edge of each strip, like a jog wheel's edge: drag it to bend the tempo */
@@ -547,7 +574,8 @@
   </div>
   <div id="dl"></div>
   <div id="dr"></div>
-  <div id="stack"><div id="sideL"></div><div id="nudge0"></div><div id="strip0"></div><div id="strip1"></div><div id="nudge1"></div><div id="sideR"></div></div>
+  <div id="stack"><div id="sideL"></div><div id="nudge0"></div><div id="strip0"></div><div id="strip1"></div><div id="nudge1"></div><div id="sideR"></div>
+    <div id="ovw0"><canvas></canvas></div><div id="beatstrip"><canvas></canvas></div><div id="ovw1"><canvas></canvas></div></div>
 </div>
 <div id="rotate">Turn the tablet to landscape</div>
 <script src="/zydeck-skin-d.js"></script>
@@ -569,7 +597,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwPads: null, hwDecks: null, jogScale: 0, pfxPads: null };
+const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwPads: null, hwDecks: null, jogScale: 0, pfxPads: null, panel: "d", beatStrip: 32 };
 const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
@@ -673,6 +701,8 @@ function applySettings() {
   r.setProperty("--knob", `calc(var(--mm) * ${S.knobSize})`);
   applyLook();
   platterLook();
+  const app = document.getElementById("app"), mode = panelMode();
+  ["d", "b1", "b2"].forEach(m => app.classList.toggle("panel-" + m, mode === m));
 }
 // The look (zydeck-skin-d.js): Hardware over Element, or Element as it is
 function applyLook() { document.body.classList.toggle("kc-dark", S.knobCentre === "dark"); window.zydeckSkin?.apply({ theme: S.theme || "d", lamp: S.lampSide, text: S.keyText, ptl: "top", layers: (S.drawMode || "layers") === "layers" }); }
@@ -2733,7 +2763,133 @@ function frame(now) {
     if (u.strip._end !== ending) { u.strip._end = ending; u.strip.classList.toggle("ending", ending); }
   });
   platterFrame();
+  paintPanel(now);
   requestAnimationFrame(frame);
+}
+
+// =====================================================================================================
+// The waveform panel's other strips (S.panel, see the CSS): the beat strip, both decks' hits on one ruler of
+// S.beatStrip beats, so two decks in time have theirs right above each other; and each deck's whole-track overview
+// (its waveform, sections, hot cues, the played part dimmed). Drawn about 30 times a second; an overview's
+// waveform once (again only when the track, its analysis or the size changes).
+// =====================================================================================================
+// (functions, not consts: applySettings asks before this part of the page has run)
+function panelMode() { return S.layout === "stacked" && !PHONE ? S.panel || "d" : "classic"; }
+function mirrorOf(u) { return panelMode() === "d" && ui.sides ? (u === ui.sides[0] ? "up" : "down") : null; }
+const PANEL_INK = ["#ff8a1e", "#38b6ff"];   // the top strip's deck, the bottom one's
+// Where t is in the deck's beats, as a number (12.25: a quarter of the way into beat 12), from its grid, or its BPM
+function beatPos(d, t) {
+  const b = d.beats;
+  if (!b || b.length < 2) return d.bpm > 0 ? t * d.bpm / 60 : null;
+  const n = b.length;
+  if (t < b[0]) return (t - b[0]) / (b[1] - b[0]);
+  if (t >= b[n - 1]) return n - 1 + (t - b[n - 1]) / (b[n - 1] - b[n - 2]);
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (b[m] <= t) lo = m; else hi = m; }
+  return lo + (t - b[lo]) / (b[hi] - b[lo]);
+}
+function beatTime(d, k) {   // the other way: beat k (a number) -> seconds
+  const b = d.beats;
+  if (!b || b.length < 2) return d.bpm > 0 ? k * 60 / d.bpm : 0;
+  const n = b.length, i = Math.max(0, Math.min(n - 2, Math.floor(k)));
+  return b[i] + (k - i) * (b[i + 1] - b[i]);
+}
+const panelState = { at: 0, ov: [null, null] };
+function panelCanvas(id) {
+  const cv = document.querySelector(`#${id} canvas`);
+  if (!cv || !cv.isConnected) return null;
+  const r = cachedRect(cv), dpr = devicePixelRatio || 1, W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
+  if (!W || !H) return null;
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  return { cv, g: cv.getContext("2d"), W, H, dpr };
+}
+function paintPanel(now) {
+  if (panelMode() === "classic" || now - panelState.at < 32) return;
+  panelState.at = now;
+  drawBeatStrip();
+  [0, 1].forEach(drawOverview);
+}
+function drawBeatStrip() {
+  const p = panelCanvas("beatstrip");
+  if (!p) return;
+  const { g, W, H, dpr } = p, N = S.beatStrip || 32, pxB = W / N, rh = H / 2;
+  g.clearRect(0, 0, W, H);
+  [0, 1].forEach(s => {
+    const d = shownOn(s, deckOf(s)), y0 = s * rh, cb = d.dur > 0 ? beatPos(d, d.pos) : null;
+    if (cb == null) return;
+    // its beats: a line each (every bar brighter, every 16 beats the lamp's colour), from the row's outer edge
+    for (let k = Math.ceil(cb - N / 2); k <= cb + N / 2; k++) {
+      const x = Math.round(W / 2 + (k - cb) * pxB), n = (((k + (d.bar || 0)) % 16) + 16) % 16;
+      g.fillStyle = n === 0 ? "rgba(255,194,61,.8)" : n % 4 === 0 ? "rgba(255,255,255,.42)" : "rgba(255,255,255,.14)";
+      const th = n % 4 === 0 ? rh : rh * .4;
+      g.fillRect(x, s ? y0 + rh - th : y0, Math.max(1, Math.round(dpr)), th);
+    }
+    // its hits: the low band's peaks only (a column well under the track's loudest kick draws nothing)
+    const wf = d.wf;
+    if (!wf) return;
+    const a = wf.data, st = wf.stride || 4;
+    if (wf._lowMax === undefined) { let m = 1; for (let i = 0; i < wf.n; i++) if (a[i * st + 1] > m) m = a[i * st + 1]; wf._lowMax = m; }
+    g.fillStyle = PANEL_INK[s];
+    for (let x = 0; x < W; x++) {
+      const k = cb + (x - W / 2) / pxB, t0 = beatTime(d, k), t1 = beatTime(d, k + 1 / pxB);
+      const i0 = Math.floor(t0 * wf.rate), i1 = Math.max(i0 + 1, Math.floor(t1 * wf.rate));
+      if (i1 <= 0 || i0 >= wf.n) continue;
+      let lo = 0;
+      for (let i = Math.max(0, i0); i < Math.min(wf.n, i1); i++) if (a[i * st + 1] > lo) lo = a[i * st + 1];
+      const v = (lo / wf._lowMax - .45) / .55;
+      if (v <= 0) continue;
+      const hh = Math.min(1, v) * rh * .44;
+      g.fillRect(x, y0 + rh / 2 - hh, 1, hh * 2);
+    }
+  });
+  g.fillStyle = "rgba(255,255,255,.1)"; g.fillRect(0, Math.round(rh), W, 1);
+  g.fillStyle = "#fff"; g.fillRect(Math.round(W / 2 - dpr), 0, Math.max(2, Math.round(2 * dpr)), H);
+}
+// A deck's whole track, its waveform as the strip colours it (the analysis's bands), the song's sections as a band
+// along its bottom, drawn once into an image kept for the next frames
+function overviewImage(d, W, H) {
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d"), wf = d.wf, band = Math.max(2, Math.round(H * .18)), wh = H - band;
+  (d.sections || []).forEach(sc => {
+    g.fillStyle = SECTION_COLORS[sc.label] || "#888";
+    g.fillRect(sc.s / d.dur * W, wh, Math.max(1, (sc.e - sc.s) / d.dur * W - 1), band);
+  });
+  if (!wf) return c;
+  const a = wf.data, st = wf.stride || 4, per = wf.n / W;
+  for (let x = 0; x < W; x++) {
+    const i0 = Math.floor(x * per), i1 = Math.max(i0 + 1, Math.floor((x + 1) * per));
+    let all = 0, lo = 0, mi = 0, hi = 0;
+    for (let i = i0; i < Math.min(wf.n, i1); i++) {
+      const j = i * st;
+      if (a[j] > all) all = a[j]; if (a[j + 1] > lo) lo = a[j + 1]; if (a[j + 2] > mi) mi = a[j + 2]; if (a[j + 3] > hi) hi = a[j + 3];
+    }
+    const m = Math.max(lo, mi, hi);
+    if (m <= 0) continue;
+    g.fillStyle = `rgb(${Math.round(255 * lo / m)},${Math.round(255 * mi / m)},${Math.round(255 * hi / m)})`;
+    const hh = Math.max(1, all / 255 * wh * .48);
+    g.fillRect(x, wh / 2 - hh, 1, hh * 2);
+  }
+  return c;
+}
+function drawOverview(s) {
+  const p = panelCanvas("ovw" + s);
+  if (!p) return;
+  const { g, W, H, dpr } = p, d = shownOn(s, deckOf(s));
+  g.clearRect(0, 0, W, H);
+  if (!(d.dur > 0)) return;
+  const key = `${d.n}|${d.wfVer || 0}|${d.strVer || 0}|${d.dur}|${W}x${H}`;
+  if (panelState.ov[s]?.key !== key) panelState.ov[s] = { key, img: overviewImage(d, W, H) };
+  g.drawImage(panelState.ov[s].img, 0, 0);
+  const px = clamp(d.pos / d.dur, 0, 1) * W;
+  g.fillStyle = "rgba(0,0,0,.6)"; g.fillRect(0, 0, px, H);   // played
+  (d.cues || []).forEach((c, k) => {   // its hot cues, in their colours
+    if (!c) return;
+    const t = live ? cueSec(d, d.cuePos?.[k]) : c.pos;
+    if (t == null) return;
+    g.fillStyle = `#${(c.c & 0xffffff).toString(16).padStart(6, "0")}`;
+    g.fillRect(Math.round(t / d.dur * W), 0, Math.max(2, Math.round(2 * dpr)), H);
+  });
+  g.fillStyle = "#fff"; g.fillRect(Math.round(px - dpr), 0, Math.max(2, Math.round(2 * dpr)), H);
 }
 
 // =====================================================================================================
@@ -2765,11 +2921,13 @@ const bandScale = (d, b) => Math.min(2, eqGain(d[BAND_KEYS[b]] ?? .5));     // a
 // gain turned up past it) fills the strip, so a wave reaching the edges is redlining. The 10 % above and below
 // keeps the beat grid clear.
 const WAVE_FULL = .8;
-function renderTile(wf, k, pxPerSec, H, d, part = "all") {
+// mirror: "up" (the waveform grows up from the strip's bottom edge) or "down" (from its top), for the back-to-back
+// panel: the centre line moves to that edge and the half beyond it is cut off, at twice the height
+function renderTile(wf, k, pxPerSec, H, d, part = "all", mirror = null) {
   const TW = TILE + 2, c = document.createElement("canvas"); c.width = TW; c.height = H;
-  const g = c.getContext("2d"), mid = H / 2, x0 = k * TILE;
+  const g = c.getContext("2d"), x0 = k * TILE, mid = mirror === "up" ? H : mirror === "down" ? 0 : H / 2, amp = mirror ? H : H / 2;
   if (part === "all" || part === "grid") { drawRolls(g, d, pxPerSec, x0, TW, H); drawBeats(g, d, pxPerSec, x0, TW, H); }   // (behind the wave)
-  if (wf && part === "wave") ZydeckPos.waveColumns(g, wf, x0, TW, H, pxPerSec, WAVE_FULL);   // as the calibration page draws it
+  if (wf && part === "wave") ZydeckPos.waveColumns(g, wf, x0, TW, H, pxPerSec, WAVE_FULL, mirror);   // as the calibration page draws it
   else if (wf && part !== "grid") {
     const a = wf.data, perPx = wf.rate / pxPerSec, st = wf.stride || 4, all3 = part === "all";
     const gl = all3 ? eqGain(d.low ?? .5) : 1, gm = all3 ? eqGain(d.mid ?? .5) : 1, gh = all3 ? eqGain(d.high ?? .5) : 1;
@@ -2790,7 +2948,7 @@ function renderTile(wf, k, pxPerSec, H, d, part = "all") {
         if (st === 8) for (let s2 = 0; s2 < 4; s2++) if (a[j + 4 + s2] > sv[s2]) sv[s2] = a[j + 4 + s2];
       }
       if (stem >= 0) {   // one stem: its own level
-        const h = Math.min(mid, sv[stem] / 255 * mid * WAVE_FULL);
+        const h = Math.min(amp, sv[stem] / 255 * amp * WAVE_FULL);
         if (h > .5) g.fillRect(x, mid - h, 1, h * 2);
         continue;
       }
@@ -2798,7 +2956,7 @@ function renderTile(wf, k, pxPerSec, H, d, part = "all") {
         const top = Math.max(lo, mi, hi), v = [lo, mi, hi][band];
         let f = 1;
         if (st === 8) { const sum = sv[0] + sv[1] + sv[2] + sv[3]; if (sum > 0) f = (sv[0] * vol[0] + sv[1] * vol[1] + sv[2] * vol[2] + sv[3] * vol[3]) / sum; }
-        const h = top > 0 ? Math.min(mid, all * (v / top) * f / 255 * mid * WAVE_FULL) : 0;
+        const h = top > 0 ? Math.min(amp, all * (v / top) * f / 255 * amp * WAVE_FULL) : 0;
         if (h > .5) g.fillRect(x, mid - h, 1, h * 2);
         continue;
       }
@@ -2808,7 +2966,7 @@ function renderTile(wf, k, pxPerSec, H, d, part = "all") {
       const m = Math.max(L, M, Hh);
       if (m <= 0 || gain <= 0) continue;
       g.fillStyle = `rgb(${Math.round(255 * L / m)},${Math.round(255 * M / m)},${Math.round(255 * Hh / m)})`;
-      const h = Math.min(mid, Math.max(1, all * gain / 255 * mid * WAVE_FULL));
+      const h = Math.min(amp, Math.max(1, all * gain / 255 * amp * WAVE_FULL));
       g.fillRect(x, mid - h, 1, h * 2);
     }
   }
@@ -2827,7 +2985,7 @@ function drawStripWave(u, d, start, sec) {
   if (!W || !H) return;
   const base = W / stripSeconds(), f = W / sec / base;     // base: device pixels a second at normal speed
   const extreme = S.waveMode === "extreme";
-  const shape = `${d.n}|${d.wfVer || 0}|${d.beatsVer || 0}|${d.strVer || 0}|${d.bar}|${stripSeconds()}|${W}|${H}|${d.dur}|${extreme ? "x" : "l"}`;
+  const shape = `${d.n}|${d.wfVer || 0}|${d.beatsVer || 0}|${d.strVer || 0}|${d.bar}|${stripSeconds()}|${W}|${H}|${d.dur}|${extreme ? "x" : "l"}|${mirrorOf(u)}`;
   // extreme: the band layers are drawn again only for a stem's mute (the EQ and gain scale layers); live: never
   const eq = extreme && d.wf?.stems ? (d.stems || []).join("") : "", now = performance.now();
   liveLayers(u, d);
@@ -2883,9 +3041,10 @@ function tileAt(u, d, k, base, H, dpr) {
   const place = c => { c.style.left = `${(k * TILE / dpr).toFixed(3)}px`; c.style.width = `${((TILE + 2) / dpr).toFixed(3)}px`; return c; };
   // the wave into its layers (extreme: each band; live: each stem, or the whole), the grid behind them, unscaled
   liveLayers(u, d);
-  const parts = S.waveMode === "extreme" ? [0, 1, 2].map(b => { const c = place(renderTile(d.wf, k, base, H, d, "b" + b)); u.bl[b].appendChild(c); return c; })
-    : d.wf?.stems ? [0, 1, 2, 3].map(s => { const c = place(renderTile(d.wf, k, base, H, d, s)); u.sl[s].appendChild(c); return c; })
-    : [(() => { const c = place(renderTile(d.wf, k, base, H, d, "wave")); u.sl[0].appendChild(c); return c; })()];
+  const mir = mirrorOf(u);
+  const parts = S.waveMode === "extreme" ? [0, 1, 2].map(b => { const c = place(renderTile(d.wf, k, base, H, d, "b" + b, mir)); u.bl[b].appendChild(c); return c; })
+    : d.wf?.stems ? [0, 1, 2, 3].map(s => { const c = place(renderTile(d.wf, k, base, H, d, s, mir)); u.sl[s].appendChild(c); return c; })
+    : [(() => { const c = place(renderTile(d.wf, k, base, H, d, "wave", mir)); u.sl[0].appendChild(c); return c; })()];
   const grid = place(renderTile(d.wf, k, base, H, d, "grid"));
   u.tilesBox.insertBefore(grid, u.wl);   // the grid behind the wave's layers
   u.tiles.set(k, { grid, parts, remove() { grid.remove(); parts.forEach(c => c.remove()); } });
