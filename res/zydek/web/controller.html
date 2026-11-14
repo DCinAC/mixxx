@@ -266,9 +266,8 @@
   .pfxhw .zk.close { width: calc(var(--zmm) * 11); padding: 0; flex: none; }
   .pfxhw .zk.close svg { width: calc(var(--zmm) * 3.4); height: calc(var(--zmm) * 3.4); }
   .pfxhw .zk.red { color: #ff7a6e; }
-  .pfx-hd { display: flex; align-items: center; gap: calc(var(--zmm) * 2); margin-bottom: calc(var(--zmm) * 2.4); }
-  .pfx-ttl { flex: 1; font-size: calc(var(--zmm) * 3); letter-spacing: .12em; color: #8a8a8a; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pfx-ttl em { font-style: normal; color: #dfe7ea; letter-spacing: .04em; margin-left: calc(var(--zmm) * 2); font-weight: 600; }
+  .pfx-hd { display: grid; grid-template-columns: calc(var(--zmm) * 11) 1fr calc(var(--zmm) * 11); align-items: center; margin-bottom: calc(var(--zmm) * 2.4); }
+  .pfx-ttl { text-align: center; font-size: calc(var(--zmm) * 6); letter-spacing: .14em; color: #f1f1f1; font-weight: 800; white-space: nowrap; }
   /* the index tabs */
   .pfx-tabs { display: flex; align-items: flex-end; height: calc(var(--zmm) * 12); padding: 0 calc(var(--zmm) * 1.5); margin-bottom: -1px; }
   .pfx-tab { position: relative; flex: 1; height: calc(var(--zmm) * 9.5); margin: 0 calc(var(--zmm) * -1); display: flex; align-items: center; justify-content: center; gap: .2em;
@@ -1077,8 +1076,14 @@ function buildPfxStrip(s) {
   const el = h("div", "fxset pfxset"), name = h("button", "pfxname");
   const last = () => { const d = deckOf(s); return d.pfxLast ?? pfxId(d, 0); };
   bindPress(name, down => { if (down) pfxMenu(deckOf(s), last(), name); });   // (its menu, as SHIFT + the pad)
-  const level = knob("LEVEL/DEPTH", () => pfxPad(last()).level, v => { pfxSet(last(), { level: Math.round(v * 1000) / 1000 }); pfxLive(last(), "level", v); }, null);
-  const meta = knob("INTENSITY", () => pfxMetaOf(pfxPad(last())), v => { pfxSet(last(), { meta: Math.round(v * 1000) / 1000 }); pfxLive(last(), "meta", v); }, null);
+  // LEVEL/DEPTH and INTENSITY: the PAD FX unit itself (3 or 4) as it plays, at 0 when nothing does (the engine's
+  // rest); turned, they change the effect that's on for now, never the pad's preset (its next press brings that back)
+  const unit = () => fxState[pfxUnit(deckOf(s)) - 1];
+  const level = knob("LEVEL/DEPTH", () => unit().mix, v => { const u = pfxUnit(deckOf(s)); unit().mix = v; setCtl(fxUnitG(u), "mix", v); }, 0);
+  const meta = knob("INTENSITY", () => Math.max(...[0, 1, 2].map(j => unit().enabled[j] ? unit().meta[j] : 0)), v => {
+    const u = pfxUnit(deckOf(s)), f = unit();
+    for (const j of [0, 1, 2]) if (f.enabled[j]) { f.meta[j] = v; setCtl(fxSlotG(u, j), "meta", v); }
+  }, 0);
   el.append(name, level, meta);
   return { el, paint: () => {
     const d = deckOf(s), id = last(), p = pfxPad(id), held = (d.pfxHeld || []).some(o => o && o.id === id);
@@ -3903,24 +3908,33 @@ function cueMenu(d, k, anchor) {
 // the Beat FX menu: the categories as a binder's index tabs (BEAT, COLOR, SCENE, RELEASE FX, Mixxx's own), a groove,
 // the effects on a display four rows deep that scrolls sideways (the arrows beside it light where there's more),
 // then its length on a belt (a tap rolls that length into the U under the belt's middle), LEVEL/DEPTH and
-// INTENSITY, FROM FX (the deck's FX unit's effect, as it is), NAME, DEFAULT, and APPLY TO PAD (done: every pick is the
-// pad's at once).
+// INTENSITY, NAME, DEFAULT, and APPLY TO PAD (keep it: leaving any other way puts the pad back as it was).
 function pfxMenu(d, id, anchor) {
   document.querySelectorAll(".padopts, .pfxhw").forEach(e => e.remove()); document.querySelector(".padveil")?.remove();
   const veil = h("div", "padveil"), box = h("div", "pfxhw zm hw");
   box.style.setProperty("--zmm", `calc(var(--mm) * .55)`);
-  const close = () => { box.remove(); veil.remove(); paintAll(); };
-  veil.addEventListener("pointerdown", e => { e.stopPropagation(); close(); });
+  const close = keep => { if (!keep) revert(); box.remove(); veil.remove(); paintAll(); };
+  veil.addEventListener("pointerdown", e => { e.stopPropagation(); close(false); });
   const pad = (id & 7) + 1, esc = t => String(t).replace(/</g, "&lt;");
   const key = (cls, html) => h("button", "zk " + cls, html);
+  // what the pad was as the menu opened: leaving without APPLY (✕, or a tap beside the menu) puts it back
+  const was = pfxRemote ? JSON.parse(JSON.stringify(pfxRemote.pads[id])) : JSON.parse(JSON.stringify(S.pfxPads?.[id] ?? null));
+  let applied = false;
+  const revert = () => {
+    if (applied) return;
+    applied = true;
+    clearTimeout(pfxSetT);
+    if (pfxRemote) pfxPick(id, was.raw);
+    else { const all = [...(S.pfxPads || [])]; all[id] = was; S.pfxPads = all; saveSettings(); }
+  };
   // Each part is built on its own, so a pick only builds again what it changes: the list keeps its place and the
   // finger on it (it's never scrolled for you), the belt its own.
   const parts = {};
   const place = (name, el) => { if (parts[name]) parts[name].replaceWith(el); parts[name] = el; return el; };
-  const header = () => {
-    const p = pfxPad(id), hd = h("div", "pfx-hd", `<span class="pfx-ttl">PAD FX ${(id >> 3) + 1} · PAD ${pad}<em>${esc(pfxName(p.fx))}${p.beats ? " " + beatText(p.beats) : ""}</em></span>`);
+  const header = () => {   // the pad's number, big, in the middle (✕: leave, putting it back)
+    const hd = h("div", "pfx-hd", `<span></span><span class="pfx-ttl">PAD ${pad}</span>`);
     const x = key("close", `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`);
-    bindPress(x, down => { if (down) close(); });
+    bindPress(x, down => { if (down) close(false); });
     hd.append(x);
     return place("header", hd);
   };
@@ -4031,40 +4045,26 @@ function pfxMenu(d, id, anchor) {
   // LEVEL/DEPTH, INTENSITY; APPLY TO PAD, NAME, DEFAULT (and HOLD for a RELEASE FX pad)
   const foot = () => {
     const p = pfxPad(id), el = h("div", "pfx-foot");
-    const level = knob("LEVEL/DEPTH", () => pfxPad(id).level, v => { pfxSet(id, { level: Math.round(v * 1000) / 1000 }); pfxLive(id, "level", v); }, null);
-    const meta = knob("INTENSITY", () => pfxMetaOf(pfxPad(id)), v => { pfxSet(id, { meta: Math.round(v * 1000) / 1000 }); pfxLive(id, "meta", v); }, null);
+    const level = knob("LEVEL/DEPTH", () => pfxPad(id).level, v => { pfxSet(id, { level: Math.round(v * 1000) / 1000 }); pfxLive(id, "level", v); }, 0);
+    const meta = knob("INTENSITY", () => pfxMetaOf(pfxPad(id)), v => { pfxSet(id, { meta: Math.round(v * 1000) / 1000 }); pfxLive(id, "meta", v); }, 0);
     el.append(level, meta, h("span", "pfx-sp"));
     if (p.release) {   // (a RELEASE FX pad: held, or on and off by presses)
       const hold = key("s" + (p.hold ? " on" : ""), `<i class="zs" aria-hidden="true"></i>HOLD`);
       bindPress(hold, down => { if (down) { pfxSet(id, { hold: !pfxPad(id).hold }); foot(); } });
       el.append(hold);
     }
-    // APPLY: done (every pick here is the pad's at once: this only sends what's still waiting, and closes)
+    // APPLY: keep it (every pick here is already the pad's: this sends what's still waiting, and closes)
     const apply = key("", `APPLY TO PAD ${pad}`);
     bindPress(apply, down => {
       if (!down) return;
+      applied = true;
       if (pfxSetT) { clearTimeout(pfxSetT); const q = pfxRemote?.pads[id]; if (q) fetch(pfxApi("/edit", `pad=${id + 1}&preset=${encodeURIComponent(JSON.stringify(q.raw))}`)).catch(() => {}); else saveSettings(); }
-      close();
-    });
-    // FROM FX: the deck's FX unit's effect, as it is, onto the pad (its own key: never what APPLY does)
-    const take = key("", `FROM FX ${d.n % 2 ? 1 : 2}<small>as it is</small>`);
-    bindPress(take, down => {
-      if (!down) return;
-      const u = d.n % 2 ? 1 : 2, f = fxState[u - 1];
-      if (pfxRemote) {
-        fetch(pfxApi("/edit", `pad=${id + 1}&from=${u},1`)).then(() => setTimeout(pfxLoad, 600)).catch(() => {});
-        toast(`Pad ${pad}: FX ${u}'s effect, as it is`);
-      } else {
-        const name = fxNames[f.loaded[0] - 1];
-        if (!name) { toast(`FX ${u} has no effect in its first slot`); return; }
-        pfxSet(id, { fx: name, level: f.mix, meta: f.meta[0], beats: fxBeat[u - 1] || 0 });
-      }
-      close();
+      close(true);
     });
     const rename = key("", "✎ NAME");
     bindPress(rename, down => {
       if (!down) return;
-      close();
+      applied = true; close(true);
       askText(`Name for PAD FX pad ${pad}`, pfxPad(id).name || "", name => pfxSet(id, { name: name.trim() }));
     });
     const reset = key("red", "DEFAULT");
@@ -4072,9 +4072,9 @@ function pfxMenu(d, id, anchor) {
       if (!down) return;
       if (pfxRemote) fetch(pfxApi("/edit", `pad=${id + 1}&reset=1`)).then(() => setTimeout(pfxLoad, 600)).catch(() => {});
       else { const all = [...(S.pfxPads || [])]; all[id] = null; S.pfxPads = all; saveSettings(); }
-      close();
+      applied = true; close(true);
     });
-    el.append(take, rename, reset, apply);
+    el.append(rename, reset, apply);
     return place("foot", el);
   };
   box.append(header(), tabs(), h("div", "pfx-groove"), list(), belt(), foot());
