@@ -37,7 +37,8 @@ function drawSectionTint(g, d, pxPerSec, left, W, H, alpha = .2) {
 }
 // names: "B Pre-Chorus" (else just "B", where it fits); tags: false draws only the strip (the deck page's waveform,
 // whose start lines and tags are its own, unstretched by the tempo)
-function drawSectionTags(g, d, pxPerSec, left, W, H, names, tags = true, { maxFs = Infinity, sticky: keep = true } = {}) {
+// top: the colour strip along the top instead (the deck page's back-to-back panel: deck 1's waveform grows from the bottom)
+function drawSectionTags(g, d, pxPerSec, left, W, H, names, tags = true, { maxFs = Infinity, sticky: keep = true, top = false } = {}) {
   const secs = d.sections;
   if (!secs) return;
   const dpr = devicePixelRatio || 1, bar = Math.max(2, Math.round(2 * dpr)), fs = Math.min(maxFs, Math.max(Math.round(9 * dpr), Math.round(H * .3)));
@@ -48,7 +49,7 @@ function drawSectionTags(g, d, pxPerSec, left, W, H, names, tags = true, { maxFs
     if (x1 < 0 || x0 > W) return;
     const col = SECTION_COLORS[s.label] || "#888";
     g.fillStyle = col;
-    g.fillRect(x0, H - bar, x1 - x0, bar);   // a strip along the bottom, in the section's colour
+    g.fillRect(x0, top ? 0 : H - bar, x1 - x0, bar);   // a strip along the bottom (or top), in the section's colour
     // (zoomed in: the section under the left edge keeps its tag there, so you know where you are)
     const sticky = keep && names && first && x0 < 0;
     first = false;

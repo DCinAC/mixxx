@@ -391,8 +391,13 @@
   /* d: each half waveform grows from the beat strip's side, its gain and EQ scaling it from there */
   #app.stacked.panel-d #strip0 :is(.wl, .sl, .bl) { transform-origin: 50% 100%; }
   #app.stacked.panel-d #strip1 :is(.wl, .sl, .bl) { transform-origin: 50% 0; }
-  #app.stacked.panel-d #strip0 .strip .axis { top: auto; bottom: 0; }
-  #app.stacked.panel-d #strip1 .strip .axis { top: 0; }
+  /* nothing at a waveform's base (by the beat strip), where its quiet parts are: no centre line there, deck 1's text
+     at its top, deck 2's at its bottom (the section colour bar: each strip's outer edge too, renderTile) */
+  #app.stacked.panel-d .strip .axis { display: none; }
+  #app.stacked.panel-d #strip0 .strip .foot { bottom: auto; top: calc(var(--mm) * 3.4); }
+  #app.stacked.panel-d #strip1 .strip .info { top: auto; bottom: calc(var(--mm) * .5); }
+  #app.stacked.panel-d #strip1 .strip .barsleft { top: auto; bottom: calc(var(--mm) * .4); }
+  #app.stacked.panel-d #strip1 .strip .foot { bottom: calc(var(--mm) * 3.4); }
   /* deck 1's hot cue tags at its top edge, where its upward waveform is thinnest (below while it slips: the slip
      ghost has the top half then) */
   #app.stacked.panel-d #strip0 .strip .cm b { top: 0; bottom: auto; }
@@ -3108,7 +3113,8 @@ function renderTile(wf, k, pxPerSec, H, d, part = "all", mirror = null) {
       g.fillRect(x, mid - h, 1, h * 2);
     }
   }
-  if (part === "all" || part === "grid") drawSectionTags(g, d, pxPerSec, x0, TW, H, false, false);   // (their start lines and letters: paintMarks)
+  // (their start lines and letters: paintMarks; the colour bar on the strip's outer edge: deck 1's top, back to back)
+  if (part === "all" || part === "grid") drawSectionTags(g, d, pxPerSec, x0, TW, H, false, false, { top: mirror === "up" });
   return c;
 }
 
