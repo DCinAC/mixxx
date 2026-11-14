@@ -2293,9 +2293,9 @@ function fxPress(d, k, down, e, el, s) {
   if (cell === "level" || cell === "mix" || cell.startsWith("knob")) return;   // knobs handle their own touches
   if (cell === "beat") {   // cycles (SHIFT: backwards); Multi-FX sets all three
     const B = FX_BEAT_STEPS, i = B.indexOf(fxBeat[u - 1]), next = i < 0 ? 1 : B[(i + (d.shift ? B.length - 1 : 1)) % B.length];
-    return fxSetBeats(u, S.fxLayout === "multi" ? 0 : 1, next);
+    return fxSetBeats(u, S.fxLayout === "multi" || pfxHolding(d) ? 0 : 1, next);
   }
-  if (cell.startsWith("beat")) return fxSetBeats(u, 1, (d.shift ? FX_BEATS_SHIFT : FX_BEATS)[+cell.slice(4)]);
+  if (cell.startsWith("beat")) return fxSetBeats(u, pfxHolding(d) ? 0 : 1, (d.shift ? FX_BEATS_SHIFT : FX_BEATS)[+cell.slice(4)]);
   if (cell === "on") {   // Beat FX: this one effect, on this deck
     f.enabled[0] = f.enabled[0] ? 0 : 1;
     setCtl(fxSlotG(u, 0), "enabled", f.enabled[0]);
@@ -3587,7 +3587,10 @@ const FX_BEAT_STEPS = [.25, .5, .75, 1, 2, 4, 8, 16, 32];
 // (a tablet usually can't: nothing then; a centre knob shows it's home by its arc going)
 const VIBRATES = (() => { try { const b = window.ZydekAndroid || parent.ZydekAndroid; return !!(b?.tick && b.hasVibrator?.()); } catch { return false; } })();
 const tick = () => { if (VIBRATES) try { (window.ZydekAndroid || parent.ZydekAndroid).tick(); } catch {} };
-const fxUnitOf = d => d.n % 2 ? 1 : 2;
+// A deck's FX unit: 1 (decks 1, 3) or 2 (decks 2, 4); while it holds a PAD FX pad, that pad's (3 or 4), so the FX
+// strip's knobs and lengths change the pad's effect for as long as it's held (its preset comes back with the next press)
+const pfxHolding = d => !!d.pfxHeld?.some(Boolean);
+const fxUnitOf = d => pfxHolding(d) ? (d.n % 2 ? 3 : 4) : d.n % 2 ? 1 : 2;
 const fxUnitG = u => `[EffectRack1_EffectUnit${u}]`;
 const fxSlotG = (u, j) => `[EffectRack1_EffectUnit${u}_Effect${j + 1}]`;
 const fxName = (u, j) => { const i = fxState[u - 1].loaded[j]; return i > 0 && fxNames[i - 1] ? fxNames[i - 1] : REMOTE.on ? `FX ${j + 1}` : "—"; };
@@ -3857,7 +3860,8 @@ function cueMenu(d, k, anchor) {
 // the Beat FX menu: the categories as a binder's index tabs (BEAT, COLOR, SCENE, RELEASE FX, Mixxx's own), a groove,
 // the effects on a display four rows deep that scrolls sideways (the arrows beside it light where there's more),
 // then its length on a belt (a tap rolls that length into the U under the belt's middle), LEVEL/DEPTH and
-// INTENSITY, and APPLY TO PAD (the deck's FX unit's effect, as it is), NAME and DEFAULT.
+// INTENSITY, FROM FX (the deck's FX unit's effect, as it is), NAME, DEFAULT, and APPLY TO PAD (done: every pick is the
+// pad's at once).
 function pfxMenu(d, id, anchor) {
   document.querySelectorAll(".padopts, .pfxhw").forEach(e => e.remove()); document.querySelector(".padveil")?.remove();
   const veil = h("div", "padveil"), box = h("div", "pfxhw zm hw");
@@ -3992,10 +3996,18 @@ function pfxMenu(d, id, anchor) {
       bindPress(hold, down => { if (down) { pfxSet(id, { hold: !pfxPad(id).hold }); foot(); } });
       el.append(hold);
     }
-    const take = key("", `APPLY TO PAD ${pad}<small>FX ${fxUnitOf(d)} as it is</small>`);
+    // APPLY: done (every pick here is the pad's at once: this only sends what's still waiting, and closes)
+    const apply = key("", `APPLY TO PAD ${pad}`);
+    bindPress(apply, down => {
+      if (!down) return;
+      if (pfxSetT) { clearTimeout(pfxSetT); const q = pfxRemote?.pads[id]; if (q) fetch(pfxApi("/edit", `pad=${id + 1}&preset=${encodeURIComponent(JSON.stringify(q.raw))}`)).catch(() => {}); else saveSettings(); }
+      close();
+    });
+    // FROM FX: the deck's FX unit's effect, as it is, onto the pad (its own key: never what APPLY does)
+    const take = key("", `FROM FX ${d.n % 2 ? 1 : 2}<small>as it is</small>`);
     bindPress(take, down => {
       if (!down) return;
-      const u = fxUnitOf(d), f = fxState[u - 1];
+      const u = d.n % 2 ? 1 : 2, f = fxState[u - 1];
       if (pfxRemote) {
         fetch(pfxApi("/edit", `pad=${id + 1}&from=${u},1`)).then(() => setTimeout(pfxLoad, 600)).catch(() => {});
         toast(`Pad ${pad}: FX ${u}'s effect, as it is`);
@@ -4019,7 +4031,7 @@ function pfxMenu(d, id, anchor) {
       else { const all = [...(S.pfxPads || [])]; all[id] = null; S.pfxPads = all; saveSettings(); }
       close();
     });
-    el.append(take, rename, reset);
+    el.append(take, rename, reset, apply);
     return place("foot", el);
   };
   box.append(header(), tabs(), h("div", "pfx-groove"), list(), belt(), foot());
