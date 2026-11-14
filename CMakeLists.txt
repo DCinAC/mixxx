@@ -2502,6 +2502,23 @@ if(QT6)
       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     )
     add_dependencies(mixxx copy-resource-android)
+    # Zydek: no translations into Asian languages for now (Zydek's own screens are English only; CJK text and its fonts
+    # are unaffected): those .qm files are taken out of the copy, and every translation's source (.ts, for translators
+    # only). Upstream's files stay in res/translations, so merging upstream doesn't conflict.
+    set(ZYDEK_UNTRANSLATED zh zh_CN zh_HK zh_TW ja ko vi id ms my mn uz hi_IN mr ta te ml si ar fa he hy tr)
+    set(ZYDEK_DROP_TRANSLATIONS)
+    foreach(lang IN LISTS ZYDEK_UNTRANSLATED)
+      list(APPEND ZYDEK_DROP_TRANSLATIONS "${CMAKE_CURRENT_BINARY_DIR}/android-build/assets/translations/mixxx_${lang}.qm")
+    endforeach()
+    file(GLOB ZYDEK_TS_FILES RELATIVE "${CMAKE_SOURCE_DIR}/res/translations" "${CMAKE_SOURCE_DIR}/res/translations/*.ts")
+    foreach(ts IN LISTS ZYDEK_TS_FILES)
+      list(APPEND ZYDEK_DROP_TRANSLATIONS "${CMAKE_CURRENT_BINARY_DIR}/android-build/assets/translations/${ts}")
+    endforeach()
+    add_custom_command(
+      TARGET copy-resource-android
+      POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E rm -f ${ZYDEK_DROP_TRANSLATIONS}
+    )
     # Zydek: the phone page's Web tab runs yt-dlp in an embedded Python (python.org's Android build) with
     # QuickJS-NG for YouTube. The Zydek build PC provides ZYDEK_PYTHON_PREFIX (that build's prefix/) and
     # ZYDEK_PYTHON_BUNDLE (the Python library folder to package, see its python-bundle.sh). Without them the
