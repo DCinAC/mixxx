@@ -2876,14 +2876,17 @@ function paintPanel(now) {
   [0, 1].forEach(drawOverview);
 }
 // A track's hits, as Serato's beat-matching display shows them: where the level jumps (the low band most, the
-// whole a little), each jump's strength against the track's strong ones, kept only at its peak (no other within
-// 40 ms is stronger). [{t, v}] by time, worked out once per analysis.
+// whole a little), each kept only at its peak (no other within 60 ms rises more). Each hit keeps its real level
+// (the loudest point within 15 ms, as the analysis has it: no scaling per track, so a quiet section's hits are
+// smaller than a loud one's) and its sound's colour (the bands there, as the waveform colours them).
+// [{t, v, lo, mi, hi}] by time, worked out once per analysis.
+const HIT_CURVE = 6;   // level -> spike length, log-like (log(1 + 6 x) / log 7): a fifth of full scale shows at 40 %, half at 71 %
 function hitsOf(wf) {
-  if (wf._hits) return wf._hits;
+  if (wf._hits3) return wf._hits3;
   const a = wf.data, st = wf.stride || 4, n = wf.n, rate = wf.rate;
   const e = new Float32Array(n);
   for (let i = 0; i < n; i++) e[i] = a[i * st + 1] + .35 * a[i * st];   // low band, and some of the whole
-  const back = Math.max(2, Math.round(rate * .03)), near = Math.max(1, Math.round(rate * .04));
+  const back = Math.max(2, Math.round(rate * .03)), near = Math.max(1, Math.round(rate * .06)), around = Math.max(1, Math.round(rate * .015));
   const o = new Float32Array(n);
   let sum = 0;
   for (let i = 0; i < n; i++) {   // the rise over the last 30 ms' average
@@ -2891,16 +2894,21 @@ function hitsOf(wf) {
     o[i] = Math.max(0, e[i] - avg);
     sum += e[i]; if (i >= back) sum -= e[i - back];
   }
-  const sorted = Float32Array.from(o).sort(), ref = sorted[Math.floor(n * .985)] || 1;   // a strong hit's rise
   const hits = [];
   for (let i = 0; i < n; i++) {
-    const v = o[i] / ref;
-    if (v < .18) continue;
+    if (o[i] < 12 || o[i] < .25 * e[i]) continue;   // (a rise under 12/255, or under a quarter of the level: not a hit)
     let peak = true;
     for (let j = Math.max(0, i - near); j <= Math.min(n - 1, i + near) && peak; j++) if (o[j] > o[i] || (o[j] === o[i] && j < i)) peak = false;
-    if (peak) hits.push({ t: i / rate, v: Math.min(1, Math.sqrt(v)) });   // (the square root: the softer ones still show)
+    if (!peak) continue;
+    let all = 0, lo = 0, mi = 0, hi = 0;
+    for (let j = Math.max(0, i - around); j <= Math.min(n - 1, i + around); j++) {
+      const q = j * st;
+      if (a[q] > all) all = a[q]; if (a[q + 1] > lo) lo = a[q + 1]; if (a[q + 2] > mi) mi = a[q + 2]; if (a[q + 3] > hi) hi = a[q + 3];
+    }
+    if (all < 4) continue;   // (near silence)
+    hits.push({ t: i / rate, v: Math.log1p(HIT_CURVE * all / 255) / Math.log1p(HIT_CURVE), lo, mi, hi });
   }
-  return (wf._hits = hits);
+  return (wf._hits3 = hits);
 }
 function drawBeatStrip() {
   const p = panelCanvas("beatstrip");
@@ -2930,20 +2938,23 @@ function drawBeatStrip() {
       const th = rh * (n % 4 === 0 ? .5 : .25);
       g.fillRect(x, s ? y0 + rh - th : y0, Math.max(1, Math.round(dpr)), th);
     }
-    // its hits: a sharp spike each, the same shape at any zoom, from the middle line out (deck 1 up, deck 2 down),
-    // so two decks in time make one line straight through the middle
+    // its hits: a sharp spike each, the same width at any zoom, as long as the hit is loud (log-like) and in its
+    // sound's colour, from the middle line out (deck 1 up, deck 2 down), so two decks in time make one line through
+    // the middle
     if (!d.wf) return;
     const hits = hitsOf(d.wf), half = Math.max(1.5, 1.6 * dpr);
     let lo = 0, hi = hits.length;
     while (lo < hi) { const m = (lo + hi) >> 1; if (hits[m].t < tFrom) lo = m + 1; else hi = m; }
-    g.fillStyle = PANEL_INK[s];
     for (let i = lo; i < hits.length && hits[i].t <= tTo; i++) {
-      const x = xOf(hits[i].t), len = hits[i].v * (rh - 2 * dpr);
+      const hit = hits[i], x = xOf(hit.t), len = hit.v * (rh - 2 * dpr), m = Math.max(hit.lo, hit.mi, hit.hi) || 1;
+      g.fillStyle = `rgb(${Math.round(255 * hit.lo / m)},${Math.round(255 * hit.mi / m)},${Math.round(255 * hit.hi / m)})`;   // its sound
+      g.globalAlpha = x < W / 2 ? .4 : 1;   // played: dimmed, as Serato's
       g.beginPath();
       if (s === 0) { g.moveTo(x - half, mid); g.lineTo(x, mid - len); g.lineTo(x + half, mid); }
       else { g.moveTo(x - half, mid); g.lineTo(x, mid + len); g.lineTo(x + half, mid); }
       g.fill();
     }
+    g.globalAlpha = 1;
   });
   g.fillStyle = "rgba(255,255,255,.22)"; g.fillRect(0, mid, W, 1);
   g.fillStyle = "#fff"; g.fillRect(Math.round(W / 2 - dpr), 0, Math.max(2, Math.round(2 * dpr)), H);
@@ -3847,7 +3858,7 @@ function pfxMenu(d, id, anchor) {
     bindPress(x, down => { if (down) close(); });
     hd.append(x); box.append(hd);
     // ---- the categories: index tabs, the open one raised with its lamp lit
-    const cats = (pfxRemote?.menu?.length ? ["BEAT FX", "COLOR FX", "SCENE FX", "RELEASE FX"] : []).concat("MIXXX FX");
+    const cats = ["BEAT FX", "COLOR FX", "SCENE FX", "RELEASE FX", "MIXXX FX"];   // (always all five)
     pfxMenuCat = cats.includes(pfxMenuCat) ? pfxMenuCat : cats[0];
     const tabs = h("div", "pfx-tabs");
     for (const c of cats) {
@@ -3862,13 +3873,14 @@ function pfxMenu(d, id, anchor) {
       for (const name of pfxRemote ? Object.keys(pfxRemote.ids) : fxNames)
         items.push({ label: pfxName(name), on: name === p.fx && !p.name, pick: () => pfxSet(id, { fx: name, meta: -1, name: "", release: false }) });
     } else {
-      for (const e of pfxRemote.menu.filter(e => e.category === pfxMenuCat))
+      for (const e of (pfxRemote?.menu || []).filter(e => e.category === pfxMenuCat))
         items.push({ label: e.name, on: (p.name || "") === (e.raw.name || "") && p.raw?.effect === e.raw.effect, pick: () => pfxPick(id, e.raw) });
     }
     const lower = h("div", "pfx-lower"), lcd = h("div", "pfx-lcd");
     const arrow = (dir) => h("button", "pfx-arr", `<svg viewBox="0 0 12 20" aria-hidden="true"><path d="${dir < 0 ? "M10 2L2 10l8 8" : "M2 2l8 8-8 8"}" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square"/></svg><small>MORE</small>`);
     const left = arrow(-1), right = arrow(1), dots = h("div", "pfx-dots");
-    if (!items.length) lcd.append(h("div", "pfx-none", pfxMenuCat === "MIXXX FX" ? fxNone() : "None"));
+    if (!items.length) lcd.append(h("div", "pfx-none", pfxMenuCat === "MIXXX FX" ? fxNone()
+      : pfxRemote?.menu?.length ? "None" : "This one's effects come with a newer ZyDeck (Mixxx ZyDeck on the computer, or this app): update it, or pick from MIXXX FX"));
     items.forEach(it => {
       const row = h("button", "pfx-row" + (it.on ? " cur" : ""), `${esc(it.label)}${it.on ? "<span>on pad</span>" : ""}`);
       bindPress(row, down => { if (down) { it.pick(); render(); } });
