@@ -1076,14 +1076,12 @@ function buildPfxStrip(s) {
   const el = h("div", "fxset pfxset"), name = h("button", "pfxname");
   const last = () => { const d = deckOf(s); return d.pfxLast ?? pfxId(d, 0); };
   bindPress(name, down => { if (down) pfxMenu(deckOf(s), last(), name); });   // (its menu, as SHIFT + the pad)
-  // LEVEL/DEPTH and INTENSITY: the PAD FX unit itself (3 or 4) as it plays, at 0 when nothing does (the engine's
-  // rest); turned, they change the effect that's on for now, never the pad's preset (its next press brings that back)
-  const unit = () => fxState[pfxUnit(deckOf(s)) - 1];
-  const level = knob("LEVEL/DEPTH", () => unit().mix, v => { const u = pfxUnit(deckOf(s)); unit().mix = v; setCtl(fxUnitG(u), "mix", v); }, 0);
-  const meta = knob("INTENSITY", () => Math.max(...[0, 1, 2].map(j => unit().enabled[j] ? unit().meta[j] : 0)), v => {
-    const u = pfxUnit(deckOf(s)), f = unit();
-    for (const j of [0, 1, 2]) if (f.enabled[j]) { f.meta[j] = v; setCtl(fxSlotG(u, j), "meta", v); }
-  }, 0);
+  // LEVEL/DEPTH and INTENSITY: for now only, over the pads' presets. At rest 0 (the presets as they are); turned, the
+  // pad held plays at that level / intensity at once (or the next one pressed), and once no pad is held they're back
+  // at 0. Never the presets themselves (the pad's menu sets those).
+  const tmp = () => (deckOf(s).pfxTmp ??= { level: 0, meta: 0 });
+  const level = knob("LEVEL/DEPTH", () => tmp().level, v => { tmp().level = v; pfxOverride(deckOf(s)); }, 0);
+  const meta = knob("INTENSITY", () => tmp().meta, v => { tmp().meta = v; pfxOverride(deckOf(s)); }, 0);
   el.append(name, level, meta);
   return { el, paint: () => {
     const d = deckOf(s), id = last(), p = pfxPad(id), held = (d.pfxHeld || []).some(o => o && o.id === id);
@@ -1432,7 +1430,7 @@ function buildStrip(s, u) {
       d.scr = null;
       d.grabbed = false; u.strip.classList.remove("held"); send("scratchOff", d.n, +d.vel.toFixed(2));
       d.settle = settle && d.coast;   // (coasting: once it has stopped, frame())
-      if (!d.coast && settle) seekTo(d, d.pos);
+      if (!d.coast && settle) settleAt(d);
       if (!d.coast) {
         // Mixxx goes on from where the hand left it (put there just above): the model of where it is starts again from
         // there, at the deck's speed (the reports from while it slowed to a stop would run it on 250 ms ahead, and the
@@ -2363,6 +2361,12 @@ function seekTo(d, t) {
   setCtl(ch(d.n), "playposition", clamp(t, 0, d.dur) / d.dur);
   if (q) setTimeout(() => { markLocal(d, "quantize"); setCtl(ch(d.n), "quantize", 1); }, 80);
 }
+// Mixxx put where the drawing is as a scratch ends, and again 150 ms later on a paused deck (by then anything left of
+// its scratch has stopped: it had still moved it 30-100 ms, the tablet's session log, 2026-11-15)
+function settleAt(d) {
+  seekTo(d, d.pos);
+  if (!d.playing) setTimeout(() => { if (!d.grabbed && !d.coast && !d.playing) seekTo(d, d.pos); }, 150);
+}
 // The beat nearest t (seconds) in the deck's beat grid, or t itself without one
 function nearestBeat(d, t) {
   const b = d.beats;
@@ -2800,11 +2804,17 @@ function frame(now) {
         d.pos = clamp(d.pos + d.vel * dt, -PREROLL, d.dur);
         if (d.vel === target) {
           d.coast = false; mxSend({ scratch: [d.n - 1, 0, 0] });
-          if (d.settle) { d.settle = false; seekTo(d, d.pos); }   // (its scratching off first: put where the drawing is)
+          if (d.settle) { d.settle = false; settleAt(d); }   // (its scratching off first: put where the drawing is)
           posSeed(d, d.pos, target, now); d.released = now; d.shown = d.pos;
         }
       } else if (d.pt !== undefined || d.vp) {
-        d.pos = clamp(posAt(d, now), -PREROLL, d.dur);
+        let p = clamp(posAt(d, now), -PREROLL, d.dur);
+        // just let go (this device's Mixxx, or one it's linked to): Mixxx was put where the drawing is, so the drawing
+        // never goes back to meet a late report: playing, it waits for the sound; paused, it stays (unless far off)
+        if (!REMOTE.on && d.released && now - d.released < 1500) {
+          if (!d.playing ? Math.abs(p - d.pos) < .15 : p < d.pos && d.pos - p < .25) p = d.pos;
+        }
+        d.pos = p;
       }
       return;
     }
@@ -2835,7 +2845,7 @@ function frame(now) {
     if (live && d.released && now - d.released < 1200 && frames % 2 === 0) {
       const v = d._trT ? (d.pos - d._trP) / Math.max(.001, (now - d._trT) / 1000) : 0;
       const gap = (ZydeckPos.posModel(d, now, latNow()) - d.pos) * 1000;
-      latTrace("r", s, `${Math.round(now - d.released)}:${v.toFixed(2)}|${Math.round(gap)}`);
+      latTrace("r", s, `${Math.round(now - d.released)}:${v.toFixed(2)}|${Math.round(gap)}|${d.playing ? "p" : "s"}${d.vp ? "x" : ""}`);
     }
     d._trP = d.pos; d._trT = now;
     if (u.play) {   // PLAY: steady while playing; flashing with the beat (lit one, dark the next) only while a held CUE
@@ -3766,12 +3776,22 @@ function pfxPrep(d) {
     f.loaded[j] = i; setCtl(fxSlotG(u, j), "loaded_effect", i);
   }
 }
+// The FX strip's LEVEL/DEPTH and INTENSITY over the held pad's preset (d.pfxTmp, 0: the preset's own): onto its
+// unit (3 or 4) while a pad is held
+function pfxOverride(d) {
+  const t = d.pfxTmp;
+  if (!live || !t || !d.pfxHeld?.some(Boolean)) return;
+  const u = pfxUnit(d), f = fxState[u - 1];
+  if (t.level > 0) { f.mix = t.level; setCtl(fxUnitG(u), "mix", t.level); }
+  if (t.meta > 0) for (const j of [0, 1, 2]) { f.meta[j] = t.meta; setCtl(fxSlotG(u, j), "meta", t.meta); }
+}
 function pfxPress(d, k, down, s) {
   const held = d.pfxHeld ??= [];
   if (!down) {
     const o = held[k];
     if (!o) return;
     held[k] = null;
+    if (!held.some(Boolean)) d.pfxTmp = { level: 0, meta: 0 };   // (no pad held: the strip's knobs back at rest)
     if (live && o.remote) setCtl(ch(d.n), `zydeck_padfx_${o.id + 1}`, 0);
     else if (live && o.j >= 0) {
       const other = decks.flatMap(x => x.pfxHeld || []).find(x => x && x.u === o.u && x.j === o.j);
@@ -3793,6 +3813,7 @@ function pfxPress(d, k, down, s) {
   if (pfxRemote) {
     held[k] = { ...p, remote: true };
     setCtl(ch(d.n), `zydeck_padfx_${p.id + 1}`, 1);
+    setTimeout(() => pfxOverride(d), 60);   // (over the preset Mixxx ZyDeck has just put on)
     paintSide(s);
     return;
   }
@@ -3821,6 +3842,7 @@ function pfxPress(d, k, down, s) {
   f.meta[j] = pfxMetaOf(p); setCtl(fxSlotG(u, j), "meta", f.meta[j]);
   f.enabled[j] = 1; setCtl(fxSlotG(u, j), "enabled", 1);
   held[k] = { ...p, u, j };
+  pfxOverride(d);   // (the FX strip's LEVEL/DEPTH and INTENSITY over the preset, if turned)
   paintSide(s);
 }
 // A held pad's LEVEL/DEPTH and INTENSITY as they're turned: its unit's mix, and the meta of the slots on in it
@@ -4048,6 +4070,7 @@ function pfxMenu(d, id, anchor) {
     const level = knob("LEVEL/DEPTH", () => pfxPad(id).level, v => { pfxSet(id, { level: Math.round(v * 1000) / 1000 }); pfxLive(id, "level", v); }, 0);
     const meta = knob("INTENSITY", () => pfxMetaOf(pfxPad(id)), v => { pfxSet(id, { meta: Math.round(v * 1000) / 1000 }); pfxLive(id, "meta", v); }, 0);
     el.append(level, meta, h("span", "pfx-sp"));
+    requestAnimationFrame(() => { level.paint(); meta.paint(); });   // (where they are from the start, not at the first touch)
     if (p.release) {   // (a RELEASE FX pad: held, or on and off by presses)
       const hold = key("s" + (p.hold ? " on" : ""), `<i class="zs" aria-hidden="true"></i>HOLD`);
       bindPress(hold, down => { if (down) { pfxSet(id, { hold: !pfxPad(id).hold }); foot(); } });
