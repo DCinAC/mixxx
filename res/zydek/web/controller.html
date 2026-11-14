@@ -2353,6 +2353,18 @@ function bindPress(el, fn) {
 
 // Live: pads use the pad page's MIDI notes (Inpulse 300 MK2 layout, see Tablet-Pads.script.js).
 const PAD_MODE = { cue: 0, roll: 2, stem: 3, jump: 4, fx: 5 };
+// A set hot cue tapped on a playing deck: drawn there at once, not when Mixxx says so (a quick run of taps is drawn
+// as played). With quantize on, Mixxx keeps the beat's phase through the jump: so does this.
+function hotcueJump(d, k) {
+  let t = cueSec(d, d.cuePos?.[k]);
+  if (t == null || !(d.dur > 0)) return;
+  if (d.quantize) {
+    const a = beatPos(d, d.pos), b = beatPos(d, t);
+    if (a != null && b != null) t = beatTime(d, b + ((a % 1) + 1) % 1 - ((b % 1) + 1) % 1);
+  }
+  const now = performance.now();
+  posSeed(d, t, d.ratio || 1, now); d.shown = t; d.pos = t; d.hist = [[now, t]];
+}
 // Mixxx's deck to t (seconds), exactly: quantize off for that moment (with it on, a playing deck keeps its beat phase
 // through a seek, which would put it right back)
 function seekTo(d, t) {
@@ -2467,6 +2479,7 @@ function padPress(s, k, down, e, el) {
       }
       return;
     }
+    if (d.mode === "cue" && down && d.playing && d.cues[k] && !d.shift) hotcueJump(d, k);   // (drawn there at once)
     return send("pad", d.n, m * 8 + k, down);
   }
   switch (d.mode) {
@@ -2525,6 +2538,8 @@ function viewMigrate(off) {
   S.viewOffset = Math.round((S.viewOffset || 0) + off); S.viewBase = 2; saveSettings();
 }
 const posAt = (d, now) => ZydeckPos.posAt(d, now, latNow());   // what to draw now
+// this device's own Mixxx (not the computer's, nor another ZyDeck's over Wi-Fi): its readings taken as they are
+ZydeckPos.posCfg.direct = () => live && !REMOTE.on && !LINKED;
 ZydeckPos.jogCfg.scale = S.jogScale || 1;
 
 // Turntable physics after the hand lets go. The platter is a heavy, servo-driven flywheel: holding the

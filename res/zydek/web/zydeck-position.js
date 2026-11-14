@@ -87,6 +87,7 @@
     if (j !== undefined) return j;
     const exact = visual(d, now);
     const target = posModel(d, now, lat - ahead());
+    if (posCfg.direct()) { d.shownAt = now; return (d.shown = target); }   // (this device's Mixxx: no smoothing)
     const dt = d.shownAt ? Math.min((now - d.shownAt) / 1000, .1) : 0;
     d.shownAt = now;
     let shown = d.shown;
@@ -123,7 +124,13 @@
     const t = Math.min(now, hubTime(ts, now));
     if (d.jog) return;   // (drawn from the computer's jog meanwhile: it seeds the model again as it's done)
     const nominal = d.playing ? d.ratio || 1 : 0;
-    if (d.pt === undefined || Math.abs(p - posModel(d, t)) > .3) {   // a jump: follow it
+    if (posCfg.direct()) { d.hist = [[t, p]]; return posSeed(d, p, nominal, t); }   // (this device's Mixxx: as it is)
+    // a jump (a hot cue, a loop): follow it at once. A timed reading (ts: when the hub saw it) more than 0.12 s (or 5x
+    // the link's usual wobble) from the model can't be the network's doing; an untimed one gets 0.3 s, a late packet's
+    // worth. (0.3 s for all let a quick run of hot cue taps, each a jump back of less than that, be smoothed over:
+    // the drawing ran on 2 beats ahead of the sound, the tablet, 2026-11-15)
+    const jumpBar = ts != null ? Math.max(.12, 5 * (d.noise ?? .008)) : .3;
+    if (d.pt === undefined || Math.abs(p - posModel(d, t)) > jumpBar) {
       d.hist = [[t, p]];
       return posSeed(d, p, nominal, t);
     }
@@ -168,6 +175,10 @@
   // record goes on as Mixxx takes it back (at the deck's speed, or stopped), and the model above takes over from there.
   const JOG_STEP = (60 / (100 / 3)) / 512;
   const jogCfg = { scale: 1 };
+  // direct(): the readings come from this device's own Mixxx (no network between): each one is taken as it is, and
+  // the drawing runs on from it at the deck's speed: none of the smoothing below, which is for a link's late and
+  // uneven readings (and would smear a jump, a quick run of hot cue taps, over the frames after it)
+  const posCfg = { direct: () => false };
   // touch: 0 let go, 1 touched, 2 touched with SHIFT (the mapping seeks: 4 steps a step); ticks: turned since the last
   function posJog(d, touch, ticks, t, scratching) {
     let j = d.jog;
@@ -246,6 +257,6 @@
     d.slipP = Math.abs(t - model) > .15 ? t : model + (t - model) * .3; d.slipAt = now;
   }
 
-  window.ZydeckPos = { posJog, jogCfg, JOG_STEP, slipModel, onSlip, hubTime, posSeed, posModel, posAt, posUpdate, posStop, posVisual, waveColumns, clockSync, clockStart,
+  window.ZydeckPos = { posJog, jogCfg, posCfg, JOG_STEP, slipModel, onSlip, hubTime, posSeed, posModel, posAt, posUpdate, posStop, posVisual, waveColumns, clockSync, clockStart,
     clockPong, setLatency, ahead };
 })();
