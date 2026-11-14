@@ -2013,9 +2013,19 @@ $("#wq").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDe
 
 function openWebSheet(r) {
   const s = $("#sheet");
+  // a preview in this device's headphones: not Bilibili's (yt-dlp), nor in controller mode (the computer downloads)
+  const canPv = !onComputer() && !/^bili/.test(r.site || "");
   s.innerHTML = `<div class="grip"></div><div class="t">${esc(r.title)}</div>` +
     `<div class="a">${esc(r.channel)}${r.duration ? " · " + fmtTime(r.duration) : ""}</div>` +
-    `<div class="loads" style="margin-top:14px"></div><div class="more"><button class="dl">${onComputer() ? "Download to the computer" : "Download only"}</button></div>`;
+    `<div class="loads" style="margin-top:14px"></div><div class="more"><button class="dl">${onComputer() ? "Download to the computer" : "Download only"}</button>` +
+    `${canPv ? `<button class="pv">Preview (headphones)</button>` : ""}</div>` +
+    (canPv ? `<div class="pvn"><canvas></canvas><div class="played"></div><div class="ph"></div><span class="tm"></span>` +
+      `<span class="hint">Touch the waveform to preview from there</span></div>` : "");
+  if (canPv) {
+    const t = webPvTrack(r);
+    s.querySelector(".pv").addEventListener("click", () => previewing(t) ? stopPreview() : preview(t, true));
+    previewNeedle(s.querySelector(".pvn"), t);
+  }
   [1, 2, 3, 4].forEach(n => {   // (controller mode: into the computer's Mixxx ZyDeck's deck, by ZyDeck Connect)
     const b = h("button", n > 2 ? "d34" : "d12", `Deck ${n}<small>download and load${onComputer() ? " there" : ""}</small>`);
     b.addEventListener("click", () => { closeSheet(); webDownload(r, `deck${n}`); });
@@ -2648,14 +2658,35 @@ const pvState = { track: null, playing: false, loaded: false, dur: 0, pos: 0, at
 const previewing = t => pvState.track && t && pvState.track.id === t.id && (pvState.loaded || performance.now() - pvState.since > 2500);
 async function preview(t, keepOpen) {
   // marked as loading before asking, so Mixxx's "loaded" can't arrive first and be overwritten
-  pvState.track = t; pvState.loaded = false; pvState.since = performance.now();
+  // (a web preview isn't loading until its audio is here: webPreview starts the clock then)
+  pvState.track = t; pvState.loaded = false; pvState.since = t.web ? Infinity : performance.now();
   try {
-    await api(`/api/preview?${qs({ track_id: t.id })}`);
+    if (t.web) { if (!(await webPreview(t))) return false; }
+    else await api(`/api/preview?${qs({ track_id: t.id })}`);
     $("#pv span").textContent = `Previewing on the headphones: ${t.title}`;
     $("#pv").classList.add("on");
     if (!keepOpen) closeSheet();
     return true;
   } catch (e) { pvState.track = null; toast(e.message, "bad"); return false; }
+}
+// A web search's result in the headphones (YouTube, SoundCloud, Bandcamp, PeerTube): ZyDeck fetches its whole audio
+// into its cache (NewPipe, several pieces at once: a second or two), then it plays in the preview deck as a library
+// track's preview does, and the waveform jumps anywhere. Downloading it afterwards takes that file, no fetch.
+const webPvTracks = new Map();   // url -> its preview's track ({id: "w:" + url, web, lib: Mixxx's id once loaded})
+const webPvTrack = r => { if (!webPvTracks.has(r.url)) webPvTracks.set(r.url, { id: "w:" + r.url, web: r, title: r.title, duration: r.duration }); return webPvTracks.get(r.url); };
+async function webPreview(t) {
+  const r = t.web, say = text => { if (pvState.track === t) $("#pv span").textContent = text; };
+  say(`Getting ${r.title} for the headphones…`);
+  $("#pv").classList.add("on");
+  const got = await webJob(`/api/web/preview?${qs({ url: r.url, title: r.title })}`, j => j.progress > 0 && say(`Getting ${r.title}… ${Math.round(j.progress * 100)}%`));
+  if (pvState.track !== t) return false;   // (another preview meanwhile)
+  pvState.loaded = false; pvState.since = performance.now();   // (loading from now)
+  await api(`/api/webpreview/load?${qs({ path: got.path })}`);
+  for (let i = 0; i < 60 && pvState.track === t && !t.lib; i++) {   // its track in Mixxx, for the waveform
+    try { const st = await api("/api/webpreview/state"); if (st.id) t.lib = st.id; } catch {}
+    if (!t.lib) await sleep(100);
+  }
+  return pvState.track === t;
 }
 async function stopPreview() {
   await api("/api/preview/stop").catch(() => {});
@@ -2684,7 +2715,9 @@ function previewNeedle(box, t) {
   let wf = null, wfBusy = false, wfTried = 0;
   const getWaveform = () => {
     wfBusy = true; wfTried = performance.now();
-    fetch(`/waveform/${t.id}`, { cache: "no-store" }).then(r => r.status === 200 ? r.arrayBuffer() : null).then(b => {
+    const id = t.web ? t.lib : t.id;   // (a web preview: Mixxx's track, once it has loaded it)
+    if (!id) { wfBusy = false; return; }
+    fetch(`/waveform/${id}`, { cache: "no-store" }).then(r => r.status === 200 ? r.arrayBuffer() : null).then(b => {
       if (!b) return;
       const buf = new Uint8Array(b), dv = new DataView(b);
       wf = { n: dv.getUint32(8, true), data: buf.subarray(12) }; draw();

@@ -63,6 +63,8 @@ public final class ZydekPipe {
     static final int MIX_MAX = 50;            // YouTube's mixes (list=RD...) go on and on: their first 50
     static final String MUSIC_SUBDIR = "Zydek Web";
     static final int BLOCK = 512 * 1024;      // a download's pieces (as NewPipe: YouTube slows down whole-file requests)
+    static final int PARALLEL = 4;            // pieces fetched at once (a 5 MB track: about a second on Wi-Fi)
+    static final int PREVIEWS_KEPT = 6;       // previews kept in the cache (a download of one of them: no fetch)
     static final Pattern URL_RE = Pattern.compile("https?://\\S+");
     static final Pattern JUNK = Pattern.compile(
             "\\s*[\\(\\[][^\\)\\]]*\\b(official|video|audio|lyrics?|visuali[sz]er|hd|hq|4k|mv|m/v|clip)\\b[^\\)\\]]*[\\)\\]]",
@@ -458,7 +460,7 @@ public final class ZydekPipe {
         return new File(appMusic, MUSIC_SUBDIR);
     }
 
-    static Job download(String url, String title, String appMusic) {
+    static Job download(String url, String title, String appMusic, String cacheDir) {
         return job("download", title == null || title.isEmpty() ? url : title, job -> {
             init();
             job.message = "Finding the audio";
@@ -477,7 +479,13 @@ public final class ZydekPipe {
                 file = new File(folder, safeFileName(info.getName() + (id == null ? "" : " [" + id + "]")) + "." + ext);
             }
             if (!file.exists()) {
-                fetch(job, a.getContent(), file, 0.98);
+                final File cached = previewFile(cacheDir, service, url, ext);
+                if (cached != null && cached.length() > 0) {   // previewed: the same audio, no need to fetch it again
+                    job.message = "Downloading";
+                    copy(cached, file);
+                } else {
+                    fetch(job, a.getContent(), file, 0.98);
+                }
                 job.message = "Tagging";
                 byte[] cover = null;
                 try {
@@ -498,91 +506,146 @@ public final class ZydekPipe {
         });
     }
 
-    /// The audio, a piece at a time (Range), into a .part file renamed when it's all there; progress up to span
+    // ---- preview: the whole audio, quickly, for the preview deck (the headphones) ----------------------
+
+    /// Where a link's preview is kept (the app's cache: zydeck-preview/<site>-<id>.<ext>); null without an id
+    static File previewFile(String cacheDir, StreamingService service, String url, String ext) {
+        final String id = idOf(service, url);
+        if (cacheDir == null || cacheDir.isEmpty() || id == null) {
+            return null;
+        }
+        return new File(new File(cacheDir, "zydeck-preview"), siteOf(service) + "-" + safeFileName(id) + "." + ext);
+    }
+
+    static Job preview(String url, String title, String cacheDir) {
+        return job("preview", title == null || title.isEmpty() ? url : title, job -> {
+            init();
+            job.message = "Finding the audio";
+            final StreamingService service;
+            try {
+                service = NewPipe.getServiceByUrl(url);
+            } catch (Exception e) {
+                throw new IOException("Preview works for YouTube, SoundCloud, Bandcamp and PeerTube links");
+            }
+            for (String ext : new String[] {"m4a", "mp3"}) {   // previewed before: straight from the cache
+                final File kept = previewFile(cacheDir, service, url, ext);
+                if (kept != null && kept.length() > 0) {
+                    //noinspection ResultOfMethodCallIgnored
+                    kept.setLastModified(System.currentTimeMillis());
+                    return new JSONObject().put("path", kept.getPath()).put("cached", true);
+                }
+            }
+            final StreamInfo info = StreamInfo.getInfo(service, url);
+            final AudioStream a = pick(info.getAudioStreams());
+            if (a == null) {
+                throw new IOException("No audio Mixxx can read (AAC or MP3) for this one");
+            }
+            final File file = previewFile(cacheDir, service, url, a.getFormat().getSuffix());
+            if (file == null) {
+                throw new IOException("Nowhere to keep the preview");
+            }
+            //noinspection ResultOfMethodCallIgnored
+            file.getParentFile().mkdirs();
+            if (!file.exists() || file.length() == 0) {
+                fetch(job, a.getContent(), file, 1.0);
+            }
+            //noinspection ResultOfMethodCallIgnored
+            file.setLastModified(System.currentTimeMillis());
+            trimPreviews(file.getParentFile());
+            final String[] at = guessArtistTitle(info.getName(), info.getUploaderName());
+            return new JSONObject().put("path", file.getPath()).put("artist", at[0]).put("title", at[1])
+                    .put("duration", nullable(info.getDuration()));
+        });
+    }
+
+    /// The newest PREVIEWS_KEPT previews stay (the hub takes the older ones out of Mixxx's library)
+    static void trimPreviews(File dir) {
+        final File[] all = dir.listFiles();
+        if (all == null || all.length <= PREVIEWS_KEPT) {
+            return;
+        }
+        java.util.Arrays.sort(all, (x, y) -> Long.compare(y.lastModified(), x.lastModified()));
+        for (int i = PREVIEWS_KEPT; i < all.length; i++) {
+            //noinspection ResultOfMethodCallIgnored
+            all[i].delete();
+        }
+    }
+
+    static void copy(File from, File to) throws IOException {
+        final File part = new File(to.getPath() + ".part");
+        try (InputStream in = new java.io.FileInputStream(from); OutputStream out = new FileOutputStream(part)) {
+            final byte[] buf = new byte[65536];
+            for (int n; (n = in.read(buf)) > 0;) {
+                out.write(buf, 0, n);
+            }
+        }
+        if (!part.renameTo(to)) {
+            //noinspection ResultOfMethodCallIgnored
+            part.delete();
+            throw new IOException("Couldn't save " + to.getName());
+        }
+    }
+
+    /// The audio in pieces (Range), PARALLEL of them at once, into a .part file renamed when it's all there;
+    /// progress up to span. (One piece first: it says how big the whole is.)
     static void fetch(Job job, String url, File to, double span) throws IOException {
         final File part = new File(to.getPath() + ".part");
-        long done = 0, total = -1;
-        long tick = System.nanoTime(), tickDone = 0;
         job.message = "Downloading";
-        try (FileOutputStream out = new FileOutputStream(part)) {
-            final byte[] buf = new byte[65536];
-            while (total < 0 || done < total) {
-                if (job.cancel) {
-                    throw new IOException("Cancelled");
+        final long[] total = {-1};
+        final java.util.concurrent.atomic.AtomicLong done = new java.util.concurrent.atomic.AtomicLong();
+        final long[] tick = {System.nanoTime(), 0};
+        final Runnable progress = () -> {
+            if (total[0] > 0) {
+                job.progress = Math.min(span, span * done.get() / total[0]);
+            }
+            synchronized (tick) {
+                final long now = System.nanoTime();
+                if (now - tick[0] > 500_000_000L) {   // bytes a second, over the last half second
+                    job.speed = (done.get() - tick[1]) / ((now - tick[0]) / 1e9);
+                    tick[0] = now;
+                    tick[1] = done.get();
                 }
-                HttpURLConnection c = null;
-                for (int attempt = 0; ; attempt++) {
-                    try {
-                        c = (HttpURLConnection) new URL(url).openConnection();
-                        c.setConnectTimeout(20000);
-                        c.setReadTimeout(20000);
-                        c.setRequestProperty("User-Agent", USER_AGENT);
-                        c.setRequestProperty("Range", "bytes=" + done + "-" + (done + BLOCK - 1));
-                        final int code = c.getResponseCode();
-                        if (code == 416 && total >= 0) {
-                            c.disconnect();
-                            c = null;
-                            break;
-                        }
-                        if (code != 206 && code != 200) {
-                            throw new IOException("The audio's server said " + code);
-                        }
-                        if (code == 200) {   // (no pieces: the whole file at once)
-                            if (done > 0) {
-                                throw new IOException("The audio's server started again from the beginning");
-                            }
-                            total = c.getContentLengthLong();
-                        } else {
-                            final String range = c.getHeaderField("Content-Range");   // bytes a-b/total
-                            final int slash = range == null ? -1 : range.lastIndexOf('/');
-                            if (slash > 0 && !range.endsWith("*")) {
-                                total = Long.parseLong(range.substring(slash + 1).trim());
-                            }
-                        }
-                        break;
-                    } catch (IOException e) {
-                        if (c != null) {
-                            c.disconnect();
-                        }
-                        if (attempt >= 3 || job.cancel) {
-                            throw e;
-                        }
+            }
+        };
+        try (java.io.RandomAccessFile out = new java.io.RandomAccessFile(part, "rw")) {
+            out.setLength(0);
+            final boolean whole = piece(job, url, out, 0, total, done, progress);
+            if (!whole && total[0] > BLOCK) {
+                final long pieces = (total[0] + BLOCK - 1) / BLOCK;
+                final java.util.concurrent.atomic.AtomicLong next = new java.util.concurrent.atomic.AtomicLong(1);
+                final IOException[] failed = {null};
+                final List<Thread> workers = new ArrayList<>();
+                for (int w = 0; w < PARALLEL; w++) {
+                    final Thread t = new Thread(() -> {
                         try {
-                            Thread.sleep(500L * (attempt + 1));
-                        } catch (InterruptedException ie) {
-                            throw new IOException("Cancelled");
+                            for (long k; (k = next.getAndIncrement()) < pieces && failed[0] == null;) {
+                                piece(job, url, out, k * BLOCK, total, done, progress);
+                            }
+                        } catch (IOException e) {
+                            synchronized (failed) {
+                                if (failed[0] == null) {
+                                    failed[0] = e;
+                                }
+                            }
                         }
+                    }, "ZydekPipe-fetch");
+                    t.setDaemon(true);
+                    t.start();
+                    workers.add(t);
+                }
+                for (Thread t : workers) {
+                    try {
+                        t.join();
+                    } catch (InterruptedException e) {
+                        throw new IOException("Cancelled");
                     }
                 }
-                if (c == null) {
-                    break;
+                if (failed[0] != null) {
+                    throw failed[0];
                 }
-                final boolean whole = c.getResponseCode() == 200;
-                long got = 0;
-                try (InputStream in = c.getInputStream()) {
-                    for (int n; (n = in.read(buf)) > 0;) {
-                        if (job.cancel) {
-                            throw new IOException("Cancelled");
-                        }
-                        out.write(buf, 0, n);
-                        done += n;
-                        got += n;
-                        if (total > 0) {
-                            job.progress = Math.min(span, span * done / total);
-                        }
-                        final long now = System.nanoTime();
-                        if (now - tick > 500_000_000L) {   // bytes a second, over the last half second
-                            job.speed = (done - tickDone) / ((now - tick) / 1e9);
-                            tick = now;
-                            tickDone = done;
-                        }
-                    }
-                } finally {
-                    c.disconnect();
-                }
-                if (whole || got == 0) {
-                    break;
-                }
+            }
+            if (total[0] > 0 && out.length() < total[0]) {
+                throw new IOException("The download stopped short (" + out.length() + " of " + total[0] + " bytes)");
             }
         } catch (IOException e) {
             //noinspection ResultOfMethodCallIgnored
@@ -590,13 +653,79 @@ public final class ZydekPipe {
             throw e;
         }
         job.speed = 0;
-        if (total > 0 && done < total) {
+        if (!part.renameTo(to)) {
             //noinspection ResultOfMethodCallIgnored
             part.delete();
-            throw new IOException("The download stopped short (" + done + " of " + total + " bytes)");
-        }
-        if (!part.renameTo(to)) {
             throw new IOException("Couldn't save " + to.getName());
+        }
+    }
+
+    /// One piece (BLOCK bytes from `from`), written at its place; tries again a few times. true: the server sent the
+    /// whole file instead (no pieces), all written.
+    static boolean piece(Job job, String url, java.io.RandomAccessFile out, long from, long[] total,
+            java.util.concurrent.atomic.AtomicLong done, Runnable progress) throws IOException {
+        for (int attempt = 0; ; attempt++) {
+            if (job.cancel) {
+                throw new IOException("Cancelled");
+            }
+            HttpURLConnection c = null;
+            long got = 0;
+            try {
+                c = (HttpURLConnection) new URL(url).openConnection();
+                c.setConnectTimeout(20000);
+                c.setReadTimeout(20000);
+                c.setRequestProperty("User-Agent", USER_AGENT);
+                c.setRequestProperty("Range", "bytes=" + from + "-" + (from + BLOCK - 1));
+                final int code = c.getResponseCode();
+                if (code != 206 && code != 200) {
+                    throw new IOException("The audio's server said " + code);
+                }
+                final boolean whole = code == 200;
+                if (whole && from > 0) {
+                    throw new IOException("The audio's server doesn't send pieces");
+                }
+                if (whole) {
+                    total[0] = c.getContentLengthLong();
+                } else if (total[0] < 0) {
+                    final String range = c.getHeaderField("Content-Range");   // bytes a-b/total
+                    final int slash = range == null ? -1 : range.lastIndexOf('/');
+                    if (slash > 0 && !range.endsWith("*")) {
+                        total[0] = Long.parseLong(range.substring(slash + 1).trim());
+                    }
+                }
+                final byte[] buf = new byte[65536];
+                long at = from;
+                try (InputStream in = c.getInputStream()) {
+                    for (int n; (n = in.read(buf)) > 0;) {
+                        if (job.cancel) {
+                            throw new IOException("Cancelled");
+                        }
+                        synchronized (out) {
+                            out.seek(at);
+                            out.write(buf, 0, n);
+                        }
+                        at += n;
+                        got += n;
+                        done.addAndGet(n);
+                        progress.run();
+                    }
+                }
+                return whole;
+            } catch (IOException e) {
+                done.addAndGet(-got);   // (this piece again from its start)
+                if (attempt >= 3 || job.cancel || "Cancelled".equals(e.getMessage())) {
+                    throw e;
+                }
+                try {
+                    Thread.sleep(400L * (attempt + 1));
+                } catch (InterruptedException ie) {
+                    throw new IOException("Cancelled");
+                }
+            } finally {
+                if (c != null) {
+                    c.disconnect();
+                }
+            }
         }
     }
 
@@ -634,8 +763,9 @@ public final class ZydekPipe {
 
     // ---- API (the hub: /api/web/<name>) ------------------------------------------------------------------
 
-    /// zydek_web.py's api() for search, download, job, jobs and cancel: JSON in, JSON out, quick (the work runs
-    /// in jobs). args may carry "_music": the app's own Music folder (the hub's), for when the shared one isn't ours.
+    /// zydek_web.py's api() for search, download, job, jobs and cancel, and preview (NewPipe's only): JSON in, JSON
+    /// out, quick (the work runs in jobs). The hub adds "_music" (the app's own Music folder, for when the shared one
+    /// isn't ours) and "_cache" (the app's cache folder, for previews).
     public static String api(String name, String argsJson) {
         try {
             final JSONObject args = argsJson == null || argsJson.isEmpty() ? new JSONObject() : new JSONObject(argsJson);
@@ -652,7 +782,15 @@ public final class ZydekPipe {
                     if (url.isEmpty()) {
                         return fail("No link to download");
                     }
-                    return ok().put("job", download(url, args.optString("title", ""), args.optString("_music", "")).id).toString();
+                    return ok().put("job", download(url, args.optString("title", ""), args.optString("_music", ""),
+                            args.optString("_cache", "")).id).toString();
+                }
+                case "preview": {   // the whole audio into the app's cache, for the preview deck: {path, artist, title}
+                    final String url = args.optString("url", "");
+                    if (url.isEmpty()) {
+                        return fail("No link to preview");
+                    }
+                    return ok().put("job", preview(url, args.optString("title", ""), args.optString("_cache", "")).id).toString();
                 }
                 case "job": {
                     final Job job;

@@ -279,6 +279,29 @@ QJsonObject Library::preview(int trackId) {
     return {{"ok", true}};
 }
 
+QJsonObject Library::previewLocation(const QString& location) {
+    PlayerManager* pPlayerManager = mixxx::qml::QmlPlayerManagerProxy::get();
+    if (!pPlayerManager || control(QStringLiteral("[App]"), QStringLiteral("num_preview_decks")) < 1) {
+        return error(QStringLiteral("No preview deck"));
+    }
+    QMetaObject::invokeMethod(
+            pPlayerManager,
+            [pPlayerManager, location] {
+                pPlayerManager->slotLoadLocationToPlayer(location, QStringLiteral("[PreviewDeck1]"), true);
+            },
+            Qt::QueuedConnection);
+    return {{"ok", true}};
+}
+
+void Library::hideFromViews(int trackId) {
+    ::Library* pLibrary = mixxx::qml::QmlLibraryProxy::get();
+    if (!pLibrary || trackId <= 0) {
+        return;
+    }
+    TrackCollectionManager* pCollection = pLibrary->trackCollectionManager();
+    runOnMain(pLibrary, [pCollection, trackId] { pCollection->hideTracks({TrackId(QVariant(trackId))}); });
+}
+
 void Library::stopPreview() {
     ControlObject::set(ConfigKey(QStringLiteral("[PreviewDeck1]"), QStringLiteral("play")), 0);
 }

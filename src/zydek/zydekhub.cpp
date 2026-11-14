@@ -201,6 +201,7 @@ bool isBilibili(const QString& s) {
 QByteArray pipeCall(const QString& name, QJsonObject args) {
 #ifdef Q_OS_ANDROID
     args.insert(QStringLiteral("_music"), QStandardPaths::writableLocation(QStandardPaths::MusicLocation));
+    args.insert(QStringLiteral("_cache"), QStandardPaths::writableLocation(QStandardPaths::CacheLocation));
     const QJniObject r = QJniObject::callStaticObjectMethod("org/mixxx/ZydekPipe", "api",
             "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
             QJniObject::fromString(name).object<jstring>(),
@@ -223,6 +224,9 @@ bool forPipe(const QString& name, const QJsonObject& args) {
     if (name == QLatin1String("download")) {   // (to: for ZyDeck Connect with this phone's login; client: a test)
         return !isBilibili(args.value(QStringLiteral("url")).toString()) && !args.contains(QStringLiteral("to")) &&
                 !args.contains(QStringLiteral("client"));
+    }
+    if (name == QLatin1String("preview")) {   // (NewPipe's only)
+        return true;
     }
     if (name == QLatin1String("job") || name == QLatin1String("cancel")) {
         return args.value(QStringLiteral("id")).toString().startsWith(QLatin1String("np"));
@@ -751,6 +755,23 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
                           : HttpServer::Response{404, "text/plain", "not on a deck\n", {}};
         }
         return {200, "application/json", data, {}};
+    }
+    if (path == QLatin1String("/api/webpreview/load")) {   // ?path=: the Web tab's preview (the app's cache) into the preview deck
+        const QString file = QFileInfo(arg("path")).canonicalFilePath();
+        const QString cache = QFileInfo(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
+                QStringLiteral("/zydeck-preview")).canonicalFilePath();
+        if (file.isEmpty() || cache.isEmpty() || !file.startsWith(cache + QLatin1Char('/'))) {
+            return result({{"ok", false}, {"error", "Not a preview"}});
+        }
+        {
+            QMutexLocker lock(&m_webPreviewMutex);
+            m_webPreview = file;
+            m_webPreviewId = 0;
+        }
+        return result(m_library.previewLocation(file));
+    }
+    if (path == QLatin1String("/api/webpreview/state")) {   // {id}: its track in the preview deck, once it's loaded
+        return json(webPreviewState());
     }
     if (path.startsWith(QLatin1String("/api/web/"))) {   // the phone page's Web tab: res/zydek/python/zydek_web.py
         QJsonObject args;
@@ -4177,6 +4198,18 @@ QJsonObject Hub::calibrate(bool on) {
         }
     });
     return {{"ok", true}, {"group", g}, {"first", 0.5}, {"beat", 0.5}, {"bar", 4}, {"seconds", 40}};
+}
+
+QJsonObject Hub::webPreviewState() {
+    QMutexLocker lock(&m_webPreviewMutex);
+    const TrackPointer pTrack = PlayerInfo::instance().getTrackInfo(QStringLiteral("[PreviewDeck1]"));
+    const int id = pTrack && !m_webPreview.isEmpty() && QFileInfo(pTrack->getLocation()).canonicalFilePath() == m_webPreview
+            ? pTrack->getId().toVariant().toInt() : 0;
+    if (id > 0 && id != m_webPreviewId) {   // Mixxx added it to its library as it loaded it: out of the lists again
+        m_webPreviewId = id;
+        m_library.hideFromViews(id);
+    }
+    return {{"ok", true}, {"id", id}};
 }
 
 QJsonArray Hub::deckDefaultsJson() const {

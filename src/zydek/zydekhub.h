@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QMap>
+#include <QMutex>
 #include <QObject>
 #include <QPointer>
 #include <QSet>
@@ -268,6 +269,12 @@ class Hub : public QObject {
     std::atomic<bool> m_downloadBusy{false};
     QSet<QString> m_downloadsShown;
     int m_downloadsDone = 0;
+    // the Web tab's preview in the preview deck (ZydekPipe.java's file in the app's cache) and its track, once
+    // Mixxx has it (then out of the library's lists)
+    QMutex m_webPreviewMutex;   // (the web requests come on any thread)
+    QString m_webPreview;
+    int m_webPreviewId = 0;
+    QJsonObject webPreviewState();
     bool m_lastSessionRestored = false;
     void restoreLastSession(int tries);
     ZydekController* m_pController = nullptr;

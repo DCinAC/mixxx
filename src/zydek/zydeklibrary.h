@@ -48,6 +48,10 @@ class Library {
     QJsonObject load(int trackId, const QString& target);
     QJsonObject loadLocation(const QString& location, const QString& target, bool evenIfPlaying = false);
     QJsonObject preview(int trackId);
+    /// A file that isn't the library's (the Web tab's preview, from the app's cache): into the preview deck, playing.
+    /// Mixxx adds it to its library as it loads it: hideFromViews takes it out of the lists again.
+    QJsonObject previewLocation(const QString& location);
+    void hideFromViews(int trackId);
     void stopPreview();
     QJsonObject decks() const;
 
