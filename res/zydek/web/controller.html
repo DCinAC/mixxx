@@ -2554,8 +2554,12 @@ function slip(d, target, dt) {
 // SCR_MIX of each, so it's heard as part of the scratch; nothing while the hand's still). The reports come a moment
 // after Mixxx was there: that delay is found from them too (the one that makes the slip steadiest)
 const SCR_MIX = .3, SCR_WIN_MS = 1200, SCR_MAX = 3;
+// Mixxx follows the hand by its steps (its scratch filter integrating them), so it drifts from it: a little more is
+// sent as the hand moves to make that up, from where Mixxx says it is. On the computer's Mixxx (controller mode), and
+// on this device's own too: there it had been left off, and Mixxx ended a scratch 60-160 ms from the hand (the
+// tablet's session log, 2026-11-15), the drawing showing that offset while scratching and putting it right after.
 function scrGrab(d, now) {   // (S.scrFix off: the hand's movement only, as it is)
-  d.scr = REMOTE.on && S.scrFix !== false ? { log: [{ t: now, p: d.pos }], rep: [], sent: 0, slip: null, lag: d.scrLag ?? .08 } : null;
+  d.scr = live && S.scrFix !== false ? { log: [{ t: now, p: d.pos }], rep: [], sent: 0, slip: null, lag: d.scrLag ?? .08 } : null;
 }
 // where the ticks sent had put the record at time t (track seconds)
 function scrSentAt(c, t) {
