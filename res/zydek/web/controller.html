@@ -132,6 +132,7 @@
     padding: 0 calc(var(--tag) * .25); font-size: calc(var(--tag) * .66); font-weight: 700; background: var(--c); color: #101010;
     transform: scaleX(var(--inv, 1)); transform-origin: 0 0; }
   .strip .sm.lift b { bottom: calc(var(--tag) + 2px); }
+  .strip .sm b { display: none; }   /* (no letters on the big waveform: the colour bar along it says which section) */
   .strip .loop { position: absolute; top: 0; bottom: 0; box-sizing: border-box; margin-left: -1px; background: rgba(255,255,255,.3);
     border-left: 2px solid #bbbbbb; border-right: 2px solid #bbbbbb; }
   .strip .loop.on { background: rgba(0,180,0,.3); border-color: #00b400; }
@@ -392,6 +393,10 @@
   #app.stacked.panel-d #strip1 :is(.wl, .sl, .bl) { transform-origin: 50% 0; }
   #app.stacked.panel-d #strip0 .strip .axis { top: auto; bottom: 0; }
   #app.stacked.panel-d #strip1 .strip .axis { top: 0; }
+  /* deck 1's hot cue tags at its top edge, where its upward waveform is thinnest (below while it slips: the slip
+     ghost has the top half then) */
+  #app.stacked.panel-d #strip0 .strip .cm b { top: 0; bottom: auto; }
+  #app.stacked.panel-d #strip0 .strip.slipping > .wftrack .cm b { top: auto; bottom: 0; }
   #app.stacked:is(.panel-d, .panel-b1, .panel-b2) #strip0 .strip { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   #app.stacked:is(.panel-d, .panel-b1, .panel-b2) #strip1 .strip { border-top-left-radius: 0; border-top-right-radius: 0; }
   #nudge0 { grid-area: n0; } #nudge1 { grid-area: n1; }
