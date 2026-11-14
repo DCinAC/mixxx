@@ -664,6 +664,19 @@
   @keyframes zspin { to { transform: rotate(360deg); } }
 </style>
 <link rel="stylesheet" href="/zydeck-menu.css">
+<script src="/zydeck-key.js"></script>
+<script>
+// Link devices: this device controlling another ZyDeck (?hub=<its address>&k=<its key>): this device's page, with
+// that one's library, mixer and decks. Its requests and socket go there (with the key, zydeck-key.js).
+const HUB_HOST = new URLSearchParams(location.search).get("hub") || location.host;
+const HUB = `${location.protocol}//${HUB_HOST}`;
+const LINKED = HUB_HOST !== location.host;
+const hubUrl = u => LINKED && typeof u === "string" && u.startsWith("/") ? (window.zydeckKeyed || (x => x))(HUB + u) : u;
+if (LINKED) {
+  const pageFetch = window.fetch.bind(window);
+  window.fetch = (u, opts) => pageFetch(typeof u === "string" && u.startsWith("/") ? HUB + u : u, opts);
+}
+</script>
 <script src="/zydeck-menu.js"></script>
 <script src="/zydeck-position.js"></script>
 <script src="/zydeck-wave.js"></script>
@@ -755,8 +768,11 @@
 <iframe id="deckview" title="Decks"></iframe>
 <div id="waves"><div id="wavekeys"><button id="waveout" aria-label="Show more of the track">−</button><button id="wavein" aria-label="Show less of the track">+</button><button id="wavesx" aria-label="Close">✕</button></div></div>
 <script>
-  // a tablet gets the tablet controller, a phone the phone layout (smallest side under 600 CSS px)
-  document.getElementById("deckview").src = Math.min(screen.width, screen.height) >= 600 ? "/controller" : "/controller?phone=1";
+  // a tablet gets the tablet controller, a phone the phone layout (smallest side under 600 CSS px); linked, the
+  // other ZyDeck's decks (this device's page, as the menu's Link devices opened before)
+  { const q = new URLSearchParams(location.search), link = q.get("hub") ? `hub=${encodeURIComponent(q.get("hub"))}&k=${encodeURIComponent(q.get("k") || "")}` : "";
+    const tablet = Math.min(screen.width, screen.height) >= 600;
+    document.getElementById("deckview").src = "/controller" + (tablet ? (link ? "?" + link : "") : "?phone=1" + (link ? "&" + link : "")); }
 </script>
 <nav>
   <button data-page="lib"><span class="i el7">♫</span><svg class="ni hw7" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>Library</button>
@@ -1011,6 +1027,7 @@ const assetUrl = path => !remote.on ? path : remote.http ? `${remote.http}${path
 // (.off: not connected, which Hardware's readout shows amber, not green)
 function showLink() { const l = $("#link"); l.textContent = linkText(); l.classList.toggle("off", remote.on ? !remote.live : !live); }
 function linkText() {
+  if (LINKED) return `Linked · ${HUB_HOST.replace(/:\d+$/, "")}` + (remote.on ? " · Mixxx on a computer" : live ? "" : " · its Mixxx isn't answering");
   if (remote.on) return !remote.live ? "Controller mode · not connected" :
     remote.via === "wifi" ? `Mixxx on ${remote.computer || "the computer"} · Wi-Fi` : "Mixxx on the computer · USB";
   return live ? "Live · Mixxx" : "Zydek's controller is off (Preferences › Controllers)";
@@ -1066,7 +1083,7 @@ function paintCtlMode() {
 // (the computer's slip, here the hub's "slip"; its decks' key and tempo, for what fits them: the hub knows its own)
 const computerSubs = () => [1, 2, 3, 4].flatMap(n => ["zydeck_slip_seconds", "key", "file_bpm"].map(k => [`[Channel${n}]`, k, 0]));
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws = new WebSocket(`ws://${HUB_HOST}/ws`);
   const sock = ws;
   ws.onopen = () => ZydeckPos.clockStart(msg => { if (sock.readyState === 1) sock.send(JSON.stringify(msg)); });   // the hub's clock
   ws.onmessage = ev => {
@@ -2518,7 +2535,7 @@ async function openEditor(kind, t, range) {
   document.getElementById("gridview")?.remove();
   const f = document.createElement("iframe");
   f.id = "gridview";
-  f.src = kind === "grid" ? `/grid?group=${encodeURIComponent("[PreviewDeck1]")}&track=${t.id}${range ? "&range=1" : ""}` : `/sample?track=${t.id}`;
+  f.src = hubUrl(kind === "grid" ? `/grid?group=${encodeURIComponent("[PreviewDeck1]")}&track=${t.id}${range ? "&range=1" : ""}${LINKED ? "&dev=1" : ""}` : `/sample?track=${t.id}`);
   document.body.appendChild(f);
 }
 // Back (the system's, from the app): the grid or sample editor gets it (the grid's asks before throwing changes
@@ -2532,7 +2549,7 @@ window.zydekBack = () => {
   return false;
 };
 addEventListener("message", e => {
-  if (e.origin !== location.origin || !["grid-close", "sample-close"].includes(e.data?.zydek)) return;
+  if ((e.origin !== location.origin && e.origin !== HUB) || !["grid-close", "sample-close"].includes(e.data?.zydek)) return;
   document.getElementById("gridview")?.remove();
   api("/api/preview/stop").catch(() => {});
   loadViews(); loadTracks();   // a BPM may have changed (the editor saved it), a sample may have been added
@@ -2547,7 +2564,7 @@ const menuHw = () => { try { return (deckFrame().contentWindow.ZydeckMenu.provid
 const lookMenu = () => document.body.classList.toggle("menuhw", menuHw());
 lookMenu(); setInterval(lookMenu, 2000);
 ZydeckMenu.setup({
-  page: "phone", toast, ctl: () => deckFrame().contentWindow.ZydeckMenu?.providers.controller,
+  page: "phone", linked: LINKED, hubHost: HUB_HOST, toast, ctl: () => deckFrame().contentWindow.ZydeckMenu?.providers.controller,
   mm: () => { try { return getComputedStyle(deckFrame().contentDocument.documentElement).getPropertyValue("--mm").trim(); } catch { return ""; } },
   go: p => { showPage(p); if (p !== "set") scrollTo(0, 0); }, openLogin,
   changed(key, v) {
@@ -2736,9 +2753,9 @@ function previewNeedle(box, t) {
 // with Android's folder picker (Add a folder), which keeps that folder's grant; Mixxx reads by path, so Android's
 // music permission comes with the first one.
 let storageWas = null;
-const storageNow = () => {
+const storageNow = () => {   // (linked: the other ZyDeck's music, not this device's to give access to)
   const bridge = window.ZydekAndroid;
-  return !bridge ? "all" : bridge.storageAccess ? bridge.storageAccess() : bridge.hasAllFilesAccess() ? "all" : "none";
+  return !bridge || LINKED ? "all" : bridge.storageAccess ? bridge.storageAccess() : bridge.hasAllFilesAccess() ? "all" : "none";
 };
 const canPick = () => !!window.ZydekAndroid?.pickFolder && storageNow() !== "all";
 // Folders picked but the music permission refused: Android lets ZyDeck into them, yet Mixxx reads files by their
@@ -2943,7 +2960,7 @@ async function analyzeAsk() {
     try {
       await api("/api/analyze");
       toast(`Analyzing ${n} tracks…`, "ok");
-      window.ZydekAndroid?.analysisStarted?.();   // keeps going in the background, progress in a notification
+      if (!LINKED) window.ZydekAndroid?.analysisStarted?.();   // keeps going in the background, progress in a notification
       watchAnalysis();
     } catch (e) { toast(e.message, "bad"); }
   });

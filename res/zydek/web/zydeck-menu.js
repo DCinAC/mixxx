@@ -710,8 +710,8 @@
             setPl("conn-" + d.host, "busy");
             const k = await linkKey(d);
             if (!k) { setPl("conn-" + d.host, "err"); return; }
-            const page = isTablet() ? "/controller?" : "/controller?phone=1&";
-            bridge().linkOpen(`http://127.0.0.1:8766${page}hub=${encodeURIComponent(`${d.host}:${d.port}`)}&k=${encodeURIComponent(k)}`);
+            // this device's own page (its library and mixer upright, its decks sideways) with the other one's
+            bridge().linkOpen(`http://127.0.0.1:8766/phone?hub=${encodeURIComponent(`${d.host}:${d.port}`)}&k=${encodeURIComponent(k)}`);
           });
           lampOf(go, pl["conn-" + d.host] || "");
           r.appendChild(go);
