@@ -121,7 +121,7 @@
     ["system", "acc", "Accounts"], ["system", "rec", "Record & stream"], ["system", "look", "Look"],
     ["system", "dev", "Developer"],
     ["controller", "decks", "Decks"], ["controller", "fx", "Effects"], ["controller", "sampler", "Sampler"], ["controller", "touch", "Touch"],
-    ["controller", "screen", "Screen"],
+    ["controller", "screen", "Screen"], ["controller", "adv", "Advanced"],
   ];
   const onOff = (get, set) => ({ kind: "toggle", get, set });
   // Wi-Fi: always said, and what to do instead (the cable as MIDI: Android's own, no developer settings)
@@ -398,6 +398,8 @@
       fmt: v => `${+v.toFixed(2)} px`, desc: "How wide each spike is at its base (either side of its line), at any zoom." },
     { id: "hitplayed", sec: "screen", name: "Played side", kind: "slider", min: 0, max: 1, step: .05, ...C("hitPlayed", .4), peek: true, show: () => ctl() && !ctl().phone && S().layout !== "side" && (S().panel || "d") !== "classic",
       fmt: v => `${Math.round(v * 100)} %`, desc: "How bright the hits already played (left of the line) are; 100 % as the ones to come." },
+    { id: "localdelay", sec: "adv", name: "Sound delay on the waveform", kind: "toggle", ...C("localDelay", false), show: () => !!ctl(),
+      desc: "This device's own Mixxx: off, the waveform is where Mixxx is, right with your hand and the pads. On, it's shifted by the sound's delay (Android's audio buffer), to line up with what you hear, as when linked to another ZyDeck or a computer (those always are)." },
     { id: "layout", sec: "screen", name: "Layout", kind: "seg", opts: () => [["stacked", "Strips on top"], ["side", "Side by side"]], ...C("layout", "stacked"), show: () => ctl() && !ctl().phone,
       desc: "Strips on top: both platter strips across the top, like Mixxx's waveforms (about twice as long)." },
     { id: "autofs", sec: "screen", name: "Fullscreen on first touch", kind: "toggle", ...C("autoFs", true), show: () => ctl() && !ctl().phone && !inApp(),

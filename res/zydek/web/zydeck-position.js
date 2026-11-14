@@ -64,7 +64,8 @@
 
   // ---- the hub's heard positions ----
   function posVisual(d, p, s, ts, now) { d.vp = { p, s, t: hubTime(ts, now) }; }   // seconds, track seconds per second
-  const visual = (d, now) => !!d.vp && now - d.vp.t < 300;
+  // (posCfg.raw(): Mixxx's own play position, not its "heard" visual one: no shift for the sound's delay)
+  const visual = (d, now) => !posCfg.raw() && !!d.vp && now - d.vp.t < 300;
   function posSeed(d, p, v, now) { Object.assign(d, { pp: p, pt: now, pv: v, shown: undefined }); }
   // where the track is at now (lat: seconds earlier, the sound's delay; the page's whole lat, the hub's and its own).
   // From the hub's heard positions, only the part they don't already count
@@ -178,7 +179,7 @@
   // direct(): the readings come from this device's own Mixxx (no network between): each one is taken as it is, and
   // the drawing runs on from it at the deck's speed: none of the smoothing below, which is for a link's late and
   // uneven readings (and would smear a jump, a quick run of hot cue taps, over the frames after it)
-  const posCfg = { direct: () => false };
+  const posCfg = { direct: () => false, raw: () => false };
   // touch: 0 let go, 1 touched, 2 touched with SHIFT (the mapping seeks: 4 steps a step); ticks: turned since the last
   function posJog(d, touch, ticks, t, scratching) {
     let j = d.jog;

@@ -675,7 +675,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwPads: null, hwDecks: null, jogScale: 0, pfxPads: null, panel: "d", beatStrip: 32, hitStyle: "level", hitCurve: 6, hitMin: 12, hitGap: 60, hitWidth: 1.6, hitPlayed: .4 };
+const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwPads: null, hwDecks: null, jogScale: 0, pfxPads: null, localDelay: false, panel: "d", beatStrip: 32, hitStyle: "level", hitCurve: 6, hitMin: 12, hitGap: 60, hitWidth: 1.6, hitPlayed: .4 };
 const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
@@ -2531,7 +2531,12 @@ let AUD = 0;   // the sound's measured delay alone (LAT without the host's fine-
 // and this screen's own delay on top (S.viewOffset, ms: Controller › Calibrate): the link, its display. Another device's
 // screen (LINKED) goes on the sound's measured delay only: its calibration was against that sound, so the host screen's
 // fine-tune (System › Calibrate) isn't stacked on it; the host's own screen keeps both
-const latNow = () => (LINKED ? AUD : LAT) + (S.viewOffset || 0) / 1000;
+// This device's own Mixxx draws where Mixxx is, with no shift for the sound's delay (it put the drawing a little behind
+// the hand and the pads, and let go of a scratch it stepped back by it), unless Settings › Advanced › Sound delay on
+// the waveform: then, as a link does, what you hear
+const ownMixxx = () => live && !REMOTE.on && !LINKED;
+const noDelay = () => ownMixxx() && S.localDelay !== true;
+const latNow = () => noDelay() ? 0 : (LINKED ? AUD : LAT) + (S.viewOffset || 0) / 1000;
 // (once: a linked screen's offset was calibrated on top of the host's whole delay, the host's fine-tune included)
 function viewMigrate(off) {
   if (!LINKED || S.viewBase === 2 || off === undefined) return;
@@ -2539,7 +2544,8 @@ function viewMigrate(off) {
 }
 const posAt = (d, now) => ZydeckPos.posAt(d, now, latNow());   // what to draw now
 // this device's own Mixxx (not the computer's, nor another ZyDeck's over Wi-Fi): its readings taken as they are
-ZydeckPos.posCfg.direct = () => live && !REMOTE.on && !LINKED;
+ZydeckPos.posCfg.direct = ownMixxx;
+ZydeckPos.posCfg.raw = noDelay;
 ZydeckPos.jogCfg.scale = S.jogScale || 1;
 
 // Turntable physics after the hand lets go. The platter is a heavy, servo-driven flywheel: holding the
