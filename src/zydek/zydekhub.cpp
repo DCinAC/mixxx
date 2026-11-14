@@ -757,7 +757,7 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         return {200, "application/json", data, {}};
     }
     if (path == QLatin1String("/api/webpreview/load")) {   // ?path=: the Web tab's preview (the app's cache) into the preview deck
-        const QString file = QFileInfo(arg("path")).canonicalFilePath();
+        const QString file = QFileInfo(query.value(QStringLiteral("path"))).canonicalFilePath();
         const QString cache = QFileInfo(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
                 QStringLiteral("/zydeck-preview")).canonicalFilePath();
         if (file.isEmpty() || cache.isEmpty() || !file.startsWith(cache + QLatin1Char('/'))) {
