@@ -663,7 +663,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwPads: null, hwDecks: null, jogScale: 0, pfxPads: null, panel: "d", beatStrip: 32 };
+const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwPads: null, hwDecks: null, jogScale: 0, pfxPads: null, panel: "d", beatStrip: 32, hitStyle: "level", hitCurve: 6, hitMin: 12, hitGap: 60, hitWidth: 1.6, hitPlayed: .4 };
 const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
@@ -2875,18 +2875,18 @@ function paintPanel(now) {
   drawBeatStrip();
   [0, 1].forEach(drawOverview);
 }
-// A track's hits, as Serato's beat-matching display shows them: where the level jumps (the low band most, the
-// whole a little), each kept only at its peak (no other within 60 ms rises more). Each hit keeps its real level
-// (the loudest point within 15 ms, as the analysis has it: no scaling per track, so a quiet section's hits are
-// smaller than a loud one's) and its sound's colour (the bands there, as the waveform colours them).
-// [{t, v, lo, mi, hi}] by time, worked out once per analysis.
-const HIT_CURVE = 6;   // level -> spike length, log-like (log(1 + 6 x) / log 7): a fifth of full scale shows at 40 %, half at 71 %
+// A track's hits for the beat strip: where the level jumps (the low band most, the whole a little), each kept only at
+// its peak (no other within S.hitGap ms rises more), a rise under S.hitMin (/255) or under a quarter of the level not
+// counted. Each keeps its loudness (the loudest point within 15 ms, as the analysis has it: no scaling per track),
+// its attack (how far it rose, against the track's strong hits) and its sound's colour. [{t, level, rise, lo, mi, hi}]
+// by time, worked out again only when the analysis or those two settings change.
 function hitsOf(wf) {
-  if (wf._hits3) return wf._hits3;
+  const minRise = S.hitMin ?? 12, gapMs = S.hitGap ?? 60, key = `${minRise}|${gapMs}`;
+  if (wf._hits?.key === key) return wf._hits.list;
   const a = wf.data, st = wf.stride || 4, n = wf.n, rate = wf.rate;
   const e = new Float32Array(n);
   for (let i = 0; i < n; i++) e[i] = a[i * st + 1] + .35 * a[i * st];   // low band, and some of the whole
-  const back = Math.max(2, Math.round(rate * .03)), near = Math.max(1, Math.round(rate * .06)), around = Math.max(1, Math.round(rate * .015));
+  const back = Math.max(2, Math.round(rate * .03)), near = Math.max(1, Math.round(rate * gapMs / 1000)), around = Math.max(1, Math.round(rate * .015));
   const o = new Float32Array(n);
   let sum = 0;
   for (let i = 0; i < n; i++) {   // the rise over the last 30 ms' average
@@ -2894,9 +2894,10 @@ function hitsOf(wf) {
     o[i] = Math.max(0, e[i] - avg);
     sum += e[i]; if (i >= back) sum -= e[i - back];
   }
-  const hits = [];
+  const ref = Float32Array.from(o).sort()[Math.floor(n * .985)] || 1;   // a strong hit's rise
+  const list = [];
   for (let i = 0; i < n; i++) {
-    if (o[i] < 12 || o[i] < .25 * e[i]) continue;   // (a rise under 12/255, or under a quarter of the level: not a hit)
+    if (o[i] < minRise || o[i] < .25 * e[i]) continue;
     let peak = true;
     for (let j = Math.max(0, i - near); j <= Math.min(n - 1, i + near) && peak; j++) if (o[j] > o[i] || (o[j] === o[i] && j < i)) peak = false;
     if (!peak) continue;
@@ -2906,9 +2907,16 @@ function hitsOf(wf) {
       if (a[q] > all) all = a[q]; if (a[q + 1] > lo) lo = a[q + 1]; if (a[q + 2] > mi) mi = a[q + 2]; if (a[q + 3] > hi) hi = a[q + 3];
     }
     if (all < 4) continue;   // (near silence)
-    hits.push({ t: i / rate, v: Math.log1p(HIT_CURVE * all / 255) / Math.log1p(HIT_CURVE), lo, mi, hi });
+    list.push({ t: i / rate, level: all / 255, rise: Math.min(1, o[i] / ref), lo, mi, hi });
   }
-  return (wf._hits3 = hits);
+  wf._hits = { key, list };
+  return list;
+}
+// A hit's spike length (0-1): S.hitStyle "level", how loud it is (Serato's), or "rise", how sharply it hits (scaled to
+// the track's strong hits); bent by S.hitCurve, log(1 + c x) / log(1 + c) (0: straight; more: soft hits longer)
+function hitLength(hit) {
+  const x = (S.hitStyle || "level") === "rise" ? hit.rise : hit.level, c = S.hitCurve ?? 6;
+  return c > 0 ? Math.log1p(c * x) / Math.log1p(c) : x;
 }
 function drawBeatStrip() {
   const p = panelCanvas("beatstrip");
@@ -2942,13 +2950,13 @@ function drawBeatStrip() {
     // sound's colour, from the middle line out (deck 1 up, deck 2 down), so two decks in time make one line through
     // the middle
     if (!d.wf) return;
-    const hits = hitsOf(d.wf), half = Math.max(1.5, 1.6 * dpr);
+    const hits = hitsOf(d.wf), half = Math.max(.75, (S.hitWidth ?? 1.6) * dpr);
     let lo = 0, hi = hits.length;
     while (lo < hi) { const m = (lo + hi) >> 1; if (hits[m].t < tFrom) lo = m + 1; else hi = m; }
     for (let i = lo; i < hits.length && hits[i].t <= tTo; i++) {
-      const hit = hits[i], x = xOf(hit.t), len = hit.v * (rh - 2 * dpr), m = Math.max(hit.lo, hit.mi, hit.hi) || 1;
+      const hit = hits[i], x = xOf(hit.t), len = hitLength(hit) * (rh - 2 * dpr), m = Math.max(hit.lo, hit.mi, hit.hi) || 1;
       g.fillStyle = `rgb(${Math.round(255 * hit.lo / m)},${Math.round(255 * hit.mi / m)},${Math.round(255 * hit.hi / m)})`;   // its sound
-      g.globalAlpha = x < W / 2 ? .4 : 1;   // played: dimmed, as Serato's
+      g.globalAlpha = x < W / 2 ? (S.hitPlayed ?? .4) : 1;   // played: dimmed, as Serato's
       g.beginPath();
       if (s === 0) { g.moveTo(x - half, mid); g.lineTo(x, mid - len); g.lineTo(x + half, mid); }
       else { g.moveTo(x - half, mid); g.lineTo(x, mid + len); g.lineTo(x + half, mid); }
