@@ -65,6 +65,31 @@ public final class ZydekPipe {
     static final int BLOCK = 512 * 1024;      // a download's pieces (as NewPipe: YouTube slows down whole-file requests)
     static final int PARALLEL = 4;            // pieces fetched at once (a 5 MB track: about a second on Wi-Fi)
     static final int PREVIEWS_KEPT = 6;       // previews kept in the cache (a download of one of them: no fetch)
+    static final long SAVER_RATE = 100_000;   // Data saver: bytes a second for all fetching together (0.8 Mbps)
+
+    /// Data saver's cap: every fetch's bytes together, at most SAVER_RATE a second (each piece waits its turn)
+    static final class Limiter {
+        private static long s_start, s_bytes;
+        static void take(int n) {
+            long wait;
+            synchronized (Limiter.class) {
+                final long now = System.nanoTime();
+                if (s_start == 0 || now - s_start > 2_000_000_000L + s_bytes * 1_000_000_000L / SAVER_RATE) {
+                    s_start = now;   // (idle a while: no credit saved up from before)
+                    s_bytes = 0;
+                }
+                s_bytes += n;
+                wait = s_start + s_bytes * 1_000_000_000L / SAVER_RATE - now;
+            }
+            if (wait > 0) {
+                try {
+                    Thread.sleep(wait / 1_000_000L, (int) (wait % 1_000_000L));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+    }
     static final Pattern URL_RE = Pattern.compile("https?://\\S+");
     static final Pattern JUNK = Pattern.compile(
             "\\s*[\\(\\[][^\\)\\]]*\\b(official|video|audio|lyrics?|visuali[sz]er|hd|hq|4k|mv|m/v|clip)\\b[^\\)\\]]*[\\)\\]]",
@@ -171,6 +196,7 @@ public final class ZydekPipe {
         volatile String error;
         volatile double speed;
         volatile boolean cancel;
+        boolean saver;   // Data saver: its fetching capped (Limiter)
 
         Job(String kind, String title) {
             this.kind = kind;
@@ -193,8 +219,9 @@ public final class ZydekPipe {
         return t;
     });
 
-    static Job job(String kind, String title, Work work) {
+    static Job job(String kind, String title, boolean saver, Work work) {
         final Job job = new Job(kind, title);
+        job.saver = saver;
         synchronized (s_jobs) {
             s_jobs.put(job.id, job);
             // the last 40 (the finished ones beyond that go)
@@ -298,7 +325,7 @@ public final class ZydekPipe {
     }
 
     static Job search(String query, boolean whole) {
-        return job("search", query, job -> {
+        return job("search", query, false, job -> {
             init();
             final JSONArray out = new JSONArray();
             final Matcher m = URL_RE.matcher(query.trim());
@@ -378,6 +405,11 @@ public final class ZydekPipe {
     /// Mixxx on Android reads AAC (m4a) but not Opus in WebM: the best AAC there is in one piece, in the video's
     /// own language (not a dub); MP3 where that's all (SoundCloud)
     static AudioStream pick(List<AudioStream> streams) {
+        return pick(streams, false);
+    }
+
+    /// low: the least data (Data saver's previews: YouTube's 48 kbps AAC rather than its 128)
+    static AudioStream pick(List<AudioStream> streams, boolean low) {
         AudioStream best = null;
         int bestScore = Integer.MIN_VALUE;
         for (AudioStream a : streams) {
@@ -391,7 +423,8 @@ public final class ZydekPipe {
             }
             final Object track = a.getAudioTrackType();
             final boolean original = track == null || "ORIGINAL".equals(track.toString());
-            final int score = (original ? 1_000_000 : 0) + kind * 100_000 + Math.max(0, a.getAverageBitrate());
+            final int rate = Math.max(0, Math.min(99_999, a.getAverageBitrate()));
+            final int score = (original ? 1_000_000 : 0) + kind * 100_000 + (low ? 99_999 - rate : rate);
             if (score > bestScore) {
                 bestScore = score;
                 best = a;
@@ -460,8 +493,8 @@ public final class ZydekPipe {
         return new File(appMusic, MUSIC_SUBDIR);
     }
 
-    static Job download(String url, String title, String appMusic, String cacheDir) {
-        return job("download", title == null || title.isEmpty() ? url : title, job -> {
+    static Job download(String url, String title, String appMusic, String cacheDir, boolean saver) {
+        return job("download", title == null || title.isEmpty() ? url : title, saver, job -> {
             init();
             job.message = "Finding the audio";
             final StreamingService service = NewPipe.getServiceByUrl(url);
@@ -510,15 +543,20 @@ public final class ZydekPipe {
 
     /// Where a link's preview is kept (the app's cache: zydeck-preview/<site>-<id>.<ext>); null without an id
     static File previewFile(String cacheDir, StreamingService service, String url, String ext) {
+        return previewFile(cacheDir, service, url, ext, false);
+    }
+
+    /// (low: Data saver's lower-quality one, kept apart: a download never takes it)
+    static File previewFile(String cacheDir, StreamingService service, String url, String ext, boolean low) {
         final String id = idOf(service, url);
         if (cacheDir == null || cacheDir.isEmpty() || id == null) {
             return null;
         }
-        return new File(new File(cacheDir, "zydeck-preview"), siteOf(service) + "-" + safeFileName(id) + "." + ext);
+        return new File(new File(cacheDir, "zydeck-preview"), siteOf(service) + "-" + safeFileName(id) + (low ? "-lo" : "") + "." + ext);
     }
 
-    static Job preview(String url, String title, String cacheDir) {
-        return job("preview", title == null || title.isEmpty() ? url : title, job -> {
+    static Job preview(String url, String title, String cacheDir, boolean saver) {
+        return job("preview", title == null || title.isEmpty() ? url : title, saver, job -> {
             init();
             job.message = "Finding the audio";
             final StreamingService service;
@@ -527,8 +565,11 @@ public final class ZydekPipe {
             } catch (Exception e) {
                 throw new IOException("Preview works for YouTube, SoundCloud, Bandcamp and PeerTube links");
             }
-            for (String ext : new String[] {"m4a", "mp3"}) {   // previewed before: straight from the cache
-                final File kept = previewFile(cacheDir, service, url, ext);
+            for (String ext : new String[] {"m4a", "mp3"}) {   // previewed before: straight from the cache (any quality)
+                File kept = previewFile(cacheDir, service, url, ext, false);
+                if (kept == null || kept.length() == 0) {
+                    kept = previewFile(cacheDir, service, url, ext, true);
+                }
                 if (kept != null && kept.length() > 0) {
                     //noinspection ResultOfMethodCallIgnored
                     kept.setLastModified(System.currentTimeMillis());
@@ -536,11 +577,11 @@ public final class ZydekPipe {
                 }
             }
             final StreamInfo info = StreamInfo.getInfo(service, url);
-            final AudioStream a = pick(info.getAudioStreams());
+            final AudioStream a = pick(info.getAudioStreams(), saver);
             if (a == null) {
                 throw new IOException("No audio Mixxx can read (AAC or MP3) for this one");
             }
-            final File file = previewFile(cacheDir, service, url, a.getFormat().getSuffix());
+            final File file = previewFile(cacheDir, service, url, a.getFormat().getSuffix(), saver);
             if (file == null) {
                 throw new IOException("Nowhere to keep the preview");
             }
@@ -707,6 +748,9 @@ public final class ZydekPipe {
                         at += n;
                         got += n;
                         done.addAndGet(n);
+                        if (job.saver) {
+                            Limiter.take(n);
+                        }
                         progress.run();
                     }
                 }
@@ -765,7 +809,7 @@ public final class ZydekPipe {
 
     /// zydek_web.py's api() for search, download, job, jobs and cancel, and preview (NewPipe's only): JSON in, JSON
     /// out, quick (the work runs in jobs). The hub adds "_music" (the app's own Music folder, for when the shared one
-    /// isn't ours) and "_cache" (the app's cache folder, for previews).
+    /// isn't ours), "_cache" (the app's cache folder, for previews) and "_saver" (Data saver, Settings › Library).
     public static String api(String name, String argsJson) {
         try {
             final JSONObject args = argsJson == null || argsJson.isEmpty() ? new JSONObject() : new JSONObject(argsJson);
@@ -783,14 +827,15 @@ public final class ZydekPipe {
                         return fail("No link to download");
                     }
                     return ok().put("job", download(url, args.optString("title", ""), args.optString("_music", ""),
-                            args.optString("_cache", "")).id).toString();
+                            args.optString("_cache", ""), args.optBoolean("_saver")).id).toString();
                 }
                 case "preview": {   // the whole audio into the app's cache, for the preview deck: {path, artist, title}
                     final String url = args.optString("url", "");
                     if (url.isEmpty()) {
                         return fail("No link to preview");
                     }
-                    return ok().put("job", preview(url, args.optString("title", ""), args.optString("_cache", "")).id).toString();
+                    return ok().put("job", preview(url, args.optString("title", ""), args.optString("_cache", ""),
+                            args.optBoolean("_saver")).id).toString();
                 }
                 case "job": {
                     final Job job;

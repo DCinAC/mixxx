@@ -220,6 +220,9 @@
     // System › Library
     { id: "keyfmt", sec: "library", name: "Key notation", kind: "seg", opts: () => [["camelot", "Camelot 8A"], ["open", "Open Key 1m"], ["musical", "Musical Am"]],
       ...shared("keyNotation", "keyNotation", "camelot"), desc: "How keys are written, on the decks and in the library." },
+    { id: "datasaver", sec: "library", name: "Data saver", ...onOff(() => !!sys.prefs?.dataSaver, async v => { await api(`/api/web/prefs?${qs({ dataSaver: v ? 1 : 0 })}`); sys.prefs = { ...(sys.prefs || {}), dataSaver: v }; refresh(); }),
+      show: () => host.page === "phone" && !sys.remote.on,
+      desc: "Web tab: previews in a lower quality (about a third of the data), and every download at 0.8 Mbps at most, which also leaves room for the link to a tablet. Downloads keep the best quality." },
     { id: "folders", sec: "library", name: "Music folders", kind: "proc", label: () => "Open", lampless: true, show: () => host.page === "phone" && upright(),
       act: async () => { host.go?.("fold"); }, desc: "The folders ZyDeck scans for tracks, and the ones it leaves out." },
     // System › Stems

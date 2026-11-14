@@ -35,7 +35,9 @@ COOKIE_FILE = "bilibili-cookies.txt"
 PREFS_FILE = "zydek-web.json"
 # stemToken: the stem server's token (stemserver/token on the PC), for reaching it from outside the home network
 # (a Cloudflare tunnel, say); on the same network it isn't needed
-DEFAULT_PREFS = {"biliHiRes": True, "stemServer": "", "stemPreset": "best", "stemToken": ""}
+# dataSaver: (Settings › Library › Data saver) downloads at 0.8 Mbps at most (the phone's own previews: lower quality)
+DEFAULT_PREFS = {"biliHiRes": True, "stemServer": "", "stemPreset": "best", "stemToken": "", "dataSaver": False}
+DATA_SAVER_RATE = 100_000   # bytes a second: 0.8 Mbps
 QUICKJS_STACK = 24 * 1024 * 1024
 THREAD_STACK = 64 * 1024 * 1024
 
@@ -545,6 +547,7 @@ def _download(url, title, client=None, to=None, key="", deck=""):
             "noplaylist": True,
             "outtmpl": os.path.join(_dirs["music"], "%(title).120B [%(id)s].%(ext)s"),
             "progress_hooks": [hook],
+            **({"ratelimit": DATA_SAVER_RATE} if _prefs().get("dataSaver") else {}),
             "overwrites": False,
             "restrictfilenames": False,
             # client=web forces YouTube's web player, which always needs the JS challenge (to test QuickJS)
@@ -949,9 +952,11 @@ def api(name, args_json):
             return json.dumps({"ok": True, "job": _stem_check(args.get("server"))["id"]})
         if name == "account":
             return json.dumps({"ok": True, "job": _account()["id"]})
-        if name == "prefs":   # ?biliHiRes=0|1, ?stemServer=host:port, ?stemPreset=, ?stemToken= to change, nothing to read
+        if name == "prefs":   # ?biliHiRes=0|1, ?stemServer=host:port, ?stemPreset=, ?stemToken=, ?dataSaver=0|1 to change, nothing to read
             prefs = _prefs()
-            if args.keys() & {"biliHiRes", "stemServer", "stemPreset", "stemToken"}:
+            if args.keys() & {"biliHiRes", "stemServer", "stemPreset", "stemToken", "dataSaver"}:
+                if "dataSaver" in args:
+                    prefs["dataSaver"] = args["dataSaver"] not in ("0", "false", "")
                 if "stemToken" in args:
                     prefs["stemToken"] = args["stemToken"].strip()
                 if "stemPreset" in args:

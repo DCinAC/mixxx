@@ -198,8 +198,11 @@ bool isBilibili(const QString& s) {
     return re.match(s).hasMatch();
 }
 
+QJsonObject webPrefsSaved();
+
 QByteArray pipeCall(const QString& name, QJsonObject args) {
 #ifdef Q_OS_ANDROID
+    args.insert(QStringLiteral("_saver"), webPrefsSaved().value(QStringLiteral("dataSaver")).toBool());
     args.insert(QStringLiteral("_music"), QStandardPaths::writableLocation(QStandardPaths::MusicLocation));
     args.insert(QStringLiteral("_cache"), QStandardPaths::writableLocation(QStandardPaths::CacheLocation));
     const QJniObject r = QJniObject::callStaticObjectMethod("org/mixxx/ZydekPipe", "api",
@@ -251,26 +254,34 @@ QJsonArray webDownloads() {
 
 // The Web tab's settings, zydek_web.py's file (it reads it each time): here, so opening the page doesn't start Python
 const QString kWebPrefsFile = QStringLiteral("zydek-web.json");
-QByteArray webPrefs(const QJsonObject& args) {
-    const QString path = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(kWebPrefsFile);
-    QJsonObject prefs{{"biliHiRes", true}, {"stemServer", ""}, {"stemPreset", "best"}, {"stemToken", ""}};
-    {
-        QFile f(path);
-        if (f.open(QIODevice::ReadOnly)) {
-            const QJsonObject saved = QJsonDocument::fromJson(f.readAll()).object();
-            for (auto it = saved.begin(); it != saved.end(); ++it) {
-                prefs.insert(it.key(), it.value());
-            }
+QString webPrefsPath() {
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(kWebPrefsFile);
+}
+// (as zydek_web.py's DEFAULT_PREFS; dataSaver: previews in the lower quality, fetching at 0.8 Mbps at most)
+QJsonObject webPrefsSaved() {
+    QJsonObject prefs{{"biliHiRes", true}, {"stemServer", ""}, {"stemPreset", "best"}, {"stemToken", ""}, {"dataSaver", false}};
+    QFile f(webPrefsPath());
+    if (f.open(QIODevice::ReadOnly)) {
+        const QJsonObject saved = QJsonDocument::fromJson(f.readAll()).object();
+        for (auto it = saved.begin(); it != saved.end(); ++it) {
+            prefs.insert(it.key(), it.value());
         }
     }
-    const QString arg[] = {QStringLiteral("biliHiRes"), QStringLiteral("stemServer"), QStringLiteral("stemPreset"), QStringLiteral("stemToken")};
+    return prefs;
+}
+
+QByteArray webPrefs(const QJsonObject& args) {
+    const QString path = webPrefsPath();
+    QJsonObject prefs = webPrefsSaved();
+    const QString arg[] = {QStringLiteral("biliHiRes"), QStringLiteral("stemServer"), QStringLiteral("stemPreset"),
+            QStringLiteral("stemToken"), QStringLiteral("dataSaver")};
     bool changed = false;
     for (const QString& k : arg) {
         if (!args.contains(k)) {
             continue;
         }
         const QString v = args.value(k).toString();
-        if (k == QLatin1String("biliHiRes")) {
+        if (k == QLatin1String("biliHiRes") || k == QLatin1String("dataSaver")) {
             prefs.insert(k, !(v == QLatin1String("0") || v == QLatin1String("false") || v.isEmpty()));
         } else {
             prefs.insert(k, k == QLatin1String("stemPreset") ? v : v.trimmed());
@@ -779,7 +790,14 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
             args.insert(it.key(), it.value());
         }
         const QString name = path.mid(9);
-        const QByteArray body = name == QLatin1String("prefs") && !python::ready() ? webPrefs(args)
+        // Bilibili's account: no login saved, nothing to ask Bilibili (and no Python to start for it)
+        const bool noLogin = name == QLatin1String("account") && !python::ready() &&
+                !QFileInfo::exists(QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
+                                .filePath(QStringLiteral("bilibili-cookies.txt")));
+        const QByteArray body = noLogin
+                ? QJsonDocument(QJsonObject{{"ok", true}, {"cn", QJsonObject{{"login", false}}}, {"intl", QJsonObject{{"login", false}}},
+                          {"hiRes", webPrefsSaved().value(QStringLiteral("biliHiRes")).toBool(true)}}).toJson(QJsonDocument::Compact)
+                : name == QLatin1String("prefs") && !python::ready() ? webPrefs(args)
                 : name == QLatin1String("jobs") ? QJsonDocument(QJsonObject{{"ok", true}, {"jobs", webDownloads()}}).toJson(QJsonDocument::Compact)
                 : forPipe(name, args) ? pipeCall(name, args)
                 : python::call(name, QJsonDocument(args).toJson(QJsonDocument::Compact));
