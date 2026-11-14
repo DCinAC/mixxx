@@ -114,7 +114,7 @@
   const TABS = { system: "System", controller: "Controller" };
   const SECTIONS = [
     ["system", "conn", "Connections"], ["system", "audio", "Audio"], ["system", "mixer", "Mixer"], ["system", "library", "Library"], ["system", "stems", "Stems"],
-    ["system", "acc", "Accounts"], ["system", "rec", "Record & stream"], ["system", "look", "Look"], ["system", "start", "Start-up"],
+    ["system", "acc", "Accounts"], ["system", "rec", "Record & stream"], ["system", "look", "Look"],
     ["system", "dev", "Developer"],
     ["controller", "decks", "Decks"], ["controller", "fx", "Effects"], ["controller", "sampler", "Sampler"], ["controller", "touch", "Touch"],
     ["controller", "screen", "Screen"],
@@ -290,12 +290,6 @@
       desc: "Hardware decks: adaptive sizes each key's text to the key, the same along a row; fixed keeps Element's sizes." },
     { id: "drawmode", sec: "look", name: "Drawing", kind: "seg", opts: () => [["layers", "Pre-rendered"], ["live", "Live"]], ...C("drawMode", "layers"),
       desc: "Pre-rendered draws each key, pad, knob and fader cap once and keeps it, so a touch redraws only what changed. They look the same." },
-    // System › Start-up (this device's app)
-    { id: "intro", sec: "start", name: "Intro", kind: "seg", opts: () => [["gild", "Gold leaf"], ["drop", "Drop"]], show: () => inApp() && !host.linked,
-      get: () => store.get("introStyle", host.introDefaults?.style || "gild"), set: v => { store.set("introStyle", v); host.toast("Shows next time ZyDeck starts", "ok"); },
-      desc: "Gold leaf: a clay brick turns to gold, its waveform becomes the decks' tape. Drop: the brick falls in and bounces up as the decks." },
-    { id: "introfull", sec: "start", name: "Full intro every time", ...onOff(() => store.get("introFull", host.introDefaults?.full ?? false), v => store.set("introFull", v)), show: () => inApp() && !host.linked,
-      desc: "Off: the full intro plays only the very first time; after that, just the logo. A tap skips it." },
     // System › Developer
     { id: "telemetry", sec: "dev", name: "Telemetry", kind: "toggle", get: () => !!S().telemetry && !!S().telemetryAsked,
       set: (v, final = true) => { ctl()?.set("telemetryAsked", true, false); ctl()?.set("telemetry", v, final); }, show: () => ctl() && !ctl().phone,

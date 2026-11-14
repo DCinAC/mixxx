@@ -259,11 +259,14 @@
   .pfxopts .pfxnote, .pfxopts .pfxnone { color: var(--dim); font-size: calc(var(--mm) * 1.6); height: auto !important; }
   .padopts button small { display: block; font-size: calc(var(--mm) * 1.4); opacity: .8; margin-top: calc(var(--mm) * .3); }
   .padopts .clear { color: var(--err); }
+  .cuecols { display: grid; grid-template-columns: repeat(8, 1fr); gap: calc(var(--mm) * .6); height: auto !important; }
+  .cuecols button { height: calc(var(--mm) * 6) !important; background: var(--sw) !important; border-color: transparent; }
+  .cuecols button.on { outline: calc(var(--mm) * .35) solid var(--text); outline-offset: calc(var(--mm) * .2); }
   .pad .n { position: absolute; left: calc(var(--mm) * 1); top: calc(var(--mm) * .8); font-size: calc(var(--mm) * 1.6); opacity: .6; }
   .pad.lit { background: var(--c); border-color: var(--c); color: var(--fg, #111); }
   .pad.tint { background: color-mix(in srgb, var(--c) 15%, var(--pad)); border-color: color-mix(in srgb, var(--c) 45%, var(--edge)); color: color-mix(in srgb, var(--c) 80%, #ddd); }
   .pad.off { opacity: .3; }
-  .pad.armed { outline: 3px dashed var(--err); outline-offset: -5px; }
+  .pad.armed { outline: 3px dashed var(--cue); outline-offset: -5px; }
   .pad .lp { position: absolute; top: 3px; right: 5px; font-style: normal; font-size: calc(var(--mm) * 1.7); font-weight: 700; opacity: .9; }
   .pad.loopon::after { content: ""; position: absolute; inset: 4px; border: 2px solid var(--fg, #111); border-radius: calc(var(--mm) * 1); pointer-events: none; }
   .pad.down { background: #fff !important; border-color: #fff !important; color: #111 !important; transform: scale(.97); }
@@ -1827,7 +1830,7 @@ function paintSide(s) {
     u.mC.classList.toggle("on", d.mode === "stem" || d.mode === "key");
 
   }
-  u.shiftBtn.classList.toggle("idle", false);   // SHIFT: hot cue delete, FX units 3-4, sync master, loop in/out adjust, loop move
+  u.shiftBtn.classList.toggle("idle", false);   // SHIFT: hot cue menu, FX units 3-4, sync master, loop in/out adjust, loop move
   u.shiftBtn.classList.toggle("on", d.shift);
   for (let k = 0; k < u.pads.length; k++) paintPad(s, k);
   paintTempo(s);
@@ -2324,25 +2327,9 @@ function padPress(s, k, down, e, el) {
     if (sf >= 0) { if (down) stemFx(d, sf); return; }
     if (d.mode === "stem" && k >= 4) return;   // unmapped, like the Inpulse
     let m = PAD_MODE[d.mode];
-    if (d.shift && d.mode === "cue") {
-      // SHIFT + tap: clear the cue. SHIFT + hold (half a second): rename it.
-      if (down) {
-        clearTimeout(d.cueHold);
-        d.cueHold = d.cues[k] && !REMOTE.on ? setTimeout(() => {
-          d.cueHold = null; shiftUsed(d); paintSide(s);
-          askText(`Name for hot cue ${k + 1}`, d.cueLabels?.[k] || "", async label => {
-            await fetch(`/api/cues/label?group=${encodeURIComponent(ch(d.n))}&n=${k + 1}&label=${encodeURIComponent(label)}`).catch(() => {});
-            loadCueLabels(d);
-          });
-        }, 500) : null;
-        if (!d.cueHold) { shiftUsed(d); setTimeout(() => paintSide(s), 0); return send("pad", d.n, 8 + k, true); }
-        return;
-      }
-      if (d.cueHold) {   // let go before the hold: a clear
-        clearTimeout(d.cueHold); d.cueHold = null; shiftUsed(d); setTimeout(() => paintSide(s), 0);
-        send("pad", d.n, 8 + k, true);
-      }
-      return send("pad", d.n, 8 + k, false);
+    if (d.shift && d.mode === "cue") {   // SHIFT + a set hot cue: its menu (colour, name, move, delete)
+      if (down && d.cues[k]) { shiftUsed(d); cueMenu(d, k, el); }
+      return;
     }
     if (d.shift && d.mode === "fx") m = 6;
     if (d.mode === "cue" && down && d.grabbed && !d.cues[k]) {
@@ -2361,7 +2348,7 @@ function padPress(s, k, down, e, el) {
   switch (d.mode) {
     case "cue":
       if (!down) break;
-      if (d.shift) { d.cues[k] = null; shiftUsed(d); }
+      if (d.shift) { if (d.cues[k]) { shiftUsed(d); cueMenu(d, k, el); } }
       else if (d.cues[k]) d.pos = d.cues[k].pos;
       else d.cues[k] = { pos: d.pos, c: CUE_COLORS[k] };
       break;
@@ -3495,6 +3482,67 @@ const PFX_BEATS = [.0625, .125, 1 / 6, .25, 1 / 3, .5, .75, 1, 2, 4, 8, 16, 32];
 let pfxMenuCat = "BEAT FX";   // (the menu's list last shown)
 // A pad's menu (SHIFT + the pad here, or on the controller this device mirrors): its effect, beat length, LEVEL/DEPTH
 // and INTENSITY, an FX unit's effect taken as it is, or the default back
+// A hot cue's menu (SHIFT + its pad), as Mixxx's own cue menu: its colour (Mixxx's hot cue palette), its name, move
+// it to where the deck is, delete it
+function cueMenu(d, k, anchor) {
+  document.querySelector(".padopts")?.remove(); document.querySelector(".padveil")?.remove();
+  const veil = h("div", "padveil"), box = h("div", "padopts cueopts");
+  const close = () => { box.remove(); veil.remove(); paintAll(); };
+  veil.addEventListener("pointerdown", e => { e.stopPropagation(); close(); });
+  const group = ch(d.n), lbl = d.cueLabels?.[k];
+  const render = () => {
+    const c = d.cues[k];
+    if (!c) return close();   // (deleted meanwhile)
+    const t = live ? cueSec(d, d.cuePos?.[k]) : c.pos;
+    box.innerHTML = "";
+    box.append(h("div", "t", `HOT CUE ${k + 1}<small>${lbl ? lbl.replace(/</g, "&lt;") + " · " : ""}${t != null ? `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}` : ""}</small>`));
+    const sw = h("div", "cuecols full");
+    for (const col of CUE_COLORS) {
+      const b = h("button", (c.c & 0xFFFFFF) === col ? "on" : "");
+      b.style.setProperty("--sw", `#${col.toString(16).padStart(6, "0")}`);
+      bindPress(b, down => {
+        if (!down) return;
+        if (live) setCtl(group, `hotcue_${k + 1}_color`, col);
+        d.cues[k] = { ...c, c: col };
+        render(); paintAll();
+      });
+      sw.append(b);
+    }
+    box.append(sw);
+    const name = h("button", "", `✎ NAME${REMOTE.on ? "<small>in Mixxx</small>" : ""}`);
+    if (REMOTE.on || !live) name.disabled = true;
+    bindPress(name, down => {
+      if (!down || name.disabled) return;
+      close();
+      askText(`Name for hot cue ${k + 1}`, d.cueLabels?.[k] || "", async label => {
+        await fetch(`/api/cues/label?group=${encodeURIComponent(group)}&n=${k + 1}&label=${encodeURIComponent(label)}`).catch(() => {});
+        loadCueLabels(d);
+      });
+    });
+    const move = h("button", "", "MOVE HERE<small>where the deck is</small>");
+    bindPress(move, down => {
+      if (!down) return;
+      const at = d.quantize ? nearestBeat(d, d.pos) : d.pos;
+      if (!live) d.cues[k] = { ...c, pos: at };
+      else if (at != null && d.trackSamples > 0 && d.dur > 0) setCtl(group, `hotcue_${k + 1}_position`, Math.round(at / d.dur * d.trackSamples / 2) * 2);
+      close();
+    });
+    const del = h("button", "clear", "DELETE");
+    bindPress(del, down => {
+      if (!down) return;
+      if (live) { send("pad", d.n, 8 + k, true); send("pad", d.n, 8 + k, false); }
+      else d.cues[k] = null;
+      close();
+    });
+    box.append(name, move, del);
+  };
+  render();
+  document.body.append(veil, box);
+  const r = (anchor || document.body).getBoundingClientRect(), bw = box.offsetWidth, bh = box.offsetHeight;
+  box.style.left = `${clamp(r.left + r.width / 2 - bw / 2, 8, innerWidth - bw - 8)}px`;
+  box.style.top = `${clamp(r.top - bh - 8, 8, innerHeight - bh - 8)}px`;
+}
+
 function pfxMenu(d, id, anchor) {
   document.querySelector(".padopts")?.remove(); document.querySelector(".padveil")?.remove();
   const veil = h("div", "padveil"), box = h("div", "padopts pfxopts");

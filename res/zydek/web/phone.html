@@ -2538,11 +2538,6 @@ addEventListener("message", e => {
   loadViews(); loadTracks();   // a BPM may have changed (the editor saved it), a sample may have been added
 });
 
-// Start-up animation (intro.html reads the same setting, zphone.introStyle / introFull: it runs on this page's
-// origin); set in Settings › Start-up
-const INTRO_FULL_DEFAULT = false;   // as in intro.html: the short one after the first time
-const INTRO_STYLE_DEFAULT = "gild";   // RELEASE: as in intro.html
-
 // Settings: the menu (zydeck-menu.js), System and Controller, one list for both pages. Upright it's this page's
 // Settings page, under the waveforms; sideways it's a window over the decks (their gear asks for it). The
 // Controller settings are the deck page's (in its frame).
@@ -2555,7 +2550,6 @@ ZydeckMenu.setup({
   page: "phone", toast, ctl: () => deckFrame().contentWindow.ZydeckMenu?.providers.controller,
   mm: () => { try { return getComputedStyle(deckFrame().contentDocument.documentElement).getPropertyValue("--mm").trim(); } catch { return ""; } },
   go: p => { showPage(p); if (p !== "set") scrollTo(0, 0); }, openLogin,
-  introDefaults: { style: INTRO_STYLE_DEFAULT, full: INTRO_FULL_DEFAULT },
   changed(key, v) {
     if (key === "keyNotation") loadTracks();
     if (key === "stemServer") stemServer = v;
