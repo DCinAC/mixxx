@@ -3251,7 +3251,7 @@ function paintMarks(u, d, base, dpr, f, cssH) {
     u.marksKey = key;
     u.marks?.remove();
     const box = h("div", "marks"), x = t => `${(t * base / dpr).toFixed(2)}px`;
-    u.strip.style.setProperty("--tag", `${Math.max(11, Math.round(cssH * .17))}px`);
+    u.strip.style.setProperty("--tag", `${Math.max(22, Math.round(cssH * .34))}px`);   // (the cue and section labels: twice the size they were)
     u.strip.style.setProperty("--ltag", `${Math.round(cssH * .16)}px`);
     if (lr) {   // like Mixxx's waveforms: the loop filled #00b400 at 30 % (white once it's off), in/out lines, ↻
       const lp = h("div", `loop${d.loopOn ? " on" : ""}`, "<b>↻</b>");
