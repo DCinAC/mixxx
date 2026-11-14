@@ -191,6 +191,25 @@ const QByteArray kIndexPage = QByteArrayLiteral(
 
 // ---- the Web tab: NewPipe (ZydekPipe.java) for YouTube and the rest, yt-dlp (zydek_web.py) only for Bilibili ----
 
+// This app's version (AndroidManifest's versionName, e.g. 0.3.67r), for /api/whoami
+QString appVersion() {
+#ifdef Q_OS_ANDROID
+    static const QString version = [] {
+        const QJniObject context = QNativeInterface::QAndroidApplication::context();
+        const QJniObject pm = context.callObjectMethod("getPackageManager", "()Landroid/content/pm/PackageManager;");
+        const QJniObject name = context.callObjectMethod("getPackageName", "()Ljava/lang/String;");
+        const QJniObject info = pm.callObjectMethod("getPackageInfo", "(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;",
+                name.object<jstring>(), jint(0));
+        QJniEnvironment env;
+        env.checkAndClearExceptions();
+        return info.isValid() ? info.getObjectField<jstring>("versionName").toString() : QString();
+    }();
+    return version;
+#else
+    return QCoreApplication::applicationVersion();
+#endif
+}
+
 // Bilibili: a BV or av code, a bilibili.com / bilibili.tv / b23.tv link
 bool isBilibili(const QString& s) {
     static const QRegularExpression re(QStringLiteral(
@@ -1033,7 +1052,16 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
             name = shown;
         }
 #endif
-        return json(QJsonObject{{"zydeck", true}, {"name", name}});
+        // what this ZyDeck is and can do, so another one controlling it (or controlled by it) offers only what both
+        // have: an older ZyDeck answers without "caps" (then only what every version has). Add to kCaps with each
+        // feature another device's page asks this one for; never take one out while older pages may ask for it.
+        static const QJsonArray kCaps{
+                "padfx",        // /api/padfx, /api/padfx/edit: PAD FX presets
+                "newpipe",      // /api/web search and download by NewPipe (yt-dlp only for Bilibili)
+                "webpreview",   // /api/web/preview, /api/webpreview/load and /state: a web result in the headphones
+                "datasaver",    // /api/web/prefs?dataSaver=
+        };
+        return json(QJsonObject{{"zydeck", true}, {"name", name}, {"version", appVersion()}, {"proto", 2}, {"caps", kCaps}});
     }
     if (path == QLatin1String("/api/library/views")) {
         QJsonObject v = m_library.views();

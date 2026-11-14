@@ -2013,8 +2013,9 @@ $("#wq").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDe
 
 function openWebSheet(r) {
   const s = $("#sheet");
-  // a preview in this device's headphones: not Bilibili's (yt-dlp), nor in controller mode (the computer downloads)
-  const canPv = !onComputer() && !/^bili/.test(r.site || "");
+  // a preview in the headphones: not Bilibili's (yt-dlp), nor in controller mode (the computer downloads), nor on
+  // an older ZyDeck this one drives
+  const canPv = !onComputer() && !/^bili/.test(r.site || "") && hubHas("webpreview");
   s.innerHTML = `<div class="grip"></div><div class="t">${esc(r.title)}</div>` +
     `<div class="a">${esc(r.channel)}${r.duration ? " · " + fmtTime(r.duration) : ""}</div>` +
     `<div class="loads" style="margin-top:14px"></div><div class="more"><button class="dl">${onComputer() ? "Download to the computer" : "Download only"}</button>` +
@@ -2672,6 +2673,16 @@ async function preview(t, keepOpen) {
 // A web search's result in the headphones (YouTube, SoundCloud, Bandcamp, PeerTube): ZyDeck fetches its whole audio
 // into its cache (NewPipe, several pieces at once: a second or two), then it plays in the preview deck as a library
 // track's preview does, and the waveform jumps anywhere. Downloading it afterwards takes that file, no fetch.
+// What the ZyDeck this page drives can do (its /api/whoami "caps"): linked to an older one, only what every version
+// has (its newer features' keys are hidden, and it says so once). This device's own: everything.
+let hubCaps = null;
+const hubHas = c => !LINKED || !!hubCaps?.has(c);
+if (LINKED) {
+  fetch("/api/whoami").then(r => r.json()).then(w => {
+    hubCaps = new Set(w.caps || []);
+    if (!w.caps) toast(`${w.name || "That ZyDeck"} has an older ZyDeck: update it for the headphone preview and Data saver`, "ok");
+  }).catch(() => { hubCaps = new Set(); });
+}
 const webPvTracks = new Map();   // url -> its preview's track ({id: "w:" + url, web, lib: Mixxx's id once loaded})
 const webPvTrack = r => { if (!webPvTracks.has(r.url)) webPvTracks.set(r.url, { id: "w:" + r.url, web: r, title: r.title, duration: r.duration }); return webPvTracks.get(r.url); };
 async function webPreview(t) {

@@ -65,7 +65,11 @@
     dc: async () => { try { sys.dc = await api("/api/discord"); } catch {} },
     tl: async () => { try { sys.tracklist = await api("/api/tracklist"); } catch {} },
     xf: async () => { try { sys.xf = await api(`${xfHub()}/api/xfader`); } catch (e) { sys.xf = { error: e.message }; } },
+    // the ZyDeck these settings are for (linked: another one, maybe older: its "caps" say what it has)
+    who: async () => { try { sys.who = await api("/api/whoami"); } catch { sys.who = {}; } },
   };
+  // whether the ZyDeck these settings go to has a feature (this device's own: always; an older linked one: no)
+  const has = cap => !host.linked || (sys.who?.caps || []).includes(cap);
   async function loadAll() { await Promise.all(Object.values(loads).map(f => f())); refresh(); }
   async function checkStems() {
     const server = sys.prefs?.stemServer;
@@ -221,7 +225,7 @@
     { id: "keyfmt", sec: "library", name: "Key notation", kind: "seg", opts: () => [["camelot", "Camelot 8A"], ["open", "Open Key 1m"], ["musical", "Musical Am"]],
       ...shared("keyNotation", "keyNotation", "camelot"), desc: "How keys are written, on the decks and in the library." },
     { id: "datasaver", sec: "library", name: "Data saver", ...onOff(() => !!sys.prefs?.dataSaver, async v => { await api(`/api/web/prefs?${qs({ dataSaver: v ? 1 : 0 })}`); sys.prefs = { ...(sys.prefs || {}), dataSaver: v }; refresh(); }),
-      show: () => host.page === "phone" && !sys.remote.on,
+      show: () => host.page === "phone" && !sys.remote.on && has("datasaver"),
       desc: "Web tab: previews in a lower quality (about a third of the data), and every download at 0.8 Mbps at most, which also leaves room for the link to a tablet. Downloads keep the best quality." },
     { id: "folders", sec: "library", name: "Music folders", kind: "proc", label: () => "Open", lampless: true, show: () => host.page === "phone" && upright(),
       act: async () => { host.go?.("fold"); }, desc: "The folders ZyDeck scans for tracks, and the ones it leaves out." },
@@ -683,7 +687,7 @@
   function buildLink(c) {
     const tray = el("div", "zm-tray"), scan = procKey("Scan", "scan");
     c.appendChild(scan);
-    linkSt = () => host.linked ? `Linked to ${host.hubHost.replace(/:\d+$/, "")}` : link.scanning ? (link.found.length ? `${link.found.length} found · still looking` : "Looking…")
+    linkSt = () => host.linked ? `Linked to ${host.hubHost.replace(/:\d+$/, "")}${sys.who?.version ? ` · ZyDeck ${sys.who.version}` : sys.who && !sys.who.caps ? " · an older ZyDeck" : ""}` : link.scanning ? (link.found.length ? `${link.found.length} found · still looking` : "Looking…")
       : pl.scan === "err" ? (bridge()?.linkScan ? "None found" : "") : link.found.length ? `${link.found.length} found` : "";
     scan.addEventListener("click", async () => {
       const b = bridge();
