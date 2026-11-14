@@ -43,6 +43,10 @@ QByteArray call(const QString&, const QByteArray&) {
     return failure(QStringLiteral("This build of Zydek has no Web tab"));
 }
 
+bool ready() {
+    return false;
+}
+
 #else
 
 namespace {
@@ -218,6 +222,10 @@ void start() {
 }
 
 } // namespace
+
+bool ready() {
+    return s_state == State::Ready;
+}
 
 QByteArray call(const QString& name, const QByteArray& jsonArgs) {
     State state = s_state;

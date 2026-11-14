@@ -63,6 +63,14 @@
 #include "track/beats.h"
 #include "track/cue.h"
 #include "zydek/zydekpython.h"
+#ifdef Q_OS_ANDROID
+#include <attachedpictureframe.h>   // TagLib: the Web tab's downloads' tags (ZydekPipe.java nativeTag)
+#include <fileref.h>
+#include <id3v2tag.h>
+#include <mp4file.h>
+#include <mp4tag.h>
+#include <mpegfile.h>
+#endif
 #include "zydek/zydekstems.h"
 #include "track/track.h"
 #include "waveform/isynctimeprovider.h"
@@ -181,15 +189,110 @@ const QByteArray kIndexPage = QByteArrayLiteral(
         "<a href=/phone>Library (phone)</a><a href=/controller>Controller (tablet)</a><a href=/settings>Settings and debug</a>"
         "<a href=/sizes>Size test</a>");
 
-// The Web tab's downloads on this phone (zydek_web.py's jobs), in a notification (ZydekRunningService.download):
+// ---- the Web tab: NewPipe (ZydekPipe.java) for YouTube and the rest, yt-dlp (zydek_web.py) only for Bilibili ----
+
+// Bilibili: a BV or av code, a bilibili.com / bilibili.tv / b23.tv link
+bool isBilibili(const QString& s) {
+    static const QRegularExpression re(QStringLiteral(
+            R"((\bBV[0-9A-Za-z]{10}\b)|(\b[aA][vV]\d{3,}\b)|bilibili\.(com|tv)|b23\.tv|bili2233)"));
+    return re.match(s).hasMatch();
+}
+
+QByteArray pipeCall(const QString& name, QJsonObject args) {
+#ifdef Q_OS_ANDROID
+    args.insert(QStringLiteral("_music"), QStandardPaths::writableLocation(QStandardPaths::MusicLocation));
+    const QJniObject r = QJniObject::callStaticObjectMethod("org/mixxx/ZydekPipe", "api",
+            "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+            QJniObject::fromString(name).object<jstring>(),
+            QJniObject::fromString(QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact))).object<jstring>());
+    if (r.isValid()) {
+        return r.toString().toUtf8();
+    }
+#else
+    Q_UNUSED(name); Q_UNUSED(args);
+#endif
+    return QByteArrayLiteral(R"({"ok":false,"error":"No NewPipe in this build"})");
+}
+
+// Which one a request is for: true NewPipe, false zydek_web.py (job ids: NewPipe's start "np")
+bool forPipe(const QString& name, const QJsonObject& args) {
+#ifdef Q_OS_ANDROID
+    if (name == QLatin1String("search")) {
+        return !isBilibili(args.value(QStringLiteral("q")).toString());
+    }
+    if (name == QLatin1String("download")) {   // (to: for ZyDeck Connect with this phone's login; client: a test)
+        return !isBilibili(args.value(QStringLiteral("url")).toString()) && !args.contains(QStringLiteral("to")) &&
+                !args.contains(QStringLiteral("client"));
+    }
+    if (name == QLatin1String("job") || name == QLatin1String("cancel")) {
+        return args.value(QStringLiteral("id")).toString().startsWith(QLatin1String("np"));
+    }
+#else
+    Q_UNUSED(name); Q_UNUSED(args);
+#endif
+    return false;
+}
+
+// Both one's downloads, NewPipe's first (Python's only when it's running: asking would start it)
+QJsonArray webDownloads() {
+    QJsonArray jobs = QJsonDocument::fromJson(pipeCall(QStringLiteral("jobs"), {})).object().value(QStringLiteral("jobs")).toArray();
+    if (python::ready()) {
+        for (const QJsonValue& v :
+                QJsonDocument::fromJson(python::call(QStringLiteral("jobs"), "{}")).object().value(QStringLiteral("jobs")).toArray()) {
+            jobs.append(v);
+        }
+    }
+    return jobs;
+}
+
+// The Web tab's settings, zydek_web.py's file (it reads it each time): here, so opening the page doesn't start Python
+const QString kWebPrefsFile = QStringLiteral("zydek-web.json");
+QByteArray webPrefs(const QJsonObject& args) {
+    const QString path = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(kWebPrefsFile);
+    QJsonObject prefs{{"biliHiRes", true}, {"stemServer", ""}, {"stemPreset", "best"}, {"stemToken", ""}};
+    {
+        QFile f(path);
+        if (f.open(QIODevice::ReadOnly)) {
+            const QJsonObject saved = QJsonDocument::fromJson(f.readAll()).object();
+            for (auto it = saved.begin(); it != saved.end(); ++it) {
+                prefs.insert(it.key(), it.value());
+            }
+        }
+    }
+    const QString arg[] = {QStringLiteral("biliHiRes"), QStringLiteral("stemServer"), QStringLiteral("stemPreset"), QStringLiteral("stemToken")};
+    bool changed = false;
+    for (const QString& k : arg) {
+        if (!args.contains(k)) {
+            continue;
+        }
+        const QString v = args.value(k).toString();
+        if (k == QLatin1String("biliHiRes")) {
+            prefs.insert(k, !(v == QLatin1String("0") || v == QLatin1String("false") || v.isEmpty()));
+        } else {
+            prefs.insert(k, k == QLatin1String("stemPreset") ? v : v.trimmed());
+        }
+        changed = true;
+    }
+    if (changed) {
+        QSaveFile f(path);
+        if (f.open(QIODevice::WriteOnly)) {
+            f.write(QJsonDocument(prefs).toJson(QJsonDocument::Compact));
+            f.commit();
+        }
+    }
+    QJsonObject shown = prefs;   // (the token stays on the phone)
+    shown.remove(QStringLiteral("stemToken"));
+    shown.insert(QStringLiteral("hasStemToken"), !prefs.value(QStringLiteral("stemToken")).toString().isEmpty());
+    shown.insert(QStringLiteral("ok"), true);
+    return QJsonDocument(shown).toJson(QJsonDocument::Compact);
+}
+
+// The Web tab's downloads on this phone (NewPipe's and zydek_web.py's jobs), in a notification (ZydekRunningService.download):
 // the one going with its progress and speed, then what came of them. shown: the jobs told about as running, done:
 // how many of them finished well since the last time none ran. Off the main thread (Python may take a moment);
 // false once there's nothing more to tell.
 bool tellDownloads(QSet<QString>* pShown, int* pDone) {
-    const QJsonArray jobs = QJsonDocument::fromJson(python::call(QStringLiteral("jobs"), "{}"))
-                                    .object()
-                                    .value(QStringLiteral("jobs"))
-                                    .toArray();   // (newest first)
+    const QJsonArray jobs = webDownloads();   // (newest first, each one's)
     QJsonObject going, last;
     int running = 0;
     bool failed = false;
@@ -381,6 +484,71 @@ void JNICALL jniLatency(JNIEnv* env, jclass, jint ms, jstring route) {
     }
 }
 
+// ZydekPipe.java's downloads: title, artist, the link as the comment, the cover (JPEG or PNG), as Mixxx reads them
+jboolean JNICALL jniTag(JNIEnv* env, jclass, jstring path, jstring title, jstring artist, jstring comment, jbyteArray cover) {
+    const auto str = [env](jstring s) {
+        if (!s) {
+            return QString();
+        }
+        const jchar* chars = env->GetStringChars(s, nullptr);
+        const QString out = QString::fromUtf16(reinterpret_cast<const char16_t*>(chars), env->GetStringLength(s));
+        env->ReleaseStringChars(s, chars);
+        return out;
+    };
+    QByteArray picture;
+    if (cover) {
+        picture.resize(env->GetArrayLength(cover));
+        env->GetByteArrayRegion(cover, 0, picture.size(), reinterpret_cast<jbyte*>(picture.data()));
+    }
+    const QString file = str(path);
+    const auto ts = [](const QString& s) { return TagLib::String(s.toStdString(), TagLib::String::UTF8); };
+    const QByteArray local = QFile::encodeName(file);
+    const bool png = picture.startsWith("\x89PNG");
+    if (file.endsWith(QLatin1String(".m4a"), Qt::CaseInsensitive) || file.endsWith(QLatin1String(".mp4"), Qt::CaseInsensitive)) {
+        TagLib::MP4::File f(local.constData());
+        if (!f.isValid() || !f.tag()) {
+            return false;
+        }
+        TagLib::MP4::Tag* pTag = f.tag();
+        pTag->setTitle(ts(str(title)));
+        pTag->setArtist(ts(str(artist)));
+        pTag->setComment(ts(str(comment)));
+        if (!picture.isEmpty()) {
+            TagLib::MP4::CoverArtList art;
+            art.append(TagLib::MP4::CoverArt(png ? TagLib::MP4::CoverArt::PNG : TagLib::MP4::CoverArt::JPEG,
+                    TagLib::ByteVector(picture.constData(), static_cast<unsigned int>(picture.size()))));
+            pTag->setItem("covr", TagLib::MP4::Item(art));
+        }
+        return f.save();
+    }
+    if (file.endsWith(QLatin1String(".mp3"), Qt::CaseInsensitive)) {
+        TagLib::MPEG::File f(local.constData());
+        if (!f.isValid()) {
+            return false;
+        }
+        TagLib::ID3v2::Tag* pTag = f.ID3v2Tag(true);
+        pTag->setTitle(ts(str(title)));
+        pTag->setArtist(ts(str(artist)));
+        pTag->setComment(ts(str(comment)));
+        if (!picture.isEmpty()) {
+            auto* pFrame = new TagLib::ID3v2::AttachedPictureFrame;
+            pFrame->setMimeType(png ? "image/png" : "image/jpeg");
+            pFrame->setType(TagLib::ID3v2::AttachedPictureFrame::FrontCover);
+            pFrame->setPicture(TagLib::ByteVector(picture.constData(), static_cast<unsigned int>(picture.size())));
+            pTag->addFrame(pFrame);
+        }
+        return f.save();
+    }
+    TagLib::FileRef f(local.constData());
+    if (f.isNull() || !f.tag()) {
+        return false;
+    }
+    f.tag()->setTitle(ts(str(title)));
+    f.tag()->setArtist(ts(str(artist)));
+    f.tag()->setComment(ts(str(comment)));
+    return f.save();
+}
+
 void JNICALL jniMidiState(JNIEnv*, jclass, jint state) {
     if (Hub* pHub = s_pHub) {
         QMetaObject::invokeMethod(pHub, [pHub, state] { pHub->usbMidiState(state); }, Qt::QueuedConnection);
@@ -420,6 +588,11 @@ void Hub::start() {
             {"nativeLatency", "(ILjava/lang/String;)V", reinterpret_cast<void*>(jniLatency)}};
     if (env.registerNativeMethods("org/mixxx/ZydekAudio", audioMethods, 1)) {
         QJniObject::callStaticMethod<void>("org/mixxx/ZydekAudio", "measureNow", "()V");
+    }
+    const JNINativeMethod pipeMethods[] = {
+            {"nativeTag", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[B)Z", reinterpret_cast<void*>(jniTag)}};
+    if (!env.registerNativeMethods("org/mixxx/ZydekPipe", pipeMethods, 1)) {
+        qWarning() << "Zydek: the Web tab's downloads won't be tagged";
     }
 #endif
     {
@@ -584,7 +757,11 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         for (auto it = query.cbegin(); it != query.cend(); ++it) {
             args.insert(it.key(), it.value());
         }
-        const QByteArray body = python::call(path.mid(9), QJsonDocument(args).toJson(QJsonDocument::Compact));
+        const QString name = path.mid(9);
+        const QByteArray body = name == QLatin1String("prefs") && !python::ready() ? webPrefs(args)
+                : name == QLatin1String("jobs") ? QJsonDocument(QJsonObject{{"ok", true}, {"jobs", webDownloads()}}).toJson(QJsonDocument::Compact)
+                : forPipe(name, args) ? pipeCall(name, args)
+                : python::call(name, QJsonDocument(args).toJson(QJsonDocument::Compact));
         const bool ok = QJsonDocument::fromJson(body).object().value(QStringLiteral("ok")).toBool(true);
         if (ok && path == QLatin1String("/api/web/download")) {   // its notification from now (any thread here)
             QMetaObject::invokeMethod(this, [this] {

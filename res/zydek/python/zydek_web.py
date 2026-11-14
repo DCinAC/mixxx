@@ -44,6 +44,7 @@ _JUNK = re.compile(
     re.IGNORECASE,
 )
 _BV = re.compile(r"\b(BV[0-9A-Za-z]{10})\b")
+_AV = re.compile(r"\b[aA][vV](\d{3,})\b")   # (Bilibili's older video numbers: av170001)
 _URL = re.compile(r"https?://\S+")
 
 _dirs = {}
@@ -195,12 +196,15 @@ def _ydl(extra=None):
 # ---- search ---------------------------------------------------------------------------------------
 
 def _target(query):
-    """What to look up: a Bilibili video for a BV code, a pasted link as it is, else a YouTube search."""
+    """What to look up: a Bilibili video for a BV or av code, a pasted link as it is, else a YouTube search. (On the
+    phone, YouTube and the rest go to NewPipe, ZydekPipe.java: only Bilibili comes here.)"""
     q = query.strip()
     if m := _URL.search(q):
         return m.group(0), "link"
     if m := _BV.search(q):
         return f"https://www.bilibili.com/video/{m.group(1)}", "link"
+    if m := _AV.search(q):
+        return f"https://www.bilibili.com/video/av{m.group(1)}", "link"
     return f"ytsearch{SEARCH_RESULTS}:{q}", "search"
 
 
@@ -354,10 +358,10 @@ def _bili_parts(url):
     collection (合集) comes with the collection, to open: {"kind": "list", "title", "count", "url"}.
 
     yt-dlp's quick listing gives multi-part videos as bare links (no titles), so ask Bilibili directly."""
-    m = _BV.search(url)
-    if not m or "bilibili.com" not in url:
+    m, av = _BV.search(url), re.search(r"/video/av(\d+)", url)
+    if not (m or av) or "bilibili.com" not in url:
         return None
-    data = _bili_get(f"https://api.bilibili.com/x/web-interface/view?bvid={m.group(1)}")
+    data = _bili_get("https://api.bilibili.com/x/web-interface/view?" + (f"bvid={m.group(1)}" if m else f"aid={av.group(1)}"))
     if data.get("code") != 0:
         return None
     v = data["data"]

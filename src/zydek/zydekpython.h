@@ -13,6 +13,8 @@ namespace python {
 /// zydek_web.api(name, args): JSON in, JSON out, quick (downloads run in Python's own threads). While
 /// Python is starting it answers {"ok": false, "starting": true}.
 QByteArray call(const QString& name, const QByteArray& jsonArgs);
+/// Whether Python is up (call() starts it): the Web tab asks it only for Bilibili, so it may never start.
+bool ready();
 
 } // namespace python
 } // namespace zydek
