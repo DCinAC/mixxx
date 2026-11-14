@@ -305,3 +305,7 @@
 .zm-ask button { flex: 1; min-height: 48px; font: 600 15px system-ui, "Roboto", sans-serif; color: #e6e6e6; background: #222; border: 1.5px solid #5c5c5c; border-radius: 12px; }
 .zm-ask button:active { background: #2c2c2c; }
 .zm-ask .yes { border-color: #3ddc84; color: #3ddc84; background: #15241b; }
+/* Settings › PAD FX pads: a page's 8, 4 a row (each opens that pad's menu) */
+.zm-pfx { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: calc(var(--zmm) * .8); flex: 1; }
+.zm-pfx > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zm-pfx small { display: block; opacity: .6; font-size: .8em; }

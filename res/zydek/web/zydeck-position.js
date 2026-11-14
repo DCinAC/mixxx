@@ -140,11 +140,24 @@
     };
     const pred = posModel(d, t), off = Math.abs(p - pred);
     const steady = hist.length >= 4 ? slope(300) : null;
+    // How far readings stray from the model in steady play (a cable: a few ms; Wi-Fi: tens, its jitter), learnt as it
+    // plays: a scratch is what strays clearly further. Below that bar it's the link's jitter, smoothed, not followed
+    // (chasing it is what made Wi-Fi stutter); above it, a hand: followed fast, as before.
+    const noise = d.noise ??= .008;
+    const bar = Math.max(.04, 3 * noise), slopeBar = Math.max(.08, 8 * noise);
     let v = nominal, k = .15;
-    if ((steady !== null && Math.abs(steady - nominal) > .08) || off > .04) {
-      v = slope(150) ?? steady ?? nominal;
-      k = Math.min(.8, Math.max(.15, (off - .02) / .06 * .8));
+    if ((steady !== null && Math.abs(steady - nominal) > slopeBar) || off > bar) {
+      v = slope(noise > .015 ? 250 : 150) ?? steady ?? nominal;
+      k = Math.min(.8, Math.max(.15, (off - bar / 2) / (bar * 1.5) * .8));
+    } else {
+      d.noise = noise + (Math.min(off, .1) - noise) * .05;
+      if (noise > .012) {   // a jittery link: no jumps, the speed a touch faster or slower until it's caught up
+        d.err = (d.err || 0) + ((p - pred) - (d.err || 0)) * .2;
+        d.pp = pred; d.pt = t; d.pv = nominal + Math.max(-.04, Math.min(.04, d.err * 2));
+        return;
+      }
     }
+    d.err = 0;
     d.pp = pred + (p - pred) * k; d.pt = t; d.pv = v;
   }
   // ---- the computer's DJ controller's jog (controller mode: ZyDeck Connect passes on its steps as they're turned) ----

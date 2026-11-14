@@ -335,6 +335,8 @@
       show: () => !!ctl()?.loopRun?.("roll"),
       desc: "Which ROLL pad press rolls without slip: when you let go, the track carries on from inside the loop instead of from where it would have got to. The other press is a normal roll." },
     // Controller › Effects
+    { id: "pfxedit", sec: "fx", name: "PAD FX pads", kind: "custom", build: buildPadFxEdit, show: () => !!ctl()?.pfxPads,
+      desc: "What each PAD FX pad plays: tap one to change it (its effect from BEAT, COLOR, SCENE or RELEASE FX, its beats, LEVEL/DEPTH and INTENSITY), as SHIFT + the pad does. Page 1, then page 2 (the phone plays page 1's eight, four at a time)." },
     { id: "fxlayout", sec: "fx", name: "FX layout", kind: "seg", opts: () => [["beat", "Beat FX"], ["multi", "Multi-FX"]], ...C("fxLayout", "beat"),
       desc: "Beat FX: one effect per side with its beat length, LEVEL and ON, like Pioneer's. Multi-FX: three effects with a knob each and MIX, like Serato's." },
     // Controller › Sampler
@@ -893,6 +895,26 @@
     });
     c.appendChild(box);
     return () => { const d = ctl()?.deckDefaults() || [-1, -1, -1]; segs.forEach((s, i) => [...s.children].forEach(b => b.classList.toggle("on", b._v === d[i]))); };
+  }
+  function buildPadFxEdit(c) {   // PAD FX's 16 pads, two pages of 8: a tap edits one
+    const box = el("div", "zm-subs");
+    const rows = [0, 1].map(page => {
+      const line = el("div", "zm-sr", `<span>PAD FX ${page + 1}</span>`), s = el("div", "zm-pfx");
+      const keys = Array.from({ length: 8 }, (_, k) => {
+        const b = key("", "s");
+        b.addEventListener("click", () => ctl()?.pfxEdit(page * 8 + k));
+        s.appendChild(b); return b;
+      });
+      line.appendChild(s); box.appendChild(line); return keys;
+    });
+    c.appendChild(box);
+    return () => {
+      const pads = ctl()?.pfxPads?.() || [];
+      rows.flat().forEach((b, i) => {
+        const p = pads[i] || {};
+        b.innerHTML = `${p.release ? "R · " : ""}${(p.name || "—").replace(/</g, "&lt;")}${p.beats ? `<small>${p.beats}</small>` : ""}`;
+      });
+    };
   }
   function buildLoopRuns(c) {
     const box = el("div", "zm-subs");
