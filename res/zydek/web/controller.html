@@ -257,6 +257,68 @@
   .pfxopts .pfxlist button.on, .pfxopts .pfxbeats button.on { border-color: var(--fx); color: var(--fx); background: color-mix(in srgb, var(--fx) 14%, #1c1c1c); }
   .pfxopts .wide2pfx { height: calc(var(--mm) * 13); }
   .pfxopts .pfxnote, .pfxopts .pfxnone { color: var(--dim); font-size: calc(var(--mm) * 1.6); height: auto !important; }
+  /* ---- the PAD FX pad's menu (pfxMenu), the Hardware look (zydeck-menu.css's keys), a little bigger than the others ---- */
+  .pfxhw { position: fixed; z-index: 30; display: flex; flex-direction: column; gap: 0; width: min(94vw, calc(var(--mm) * 84)); padding: calc(var(--zmm) * 2.6) calc(var(--zmm) * 3) calc(var(--zmm) * 3);
+    background: linear-gradient(#1b1c1f, #161719); border: 3px solid #050505; border-radius: 8px; box-shadow: 0 24px 70px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.06); }
+  .pfxhw .zk { min-height: calc(var(--zmm) * 11); font-size: calc(var(--zmm) * 3.2); height: auto; }
+  .pfxhw .zk small { display: block; font-size: .62em; opacity: .7; margin-top: 1px; font-weight: 600; }
+  .pfxhw .zk.close { width: calc(var(--zmm) * 11); padding: 0; flex: none; }
+  .pfxhw .zk.close svg { width: calc(var(--zmm) * 3.4); height: calc(var(--zmm) * 3.4); }
+  .pfxhw .zk.red { color: #ff7a6e; }
+  .pfx-hd { display: flex; align-items: center; gap: calc(var(--zmm) * 2); margin-bottom: calc(var(--zmm) * 2.4); }
+  .pfx-ttl { flex: 1; font-size: calc(var(--zmm) * 3); letter-spacing: .12em; color: #8a8a8a; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pfx-ttl em { font-style: normal; color: #dfe7ea; letter-spacing: .04em; margin-left: calc(var(--zmm) * 2); font-weight: 600; }
+  /* the index tabs */
+  .pfx-tabs { display: flex; align-items: flex-end; height: calc(var(--zmm) * 12); padding: 0 calc(var(--zmm) * 1.5); margin-bottom: -1px; }
+  .pfx-tab { position: relative; flex: 1; height: calc(var(--zmm) * 9.5); margin: 0 calc(var(--zmm) * -1); display: flex; align-items: center; justify-content: center; gap: .2em;
+    font: 700 calc(var(--zmm) * 3) system-ui, sans-serif; letter-spacing: .08em; color: #9a9a9a; z-index: 1; cursor: pointer; }
+  .pfx-tab::before { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(#2a2c30, #1d1e21); clip-path: polygon(9% 0, 91% 0, 100% 100%, 0 100%); }
+  .pfx-tab::after { content: ""; position: absolute; inset: 0; z-index: -2; background: #000; clip-path: polygon(8.4% -3px, 91.6% -3px, 100% 100%, 0 100%); transform: scale(1.025, 1.06); transform-origin: 50% 100%; }
+  .pfx-tab small { font-size: .72em; opacity: .7; }
+  .pfx-tab.on { height: calc(var(--zmm) * 12); color: #f1f1f1; z-index: 3; }
+  .pfx-tab.on::before { background: linear-gradient(#3a3c40, #222327); }
+  .pfx-tab .lamp { position: absolute; top: calc(var(--zmm) * 1.2); left: 30%; right: 30%; height: calc(var(--zmm) * 1); background: radial-gradient(70% 60% at 50% 55%, #ffe3a6, #ffc23d 55%, #a37a1a); box-shadow: 0 0 8px rgba(255,194,61,.5); }
+  .pfx-groove { height: 0; border-top: 2px solid #000; border-bottom: 1px solid rgba(255,255,255,.07); margin: 0 calc(var(--zmm) * -3); }
+  /* the display, with the arrows in the margin */
+  .pfx-lower { display: grid; grid-template-columns: calc(var(--zmm) * 7) minmax(0, 1fr) calc(var(--zmm) * 7); align-items: center; gap: calc(var(--zmm) * 1.2); padding-top: calc(var(--zmm) * 2.6); }
+  .pfx-lcd { display: grid; grid-template-rows: repeat(4, calc(var(--zmm) * 10)); grid-auto-flow: column; grid-auto-columns: calc(var(--zmm) * 36); overflow-x: auto; overflow-y: hidden;
+    scroll-behavior: smooth; scroll-snap-type: x proximity; touch-action: pan-x; scrollbar-width: none; padding: calc(var(--zmm) * .8) 0; border-radius: 4px; background: #07090a; border: 1px solid #000;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.06); }
+  .pfx-lcd::-webkit-scrollbar { display: none; }
+  .pfx-row { all: unset; box-sizing: border-box; display: flex; justify-content: space-between; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; scroll-snap-align: start;
+    border-right: 1px solid #141a1c; padding: 0 calc(var(--zmm) * 2.2); font: 500 calc(var(--zmm) * 3.4) ui-monospace, "Roboto Mono", monospace; color: #dfe7ea; cursor: pointer; }
+  .pfx-row span { font-size: .62em; color: #7d8a8f; }
+  .pfx-row.cur { background: #dfe7ea; color: #07090a; } .pfx-row.cur span { color: #3a4448; }
+  .pfx-none { grid-row: 1 / -1; color: #7d8a8f; font: 500 calc(var(--zmm) * 3) system-ui; padding: calc(var(--zmm) * 2); white-space: normal; }
+  .pfx-arr { all: unset; display: flex; flex-direction: column; align-items: center; gap: calc(var(--zmm) * .8); color: #3a3c40; cursor: pointer; }
+  .pfx-arr svg { width: calc(var(--zmm) * 3.6); height: calc(var(--zmm) * 5.6); }
+  .pfx-arr small { font-size: calc(var(--zmm) * 1.8); letter-spacing: .1em; font-weight: 700; color: #5a5a5a; }
+  .pfx-arr.more { color: #ffc23d; filter: drop-shadow(0 0 4px rgba(255,194,61,.45)); } .pfx-arr.more small { color: #b88e2e; }
+  .pfx-dots { grid-column: 2; display: flex; justify-content: center; gap: calc(var(--zmm) * 1); margin-top: calc(var(--zmm) * 1.4); }
+  .pfx-dots i { width: calc(var(--zmm) * 4.4); height: calc(var(--zmm) * .8); background: #2a2c30; }
+  .pfx-dots i.on { background: #ffc23d; box-shadow: 0 0 6px rgba(255,194,61,.5); }
+  /* the belt and its U */
+  .pfx-beltwrap { --cell: calc(var(--zmm) * 15); margin-top: calc(var(--zmm) * 2.6); }
+  .pfx-house { position: relative; height: calc(var(--zmm) * 10); border: 3px solid #050505; border-radius: 4px; overflow: hidden; background: #0c0c0d;
+    box-shadow: inset 0 2px 5px rgba(0,0,0,.85), 0 1px 0 rgba(255,255,255,.06); }
+  .pfx-house::before { content: ""; position: absolute; inset: 0; z-index: 2; pointer-events: none; box-shadow: inset 0 3px 0 #2a2c30, inset 0 -3px 0 #2a2c30;
+    background: linear-gradient(90deg, #050505, rgba(5,5,5,0) 9%, rgba(5,5,5,0) 91%, #050505); }
+  .pfx-belt { position: absolute; top: 0; bottom: 0; left: 50%; display: flex; transition: transform .38s cubic-bezier(.25,.8,.3,1); will-change: transform; }
+  .pfx-belt b { flex: none; width: var(--cell); display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer;
+    font: 700 calc(var(--zmm) * 3.6) system-ui, sans-serif; color: #d8d8d8; background: linear-gradient(#1f2023, #1a1b1e); }
+  .pfx-belt b::after { content: ""; position: absolute; right: 0; top: 14%; bottom: 14%; width: 3px; background: linear-gradient(90deg, #070708 0 1.5px, #33363a 1.5px); }
+  .pfx-belt b.on { color: #ffc23d; text-shadow: 0 0 8px rgba(255,194,61,.45); }
+  .pfx-belt b small { font-size: .5em; color: #8a8a8a; margin-left: .15em; }
+  .pfx-tray { position: relative; height: calc(var(--zmm) * 3.6); }
+  .pfx-tray i { position: absolute; left: 50%; top: calc(var(--zmm) * .4); width: calc(var(--cell) - var(--zmm) * 1.2); margin-left: calc((var(--cell) - var(--zmm) * 1.2) / -2);
+    height: calc(var(--zmm) * 2.2); border: 2px solid #ffc23d; border-top: 0; box-shadow: 0 2px 6px rgba(255,194,61,.35); }
+  .pfx-tray span { position: absolute; left: 0; top: calc(var(--zmm) * .7); font-size: calc(var(--zmm) * 1.8); letter-spacing: .12em; font-weight: 700; color: #7a7a7a; }
+  /* the knobs and keys */
+  .pfx-foot { display: flex; align-items: center; gap: calc(var(--zmm) * 2); margin-top: calc(var(--zmm) * 1.6); }
+  .pfx-foot .knob { --knob: calc(var(--zmm) * 17); width: calc(var(--zmm) * 21); flex: none; }
+  .pfx-foot .knob span { font-size: calc(var(--zmm) * 2.3); letter-spacing: .06em; font-weight: 700; white-space: nowrap; }
+  .pfx-foot .pfx-sp { flex: 1; }
+  .pfx-foot .zk { padding: 0 calc(var(--zmm) * 2.4); }
   .padopts button small { display: block; font-size: calc(var(--mm) * 1.4); opacity: .8; margin-top: calc(var(--mm) * .3); }
   .padopts .clear { color: var(--err); }
   .cuecols { display: grid; grid-template-columns: repeat(8, 1fr); gap: calc(var(--mm) * .6); height: auto !important; }
@@ -315,6 +377,10 @@
   #app.stacked:is(.panel-d, .panel-b1, .panel-b2) #beatstrip { display: block; grid-area: bs; background: #050607; border-left: 1px solid #222; border-right: 1px solid #222; }
   #app.stacked:is(.panel-d, .panel-b1, .panel-b2) :is(#ovw0, #ovw1) { display: block; }
   #app.stacked.panel-d #ovw0 { grid-area: o0; background: #07080a; } #app.stacked.panel-d #ovw1 { grid-area: o1; background: #07080a; }
+  /* its hot cues' tabs reach 1.8 mm into the nudge bar beside it (only drawn there: the bar works as ever) */
+  #app.stacked.panel-d #ovw0 canvas { top: calc(var(--mm) * -1.8); height: calc(100% + var(--mm) * 1.8); }
+  #app.stacked.panel-d #ovw1 canvas { height: calc(100% + var(--mm) * 1.8); }
+  #app.stacked.panel-d :is(#ovw0, #ovw1) { z-index: 3; }
   /* b1: over the nudge bar, added to it (screen: it only lights, never dims the words) */
   #app.stacked.panel-b1 #ovw0 { grid-area: n0; z-index: 2; mix-blend-mode: screen; opacity: .5; }
   #app.stacked.panel-b1 #ovw1 { grid-area: n1; z-index: 2; mix-blend-mode: screen; opacity: .5; }
@@ -1107,7 +1173,7 @@ function samplerPress(d, i, down, el) {
 }
 // A loaded pad's options, next to it: its mode, following the master tempo, clearing it.
 function padOptions(i, anchor) {
-  document.querySelector(".padopts")?.remove(); document.querySelector(".padveil")?.remove();
+  document.querySelectorAll(".padopts, .pfxhw").forEach(e => e.remove()); document.querySelector(".padveil")?.remove();
   const veil = h("div", "padveil"), box = h("div", "padopts"), g = `[Sampler${i + 1}]`;
   const close = () => { box.remove(); veil.remove(); };
   veil.addEventListener("pointerdown", e => { e.stopPropagation(); close(); });
@@ -2809,40 +2875,77 @@ function paintPanel(now) {
   drawBeatStrip();
   [0, 1].forEach(drawOverview);
 }
+// A track's hits, as Serato's beat-matching display shows them: where the level jumps (the low band most, the
+// whole a little), each jump's strength against the track's strong ones, kept only at its peak (no other within
+// 40 ms is stronger). [{t, v}] by time, worked out once per analysis.
+function hitsOf(wf) {
+  if (wf._hits) return wf._hits;
+  const a = wf.data, st = wf.stride || 4, n = wf.n, rate = wf.rate;
+  const e = new Float32Array(n);
+  for (let i = 0; i < n; i++) e[i] = a[i * st + 1] + .35 * a[i * st];   // low band, and some of the whole
+  const back = Math.max(2, Math.round(rate * .03)), near = Math.max(1, Math.round(rate * .04));
+  const o = new Float32Array(n);
+  let sum = 0;
+  for (let i = 0; i < n; i++) {   // the rise over the last 30 ms' average
+    const avg = i >= back ? sum / back : sum / Math.max(1, i);
+    o[i] = Math.max(0, e[i] - avg);
+    sum += e[i]; if (i >= back) sum -= e[i - back];
+  }
+  const sorted = Float32Array.from(o).sort(), ref = sorted[Math.floor(n * .985)] || 1;   // a strong hit's rise
+  const hits = [];
+  for (let i = 0; i < n; i++) {
+    const v = o[i] / ref;
+    if (v < .18) continue;
+    let peak = true;
+    for (let j = Math.max(0, i - near); j <= Math.min(n - 1, i + near) && peak; j++) if (o[j] > o[i] || (o[j] === o[i] && j < i)) peak = false;
+    if (peak) hits.push({ t: i / rate, v: Math.min(1, Math.sqrt(v)) });   // (the square root: the softer ones still show)
+  }
+  return (wf._hits = hits);
+}
 function drawBeatStrip() {
   const p = panelCanvas("beatstrip");
   if (!p) return;
-  const { g, W, H, dpr } = p, N = S.beatStrip || 32, pxB = W / N, rh = H / 2;
+  const { g, W, H, dpr } = p, N = S.beatStrip || 32, pxB = W / N, rh = H / 2, mid = Math.round(rh);
   g.clearRect(0, 0, W, H);
   [0, 1].forEach(s => {
     const d = shownOn(s, deckOf(s)), y0 = s * rh, cb = d.dur > 0 ? beatPos(d, d.pos) : null;
     if (cb == null) return;
-    // its beats: a line each (every bar brighter, every 16 beats the lamp's colour), from the row's outer edge
+    const xOf = t => W / 2 + (beatPos(d, t) - cb) * pxB, tFrom = beatTime(d, cb - N / 2 - 1), tTo = beatTime(d, cb + N / 2 + 1);
+    // its song sections: the row tinted by the one it's in, a line and the letter where one starts
+    (d.sections || []).forEach(sc => {
+      if (sc.e < tFrom || sc.s > tTo) return;
+      const col = SECTION_COLORS[sc.label] || "#888", x0 = Math.max(0, xOf(sc.s)), x1 = Math.min(W, xOf(sc.e));
+      g.globalAlpha = .16; g.fillStyle = col; g.fillRect(x0, y0, x1 - x0, rh); g.globalAlpha = 1;
+      if (sc.s >= tFrom) {
+        const x = Math.round(xOf(sc.s));
+        g.fillStyle = col; g.fillRect(x, y0, Math.max(1, Math.round(dpr)), rh);
+        g.font = `700 ${Math.round(rh * .34)}px system-ui, sans-serif`; g.textBaseline = s ? "bottom" : "top";
+        g.fillText(sc.letter || sc.label?.[0] || "", x + 3 * dpr, s ? y0 + rh - 2 * dpr : y0 + 2 * dpr);
+      }
+    });
+    // its beats: a short tick at the row's outer edge, every bar longer, every 16 beats the lamp's colour
     for (let k = Math.ceil(cb - N / 2); k <= cb + N / 2; k++) {
       const x = Math.round(W / 2 + (k - cb) * pxB), n = (((k + (d.bar || 0)) % 16) + 16) % 16;
-      g.fillStyle = n === 0 ? "rgba(255,194,61,.8)" : n % 4 === 0 ? "rgba(255,255,255,.42)" : "rgba(255,255,255,.14)";
-      const th = n % 4 === 0 ? rh : rh * .4;
+      g.fillStyle = n === 0 ? "rgba(255,194,61,.85)" : n % 4 === 0 ? "rgba(255,255,255,.45)" : "rgba(255,255,255,.18)";
+      const th = rh * (n % 4 === 0 ? .5 : .25);
       g.fillRect(x, s ? y0 + rh - th : y0, Math.max(1, Math.round(dpr)), th);
     }
-    // its hits: the low band's peaks only (a column well under the track's loudest kick draws nothing)
-    const wf = d.wf;
-    if (!wf) return;
-    const a = wf.data, st = wf.stride || 4;
-    if (wf._lowMax === undefined) { let m = 1; for (let i = 0; i < wf.n; i++) if (a[i * st + 1] > m) m = a[i * st + 1]; wf._lowMax = m; }
+    // its hits: a sharp spike each, the same shape at any zoom, from the middle line out (deck 1 up, deck 2 down),
+    // so two decks in time make one line straight through the middle
+    if (!d.wf) return;
+    const hits = hitsOf(d.wf), half = Math.max(1.5, 1.6 * dpr);
+    let lo = 0, hi = hits.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (hits[m].t < tFrom) lo = m + 1; else hi = m; }
     g.fillStyle = PANEL_INK[s];
-    for (let x = 0; x < W; x++) {
-      const k = cb + (x - W / 2) / pxB, t0 = beatTime(d, k), t1 = beatTime(d, k + 1 / pxB);
-      const i0 = Math.floor(t0 * wf.rate), i1 = Math.max(i0 + 1, Math.floor(t1 * wf.rate));
-      if (i1 <= 0 || i0 >= wf.n) continue;
-      let lo = 0;
-      for (let i = Math.max(0, i0); i < Math.min(wf.n, i1); i++) if (a[i * st + 1] > lo) lo = a[i * st + 1];
-      const v = (lo / wf._lowMax - .45) / .55;
-      if (v <= 0) continue;
-      const hh = Math.min(1, v) * rh * .44;
-      g.fillRect(x, y0 + rh / 2 - hh, 1, hh * 2);
+    for (let i = lo; i < hits.length && hits[i].t <= tTo; i++) {
+      const x = xOf(hits[i].t), len = hits[i].v * (rh - 2 * dpr);
+      g.beginPath();
+      if (s === 0) { g.moveTo(x - half, mid); g.lineTo(x, mid - len); g.lineTo(x + half, mid); }
+      else { g.moveTo(x - half, mid); g.lineTo(x, mid + len); g.lineTo(x + half, mid); }
+      g.fill();
     }
   });
-  g.fillStyle = "rgba(255,255,255,.1)"; g.fillRect(0, Math.round(rh), W, 1);
+  g.fillStyle = "rgba(255,255,255,.22)"; g.fillRect(0, mid, W, 1);
   g.fillStyle = "#fff"; g.fillRect(Math.round(W / 2 - dpr), 0, Math.max(2, Math.round(2 * dpr)), H);
 }
 // A deck's whole track, its waveform as the strip colours it (the analysis's bands), the song's sections as a band
@@ -2874,22 +2977,33 @@ function overviewImage(d, W, H) {
 function drawOverview(s) {
   const p = panelCanvas("ovw" + s);
   if (!p) return;
-  const { g, W, H, dpr } = p, d = shownOn(s, deckOf(s));
+  const { cv, g, W, H, dpr } = p, d = shownOn(s, deckOf(s));
   g.clearRect(0, 0, W, H);
   if (!(d.dur > 0)) return;
-  const key = `${d.n}|${d.wfVer || 0}|${d.strVer || 0}|${d.dur}|${W}x${H}`;
-  if (panelState.ov[s]?.key !== key) panelState.ov[s] = { key, img: overviewImage(d, W, H) };
-  g.drawImage(panelState.ov[s].img, 0, 0);
+  // the overview's own row in the canvas; the rest (back to back: 1.8 mm of the nudge bar beside it) is for the
+  // hot cues' tabs only
+  const row = cachedRect(cv.parentElement), cr = cachedRect(cv);
+  const top = Math.max(0, Math.round((row.top - cr.top) * dpr)), rowH = Math.min(H - top, Math.round(row.height * dpr)), tab = H - rowH;
+  const key = `${d.n}|${d.wfVer || 0}|${d.strVer || 0}|${d.dur}|${W}x${rowH}`;
+  if (panelState.ov[s]?.key !== key) panelState.ov[s] = { key, img: overviewImage(d, W, rowH) };
+  g.drawImage(panelState.ov[s].img, 0, top);
   const px = clamp(d.pos / d.dur, 0, 1) * W;
-  g.fillStyle = "rgba(0,0,0,.6)"; g.fillRect(0, 0, px, H);   // played
-  (d.cues || []).forEach((c, k) => {   // its hot cues, in their colours
+  g.fillStyle = "rgba(0,0,0,.6)"; g.fillRect(0, top, px, rowH);   // played
+  (d.cues || []).forEach((c, k) => {   // its hot cues, in their colours: a line, and its number on a tab beside the row
     if (!c) return;
     const t = live ? cueSec(d, d.cuePos?.[k]) : c.pos;
     if (t == null) return;
-    g.fillStyle = `#${(c.c & 0xffffff).toString(16).padStart(6, "0")}`;
-    g.fillRect(Math.round(t / d.dur * W), 0, Math.max(2, Math.round(2 * dpr)), H);
+    const x = Math.round(t / d.dur * W), col = `#${(c.c & 0xffffff).toString(16).padStart(6, "0")}`;
+    g.fillStyle = col; g.fillRect(x, top, Math.max(2, Math.round(2 * dpr)), rowH);
+    if (tab >= 4) {
+      const tw = Math.max(tab * 1.1, 8 * dpr), ty = top > 0 ? 0 : top + rowH;
+      g.fillRect(x, ty, tw, tab);
+      g.fillStyle = "#111"; g.font = `800 ${Math.round(tab * .82)}px system-ui, sans-serif`; g.textBaseline = "middle"; g.textAlign = "center";
+      g.fillText(String(k + 1), x + tw / 2, ty + tab / 2 + dpr * .5);
+      g.textAlign = "start";
+    }
   });
-  g.fillStyle = "#fff"; g.fillRect(Math.round(px - dpr), 0, Math.max(2, Math.round(2 * dpr)), H);
+  g.fillStyle = "#fff"; g.fillRect(Math.round(px - dpr), top, Math.max(2, Math.round(2 * dpr)), rowH);
 }
 
 // =====================================================================================================
@@ -3644,7 +3758,7 @@ let pfxMenuCat = "BEAT FX";   // (the menu's list last shown)
 // A hot cue's menu (SHIFT + its pad), as Mixxx's own cue menu: its colour (Mixxx's hot cue palette), its name, move
 // it to where the deck is, delete it
 function cueMenu(d, k, anchor) {
-  document.querySelector(".padopts")?.remove(); document.querySelector(".padveil")?.remove();
+  document.querySelectorAll(".padopts, .pfxhw").forEach(e => e.remove()); document.querySelector(".padveil")?.remove();
   const veil = h("div", "padveil"), box = h("div", "padopts cueopts");
   const close = () => { box.remove(); veil.remove(); paintAll(); };
   veil.addEventListener("pointerdown", e => { e.stopPropagation(); close(); });
@@ -3681,15 +3795,22 @@ function cueMenu(d, k, anchor) {
     const move = h("button", "", "MOVE HERE<small>where the deck is</small>");
     bindPress(move, down => {
       if (!down) return;
+      if (!d.cues[k]) return close();   // (gone meanwhile: a new track, or deleted elsewhere)
       const at = d.quantize ? nearestBeat(d, d.pos) : d.pos;
       if (!live) d.cues[k] = { ...c, pos: at };
-      else if (at != null && d.trackSamples > 0 && d.dur > 0) setCtl(group, `hotcue_${k + 1}_position`, Math.round(at / d.dur * d.trackSamples / 2) * 2);
+      else if (at != null && d.trackSamples > 0 && d.dur > 0) {
+        const toSamples = sec => Math.round(sec / d.dur * d.trackSamples / 2) * 2, lp = cueLoop(d, k);
+        setCtl(group, `hotcue_${k + 1}_position`, toSamples(at));
+        if (lp) setCtl(group, `hotcue_${k + 1}_endposition`, toSamples(at + (lp.end - lp.t)));   // a saved loop keeps its length
+      }
       close();
     });
     const del = h("button", "clear", "DELETE");
     bindPress(del, down => {
       if (!down) return;
-      if (live) { send("pad", d.n, 8 + k, true); send("pad", d.n, 8 + k, false); }
+      if (!d.cues[k]) return close();
+      // Mixxx's own control (not the mapping's SHIFT + pad, which another mapping may use for something else)
+      if (live) { setCtl(group, `hotcue_${k + 1}_clear`, 1); setCtl(group, `hotcue_${k + 1}_clear`, 0); }
       else d.cues[k] = null;
       close();
     });
@@ -3702,74 +3823,116 @@ function cueMenu(d, k, anchor) {
   box.style.top = `${clamp(r.top - bh - 8, 8, innerHeight - bh - 8)}px`;
 }
 
+// A PAD FX pad's menu (SHIFT + the pad here, or on the controller this device mirrors), in the Hardware look, as
+// the Beat FX menu: the categories as a binder's index tabs (BEAT, COLOR, SCENE, RELEASE FX, Mixxx's own), a groove,
+// the effects on a display four rows deep that scrolls sideways (the arrows beside it light where there's more),
+// then its length on a belt (a tap rolls that length into the U under the belt's middle), LEVEL/DEPTH and
+// INTENSITY, and APPLY TO PAD (the deck's FX unit's effect, as it is), NAME and DEFAULT.
 function pfxMenu(d, id, anchor) {
-  document.querySelector(".padopts")?.remove(); document.querySelector(".padveil")?.remove();
-  const veil = h("div", "padveil"), box = h("div", "padopts pfxopts");
+  document.querySelectorAll(".padopts, .pfxhw").forEach(e => e.remove()); document.querySelector(".padveil")?.remove();
+  const veil = h("div", "padveil"), box = h("div", "pfxhw zm hw");
+  box.style.setProperty("--zmm", `calc(var(--mm) * .55)`);
   const close = () => { box.remove(); veil.remove(); paintAll(); };
   veil.addEventListener("pointerdown", e => { e.stopPropagation(); close(); });
+  const pad = (id & 7) + 1, esc = t => String(t).replace(/</g, "&lt;");
+  const key = (cls, html) => h("button", "zk " + cls, html);
+  let listScroll = 0;   // (kept as the menu draws again: a pick doesn't send the list back to its start)
   const render = () => {
-    const p = pfxPad(id);
+    const p = pfxPad(id), oldList = box.querySelector(".pfx-lcd");
+    if (oldList) listScroll = oldList.scrollLeft;
     box.innerHTML = "";
-    box.append(h("div", "t", `PAD FX ${(id >> 3) + 1} · pad ${(id & 7) + 1}<small>${pfxName(p.fx)}${p.beats ? " " + beatText(p.beats) : ""}</small>`));
-    // its effect: a menu of two levels (as a DJ mixer's): BEAT, COLOR, SCENE, RELEASE FX (Mixxx ZyDeck's presets of
-    // its effects), and Mixxx's own effects as they come
+    // ---- header
+    const hd = h("div", "pfx-hd", `<span class="pfx-ttl">PAD FX ${(id >> 3) + 1} · PAD ${pad}<em>${esc(pfxName(p.fx))}${p.beats ? " " + beatText(p.beats) : ""}</em></span>`);
+    const x = key("close", `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`);
+    bindPress(x, down => { if (down) close(); });
+    hd.append(x); box.append(hd);
+    // ---- the categories: index tabs, the open one raised with its lamp lit
     const cats = (pfxRemote?.menu?.length ? ["BEAT FX", "COLOR FX", "SCENE FX", "RELEASE FX"] : []).concat("MIXXX FX");
     pfxMenuCat = cats.includes(pfxMenuCat) ? pfxMenuCat : cats[0];
-    const tabs = h("div", "pfxcats full");
+    const tabs = h("div", "pfx-tabs");
     for (const c of cats) {
-      const b = h("button", c === pfxMenuCat ? "on" : "", c.replace(" FX", "<small>FX</small>"));
-      bindPress(b, down => { if (down) { pfxMenuCat = c; render(); } });
-      tabs.append(b);
+      const t = h("div", "pfx-tab" + (c === pfxMenuCat ? " on" : ""), `${c === pfxMenuCat ? '<i class="lamp"></i>' : ""}${c.replace(" FX", "")}<small>FX</small>`);
+      bindPress(t, down => { if (down && c !== pfxMenuCat) { pfxMenuCat = c; listScroll = 0; render(); } });
+      tabs.append(t);
     }
-    box.append(tabs);
-    const list = h("div", "pfxlist full");
+    box.append(tabs, h("div", "pfx-groove"));
+    // ---- the display: four rows a column, scrolled sideways; arrows in the margin
+    const items = [];
     if (pfxMenuCat === "MIXXX FX") {
-      const names = pfxRemote ? Object.keys(pfxRemote.ids) : fxNames;
-      if (!names.length) list.append(h("div", "pfxnone", fxNone()));
-      for (const name of names) {
-        const b = h("button", name === p.fx && !p.name ? "on" : "", pfxName(name));
-        bindPress(b, down => { if (down) { pfxSet(id, { fx: name, meta: -1, name: "", release: false }); render(); } });
-        list.append(b);
-      }
-      if (!pfxRemote) list.append(h("div", "pfxnone", "BEAT, COLOR, SCENE and RELEASE FX: this Mixxx hasn't PAD FX's presets (update ZyDeck)"));
+      for (const name of pfxRemote ? Object.keys(pfxRemote.ids) : fxNames)
+        items.push({ label: pfxName(name), on: name === p.fx && !p.name, pick: () => pfxSet(id, { fx: name, meta: -1, name: "", release: false }) });
     } else {
-      for (const e of pfxRemote.menu.filter(e => e.category === pfxMenuCat)) {
-        const b = h("button", (p.name || "") === (e.raw.name || "") && p.raw?.effect === e.raw.effect ? "on" : "", e.name);
-        bindPress(b, down => { if (down) { pfxPick(id, e.raw); render(); } });
-        list.append(b);
-      }
+      for (const e of pfxRemote.menu.filter(e => e.category === pfxMenuCat))
+        items.push({ label: e.name, on: (p.name || "") === (e.raw.name || "") && p.raw?.effect === e.raw.effect, pick: () => pfxPick(id, e.raw) });
     }
-    box.append(list);
-    if (p.release) {   // (a RELEASE FX pad: held, or on and off by presses)
-      const hold = h("button", `full ${p.hold ? "on" : ""}`, `HOLD ${p.hold ? "ON" : "OFF"}<small>${p.hold ? "on while held" : "a press on, the next off"}</small>`);
-      bindPress(hold, down => { if (down) { pfxSet(id, { hold: !p.hold }); render(); } });
-      box.append(hold);
-    }
-    // its beat length (where its effect has one)
+    const lower = h("div", "pfx-lower"), lcd = h("div", "pfx-lcd");
+    const arrow = (dir) => h("button", "pfx-arr", `<svg viewBox="0 0 12 20" aria-hidden="true"><path d="${dir < 0 ? "M10 2L2 10l8 8" : "M2 2l8 8-8 8"}" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square"/></svg><small>MORE</small>`);
+    const left = arrow(-1), right = arrow(1), dots = h("div", "pfx-dots");
+    if (!items.length) lcd.append(h("div", "pfx-none", pfxMenuCat === "MIXXX FX" ? fxNone() : "None"));
+    items.forEach(it => {
+      const row = h("button", "pfx-row" + (it.on ? " cur" : ""), `${esc(it.label)}${it.on ? "<span>on pad</span>" : ""}`);
+      bindPress(row, down => { if (down) { it.pick(); render(); } });
+      lcd.append(row);
+    });
+    const paintArrows = () => {
+      const max = lcd.scrollWidth - lcd.clientWidth, pages = Math.max(1, Math.ceil(lcd.scrollWidth / Math.max(1, lcd.clientWidth) - .05));
+      left.classList.toggle("more", lcd.scrollLeft > 2); right.classList.toggle("more", lcd.scrollLeft < max - 2);
+      const at = max > 0 ? Math.round(lcd.scrollLeft / max * (pages - 1)) : 0;
+      if (dots.childElementCount !== pages) dots.replaceChildren(...Array.from({ length: pages }, () => h("i")));
+      [...dots.children].forEach((dt, i) => dt.classList.toggle("on", i === at));
+    };
+    lcd.addEventListener("scroll", paintArrows, { passive: true });
+    const page = dir => {   // by whole columns: as many as show, none left half cut off
+      const col = lcd.firstElementChild?.getBoundingClientRect().width || lcd.clientWidth;
+      const n = Math.max(1, Math.floor(lcd.clientWidth / col)), to = Math.round(lcd.scrollLeft / col + dir * n) * col;
+      lcd.scrollTo({ left: Math.max(0, to), behavior: "smooth" });
+    };
+    bindPress(left, down => { if (down) page(-1); }); bindPress(right, down => { if (down) page(1); });
+    lower.append(left, lcd, right, dots);
+    box.append(lower);
+    requestAnimationFrame(() => { lcd.scrollLeft = listScroll; paintArrows(); });
+    // ---- its length: the belt, the pad's in the U under its middle (lengths the effect can't take: left out)
     const k = fxBeatKnobs[fxNames.indexOf(p.fx)];
-    const beats = h("div", "pfxbeats full");
-    for (const b of PFX_BEATS) {
-      if (k && (b < k.min - 1e-9 || b > k.max + 1e-9)) continue;
-      const bt = h("button", Math.abs(b - p.beats) < 1e-6 ? "on" : "", beatText(b));
-      bindPress(bt, down => { if (down) { pfxSet(id, { beats: b }); render(); } });
-      beats.append(bt);
-    }
-    const none = h("button", p.beats ? "" : "on", "—");
-    bindPress(none, down => { if (down) { pfxSet(id, { beats: 0 }); render(); } });
-    beats.append(none);
-    box.append(beats);
+    const lengths = PFX_BEATS.filter(b => !k || (b >= k.min - 1e-9 && b <= k.max + 1e-9)).concat(0);
+    const beltWrap = h("div", "pfx-beltwrap"), house = h("div", "pfx-house"), belt = h("div", "pfx-belt");
+    let cur = lengths.findIndex(b => (b ? Math.abs(b - p.beats) < 1e-6 : !p.beats));
+    if (cur < 0) cur = lengths.length - 1;
+    lengths.forEach((b, i) => {
+      const cell = h("b", i === cur ? "on" : "", b ? beatText(b) : "—<small>none</small>");
+      bindPress(cell, down => {
+        if (!down) return;
+        roll(i);
+        pfxSet(id, { beats: b });
+        setTimeout(render, 380);   // (once it has rolled there)
+      });
+      belt.append(cell);
+    });
+    const roll = i => {
+      const w = belt.firstChild?.getBoundingClientRect().width || 0;
+      belt.style.transform = `translateX(${-(i + .5) * w}px)`;
+      [...belt.children].forEach((c, j) => c.classList.toggle("on", j === i));
+    };
+    house.append(belt);
+    beltWrap.append(house, h("div", "pfx-tray", `<span>BEATS</span><i></i>`));
+    box.append(beltWrap);
+    requestAnimationFrame(() => { belt.style.transition = "none"; roll(cur); void belt.offsetWidth; belt.style.transition = ""; });
+    // ---- LEVEL/DEPTH, INTENSITY; APPLY TO PAD, NAME, DEFAULT (and HOLD for a RELEASE FX pad)
+    const foot = h("div", "pfx-foot");
     const level = knob("LEVEL/DEPTH", () => pfxPad(id).level, v => { pfxSet(id, { level: Math.round(v * 1000) / 1000 }); pfxLive(id, "level", v); }, null);
     const meta = knob("INTENSITY", () => pfxMetaOf(pfxPad(id)), v => { pfxSet(id, { meta: Math.round(v * 1000) / 1000 }); pfxLive(id, "meta", v); }, null);
-    level.classList.add("wide2pfx"); meta.classList.add("wide2pfx");
-    box.append(level, meta);
-    // what the deck's own FX unit has (its first effect), as it is
-    const take = h("button", "", `TAKE FX ${fxUnitOf(d)}<small>as it is</small>`);
+    foot.append(level, meta, h("span", "pfx-sp"));
+    if (p.release) {   // (a RELEASE FX pad: held, or on and off by presses)
+      const hold = key("s" + (p.hold ? " on" : ""), `<i class="zs" aria-hidden="true"></i>HOLD`);
+      bindPress(hold, down => { if (down) { pfxSet(id, { hold: !p.hold }); render(); } });
+      foot.append(hold);
+    }
+    const take = key("", `APPLY TO PAD ${pad}<small>FX ${fxUnitOf(d)} as it is</small>`);
     bindPress(take, down => {
       if (!down) return;
       const u = fxUnitOf(d), f = fxState[u - 1];
       if (pfxRemote) {
         fetch(pfxApi("/edit", `pad=${id + 1}&from=${u},1`)).then(() => setTimeout(pfxLoad, 600)).catch(() => {});
-        toast(`Pad ${(id & 7) + 1}: FX ${u}'s effect, as it is`);
+        toast(`Pad ${pad}: FX ${u}'s effect, as it is`);
       } else {
         const name = fxNames[f.loaded[0] - 1];
         if (!name) { toast(`FX ${u} has no effect in its first slot`); return; }
@@ -3777,21 +3940,21 @@ function pfxMenu(d, id, anchor) {
       }
       close();
     });
-    const reset = h("button", "clear", "DEFAULT");
+    const rename = key("", "✎ NAME");
+    bindPress(rename, down => {
+      if (!down) return;
+      close();
+      askText(`Name for PAD FX pad ${pad}`, pfxPad(id).name || "", name => pfxSet(id, { name: name.trim() }));
+    });
+    const reset = key("red", "DEFAULT");
     bindPress(reset, down => {
       if (!down) return;
       if (pfxRemote) fetch(pfxApi("/edit", `pad=${id + 1}&reset=1`)).then(() => setTimeout(pfxLoad, 600)).catch(() => {});
       else { const all = [...(S.pfxPads || [])]; all[id] = null; S.pfxPads = all; saveSettings(); }
       close();
     });
-    const rename = h("button", "", "✎ NAME");
-    bindPress(rename, down => {
-      if (!down) return;
-      close();
-      askText(`Name for PAD FX pad ${(id & 7) + 1}`, pfxPad(id).name || "", name => pfxSet(id, { name: name.trim() }));
-    });
-    box.append(take, rename, reset);
-    if (pfxRemote) box.append(h("div", "pfxnote full", "Each of its parameters: in Mixxx, SHIFT + the pad (or right-click it)"));
+    foot.append(take, rename, reset);
+    box.append(foot);
   };
   render();
   document.body.append(veil, box);
