@@ -369,7 +369,10 @@
      own; "b1" the overviews behind the nudge bars' words; "b2" faintly over the platter strips; "classic" as before.
      The nudge bars stay as they are in all of them. ---- */
   #beatstrip, #ovw0, #ovw1 { display: none; min-width: 0; min-height: 0; position: relative; pointer-events: none; }
-  #beatstrip canvas, #ovw0 canvas, #ovw1 canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #beatstrip canvas, #ovw0 canvas, #ovw1 canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  /* they scratch too (each deck's half of the panel is its platter, as tall as the strip was): the beat strip, and the
+     overviews' own rows (back to back); the cue tabs reaching into the nudge bars don't take touches */
+  #app.stacked:is(.panel-d, .panel-b1, .panel-b2) #beatstrip, #app.stacked.panel-d :is(#ovw0, #ovw1) { pointer-events: auto; touch-action: none; }
   #app.stacked.panel-d #stack { grid-template-rows: calc(var(--mm) * 7) calc(var(--mm) * 3.5) calc(var(--mm) * 13.5) calc(var(--mm) * 8)
     calc(var(--mm) * 13.5) calc(var(--mm) * 3.5) calc(var(--mm) * 7);
     grid-template-areas: "sl n0 sr" "sl o0 sr" "sl s0 sr" "sl bs sr" "sl s1 sr" "sl o1 sr" "sl n1 sr"; }
@@ -1376,7 +1379,7 @@ function buildStrip(s, u) {
   drag(u.strip, {
     // Grab like vinyl: touching holds the record and the waveform under the finger follows it 1:1
     // (the waveform rolls past a fixed cursor, so moving the finger left plays forward).
-    down: e => { const d = deckOf(s); d.grabbed = true; d.coast = false; d.vel = 0; d.easeMs = 0; d.slipStep = undefined; d.spin = 0; u.strip.classList.add("held"); send("scratchOn", d.n);
+    down: e => { const d = deckOf(s); d.grabbed = true; d.coast = false; d.settle = false; d.vel = 0; d.easeMs = 0; d.slipStep = undefined; d.spin = 0; u.strip.classList.add("held"); send("scratchOn", d.n);
       // held, Mixxx stops, and says nothing more until the track moves again: the model of where it is stops here too
       // (left alone it ran on a quarter of a second past the last report, and the waveform rushed after it on release)
       posSeed(d, d.pos, 0, performance.now());
@@ -1405,28 +1408,26 @@ function buildStrip(s, u) {
       // Lifting off outside the strip lets go of the flick: the record eases from the finger's speed to the
       // platter's in a fixed 150 ms instead of slipping. A long, fast stroke (over half the strip, quicker than a strip a
       // second) running off its end is still a flick: off the side, only above or below it lets go.
-      const sr = u.strip.getBoundingClientRect(), k = st.stroke, span = Math.abs(e.clientX - k.x);
+      const sr = scratchRect(s, u), k = st.stroke, span = Math.abs(e.clientX - k.x);
       const flung = span > sr.width * .5 && span / Math.max(1, now - k.t) * 1000 > sr.width;
       if ((!flung && (e.clientX < sr.left || e.clientX > sr.right)) || e.clientY < sr.top || e.clientY > sr.bottom) d.easeMs = 150;
       latTrace(e.type === "pointercancel" ? "c" : "u", s, Math.round(d.vel * 100) / 100);
       d.spin = spinFor(d);
       d.coast = S.catchup > 0 || d.easeMs > 0 || d.spin > 0;
-      // Let go from where the cursor is: Mixxx's record stopped ~0.1 s past it (the cursor shows what you
-      // heard, and the record slides on a moment after the grab), and would play on from there, skipping it
-      // (with quantize on, Mixxx keeps a playing deck's beat phase through a seek, which put it right back:
-      // quantize is off for that moment)
+      // Let go from where the cursor is: Mixxx's record stopped ~0.1 s past it (the cursor shows what you heard, and
+      // the record slides on a moment after the grab), and would play on from there, skipping it. Put there only once
+      // its scratching is off (now, or when the record has stopped coasting: coastSettle), else what was left of the
+      // scratch carried it on past the hand's place and the drawing slid back to it a moment later (seen on the
+      // tablet, 2026-11-15: 30-60 ms back, ~0.4 s after letting go). A flick on a paused deck too: where it stopped.
       // On the computer's Mixxx (controller mode) it stays where it is: the sound is what counts, and moving it there
       // was a jump you'd hear (each scratch could leave it a few hundred ms from the hand, the time the grab took to
       // reach it); the drawing goes to it instead, below
-      if (live && !REMOTE.on && Math.abs(d.vel) < .2 && d.dur > 0) {
-        const q = d.quantize;
-        if (q) { markLocal(d, "quantize"); setCtl(ch(d.n), "quantize", 0); }
-        setCtl(ch(d.n), "playposition", clamp(d.pos, 0, d.dur) / d.dur);
-        if (q) setTimeout(() => { markLocal(d, "quantize"); setCtl(ch(d.n), "quantize", 1); }, 80);
-      }
+      const settle = live && !REMOTE.on && d.dur > 0 && (Math.abs(d.vel) < .2 || !d.playing);
       if (d.scr) latTrace("s", s, Math.round(((d.scr.slip ?? 0) - d.scr.sent) * 1000));   // (slip left, ms)
       d.scr = null;
       d.grabbed = false; u.strip.classList.remove("held"); send("scratchOff", d.n, +d.vel.toFixed(2));
+      d.settle = settle && d.coast;   // (coasting: once it has stopped, frame())
+      if (!d.coast && settle) seekTo(d, d.pos);
       if (!d.coast) {
         // Mixxx goes on from where the hand left it (put there just above): the model of where it is starts again from
         // there, at the deck's speed (the reports from while it slowed to a stop would run it on 250 ms ahead, and the
@@ -2349,6 +2350,14 @@ function bindPress(el, fn) {
 
 // Live: pads use the pad page's MIDI notes (Inpulse 300 MK2 layout, see Tablet-Pads.script.js).
 const PAD_MODE = { cue: 0, roll: 2, stem: 3, jump: 4, fx: 5 };
+// Mixxx's deck to t (seconds), exactly: quantize off for that moment (with it on, a playing deck keeps its beat phase
+// through a seek, which would put it right back)
+function seekTo(d, t) {
+  const q = d.quantize;
+  if (q) { markLocal(d, "quantize"); setCtl(ch(d.n), "quantize", 0); }
+  setCtl(ch(d.n), "playposition", clamp(t, 0, d.dur) / d.dur);
+  if (q) setTimeout(() => { markLocal(d, "quantize"); setCtl(ch(d.n), "quantize", 1); }, 80);
+}
 // The beat nearest t (seconds) in the deck's beat grid, or t itself without one
 function nearestBeat(d, t) {
   const b = d.beats;
@@ -2784,7 +2793,11 @@ function frame(now) {
         slip(d, target, dt);
         scratchBy(d, d.vel * dt);
         d.pos = clamp(d.pos + d.vel * dt, -PREROLL, d.dur);
-        if (d.vel === target) { d.coast = false; mxSend({ scratch: [d.n - 1, 0, 0] }); posSeed(d, d.pos, target, now); d.released = now; d.shown = d.pos; }
+        if (d.vel === target) {
+          d.coast = false; mxSend({ scratch: [d.n - 1, 0, 0] });
+          if (d.settle) { d.settle = false; seekTo(d, d.pos); }   // (its scratching off first: put where the drawing is)
+          posSeed(d, d.pos, target, now); d.released = now; d.shown = d.pos;
+        }
       } else if (d.pt !== undefined || d.vp) {
         d.pos = clamp(posAt(d, now), -PREROLL, d.dur);
       }
@@ -2860,6 +2873,28 @@ function frame(now) {
 // (functions, not consts: applySettings asks before this part of the page has run)
 function panelMode() { return S.layout === "stacked" && !PHONE ? S.panel || "d" : "classic"; }
 function mirrorOf(u) { return panelMode() === "d" && ui.sides ? (u === ui.sides[0] ? "up" : "down") : null; }
+// Each deck's half of the panel scratches its record: deck 1 its overview's row (back to back), its strip and the
+// beat strip's top half; deck 2 the bottom half, its strip and its overview. A touch there is its strip's.
+function scratchRect(s, u) {
+  const r = u.strip.getBoundingClientRect();
+  if (panelMode() === "classic") return r;
+  let top = r.top, bottom = r.bottom;
+  const bs = document.getElementById("beatstrip").getBoundingClientRect(), ov = document.getElementById("ovw" + s).getBoundingClientRect();
+  if (s === 0) { bottom = Math.max(bottom, bs.top + bs.height / 2); if (panelMode() === "d") top = Math.min(top, ov.top); }
+  else { top = Math.min(top, bs.top + bs.height / 2); if (panelMode() === "d") bottom = Math.max(bottom, ov.bottom); }
+  return { left: r.left, right: r.right, top, bottom, width: r.width, height: bottom - top };
+}
+(function panelTouch() {
+  const hand = (el, sideOf) => el.addEventListener("pointerdown", e => {
+    if (panelMode() === "classic" || e.zydekClaimed || isPalm(e)) return;
+    const u = ui.sides?.[sideOf(e)];
+    if (u?.strip?._drag) startDrag(u.strip, u.strip._drag, e);
+  });
+  const bs = document.getElementById("beatstrip");
+  hand(bs, e => { const r = bs.getBoundingClientRect(); return e.clientY < r.top + r.height / 2 ? 0 : 1; });
+  hand(document.getElementById("ovw0"), () => 0);
+  hand(document.getElementById("ovw1"), () => 1);
+})();
 const PANEL_INK = ["#ff8a1e", "#38b6ff"];   // the top strip's deck, the bottom one's
 // Where t is in the deck's beats, as a number (12.25: a quarter of the way into beat 12), from its grid, or its BPM
 function beatPos(d, t) {
