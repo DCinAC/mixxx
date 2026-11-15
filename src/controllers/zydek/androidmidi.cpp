@@ -276,7 +276,7 @@ QString jstr(JNIEnv* env, jstring s) {
     return out;
 }
 
-void JNICALL jniAdded(JNIEnv* env, jclass, jint id, jstring name, jstring vendor, jstring product, jint vid, jint pid,
+void JNICALL nativeAdded(JNIEnv* env, jclass, jint id, jstring name, jstring vendor, jstring product, jint vid, jint pid,
         jstring serial) {
     AndroidMidiController::Info info{jstr(env, name), jstr(env, vendor), jstr(env, product), jstr(env, serial), vid, pid};
     QMutexLocker lock(&s_enumeratorLock);
@@ -285,14 +285,14 @@ void JNICALL jniAdded(JNIEnv* env, jclass, jint id, jstring name, jstring vendor
     }
 }
 
-void JNICALL jniRemoved(JNIEnv*, jclass, jint id) {
+void JNICALL nativeRemoved(JNIEnv*, jclass, jint id) {
     QMutexLocker lock(&s_enumeratorLock);
     if (s_pEnumerator) {
         s_pEnumerator->jniRemoved(id);
     }
 }
 
-void JNICALL jniReceive(JNIEnv* env, jclass, jint id, jbyteArray data, jlong midiNs, jlong appNs) {
+void JNICALL nativeReceive(JNIEnv* env, jclass, jint id, jbyteArray data, jlong midiNs, jlong appNs) {
     const jsize n = env->GetArrayLength(data);
     QByteArray bytes(n, Qt::Uninitialized);
     env->GetByteArrayRegion(data, 0, n, reinterpret_cast<jbyte*>(bytes.data()));
@@ -317,9 +317,9 @@ AndroidMidiEnumerator::AndroidMidiEnumerator(UserSettingsPointer pConfig)
     }
     const JNINativeMethod methods[] = {
             {"nativeAdded", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;)V",
-                    reinterpret_cast<void*>(jniAdded)},
-            {"nativeRemoved", "(I)V", reinterpret_cast<void*>(jniRemoved)},
-            {"nativeReceive", "(I[BJJ)V", reinterpret_cast<void*>(jniReceive)}};
+                    reinterpret_cast<void*>(nativeAdded)},
+            {"nativeRemoved", "(I)V", reinterpret_cast<void*>(nativeRemoved)},
+            {"nativeReceive", "(I[BJJ)V", reinterpret_cast<void*>(nativeReceive)}};
     QJniEnvironment env;
     if (!env.registerNativeMethods("org/mixxx/ZydekMidiHost", methods, 3)) {
         qWarning() << "AndroidMidiEnumerator: no MIDI controllers (couldn't reach ZydekMidiHost)";

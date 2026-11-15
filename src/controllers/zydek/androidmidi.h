@@ -70,12 +70,13 @@ class AndroidMidiController : public MidiController {
     /// The profiler: the last second, then starts over. Empty when nothing came or went.
     QJsonObject takeStats();
 
+    int open(const QString& resourcePath) override;
+    int close() override;
+
   protected:
     void sendShortMsg(unsigned char status, unsigned char byte1, unsigned char byte2) override;
 
   private:
-    int open(const QString& resourcePath) override;
-    int close() override;
     bool sendBytes(const QByteArray& data) override;
     void handle(unsigned char status, unsigned char d1, unsigned char d2);
 
