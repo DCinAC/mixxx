@@ -2364,10 +2364,13 @@ function hotcueJump(d, k) {
   }
   const now = performance.now();
   posSeed(d, t, d.ratio || 1, now); d.shown = t; d.pos = t; d.hist = [[now, t]];
+  d.expect = { at: t, t0: now, v: d.ratio || 1, until: now + 400 };   // (readings from before the jump: not drawn)
 }
 // Mixxx's deck to t (seconds), exactly: quantize off for that moment (with it on, a playing deck keeps its beat phase
 // through a seek, which would put it right back)
 function seekTo(d, t) {
+  const now = performance.now();   // (the readings from before it gets there: not to be drawn, zydeck-position.js)
+  d.expect = { at: clamp(t, 0, d.dur), t0: now, v: d.playing ? d.ratio || 1 : 0, until: now + 400 };
   const q = d.quantize;
   if (q) { markLocal(d, "quantize"); setCtl(ch(d.n), "quantize", 0); }
   setCtl(ch(d.n), "playposition", clamp(t, 0, d.dur) / d.dur);

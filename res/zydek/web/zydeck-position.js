@@ -125,7 +125,17 @@
     const t = Math.min(now, hubTime(ts, now));
     if (d.jog) return;   // (drawn from the computer's jog meanwhile: it seeds the model again as it's done)
     const nominal = d.playing ? d.ratio || 1 : 0;
-    if (posCfg.direct()) { d.hist = [[t, p]]; return posSeed(d, p, nominal, t); }   // (this device's Mixxx: as it is)
+    if (posCfg.direct()) {   // (this device's Mixxx: as it is)
+      // just moved by this page (d.expect: a scratch let go, a hot cue): readings sent before Mixxx got there are
+      // still on their way; one more than 60 ms from where it should be now is one of them, for up to 0.4 s
+      const x = d.expect;
+      if (x && t < x.until) {
+        if (Math.abs(p - (x.at + x.v * (t - x.t0) / 1000)) > .06) return;
+        d.expect = null;
+      }
+      d.hist = [[t, p]];
+      return posSeed(d, p, nominal, t);
+    }
     // a jump (a hot cue, a loop): follow it at once. A timed reading (ts: when the hub saw it) more than 0.12 s (or 5x
     // the link's usual wobble) from the model can't be the network's doing; an untimed one gets 0.3 s, a late packet's
     // worth. (0.3 s for all let a quick run of hot cue taps, each a jump back of less than that, be smoothed over:
