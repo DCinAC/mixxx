@@ -675,7 +675,7 @@ if (HUB_ELSEWHERE) {
 // =====================================================================================================
 // ?phone=1: the phone page's landscape deck view (see "Phone" below).
 const PHONE = new URLSearchParams(location.search).has("phone");
-const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwPads: null, hwDecks: null, jogScale: 0, pfxPads: null, localDelay: false, panel: "d", beatStrip: 32, hitStyle: "level", hitCurve: 6, hitMin: 12, hitGap: 60, hitWidth: 1.6, hitPlayed: .4 };
+const DEFAULTS = { revs: 1, platterOverlay: true, sens: 0.16, fasterDown: true, bar: 15, pxmm: 5.93, palm: 18, autoFs: true, knobMode: "drag", knobSize: 10.5, catchup: 180, layout: "stacked", keyNotation: "camelot", telemetry: false, pingHz: 10, sampleSync: true, sampleKeylock: true, nudgeSens: 0.3, fxLayout: "beat", inputMode: "precision", theme: "d", lampSide: "left", keyText: "adaptive", drawMode: "layers", menuLook: "d", cueTime: "off", waveMode: "live", knobCentre: "lit", viewOffset: 0, endWarn: true, padBeat: true, rollNoSlip: false, spinLength: "normal", scrFix: true, scrFeel: "smooth", scrBase: "wave", scrMul: 1, platterSpeed: 1, hwPads: null, hwDecks: null, jogScale: 0, pfxPads: null, localDelay: false, panel: "d", beatStrip: 32, beatSecs: 16, hitStyle: "level", hitCurve: 6, hitMin: 12, hitGap: 60, hitWidth: 1.6, hitPlayed: .4 };
 const END_WARN_S = 30;                 // the track end warning light: a track's last 30 s (Mixxx's own default)
 const REV_SECONDS = 1.8;                 // one revolution at 33 1/3 rpm
 // The phone keeps its own settings (the tablet's are shared through the hub): its screen scale comes from
@@ -2919,7 +2919,8 @@ function frame(now) {
 
 // =====================================================================================================
 // The waveform panel's other strips (S.panel, see the CSS): the beat strip, both decks' hits on one ruler of
-// S.beatStrip beats, so two decks in time have theirs right above each other; and each deck's whole-track overview
+// S.beatSecs seconds as you hear them (the tempo's: a deck sped up packs its beats closer), so two decks at the same
+// tempo have the same spacing, and in time their hits right above each other; and each deck's whole-track overview
 // (its waveform, sections, hot cues, the played part dimmed). Drawn about 30 times a second; an overview's
 // waveform once (again only when the track, its analysis or the size changes).
 // =====================================================================================================
@@ -3027,12 +3028,15 @@ function hitLength(hit) {
 function drawBeatStrip() {
   const p = panelCanvas("beatstrip");
   if (!p) return;
-  const { g, W, H, dpr } = p, N = S.beatStrip || 32, pxB = W / N, rh = H / 2, mid = Math.round(rh);
+  const { g, W, H, dpr } = p, secs = S.beatSecs || 16, pxS = W / secs, rh = H / 2, mid = Math.round(rh);
   g.clearRect(0, 0, W, H);
   [0, 1].forEach(s => {
-    const d = shownOn(s, deckOf(s)), y0 = s * rh, cb = d.dur > 0 ? beatPos(d, d.pos) : null;
-    if (cb == null) return;
-    const xOf = t => W / 2 + (beatPos(d, t) - cb) * pxB, tFrom = beatTime(d, cb - N / 2 - 1), tTo = beatTime(d, cb + N / 2 + 1);
+    const d = shownOn(s, deckOf(s)), y0 = s * rh;
+    if (!(d.dur > 0)) return;
+    // a track second takes 1 / tempo of real time: the same ruler for both decks, whatever their tempo
+    const rt = Math.max(.05, Math.abs(d.ratio || 1)), half = secs / 2 * rt, pad = 2 / pxS * rt;
+    const xOf = t => W / 2 + (t - d.pos) / rt * pxS, tFrom = d.pos - half - pad, tTo = d.pos + half + pad;
+    const b0 = beatPos(d, tFrom), b1 = beatPos(d, tTo);
     // its song sections: the row tinted by the one it's in, a line and the letter where one starts
     (d.sections || []).forEach(sc => {
       if (sc.e < tFrom || sc.s > tTo) return;
@@ -3046,8 +3050,8 @@ function drawBeatStrip() {
       }
     });
     // its beats: a short tick at the row's outer edge, every bar longer, every 16 beats the lamp's colour
-    for (let k = Math.ceil(cb - N / 2); k <= cb + N / 2; k++) {
-      const x = Math.round(W / 2 + (k - cb) * pxB), n = (((k + (d.bar || 0)) % 16) + 16) % 16;
+    for (let k = b0 == null ? 1 : Math.ceil(b0); b0 != null && k <= b1 && k - b0 < 400; k++) {
+      const x = Math.round(xOf(beatTime(d, k))), n = (((k + (d.bar || 0)) % 16) + 16) % 16;
       g.fillStyle = n === 0 ? "rgba(255,194,61,.85)" : n % 4 === 0 ? "rgba(255,255,255,.45)" : "rgba(255,255,255,.18)";
       const th = rh * (n % 4 === 0 ? .5 : .25);
       g.fillRect(x, s ? y0 + rh - th : y0, Math.max(1, Math.round(dpr)), th);
@@ -3056,7 +3060,7 @@ function drawBeatStrip() {
     // sound's colour, from the middle line out (deck 1 up, deck 2 down), so two decks in time make one line through
     // the middle
     if (!d.wf) return;
-    const hits = hitsOf(d.wf), half = Math.max(.75, (S.hitWidth ?? 1.6) * dpr);
+    const hits = hitsOf(d.wf), hw = Math.max(.75, (S.hitWidth ?? 1.6) * dpr);
     let lo = 0, hi = hits.length;
     while (lo < hi) { const m = (lo + hi) >> 1; if (hits[m].t < tFrom) lo = m + 1; else hi = m; }
     for (let i = lo; i < hits.length && hits[i].t <= tTo; i++) {
@@ -3064,8 +3068,8 @@ function drawBeatStrip() {
       g.fillStyle = `rgb(${Math.round(255 * hit.lo / m)},${Math.round(255 * hit.mi / m)},${Math.round(255 * hit.hi / m)})`;   // its sound
       g.globalAlpha = x < W / 2 ? (S.hitPlayed ?? .4) : 1;   // played: dimmed, as Serato's
       g.beginPath();
-      if (s === 0) { g.moveTo(x - half, mid); g.lineTo(x, mid - len); g.lineTo(x + half, mid); }
-      else { g.moveTo(x - half, mid); g.lineTo(x, mid + len); g.lineTo(x + half, mid); }
+      if (s === 0) { g.moveTo(x - hw, mid); g.lineTo(x, mid - len); g.lineTo(x + hw, mid); }
+      else { g.moveTo(x - hw, mid); g.lineTo(x, mid + len); g.lineTo(x + hw, mid); }
       g.fill();
     }
     g.globalAlpha = 1;
