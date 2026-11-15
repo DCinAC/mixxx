@@ -1587,27 +1587,35 @@ const EQ_LABEL = { low: "LOW", mid: "MID", filter: "FILTER", high: "HIGH", gain:
 // Loop lengths, 1/128 to 512 beats: the LOOP and ROLL pads show a run of them in a row (the phone's LOOP ½–4, the
 // tablet's ROLL ⅛–16 to start with). SHIFT turns the outer pads into ◀ ▶, which move the whole run a step shorter or
 // longer (as Controller › Decks › Loop pads does); the run is kept (S.loopFirst / S.rollFirst: its shortest length).
+// BEAT JUMP's pads are four lengths back and forward (−1 +1 −2 +2 / −4 +4 −8 +8 to start with; the phone shows the
+// 1st and 3rd), moved the same way (S.jumpFirst), from Mixxx's shortest jump (1/32) up.
 // Mixxx's own go from 1/32 (MIN_LOOP) to 512; the shorter ones are made as 1/32 and their end pulled in (tinyLoop).
 const LOOP_LADDER = [1 / 128, 1 / 64, 1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512];
 const MIN_LOOP = 1 / 32;
-const RUN_FROM = { loop: .5, roll: 1 / 8 }, RUN_KEY = { loop: "loopFirst", roll: "rollFirst" };
+const RUN_FROM = { loop: .5, roll: 1 / 8, jump: 1 }, RUN_KEY = { loop: "loopFirst", roll: "rollFirst", jump: "jumpFirst" };
 const padCount = () => PHONE ? 4 : 8;
+const runLen = mode => mode === "jump" ? 4 : padCount();   // (a jump's length: two pads, back and forward)
+const runMin = mode => mode === "jump" ? LOOP_LADDER.indexOf(MIN_LOOP) : 0;
+const runMax = mode => LOOP_LADDER.length - runLen(mode);
 const runFrom = mode => {
   const i = LOOP_LADDER.indexOf(S[RUN_KEY[mode]] ?? RUN_FROM[mode]);
-  return clamp(i < 0 ? LOOP_LADDER.indexOf(RUN_FROM[mode]) : i, 0, LOOP_LADDER.length - padCount());
+  return clamp(i < 0 ? LOOP_LADDER.indexOf(RUN_FROM[mode]) : i, runMin(mode), runMax(mode));
 };
-const runSizes = mode => LOOP_LADDER.slice(runFrom(mode), runFrom(mode) + padCount());
+const runSizes = mode => LOOP_LADDER.slice(runFrom(mode), runFrom(mode) + runLen(mode));
+// a BEAT JUMP pad (its index, as padIndex gives): [beats, forward?]
+const jumpOf = k => [runSizes("jump")[k >> 1], (k & 1) === 1];
 const runIsMapped = () => !PHONE && runSizes("roll")[0] === RUN_FROM.roll;   // the mapping's own ROLL pads (its lights too)
 const fmtLen = b => ({ .125: "⅛", .25: "¼", .5: "½" })[b] || fmtBeats(b);
 const runArrowText = (mode, dir) => {
-  const z = runSizes(mode), end = dir < 0 ? runFrom(mode) === 0 : runFrom(mode) === LOOP_LADDER.length - padCount();
+  const end = dir < 0 ? runFrom(mode) === runMin(mode) : runFrom(mode) === runMax(mode);
   return `<span${end ? ' class="dimmed"' : ""}>${dir < 0 ? "◀" : "▶"}</span><small>${runText(mode)}</small>`;
 };
 const runText = mode => { const z = runSizes(mode); return `${fmtLen(z[0])}–${fmtLen(z[z.length - 1])}`; };
-// SHIFT on a LOOP or ROLL pad: -1 (the first: shorter), 1 (the last: longer), 0 (the others)
-const runArrow = (d, k) => (d.mode === "loop" || d.mode === "roll") && d.shift ? (k === 0 ? -1 : k === padCount() - 1 ? 1 : 0) : 0;
+// SHIFT on a LOOP, ROLL or BEAT JUMP pad: -1 (the first: shorter), 1 (the last: longer), 0 (the others); k as the pad
+// sits (not padIndex's)
+const runArrow = (d, k) => (d.mode === "loop" || d.mode === "roll" || d.mode === "jump") && d.shift ? (k === 0 ? -1 : k === padCount() - 1 ? 1 : 0) : 0;
 function shiftRun(mode, dir) {
-  const from = clamp(runFrom(mode) + dir, 0, LOOP_LADDER.length - padCount());
+  const from = clamp(runFrom(mode) + dir, runMin(mode), runMax(mode));
   if (from === runFrom(mode)) return;
   S[RUN_KEY[mode]] = LOOP_LADDER[from]; saveSettings(); paintAll(); ZydeckMenu.refresh();
 }
@@ -2007,7 +2015,12 @@ function paintPad(s, k) {
       setPad(el, d.stems[k] ? "lit" : "tint", `${STEMS[k].n}<small>${d.stems[k] ? "on" : "muted"}</small>`, STEMS[k].c, "#fff"); break;
     }
     case "smpl": paintSamplerPad(el, (d.n % 2 ? 0 : 8) + k); break;
-    case "jump": setPad(el, "tint", ["−1", "+1", "−2", "+2", "−4", "+4", "−8", "+8"][padIndex(d, k)], "var(--jump)"); break;
+    case "jump": {
+      const arrow = runArrow(d, k);
+      if (arrow) { setPad(el, "tint", runArrowText("jump", arrow), "var(--jump)"); break; }
+      const [b, fwd] = jumpOf(padIndex(d, k));
+      setPad(el, "tint", (fwd ? "+" : "−") + fmtLen(b), "var(--jump)"); break;
+    }
     case "fx": paintFxCell(el, s, k); break;
     case "pfx": paintPfx(el, s, k); break;
   }
@@ -2402,7 +2415,7 @@ function beatOf(d, t) {
   return ((i + (d.bar || 0)) % 4 + 4) % 4;
 }
 function padPress(s, k, down, e, el) {
-  const d = deckOf(s), beat = 60 / d.bpm;
+  const d = deckOf(s), beat = 60 / d.bpm, at = k;   // (at: where the pad sits)
   k = padIndex(d, k);
   if (d.mode === "pfx" || (!down && d.pfxHeld?.[k])) return pfxPress(d, k, down, s);   // (let go after leaving the mode too)
   if (d.mode === "key") {
@@ -2420,10 +2433,15 @@ function padPress(s, k, down, e, el) {
     paintAll();
     return;
   }
-  const arrow = runArrow(d, k);
-  if (arrow || d.runArrowHeld?.[k]) {   // SHIFT: ◀ ▶ (its release too, SHIFT let go or not)
-    (d.runArrowHeld ??= [])[k] = down;
+  const ak = d.mode === "jump" ? at : k, arrow = runArrow(d, ak);
+  if (arrow || d.runArrowHeld?.[ak]) {   // SHIFT: ◀ ▶ (its release too, SHIFT let go or not)
+    (d.runArrowHeld ??= [])[ak] = down;
     if (down) shiftRun(d.mode, arrow);
+    return;
+  }
+  if (d.mode === "jump" && live) {   // (the page's lengths, not the mapping's fixed ones)
+    const [b, fwd] = jumpOf(k);
+    if (down) push(ch(d.n), `beatjump_${b}_${fwd ? "forward" : "backward"}`);
     return;
   }
   if (d.mode === "roll" && live) {
@@ -2496,7 +2514,7 @@ function padPress(s, k, down, e, el) {
     case "roll": d.rolls[k] = down ? 1 : 0; break;
     case "stem": if (down && k < 4) d.stems[k] = d.stems[k] ? 0 : 1; break;
     case "smpl": samplerPress(d, (d.n % 2 ? 0 : 8) + k, down, ui.sides[s].pads[k]); return;
-    case "jump": if (down) d.pos = clamp(d.pos + [-1, 1, -2, 2, -4, 4, -8, 8][k] * beat, -PREROLL, d.dur); break;
+    case "jump": if (down) { const [b, fwd] = jumpOf(k); d.pos = clamp(d.pos + (fwd ? b : -b) * beat, -PREROLL, d.dur); } break;
     case "fx": if (down) { if (k < 3) d.fx[k] = d.fx[k] ? 0 : 1; else if (k === 3) d.fxRoute = d.fxRoute ? 0 : 1; } break;
   }
   paintSide(s);
@@ -3620,8 +3638,8 @@ ZydeckMenu.provide("controller", {
   pfxEdit: id => { ZydeckMenu.close(); setTimeout(() => pfxMenu(deckOf(0), id, null), 0); },
   shiftRun,
   peek(id, on) { peeking = on ? performance.now() : 0; schedulePaint(); },
-  loopRun: mode => (mode === "roll") === PHONE ? null   // (LOOP pads on the phone, ROLL pads on the tablet)
-    : { text: runText(mode), shorter: runFrom(mode) > 0, longer: runFrom(mode) < LOOP_LADDER.length - padCount() },
+  loopRun: mode => mode !== "jump" && (mode === "roll") === PHONE ? null   // (LOOP pads on the phone, ROLL pads on the tablet)
+    : { text: mode === "jump" ? runSizes("jump").map(fmtLen).join(" ") : runText(mode), shorter: runFrom(mode) > runMin(mode), longer: runFrom(mode) < runMax(mode) },
   profiling: () => prof.on, setProfiling: profiling,
   setDeckDefault(i, v) { deckDefaults[i] = v; fetch(`/api/deckdefaults?${["keylock", "quantize", "slip"][i]}=${v}`).catch(() => {}); },
   ejectPlaces,

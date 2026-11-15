@@ -331,7 +331,7 @@
       get: () => ctl()?.ejectPlaces?.() || ["leftmid"], set: v => ctl()?.toggleEject?.(v),
       desc: "Where it comes up on the waveform: any of them (left and left-mid would overlap, so one of those)." },
     { id: "loopruns", sec: "decks", name: "Loop pads", kind: "custom", build: buildLoopRuns, show: () => !!ctl(),
-      desc: "The loop lengths on the pads (the phone's LOOP, the tablet's ROLL): a run of them from 1/128 to 512 beats, moved a step shorter or longer with the arrows. On the pads: SHIFT, then the first pad (◀) or the last (▶)." },
+      desc: "The loop lengths on the pads (the phone's LOOP, the tablet's ROLL): a run of them from 1/128 to 512 beats, moved a step shorter or longer with the arrows. BEAT JUMP's four lengths (back and forward) move the same way, from 1/32 beat. On the pads: SHIFT, then the first pad (◀) or the last (▶)." },
     { id: "rollslip", sec: "decks", name: "Roll pads", kind: "seg", opts: () => [[false, "SHIFT: no slip"], [true, "Plain: no slip"]], ...C("rollNoSlip", false),
       show: () => !!ctl()?.loopRun?.("roll"),
       desc: "Which ROLL pad press rolls without slip: when you let go, the track carries on from inside the loop instead of from where it would have got to. The other press is a normal roll." },
@@ -943,7 +943,7 @@
   }
   function buildLoopRuns(c) {
     const box = el("div", "zm-subs");
-    const lines = [["loop", "LOOP"], ["roll", "ROLL"]].map(([mode, name]) => {
+    const lines = [["loop", "LOOP"], ["roll", "ROLL"], ["jump", "BEAT JUMP"]].map(([mode, name]) => {
       const line = el("div", "zm-sr", `<span>${name}</span>`), s = el("div", "zseg");
       const prev = key("◀ Shorter", "s"), now = el("span", "zm-run"), next = key("Longer ▶", "s");
       prev.addEventListener("click", () => { ctl()?.shiftRun(mode, -1); refresh(); });
