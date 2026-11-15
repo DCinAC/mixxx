@@ -4646,11 +4646,32 @@ function jogLearn(d) {
   }, 700);
 }
 
+// A MIDI controller plugged into this device (USB OTG; the hub's /api/hwctl): asked once each time one comes
+// that isn't in use yet, then Mixxx runs its mapping (the best one found). "Keep touch decks": not asked again
+// until it's plugged in again or the page reloads.
+const hwAsking = new Set();
+function onHwctl(list) {
+  for (const n of [...hwAsking]) if (!(list || []).some(c => c.name === n)) hwAsking.delete(n);   // (unplugged: ask again next time)
+  for (const c of list || []) {
+    if (c.on || hwAsking.has(c.name) || !window.ZydeckMenu?.ask) continue;
+    hwAsking.add(c.name);
+    const map = c.mappings?.[0];
+    ZydeckMenu.ask(`${c.name} connected`, [map ? `Use it for the decks, with the mapping "${map}"?` :
+      "No mapping for it was found on this device, so it can't be used yet."], map ? "Use controller" : "OK", map ? "Keep touch decks" : "Cancel")
+      .then(yes => {
+        if (yes && map) fetch(`/api/hwctl?do=use&name=${encodeURIComponent(c.name)}`).then(r => r.json())
+          .then(j => toast(j.ok ? `${c.name}: in use` : j.error || "Couldn't use it")).catch(() => {});
+      });
+  }
+}
+setTimeout(() => fetch("/api/hwctl").then(r => r.json()).then(j => onHwctl(j.controllers)).catch(() => {}), 1500);
+
 function onMixxx(m) {
   if (m.t === "hw") return onHw(m.hw);
   if (m.init) { if (m.init.hw) setTimeout(() => onHw(m.init.hw), 0); ZydeckMenu.push(m); if (m.init.notice) toast(m.init.notice); LAT = m.init.lat || 0; AUD = m.init.alat ?? LAT; viewMigrate(m.init.loff); ZydeckPos.setLatency(m.init.lat, m.init.vlat); if (m.init.remote) onRemote(m.init.remote); useRemoteLat(); if (m.init.live) goLive(m.init); paintRec(m.init.rec); return; }
   if (m.t === "rec") { ZydeckMenu.push(m); return paintRec(m.r); }
   if (m.t === "prof") { paintProf(m); ZydeckMenu.push(m); return; }
+  if (m.t === "hwctl") return onHwctl(m.controllers);
   if (m.t === "remote") { ZydeckMenu.push(m); return onRemote(m); }
   if (m.t === "opt" || m.t === "dc" || m.t === "offer") return ZydeckMenu.push(m);
   if (m.t === "cuelbl") { decks.forEach(d => { if (d.loaded !== false) loadCueLabels(d); }); return; }   // hot cues edited (the phone's library, a pad)

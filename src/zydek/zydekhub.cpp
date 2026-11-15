@@ -38,6 +38,9 @@
 #include "recording/defs_recording.h"
 #endif
 #include "controllers/zydek/zydekcontroller.h"
+#ifdef Q_OS_ANDROID
+#include "controllers/zydek/androidmidi.h"
+#endif
 #include "library/library.h"
 #include "library/trackcollectionmanager.h"
 #include "mixer/playerinfo.h"
@@ -623,6 +626,9 @@ void Hub::start() {
     if (env.registerNativeMethods("org/mixxx/ZydekAudio", audioMethods, 1)) {
         QJniObject::callStaticMethod<void>("org/mixxx/ZydekAudio", "measureNow", "()V");
     }
+    if (AndroidMidiEnumerator* pMidi = AndroidMidiEnumerator::instance()) {   // (made just before this hub)
+        connect(pMidi, &AndroidMidiEnumerator::devicesChanged, this, &Hub::hwChanged);
+    }
     const JNINativeMethod pipeMethods[] = {
             {"nativeTag", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[B)Z", reinterpret_cast<void*>(jniTag)}};
     if (!env.registerNativeMethods("org/mixxx/ZydekPipe", pipeMethods, 1)) {
@@ -776,6 +782,9 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
     }
     if (path == QLatin1String("/api/profile")) {
         return profileApi(query);
+    }
+    if (path == QLatin1String("/api/hwctl")) {
+        return hwctlApi(query);
     }
     if (path.startsWith(QLatin1String("/beats/"))) {
         bool loaded = false;
@@ -1060,6 +1069,7 @@ HttpServer::Response Hub::handleApi(const QString& path, const HttpServer::Query
                 "newpipe",      // /api/web search and download by NewPipe (yt-dlp only for Bilibili)
                 "webpreview",   // /api/web/preview, /api/webpreview/load and /state: a web result in the headphones
                 "datasaver",    // /api/web/prefs?dataSaver=
+                "hwctl",        // /api/hwctl: MIDI controllers plugged into this device
         };
         return json(QJsonObject{{"zydeck", true}, {"name", name}, {"version", appVersion()}, {"proto", 2}, {"caps", kCaps}});
     }
@@ -3318,6 +3328,20 @@ void Hub::profileSecond(const QJsonObject& page) {
     }
     QJsonObject line{{"k", "sec"}, {"t", static_cast<double>(now - m_profStartMs) / 1000}, {"page", p}, {"hub", hub}};
 #ifdef Q_OS_ANDROID
+    if (AndroidMidiEnumerator* pMidi = AndroidMidiEnumerator::instance()) {   // a controller plugged into this device
+        const QJsonArray hw = pMidi->takeStats();
+        if (!hw.isEmpty()) {
+            line.insert(QStringLiteral("hw"), hw);
+            // after the mapping: Mixxx's next audio callback, then the sound's way out
+            QJsonObject audio = outputPath();
+            audio.insert(QStringLiteral("bufferMs"), ControlObject::get(ConfigKey(QStringLiteral("[App]"), QStringLiteral("output_latency_ms"))));
+            audio.insert(QStringLiteral("outMs"), std::round(latencySeconds() * 10000) / 10);
+            audio.insert(QStringLiteral("route"), m_latencyRoute);
+            line.insert(QStringLiteral("audio"), audio);
+        }
+    }
+#endif
+#ifdef Q_OS_ANDROID
     const QString dev = QJniObject::callStaticObjectMethod("org/mixxx/ZydekLink", "deviceStats", "()Ljava/lang/String;").toString();
     line.insert(QStringLiteral("dev"), QJsonDocument::fromJson(dev.toUtf8()).object());
 #endif
@@ -3370,6 +3394,56 @@ HttpServer::Response Hub::profileApi(const HttpServer::Query& query) {
     QJsonObject out = profileState();
     out.insert(QStringLiteral("ok"), true);
     return json(out);
+}
+
+// ---- MIDI controllers plugged into this device ------------------------------------------------------
+// /api/hwctl?do=list|use|off (name=, mapping=): Android's MIDI service's controllers (USB OTG) as Mixxx's
+// (controllers/zydek/androidmidi.h). The page asks before using one (use: the best mapping found, unless given).
+
+HttpServer::Response Hub::hwctlApi(const HttpServer::Query& query) {
+#ifdef Q_OS_ANDROID
+    AndroidMidiEnumerator* pMidi = AndroidMidiEnumerator::instance();
+    if (!pMidi) {
+        return result({{"ok", false}, {"error", "No MIDI here"}});
+    }
+    const QString what = query.value(QStringLiteral("do"), QStringLiteral("list"));
+    const QString name = query.value(QStringLiteral("name"));
+    if (what == QLatin1String("use")) {
+        if (!pMidi->use(name, query.value(QStringLiteral("mapping")))) {
+            return result({{"ok", false}, {"error", "No mapping for it found"}});
+        }
+        profileEvent(QStringLiteral("hwctl"), {{"name", name}, {"on", true}});
+    } else if (what == QLatin1String("off")) {
+        pMidi->stopUsing(name);
+        profileEvent(QStringLiteral("hwctl"), {{"name", name}, {"on", false}});
+    } else if (what != QLatin1String("list")) {
+        return result({{"ok", false}, {"error", "No such thing"}});
+    }
+    QJsonArray list = pMidi->plugged();
+    for (qsizetype i = 0; i < list.size(); ++i) {   // (what it could use, the best first)
+        QJsonObject c = list[i].toObject();
+        QJsonArray maps;
+        for (const QString& f : pMidi->mappingsFor(c.value(QStringLiteral("name")).toString())) {
+            maps.append(QFileInfo(f).completeBaseName());
+        }
+        c.insert(QStringLiteral("mappings"), maps);
+        list[i] = c;
+    }
+    return json(QJsonObject{{"ok", true}, {"controllers", list}});
+#else
+    Q_UNUSED(query);
+    return json(QJsonObject{{"ok", true}, {"controllers", QJsonArray()}});
+#endif
+}
+
+void Hub::hwChanged() {
+#ifdef Q_OS_ANDROID
+    if (AndroidMidiEnumerator* pMidi = AndroidMidiEnumerator::instance()) {
+        const QJsonArray list = pMidi->plugged();
+        emitJson({{"t", "hwctl"}, {"controllers", list}});
+        profileEvent(QStringLiteral("hwplug"), {{"controllers", list}});
+    }
+#endif
 }
 
 // ---- page -> Mixxx --------------------------------------------------------------------------------

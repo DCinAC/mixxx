@@ -227,6 +227,9 @@ class Hub : public QObject {
     // zydeck-sessions/<id>.jsonl in the settings folder (the page's latency summary, the hub's own, the device's),
     // and a line for each thing that happens (the path changing, the link dropping, a mark)
     HttpServer::Response profileApi(const HttpServer::Query& query);
+    // MIDI controllers plugged into this device (USB OTG): /api/hwctl, and a "hwctl" message when one comes or goes
+    HttpServer::Response hwctlApi(const HttpServer::Query& query);
+    void hwChanged();
     void profileStart();
     void profileStop(const QString& why);
     void profileEvent(const QString& kind, const QJsonObject& more = {});

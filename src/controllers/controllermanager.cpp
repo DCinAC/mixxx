@@ -9,6 +9,9 @@
 #include "controllers/defs_controllers.h"
 #include "controllers/legacycontrollermappingfilehandler.h"
 #include "controllers/zydek/zydekcontroller.h"
+#ifdef __ANDROID__
+#include "controllers/zydek/androidmidi.h"
+#endif
 #include "moc_controllermanager.cpp"
 #include "preferences/usersettings.h"
 #include "util/cmdlineargs.h"
@@ -182,6 +185,17 @@ void ControllerManager::slotInitialize() {
 #endif
 #ifdef __HID__
         m_enumerators.push_back(std::make_unique<HidEnumerator>());
+#endif
+#ifdef __ANDROID__
+        // Zydek: MIDI controllers plugged into this phone or tablet (USB OTG), through Android's MIDI service.
+        // Plugging one in or out sets the controllers up again.
+        auto pAndroidMidi = std::make_unique<AndroidMidiEnumerator>(m_pConfig);
+        connect(pAndroidMidi.get(),
+                &AndroidMidiEnumerator::devicesChanged,
+                this,
+                &ControllerManager::slotSetUpDevices,
+                Qt::QueuedConnection);
+        m_enumerators.push_back(std::move(pAndroidMidi));
 #endif
         // Zydek: the tablet controller page over WiFi (zydek/zydekhub.h)
         m_enumerators.push_back(std::make_unique<ZydekEnumerator>(m_pConfig));

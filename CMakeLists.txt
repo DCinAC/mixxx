@@ -1873,6 +1873,10 @@ add_library(
   src/controllers/scripting/javascriptplayerproxy.cpp
   src/controllers/scripting/javascriptplayerproxy.h
 )
+if(ANDROID)
+  # Zydek: MIDI controllers plugged into the phone or tablet (USB OTG), through Android's MIDI service
+  target_sources(mixxx-lib PRIVATE src/controllers/zydek/androidmidi.cpp)
+endif()
 set(MIXXX_COMMON_PRECOMPILED_HEADER src/util/assert.h)
 set(
   MIXXX_LIB_PRECOMPILED_HEADER

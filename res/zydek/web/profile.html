@@ -67,6 +67,15 @@
     <h2>Mixxx's position updates</h2>
     <p class="note">How far apart the playing decks' positions came (the waveform is drawn between them). About 33 ms is right.</p>
     <div class="scroll"><table id="gaps"><thead><tr><th>Device</th><th>Path</th><th>Median</th><th>95%</th><th>99%</th><th>Worst</th><th>Over 150 ms</th></tr></thead><tbody></tbody></table></div>
+    <div id="hwpart" hidden>
+      <h2>Controller plugged into this device</h2>
+      <p class="note">A DJ controller on this device's USB (OTG), each message timed on its way: Android's MIDI service took it from
+        the USB, ZyDeck got it, Mixxx's controller thread took it, the mapping's script ran. Then Mixxx's next audio callback picks
+        the change up, and the sound has its way out. Not measured: the controller itself and the USB (about 1 ms).</p>
+      <div class="scroll"><table id="hwpath"><thead><tr><th>Step</th><th>Median</th><th>95%</th><th>Worst</th><th></th></tr></thead><tbody></tbody></table></div>
+      <h2>The controller's messages</h2>
+      <div class="scroll"><table id="hwmsgs"><thead><tr><th>Controller</th><th>What</th><th>Median</th><th>Most</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
     <div id="macpart" hidden>
       <h2>Where the time goes</h2>
       <p class="note">Each round trip, split: Mixxx's own leg (ZyDeck Connect → Mixxx's mapping → back, measured on this computer) and the
@@ -200,6 +209,46 @@ async function show(id) {
     <td class="${b.gaps.some(g => g > 150) ? "bad" : ""}">${b.gaps.filter(g => g > 150).length}</td></tr>`).join("")
     || `<tr><td colspan="7" class="dim">No deck was playing</td></tr>`;
 
+  // a controller plugged into this device: its messages' way to the mapping, then to the sound
+  const hwSecs = devSecs.concat(lines.filter(l => l.k === "sec" && l.hw && !l.page)).filter(l => l.hw?.length);
+  $("hwpart").hidden = !hwSecs.length;
+  if (hwSecs.length) {
+    const per = (f, i) => hwSecs.flatMap(l => l.hw.map(h => h[f]?.[i])).filter(v => v != null);
+    const totals = hwSecs.flatMap(l => l.hw.flatMap(h => h.totalAll || []));
+    const au = hwSecs.map(l => l.audio).filter(Boolean), last = au[au.length - 1] || {};
+    const cbMs = last.callback && last.rate ? last.callback * 1000 / last.rate : null;
+    const outs = au.map(a => a.outMs).filter(v => v != null);
+    const row = (what, med, p95, worst, note, bad) => `<tr><td>${what}</td><td>${fmt(med)}${med != null ? " ms" : ""}</td><td>${fmt(p95)}${p95 != null ? " ms" : ""}</td>
+      <td class="${worst != null && bad != null && worst > bad ? "bad" : ""}">${fmt(worst)}${worst != null ? " ms" : ""}</td><td class="dim">${note}</td></tr>`;
+    const step = (what, f, note, bad) => row(what, q(per(f, 1), .5), q(per(f, 2), .5), maxOf(per(f, 3)), note, bad);
+    const handMed = q(totals, .5) != null && cbMs != null && outs.length ? q(totals, .5) + cbMs / 2 + q(outs, .5) : null;
+    const handBad = q(totals, .99) != null && cbMs != null && outs.length ? q(totals, .99) + cbMs + maxOf(outs) : null;
+    $("hwpath").tBodies[0].innerHTML =
+      step("Android's MIDI service → ZyDeck", "svc", "Android handing it to the app", 5) +
+      step("→ Mixxx's controller thread", "toThread", "waiting while that thread was busy (the pages' server shares it)", 5) +
+      step("The mapping's script", "script", "Mixxx running the mapping for it", 5) +
+      row("<b>USB to the mapping, in all</b>", q(totals, .5), q(totals, .95), maxOf(totals), `${totals.length} timed`, 10) +
+      row("Waiting for Mixxx's audio callback", cbMs != null ? cbMs / 2 : null, cbMs, cbMs, cbMs != null ? `one every ${fmt(cbMs)} ms (${last.callback} frames)` : "", null) +
+      row("Mixxx's buffer and the way out", q(outs, .5), q(outs, .95), maxOf(outs), esc(last.route || ""), null) +
+      row("<b>Hand to sound, about</b>", handMed, null, handBad, "plus the controller's own scan and the USB, ~1–2 ms", null);
+    const byName = new Map();
+    for (const l of hwSecs) for (const h of l.hw) {
+      if (!byName.has(h.name)) byName.set(h.name, []);
+      byName.get(h.name).push(h);
+    }
+    $("hwmsgs").tBodies[0].innerHTML = [...byName].map(([name, hs]) => {
+      const col = f => hs.map(f).filter(v => v != null);
+      const busy = hs.filter(h => h.gap && h.keyN > 20), keys = [...new Set(busy.map(h => h.key))].join(", ");
+      const r = (what, a, unit, note = "", bad = null) => `<tr><td>${esc(name)}</td><td>${what}</td><td>${a.length ? fmt(q(a, .5)) + unit : "–"}</td>
+        <td class="${a.length && bad != null && maxOf(a) > bad ? "bad" : ""}">${a.length ? fmt(maxOf(a)) + unit : "–"}</td><td class="dim">${note}</td></tr>`;
+      return r("Messages a second", col(h => h.n), "", `${col(h => h.cc).reduce((a, b) => a + b, 0)} controls turned, ${col(h => h.notes).reduce((a, b) => a + b, 0)} keys`) +
+        r("A turning control's moves apart", busy.map(h => h.gap[1]), " ms", keys ? `the busiest each second (${esc(keys)}): a jog's steps` : "nothing turned fast", null) +
+        r("… the widest gap while turning", busy.map(h => h.gap[3]), " ms", "a stall here is a stutter in a scratch", 20) +
+        r("Lights sent a second", col(h => h.out), "", "the mapping's LEDs and the like") +
+        r("Sending them took", col(h => h.sendMax || null), " ms", `worst each second; average ${fmt(q(col(h => h.sendMs || null), .5))} ms`, 5);
+    }).join("");
+  }
+
   // this computer: where the time goes, Mixxx's and Connect's load, the pacing into Mixxx
   $("macpart").hidden = !macSecs.length;
   if (macSecs.length) {
@@ -253,6 +302,11 @@ async function show(id) {
     if ((d.thermal || 0) >= 2) what.push(`it's hot (thermal ${d.thermal})`);
     if (h.powerSave && pathOf(l) === "wifi") what.push("battery saver on (it overrides the Wi-Fi lock)");
     if (p.hidden) what.push("the decks page was in the background");
+    for (const hw of l.hw || []) {
+      if ((hw.total?.[3] || 0) > 10) what.push(`${hw.name}: a message took ${fmt(hw.total[3])} ms to reach the mapping`);
+      if (hw.gap && hw.keyN > 20 && hw.gap[3] > 20) what.push(`${hw.name}: its ${hw.key} moves stalled ${fmt(hw.gap[3])} ms`);
+      if ((hw.sendMax || 0) > 5) what.push(`${hw.name}: sending its lights took ${fmt(hw.sendMax)} ms`);
+    }
     if (what.length) issues.push([l.t, many ? src : "", what.join(", ")]);
   }
   for (const l of macSecs) {
@@ -274,7 +328,9 @@ async function show(id) {
   const EVENT = { start: e => `Started${e.by ? ` (by ${esc(e.by)})` : ""}`,
     stop: e => `Stopped (${e.why === "asked" ? "by you" : e.why === "time" ? "3 hours" : e.why === "size" ? "the size limit" : e.why === "computer" ? "with the computer's session" : esc(e.why)})`,
     path: e => `Controls now over ${PATH_NAME[e.via] || esc(e.via)}`, wifiDown: () => "Wi-Fi link dropped", wifiUp: () => "Wi-Fi link up",
-    cable: e => `USB cable ${["out", "in (not ready)", "ready"][e.state] || e.state}`, mark: e => `Mark ${e.n}${e.note ? `: ${esc(e.note)}` : ""}` };
+    cable: e => `USB cable ${["out", "in (not ready)", "ready"][e.state] || e.state}`, mark: e => `Mark ${e.n}${e.note ? `: ${esc(e.note)}` : ""}`,
+    hwplug: e => `Controllers plugged in: ${(e.controllers || []).map(c => esc(c.name) + (c.on ? " (in use)" : "")).join(", ") || "none"}`,
+    hwctl: e => `${esc(e.name)} ${e.on ? "put to use" : "no longer used"}` };
   $("events").tBodies[0].innerHTML = events.map(e => `<tr><td>${mmss(e.t || 0)}</td><td>${many && e.src ? `<b>${esc(e.src === "mac" ? "This computer" : e.src)}</b>: ` : ""}${(EVENT[e.k] || (() => esc(e.k)))(e)}</td></tr>`).join("");
   drawn = [devSecs, macSecs, events, pathOf, dur];
   requestAnimationFrame(redraw);   // (once the report is laid out: the canvas has its size then)
@@ -291,6 +347,7 @@ function chart(devSecs, macSecs, events, pathOf, dur) {
     ["Frame", 120, devSecs, null, l => l.page.frameMax, "ms"]];
   if (macSecs.length) lanes.push(["Mixxx's leg", 40, macSecs, l => l.mac.mixxxMs?.[1], l => l.mac.mixxxMs?.[4], "ms"], ["Mac Wi-Fi", 150, macSecs, l => l.mac.routerMs?.[1], l => l.mac.routerMs?.[4], "ms"],
     ["Mixxx's CPU", 200, macSecs, null, l => l.mac.mixxx?.cpu, "%"]);
+  if (devSecs.some(l => l.hw?.length)) lanes.push(["Controller in", 20, devSecs, l => l.hw?.[0]?.total?.[1], l => l.hw?.[0]?.total?.[3], "ms"]);
   lanes.push(["Device CPU", 200, devSecs, null, l => l.hub?.cpu, "%"], ["Wi-Fi signal", 100, devSecs, null, l => l.dev?.rssi != null ? 100 + l.dev.rssi : null, "dBm"]);
   const LH = 64, H = 8 + lanes.length * LH + 18;
   c.style.height = H + "px";
