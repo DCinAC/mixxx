@@ -772,6 +772,7 @@ const setHTML = (el, html) => {
 const setText = (el, t) => { if (el._text !== t) { el._text = t; el.textContent = t; } };
 
 function applySettings() {
+  try { platter.rectsAt = 0; } catch {}   // (the strips may move: measured again; platter: not made yet at the start)
   layoutEpoch++;
   const r = document.documentElement.style;
   r.setProperty("--mm", S.pxmm + "px");
@@ -2758,7 +2759,16 @@ function platterFrame() {
     platter.clips = [0, 1].map(() => { const c = platterLayer("position:absolute;overflow:hidden"); platter.under.append(c); return c; });
   }
   const strips = [0, 1].map(s => ui.sides[s]?.strip);
-  const rects = strips.map(el => el && el.getBoundingClientRect());
+  // where the strips are: measured again when they change size, the window does, or twice a second (asking every
+  // frame made the browser work out the page's styles again each time, after the frame's own changes)
+  const now = performance.now();
+  if (!platter.ro && window.ResizeObserver) platter.ro = new ResizeObserver(() => { platter.rectsAt = 0; });
+  if (strips.some((el, s) => el !== platter.rectEls?.[s])) {
+    platter.rectEls = strips; platter.rectsAt = 0;
+    if (platter.ro) { platter.ro.disconnect(); strips.forEach(el => el && platter.ro.observe(el)); }
+  }
+  if (!platter.rects || now - (platter.rectsAt || 0) > 500) { platter.rects = strips.map(el => el && el.getBoundingClientRect()); platter.rectsAt = now; }
+  const rects = platter.rects;
   if (!rects[0] || !rects[1] || !rects[0].width || !rects[1].width) return;
   // Every deck its own record, turning with its play position (at 33 1/3 for vinyl, with the waveform for 1:1), shown
   // or not: switched to, deck 3's is where deck 3 has got to, not where deck 1's was
@@ -4959,7 +4969,7 @@ if (PHONE) {   // the tablet's screen and debug settings don't apply here
 applySettings();
 build();
 requestAnimationFrame(frame);
-addEventListener("resize", () => { layoutEpoch++; requestAnimationFrame(paintAll); });
+addEventListener("resize", () => { layoutEpoch++; platter.rectsAt = 0; requestAnimationFrame(paintAll); });
 </script>
 </body>
 </html>

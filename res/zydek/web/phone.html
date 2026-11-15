@@ -577,6 +577,7 @@
 
   /* track sheet */
   #scrim { position: fixed; inset: 0; z-index: 8; background: rgba(0,0,0,.6); opacity: 0; pointer-events: none; transition: opacity .18s; }
+  #scrim:not(.on) { visibility: hidden; transition: opacity .18s, visibility 0s .18s; }
   #scrim.on { opacity: 1; pointer-events: auto; }
   #sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; background: #161616; border-top: 1px solid #333;
     border-radius: 18px 18px 0 0; padding: 10px 16px calc(16px + var(--safe-b)); transform: translateY(105%); transition: transform .2s ease-out;
@@ -612,7 +613,7 @@
   #deckview { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 50; background: var(--bg); visibility: hidden; }
   @media (orientation: landscape) {
     #deckview { visibility: visible; }
-    body > header, body > main, body > nav, #toast { visibility: hidden; }
+    body > header, body > main, body > nav, #toast, #scrim, #sheet { visibility: hidden; }
   }
   /* Big Wave: only the four decks' rolling waveforms, top to bottom as Mixxx's (3 1 2 4), to look at beside Mixxx's big
      library, either way up: the time left in seven segments at the upper right, the bars left at the top, its right edge just left of the cursor as rekordbox, over the wave (its digits 33 % of the row; a narrow row: smaller) */
@@ -654,7 +655,7 @@
   /* Starting up: dark (the intro, intro.html, ends dark) until the library and the decks are ready */
   #boot { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column; align-items: center;
     justify-content: flex-end; padding-bottom: 9vh; transition: opacity .4s; }
-  #boot.done { opacity: 0; pointer-events: none; }
+  #boot.done { opacity: 0; pointer-events: none; visibility: hidden; transition: opacity .4s, visibility 0s .4s; }
   #boot .rec { width: 128px; height: 128px; border-radius: 50%; display: grid; place-items: center; animation: zspin 1.8s linear infinite;
     background: repeating-radial-gradient(circle, #141414 0 1.5px, #1e1e1e 1.5px 3px); box-shadow: 0 0 0 1px #2a2a2a; }
   #boot .rec b { width: 44px; height: 44px; border-radius: 50%; background: var(--deck12); color: #1b0f02; display: grid; place-items: center;
