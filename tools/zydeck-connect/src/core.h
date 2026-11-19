@@ -75,6 +75,9 @@ class Core : public QObject {
     // POST /web/upload: a device's own download (web.h), its body written to a file as it comes in
     void uploadStart(QTcpSocket* s, Client& c, const QByteArray& head);
     void uploadMore(QTcpSocket* s, Client& c);
+    // POST /web/bp/login: the Web tab's Beatport sign-in (web.h), its small JSON body read here
+    void bpLoginStart(QTcpSocket* s, Client& c, const QByteArray& head);
+    void bpLoginMore(QTcpSocket* s, Client& c);
     void fromMixxx(const QByteArray& msg);
     QJsonObject nameReply(const QJsonObject& ask);
     QJsonObject profileApi(const QUrlQuery& query, int* status);

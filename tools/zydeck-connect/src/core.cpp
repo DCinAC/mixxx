@@ -115,6 +115,8 @@ struct Core::Client {
     std::unique_ptr<QFile> upload;   // POST /web/upload: where its body goes, and how much is still to come
     qint64 uploadLeft = 0;
     QUrlQuery uploadQuery;
+    qint64 loginLeft = 0;            // POST /web/bp/login: its JSON body (the credentials), as it arrives
+    QByteArray loginBody;
     void dropUpload() {   // (not all of it came: nothing half-written stays)
         if (upload) {
             upload->close();
@@ -457,6 +459,10 @@ void Core::read(QTcpSocket* s) {
         uploadMore(s, *c);
         return;
     }
+    if (c->loginLeft > 0) {
+        bpLoginMore(s, *c);
+        return;
+    }
     if (!c->linked && c->buffer.startsWith("POST ")) {
         const int end = c->buffer.indexOf("\r\n\r\n");
         if (end >= 0) {
@@ -555,6 +561,10 @@ void Core::uploadStart(QTcpSocket* s, Client& c, const QByteArray& head) {
         s->disconnectFromHost();
     };
     const QByteArray first = head.left(head.indexOf("\r\n"));
+    if (first.startsWith("POST /web/bp/login")) {   // the Web tab's Beatport sign-in: a small JSON body
+        bpLoginStart(s, c, head);
+        return;
+    }
     if (!first.startsWith("POST /web/upload?")) {
         refuse(404, QStringLiteral("No such thing"));
         return;
@@ -627,6 +637,61 @@ void Core::uploadMore(QTcpSocket* s, Client& c) {
     const QString part = c.upload->fileName();
     c.upload.reset();
     s->write(jsonReply(200, QJsonDocument(m_web.uploaded(part, c.uploadQuery)).toJson(QJsonDocument::Compact), false));
+    s->disconnectFromHost();
+}
+
+// POST /web/bp/login?k=<key>: {"user","password"} in the body (a page on this computer too: X-ZyDeck) -> the
+// sign-in's job, which the page follows as any other. The password is used once and never kept.
+void Core::bpLoginStart(QTcpSocket* s, Client& c, const QByteArray& head) {
+    const auto refuse = [s](int status, const QString& error) {
+        s->write(jsonReply(status, QJsonDocument(QJsonObject{{"ok", false}, {"error", error}}).toJson(QJsonDocument::Compact), true));
+        s->disconnectFromHost();
+    };
+    const QByteArray first = head.left(head.indexOf("\r\n"));
+    const QUrl url(QString::fromUtf8(first.mid(5, first.lastIndexOf(' ') - 5)));
+    QString qs = url.query(QUrl::FullyEncoded);
+    qs.replace(QLatin1Char('+'), QStringLiteral("%20"));
+    const QUrlQuery query(qs);
+    const bool ours = sameKey(query.queryItemValue(QStringLiteral("k")).toLatin1(), m_key.toLatin1()) ||
+            (s->peerAddress().isLoopback() && head.toLower().contains("\r\nx-zydeck:"));
+    if (!ours) {
+        refuse(403, QStringLiteral("wrong key"));
+        return;
+    }
+    qint64 size = -1;
+    for (const QByteArray& h : head.split('\n')) {
+        if (h.toLower().startsWith("content-length:")) {
+            size = h.mid(15).trimmed().toLongLong();
+        }
+    }
+    if (size <= 0 || size > 4096) {   // (a sign-in: not nothing, and not something else's file)
+        refuse(400, QStringLiteral("No sign-in"));
+        return;
+    }
+    c.loginLeft = size;
+    c.loginBody.clear();
+    bpLoginMore(s, c);
+}
+
+void Core::bpLoginMore(QTcpSocket* s, Client& c) {
+    const QByteArray chunk = c.buffer.left(c.loginLeft);
+    c.buffer.clear();
+    c.loginBody += chunk;
+    c.loginLeft -= chunk.size();
+    if (c.loginLeft > 0) {
+        return;
+    }
+    const QJsonObject body = QJsonDocument::fromJson(c.loginBody).object();
+    c.loginBody.clear();
+    const QString user = body.value(QStringLiteral("user")).toString().trimmed();
+    const QString password = body.value(QStringLiteral("password")).toString();
+    if (user.isEmpty() || password.isEmpty()) {
+        s->write(jsonReply(400, R"j({"ok":false,"error":"Beatport's username and password"})j", true));
+        s->disconnectFromHost();
+        return;
+    }
+    const QString job = m_web.login(user, password);
+    s->write(jsonReply(200, QJsonDocument(QJsonObject{{"ok", true}, {"job", job}}).toJson(QJsonDocument::Compact), true));
     s->disconnectFromHost();
 }
 

@@ -15,6 +15,13 @@
 //   GET /web/fx                        Mixxx's effects as a unit's slots number them: {effects: [name, ...], beats:
 //                                      [{knob, min, max} or null, ...] (the knob in beats, for the BEAT keys)} (Mixxx
 //                                      ZyDeck's live list, else effects.xml, which Mixxx writes as it quits)
+// Beatport charts (a discovery source: its catalog answers only to a signed-in account, free is enough):
+//   POST /web/bp/login                 its body {"user", "password"}: the sign-in's job (only the token is kept)
+//   GET /web/bpstate                   {signedIn}; GET /web/bpout: forget the account
+//   GET /web/genres                    a job: Beatport's genres, [{id, name}]
+//   GET /web/chart?genre=&kind=&limit= a job: a genre's Top 100 (kind=top), or its newest (kind=new), each track
+//                                      {kind: "chart", id, artist, name, mix, title, bpm, key, genre, label,
+//                                       duration, url, query}: query is the YouTube search "Artist - Title (Mix)"
 // The phone's library page in controller mode, on this computer's Mixxx (the same answers as its hub's /api/...):
 //   GET /web/library/views | tracks?q=&view=&sort=&limit=&offset=&genre= ({tracks: [...]}) | genres | track?id=
 //   GET /web/load?id=&target=deck1..4|preview   (or job=: a stems job's file) a job: Mixxx ZyDeck loads it there
@@ -67,6 +74,12 @@ class Web : public QObject {
     /// there: {job} (moved into the folder, and loaded into a deck if asked), its result as a download's
     QString uploadFile(const QUrlQuery& query, QString* error);
     QJsonObject uploaded(const QString& part, const QUrlQuery& query);
+    /// POST /web/bp/login's body (core.cpp reads it): {"user", "password"}: the sign-in's job id. Beatport's
+    /// catalog answers only to a signed-in account, so the password is used once and only the token is kept, in
+    /// QSettings (as the stem server's address is). Charts come from there: a genre's Top 100, or its newest.
+    QString login(const QString& user, const QString& password);
+    QJsonObject bpState() const;    // {signedIn}: an account's token is kept here
+    QJsonObject bpLogout();
     /// /web/library/... and /web/autodj (the reading ones): safe on any thread (a worker's: they read the database)
     static QJsonObject library(Library* library, const QString& what, const QUrlQuery& query, int* status);
     /// Where downloads go ("" while Mixxx has no music folder).
@@ -91,6 +104,8 @@ class Web : public QObject {
         QPointer<QNetworkReply> reply;
         QString remoteId, server, original, outName;   // stems
         QString deck;                                    // a download to load there ("[Channel1]"; "": none)
+        int bpm = 0;                                     // a chart track's: the file's tags (tmpo; 0: none)
+        QString keySig;                                  // a chart track's key ("8A"), the initialkey atom
         int trackId = 0;                                 // a library track loaded to a deck (the play history's)
         QJsonArray before;      // a search's: what goes ahead of its results (the link as looked up, a list to offer)
         bool shortLink = false; // a search's: from a b23.tv link (the page is shown where it went)
@@ -109,6 +124,12 @@ class Web : public QObject {
     void biliListStart(Job* job, std::shared_ptr<BiliList> list);
     void biliListPage(Job* job, std::shared_ptr<BiliList> list);
     QByteArray m_buvid3;
+    void bpSignIn(Job* job, const QString& user, const QString& password);
+    void genres(Job* job);
+    void chart(Job* job, const QString& genre, const QString& kind, int limit);
+    void bpRequest(Job* job, const QString& path, const QUrlQuery& query, std::function<void(const QJsonObject&)> done);
+    void bpGet(Job* job, const QString& path, const QUrlQuery& query, bool retried, std::function<void(const QJsonObject&)> done);
+    void bpRefresh(std::function<void(bool)> done);
     void download(Job* job, const QString& url);
     void downloaded(Job* job, const QJsonObject& info);
     void stems(Job* job, const QString& path, const QString& preset);

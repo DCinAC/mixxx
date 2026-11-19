@@ -495,15 +495,28 @@ def safe_filename(s):
     return s or "untitled"
 
 
-def _tag(path, info, artist, title):
-    """Title, artist, link and cover art, so Mixxx's library shows the track properly."""
+def _bpm(value):
+    """A chart's BPM as a number (nothing, or nonsense: 0)."""
     try:
-        from mutagen.mp4 import MP4, MP4Cover
+        return max(0, int(float(value)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _tag(path, info, artist, title, bpm=0, sig=""):
+    """Title, artist, link and cover art, so Mixxx's library shows the track properly, plus a chart's BPM and
+    key (tmpo, and the initialkey atom Mixxx reads), so it needn't work them out again."""
+    try:
+        from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
         audio = MP4(path)
         audio["\xa9nam"] = [title]
         if artist:
             audio["\xa9ART"] = [artist]
         audio["\xa9cmt"] = [info.get("webpage_url") or ""]
+        if bpm:
+            audio["tmpo"] = [int(bpm)]
+        if sig:
+            audio["----:com.apple.iTunes:initialkey"] = [MP4FreeForm(str(sig).encode("utf-8"))]
         thumb = info.get("thumbnail")
         if thumb:
             req = urllib.request.Request(thumb, headers={"User-Agent": "Mozilla/5.0", "Referer": info.get("webpage_url") or ""})
@@ -516,9 +529,10 @@ def _tag(path, info, artist, title):
         _zydekjs.log(f"couldn't tag {path}: {e}")
 
 
-def _download(url, title, client=None, to=None, key="", deck=""):
+def _download(url, title, client=None, to=None, key="", deck="", bpm=0, sig=""):
     """to: ZyDeck Connect's address (controller mode, with this phone's Bilibili login): downloaded here, then only
-    the audio goes to the computer (_send); the login never leaves the phone."""
+    the audio goes to the computer (_send); the login never leaves the phone. bpm, sig: a chart track's, for the
+    file's tags."""
     span = 0.8 if to else 0.98   # (the rest: sending it)
 
     def run(job):
@@ -573,7 +587,7 @@ def _download(url, title, client=None, to=None, key="", deck=""):
         ext = os.path.splitext(path)[1].lower()
         if ext in (".m4a", ".mp4"):
             job["message"] = "Tagging"
-            _tag(path, info, artist, track)
+            _tag(path, info, artist, track, bpm, sig)
             nice = os.path.join(os.path.dirname(path), safe_filename(f"{artist} - {track}" if artist else track) + ext)
             if not os.path.exists(nice):
                 os.replace(path, nice)
@@ -892,6 +906,245 @@ def _qr_save(job_id):
     return path
 
 
+# ---- Beatport charts ------------------------------------------------------------------------------
+# Beatport's own catalog API, as its site and apps use it: a discovery source for the Web tab (a genre's
+# Top 100, or its newest releases), whose tracks then go to YouTube as everything else does. The catalog
+# answers only to a signed-in account (there's no anonymous access): the username and password are used
+# once, and only the token is kept, in the app's private files (as beatportdl does).
+BP_BASE = "https://api.beatport.com/v4"
+BP_CLIENT_ID = "ryZ8LuyQVPqbK2mBX2Hwt4qSMtnWuTYSqBPO92yQ"   # (Beatport's web client, from its own app)
+BP_TOKEN_FILE = "beatport.json"
+_bp_lock = threading.Lock()
+_bp_genres = {"at": 0.0, "list": []}
+
+
+class _BpError(RuntimeError):
+    pass
+
+
+def _bp_token_path():
+    """The token's file ("" before the app's folders are known: nothing is kept yet)."""
+    return os.path.join(_dirs["data"], BP_TOKEN_FILE) if _dirs.get("data") else ""
+
+
+def _bp_load():
+    path = _bp_token_path()
+    if not path:
+        return None
+    try:
+        with open(path) as f:
+            tok = json.load(f)
+            return tok if tok.get("access_token") else None
+    except (OSError, ValueError):
+        return None
+
+
+def _bp_forget():
+    path = _bp_token_path()
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def _bp_save(tok):
+    path = _bp_token_path()
+    if not path:
+        raise _BpError("Zydek's folders aren't ready yet")
+    tok["issued_at"] = int(time.time())
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "w") as f:
+        json.dump(tok, f)
+    os.replace(path + ".tmp", path)
+
+
+def _bp_detail(e):
+    """Beatport's own words about a refusal (its error bodies are a JSON detail, error, or a bare string)."""
+    text = e.read().decode("utf-8", "replace").strip()
+    try:
+        body = json.loads(text)
+        if isinstance(body, dict):
+            text = body.get("detail") or body.get("error") or text
+        elif isinstance(body, str):
+            text = body
+    except ValueError:
+        pass
+    return text.strip('" ') or f"Beatport answered {e.code}"
+
+
+def _bp_post(path, values):
+    req = urllib.request.Request(BP_BASE + path, data=urllib.parse.urlencode(values).encode(), method="POST",
+                                 headers={"User-Agent": _UA, "Accept": "application/json",
+                                          "Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urllib.request.urlopen(req, timeout=25) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise _BpError(_bp_detail(e)) from None
+    except urllib.error.URLError as e:
+        raise _BpError(f"Couldn't reach Beatport: {e.reason}") from None
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """The authorize step's redirect is the answer (the code in it): don't follow it (its target isn't ours)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _bp_login(user, password):
+    """The token, from the account: Beatport's app login, then its authorize redirect (the code), then the
+    token. Only the token is kept; the password isn't."""
+    import http.cookiejar
+    jar = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar), _NoRedirect)
+    body = json.dumps({"username": user, "password": password}).encode()
+    req = urllib.request.Request(BP_BASE + "/auth/login/", data=body, method="POST",
+                                 headers={"User-Agent": _UA, "Accept": "application/json",
+                                          "Content-Type": "application/json"})
+    try:
+        with opener.open(req, timeout=25) as r:
+            r.read()
+    except urllib.error.HTTPError as e:
+        raise _BpError(_bp_detail(e)) from None
+    except urllib.error.URLError as e:
+        raise _BpError(f"Couldn't reach Beatport: {e.reason}") from None
+    # the session cookie, sent explicitly (the authorize's own URL needn't be one the cookie's path covers)
+    session = next((c.value for c in jar if c.name == "sessionid" and c.domain.lstrip(".").endswith("beatport.com")), "")
+    if not session:
+        raise _BpError("Beatport took the sign-in but sent no session (is the account confirmed?)")
+    authorize = urllib.request.Request(
+        f"{BP_BASE}/auth/o/authorize/?client_id={BP_CLIENT_ID}&response_type=code",
+        headers={"User-Agent": _UA, "Accept": "text/html", "Cookie": f"sessionid={session}"})
+    try:
+        opener.open(authorize, timeout=25).close()
+        raise _BpError("Beatport's sign-in stopped at the wrong place")
+    except urllib.error.HTTPError as e:
+        where = e.headers.get("Location") or ""
+        code = urllib.parse.parse_qs(urllib.parse.urlparse(where).query).get("code", [""])[0]
+        if not code:
+            raise _BpError("Beatport didn't hand over a sign-in code (is the account confirmed?)") from None
+    except urllib.error.URLError as e:
+        raise _BpError(f"Couldn't reach Beatport: {e.reason}") from None
+    tok = _bp_post("/auth/o/token/", {"grant_type": "authorization_code", "client_id": BP_CLIENT_ID, "code": code})
+    if not tok.get("access_token"):
+        raise _BpError("Beatport gave no token")
+    _bp_save(tok)
+    return tok
+
+
+def _bp_refresh(tok):
+    fresh = _bp_post("/auth/o/token/", {"grant_type": "refresh_token", "client_id": BP_CLIENT_ID,
+                                        "refresh_token": tok.get("refresh_token", "")})
+    if not fresh.get("access_token"):
+        raise _BpError("Beatport gave no token")
+    if not fresh.get("refresh_token"):
+        fresh["refresh_token"] = tok.get("refresh_token", "")
+    _bp_save(fresh)
+    return fresh
+
+
+def _bp_token():
+    """The account's access token, refreshed if it's near its end; _BpError when nobody's signed in."""
+    with _bp_lock:
+        tok = _bp_load()
+        if not tok:
+            raise _BpError("Sign in to Beatport first")
+        if time.time() + 300 >= tok.get("issued_at", 0) + tok.get("expires_in", 0):
+            try:
+                tok = _bp_refresh(tok)
+            except _BpError:
+                _bp_forget()
+                raise _BpError("Beatport's sign-in ran out: sign in again") from None
+        return tok["access_token"]
+
+
+def _bp_get(path, params=None):
+    """A catalog answer as JSON, with the account's token (refreshed once if Beatport says it's stale)."""
+    url = BP_BASE + path + ("?" + urllib.parse.urlencode(params) if params else "")
+    for attempt in (0, 1):
+        req = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept": "application/json",
+                                                   "Authorization": f"Bearer {_bp_token()}"})
+        try:
+            with urllib.request.urlopen(req, timeout=25) as r:
+                data = json.loads(r.read())
+                return {"results": data} if isinstance(data, list) else data
+        except urllib.error.HTTPError as e:
+            if e.code == 401 and attempt == 0:
+                with _bp_lock:
+                    tok, refreshed = _bp_load(), False
+                    if tok:
+                        try:
+                            _bp_refresh(tok)
+                            refreshed = True
+                        except _BpError:
+                            _bp_forget()
+                if refreshed:
+                    continue
+            raise _BpError(_bp_detail(e)) from None
+        except urllib.error.URLError as e:
+            raise _BpError(f"Couldn't reach Beatport: {e.reason}") from None
+    raise _BpError("Beatport's sign-in ran out: sign in again")
+
+
+def _bp_genres_list():
+    """Beatport's genres (kept a day: they hardly change)."""
+    with _lock:
+        if _bp_genres["list"] and time.time() - _bp_genres["at"] < 86400:
+            return _bp_genres["list"]
+    seen, out = set(), []
+    for g in _bp_get("/catalog/genres/", {"per_page": 200}).get("results", []):
+        if g.get("name") and g.get("id") not in seen:
+            seen.add(g.get("id"))
+            out.append({"id": g["id"], "name": g["name"]})
+    out.sort(key=lambda g: g["name"].lower())
+    with _lock:
+        _bp_genres.update(at=time.time(), list=out)
+    return out
+
+
+def _bp_track(t):
+    """One chart track: what it is, and the YouTube search "Artist - Title (Mix)" it makes."""
+    def names(key):
+        return ", ".join(a.get("name", "") for a in (t.get(key) or []) if a.get("name"))
+
+    artist, name = names("artists"), (t.get("name") or "").strip()
+    mix = (t.get("mix_name") or "").strip()
+    key = t.get("key") or {}
+    camelot = f"{key['camelot_number']}{key['camelot_letter']}" if key.get("camelot_number") and key.get("camelot_letter") else ""
+    label = ((t.get("release") or {}).get("label") or {}).get("name") or ""
+    return {
+        "kind": "chart", "id": str(t.get("id")), "site": "beatport",
+        "artist": artist, "name": name, "mix": mix,
+        "title": name + (f" ({mix})" if mix else ""),
+        "bpm": t.get("bpm") or None, "key": camelot,
+        "genre": (t.get("genre") or {}).get("name") or "", "label": label,
+        "duration": round((t.get("length_ms") or 0) / 1000) or None,
+        "url": t.get("url") or "",
+        "query": (f"{artist} - {name}" if artist else name) + (f" ({mix})" if mix else ""),
+    }
+
+
+def _bp_chart(genre_id, kind="top", limit=100):
+    """A genre's chart: its Top 100 ("top"), or its newest releases ("new")."""
+    try:
+        limit = max(1, min(int(limit or 100), 100))
+    except (TypeError, ValueError):
+        limit = 100
+    if kind == "new":
+        data = _bp_get("/catalog/tracks/", {"genre_id": genre_id, "order_by": "-publish_date", "per_page": limit})
+    else:
+        data = _bp_get("/catalog/tracks/top/100/", {"genre_id": genre_id})
+    return [_bp_track(t) for t in data.get("results", [])[:limit] if t.get("id")]
+
+
+def _bp_signed_in(user, password):
+    _bp_login(user, password)
+    return {"signedIn": True}
+
+
 # ---- API (/api/web/<name>) ------------------------------------------------------------------------
 
 def _public(job):
@@ -911,7 +1164,8 @@ def api(name, args_json):
             if args.get("to") and not re.match(r"^https?://", args["to"]):
                 return json.dumps({"ok": False, "error": "Not ZyDeck Connect's address"})
             return json.dumps({"ok": True, "job": _download(args["url"], args.get("title", ""), args.get("client"),
-                                                            args.get("to"), args.get("k", ""), args.get("deck", ""))["id"]})
+                                                            args.get("to"), args.get("k", ""), args.get("deck", ""),
+                                                            _bpm(args.get("bpm")), args.get("key") or "")["id"]})
         if name == "job":
             job = _jobs.get(args.get("id", ""))
             if not job:
@@ -969,6 +1223,23 @@ def api(name, args_json):
                     json.dump(prefs, f)
             shown = {k: v for k, v in prefs.items() if k != "stemToken"}   # the token stays on the phone
             return json.dumps({"ok": True, **shown, "hasStemToken": bool(prefs.get("stemToken"))})
+        if name == "bpstate":   # Beatport: whether an account's signed in (no password is kept)
+            return json.dumps({"ok": True, "signedIn": bool(_bp_load())})
+        if name == "bpout":
+            _bp_forget()
+            return json.dumps({"ok": True, "signedIn": False})
+        if name == "bp":        # ?user=&password=  (only the token that comes back is kept)
+            if not args.get("user", "").strip() or not args.get("password"):
+                return json.dumps({"ok": False, "error": "Beatport's username and password"})
+            return json.dumps({"ok": True, "job": _job("bp", "Beatport sign-in",
+                    lambda job: _bp_signed_in(args["user"].strip(), args["password"]))["id"]})
+        if name == "genres":     # Beatport's genres, for the charts
+            return json.dumps({"ok": True, "job": _job("genres", "Beatport genres", lambda job: _bp_genres_list())["id"]})
+        if name == "chart":      # ?genre=<id>&kind=top|new&limit=
+            if not str(args.get("genre", "")).strip().isdigit():
+                return json.dumps({"ok": False, "error": "Pick a genre"})
+            return json.dumps({"ok": True, "job": _job("chart", "Beatport chart", lambda job: _bp_chart(
+                    args["genre"], "new" if args.get("kind") == "new" else "top", args.get("limit")))["id"]})
         if name == "status":
             js = _zydekjs.run("console.log([6 * 7, typeof BigInt, /\\p{L}+/u.test('音楽')].join())").strip()
             import yt_dlp.version

@@ -8,6 +8,8 @@
 #include <QXmlStreamReader>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QNetworkCookie>
+#include <QNetworkCookieJar>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QProcess>
@@ -21,6 +23,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
+#include <algorithm>
 #include <cmath>
 #include <memory>
 
@@ -159,6 +162,95 @@ QString cacheDir() {
     return QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/yt-dlp");
 }
 
+// ---- an M4A's key tag that ffmpeg can't write ----------------------------------------------------
+// Mixxx reads a track's key from the iTunes freeform atom "----:com.apple.iTunes:initialkey", which ffmpeg
+// doesn't write (a BPM it does: tmpo). Added here, and only when the boxes are the simple contiguous ones
+// and moov is the file's last: then appending moves nothing, so a chunk offset table stays right. Anything
+// else is left as it is (false), and the download is still fine, just without its key.
+QByteArray beU32(quint32 v) {
+    QByteArray out;
+    for (const int shift : {24, 16, 8, 0}) {
+        out.append(static_cast<char>((v >> shift) & 0xff));
+    }
+    return out;
+}
+
+quint32 u32At(const QByteArray& b) {
+    return (quint32(quint8(b[0])) << 24) | (quint32(quint8(b[1])) << 16) | (quint32(quint8(b[2])) << 8) | quint32(quint8(b[3]));
+}
+
+QByteArray mp4Box(const char* type, const QByteArray& payload) {
+    return beU32(static_cast<quint32>(8 + payload.size())) + QByteArray(type, 4) + payload;
+}
+
+// The first box `type` in [start, end), its place and size; false if there's none (or a box doesn't fit there)
+bool childBox(QFile& f, qint64 start, qint64 end, const char* type, qint64* at, quint32* size) {
+    qint64 off = start;
+    while (off + 8 <= end) {
+        if (!f.seek(off)) {
+            return false;
+        }
+        const QByteArray head = f.read(8);
+        if (head.size() != 8) {
+            return false;
+        }
+        const quint32 sz = u32At(head);
+        if (sz < 8 || off + sz > end) {
+            return false;
+        }
+        if (head.mid(4, 4) == QByteArray(type, 4)) {
+            *at = off;
+            *size = sz;
+            return true;
+        }
+        off += sz;
+    }
+    return false;
+}
+
+bool addFreeformAtom(const QString& path, const char* name, const QByteArray& value) {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadWrite)) {
+        return false;
+    }
+    const qint64 fileSize = f.size();
+    qint64 moovAt = 0, udtaAt = 0, metaAt = 0, ilstAt = 0;
+    quint32 moovSize = 0, udtaSize = 0, metaSize = 0, ilstSize = 0;
+    if (!childBox(f, 0, fileSize, "moov", &moovAt, &moovSize) || moovAt + moovSize != fileSize ||
+            !childBox(f, moovAt + 8, moovAt + moovSize, "udta", &udtaAt, &udtaSize) || udtaAt + udtaSize != fileSize ||
+            !childBox(f, udtaAt + 8, udtaAt + udtaSize, "meta", &metaAt, &metaSize) || metaAt + metaSize != fileSize ||
+            !childBox(f, metaAt + 12, metaAt + metaSize, "ilst", &ilstAt, &ilstSize) || ilstAt + ilstSize != fileSize) {
+        return false;
+    }
+    const QByteArray none(4, '\0');
+    const char utf8[] = {0, 0, 0, 1, 0, 0, 0, 0};   // (a UTF-8 string, no language)
+    const QByteArray atom = mp4Box("----",
+            mp4Box("mean", none + "com.apple.iTunes") +
+                    mp4Box("name", none + QByteArray(name)) +
+                    mp4Box("data", QByteArray(utf8, 8) + value));
+    if (atom.size() > 0xFFFF) {   // (not a key's worth)
+        return false;
+    }
+    // (the atom first: a failure after it leaves a playable file, just untagged)
+    if (!f.seek(fileSize) || f.write(atom) != atom.size()) {
+        return false;
+    }
+    const quint32 add = static_cast<quint32>(atom.size());
+    for (const qint64 at : {moovAt, udtaAt, metaAt, ilstAt}) {
+        if (!f.seek(at)) {
+            return false;
+        }
+        const QByteArray old = f.read(4);
+        if (old.size() != 4) {
+            return false;
+        }
+        if (!f.seek(at) || f.write(beU32(u32At(old) + add)) != 4) {
+            return false;
+        }
+    }
+    return f.flush();
+}
+
 // The stem server's address as typed: "http://" and the port added if they're left out
 QString stemBase(QString server) {
     server = server.trimmed();
@@ -173,6 +265,102 @@ QString stemBase(QString server) {
     }
     const QUrl u(server);
     return u.port() < 0 ? server + QLatin1Char(':') + QString::number(kStemPort) : server;
+}
+
+// ---- Beatport charts (web.h's) ------------------------------------------------------------------
+// Beatport's catalog answers only to a signed-in account (there's no anonymous access): the login is its app's,
+// the password used once, and only the token kept. The client id is Beatport's own web app's.
+const QString kbpBase = QStringLiteral("https://api.beatport.com/v4");
+const QString kbpClientId = QStringLiteral("ryZ8LuyQVPqbK2mBX2Hwt4qSMtnWuTYSqBPO92yQ");
+const QString kbpAccessKey = QStringLiteral("bp/access");
+const QString kbpRefreshKey = QStringLiteral("bp/refresh");
+
+QString bpAccess() {
+    return QSettings().value(kbpAccessKey).toString();
+}
+
+// A token near its end is refreshed before it's used (the API's last an hour)
+bool bpFresh() {
+    QSettings settings;
+    const qint64 issued = settings.value(QStringLiteral("bp/issued")).toLongLong();
+    const qint64 life = settings.value(QStringLiteral("bp/expires")).toLongLong();
+    return !bpAccess().isEmpty() && QDateTime::currentSecsSinceEpoch() + 300 < issued + life;
+}
+
+void bpStore(const QJsonObject& token) {
+    QSettings settings;
+    settings.setValue(kbpAccessKey, token.value(QStringLiteral("access_token")).toString());
+    if (!token.value(QStringLiteral("refresh_token")).toString().isEmpty()) {
+        settings.setValue(kbpRefreshKey, token.value(QStringLiteral("refresh_token")));
+    }
+    settings.setValue(QStringLiteral("bp/issued"), QDateTime::currentSecsSinceEpoch());
+    settings.setValue(QStringLiteral("bp/expires"), token.value(QStringLiteral("expires_in")).toInteger());
+}
+
+void bpForget() {
+    QSettings settings;
+    for (const QString& key : {kbpAccessKey, kbpRefreshKey, QStringLiteral("bp/issued"), QStringLiteral("bp/expires")}) {
+        settings.remove(key);
+    }
+}
+
+// The API's own words about a refusal (its bodies are JSON: a "detail", an "error", or a bare string)
+QString bpError(const QByteArray& body, const QString& fallback) {
+    const QJsonDocument doc = QJsonDocument::fromJson(body);
+    QString text = doc.isObject() ? doc.object().value(QStringLiteral("detail")).toString() : QString();
+    if (text.isEmpty() && doc.isObject()) {
+        text = doc.object().value(QStringLiteral("error")).toString();
+    }
+    if (text.isEmpty() && doc.isString()) {
+        text = doc.string();
+    }
+    if (text.isEmpty()) {
+        text = QString::fromUtf8(body).trimmed();
+    }
+    return text.isEmpty() ? fallback : text.left(300);
+}
+
+// One chart track: what it is, and the YouTube search "Artist - Title (Mix)" it makes (as the phone's)
+QJsonObject chartEntry(const QJsonObject& t) {
+    const auto names = [](const QJsonValue& value) {
+        QStringList out;
+        for (const QJsonValue& a : value.toArray()) {
+            const QString name = a.toObject().value(QStringLiteral("name")).toString();
+            if (!name.isEmpty()) {
+                out << name;
+            }
+        }
+        return out.join(QStringLiteral(", "));
+    };
+    const QString artist = names(t.value(QStringLiteral("artists")));
+    const QString name = t.value(QStringLiteral("name")).toString().trimmed();
+    const QString mix = t.value(QStringLiteral("mix_name")).toString().trimmed();
+    const QJsonObject key = t.value(QStringLiteral("key")).toObject();
+    const qint64 number = key.value(QStringLiteral("camelot_number")).toInteger();
+    const QString letter = key.value(QStringLiteral("camelot_letter")).toString();
+    const QString label = t.value(QStringLiteral("release")).toObject().value(QStringLiteral("label")).toObject()
+                                  .value(QStringLiteral("name"))
+                                  .toString();
+    QString query = artist.isEmpty() ? name : artist + QStringLiteral(" - ") + name;
+    if (!mix.isEmpty()) {
+        query += QStringLiteral(" (%1)").arg(mix);
+    }
+    return {
+            {"kind", "chart"},
+            {"id", QString::number(t.value(QStringLiteral("id")).toInteger())},
+            {"site", "beatport"},
+            {"artist", artist},
+            {"name", name},
+            {"mix", mix},
+            {"title", mix.isEmpty() ? name : QStringLiteral("%1 (%2)").arg(name, mix)},
+            {"bpm", t.value(QStringLiteral("bpm")).toInt()},
+            {"key", number > 0 && !letter.isEmpty() ? QString::number(number) + letter : QString()},
+            {"genre", t.value(QStringLiteral("genre")).toObject().value(QStringLiteral("name"))},
+            {"label", label},
+            {"duration", static_cast<double>(t.value(QStringLiteral("length_ms")).toInteger()) / 1000.0},
+            {"url", t.value(QStringLiteral("url"))},
+            {"query", query},
+    };
 }
 
 } // namespace
@@ -576,6 +764,28 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
         return {{"ytdlp", !ytDlp().isEmpty()}, {"ffmpeg", !ffmpeg().isEmpty()}, {"folder", folder()},
                 {"stemServer", QSettings().value(QStringLiteral("stems/server")).toString()}};
     }
+    if (what == QLatin1String("bpstate")) {   // Beatport: whether an account's signed in (no password is kept)
+        return bpState();
+    }
+    if (what == QLatin1String("bpout")) {
+        return bpLogout();
+    }
+    if (what == QLatin1String("genres")) {   // Beatport's genres, for the charts
+        Job* j = start(QStringLiteral("genres"), QStringLiteral("Beatport genres"));
+        genres(j);
+        return {{"job", j->id}};
+    }
+    if (what == QLatin1String("chart")) {   // ?genre=<id>&kind=top|new&limit=
+        const QString genre = arg("genre").trimmed();
+        if (genre.isEmpty() || genre.toLongLong() <= 0) {
+            *status = 400;
+            return {{"ok", false}, {"error", "Pick a genre"}};
+        }
+        const int limit = arg("limit").toInt();
+        Job* j = start(QStringLiteral("chart"), QStringLiteral("Beatport chart"));
+        chart(j, genre, arg("kind"), limit > 0 ? limit : 100);
+        return {{"job", j->id}};
+    }
     if (what == QLatin1String("search") || what == QLatin1String("download")) {
         if (ytDlp().isEmpty()) {
             *status = 409;
@@ -599,6 +809,8 @@ QJsonObject Web::handle(const QString& what, const QUrlQuery& query, int* status
         if (const int deck = arg("deck").toInt(); deck >= 1 && deck <= 4) {   // and then load it there (loadToDeck)
             j->deck = QStringLiteral("[Channel%1]").arg(deck);
         }
+        j->bpm = arg("bpm").toInt();   // (a chart track's: its BPM and key in the file's tags)
+        j->keySig = arg("key").trimmed();
         download(j, q);
         return {{"job", j->id}};
     }
@@ -1183,6 +1395,246 @@ void Web::searchWith(Job* job, const QString& target) {
     });
 }
 
+// ---- Beatport charts: the sign-in, and the charts the Web tab reads (web.h's) ----------------------
+QString Web::login(const QString& user, const QString& password) {
+    Job* job = start(QStringLiteral("bp"), QStringLiteral("Beatport sign-in"));
+    bpSignIn(job, user, password);
+    return job->id;
+}
+
+QJsonObject Web::bpState() const {
+    return {{"ok", true}, {"signedIn", !QSettings().value(kbpRefreshKey).toString().isEmpty()}};
+}
+
+QJsonObject Web::bpLogout() {
+    bpForget();
+    return {{"ok", true}, {"signedIn", false}};
+}
+
+// Beatport's app login (a session cookie), then its authorize redirect (the code in it), then the token
+void Web::bpSignIn(Job* job, const QString& user, const QString& password) {
+    job->message = QStringLiteral("Signing in");
+    QNetworkRequest r{QUrl(kbpBase + QStringLiteral("/auth/login/"))};
+    r.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    r.setRawHeader("User-Agent", kUserAgent);
+    r.setRawHeader("Accept", "application/json");
+    QNetworkReply* reply = m_net.post(
+            r, QJsonDocument(QJsonObject{{"username", user}, {"password", password}}).toJson(QJsonDocument::Compact));
+    job->reply = reply;
+    connect(reply, &QNetworkReply::finished, this, [this, job, reply] {
+        reply->deleteLater();
+        const QByteArray body = reply->readAll();
+        if (job->cancelled) {
+            return;
+        }
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (reply->error() != QNetworkReply::NoError || status >= 400) {
+            fail(job, bpError(body, reply->errorString()));
+            return;
+        }
+        // the session cookie, taken from the jar by the login's own URL (so a path rule can't hide it), then sent
+        // explicitly to the authorize: its URL needn't be one the cookie's path covers
+        QString session;
+        if (QNetworkCookieJar* jar = m_net.cookieJar()) {
+            for (const QNetworkCookie& c : jar->cookiesForUrl(QUrl(kbpBase + QStringLiteral("/auth/login/")))) {
+                if (c.name() == QByteArrayLiteral("sessionid")) {
+                    session = QString::fromUtf8(c.value());
+                }
+            }
+        }
+        if (session.isEmpty()) {
+            fail(job, QStringLiteral("Beatport took the sign-in but sent no session (is the account confirmed?)"));
+            return;
+        }
+        // then the authorize: a redirect whose Location carries the code
+        job->message = QStringLiteral("Getting the token");
+        QNetworkRequest a{QUrl(kbpBase + QStringLiteral("/auth/o/authorize/?client_id=%1&response_type=code").arg(kbpClientId))};
+        a.setRedirectPolicy(QNetworkRequest::ManualRedirectPolicy);
+        a.setRawHeader("User-Agent", kUserAgent);
+        a.setRawHeader("Accept", "text/html");
+        a.setRawHeader("Cookie", "sessionid=" + session.toUtf8());
+        QNetworkReply* authorize = m_net.get(a);
+        job->reply = authorize;
+        connect(authorize, &QNetworkReply::finished, this, [this, job, authorize] {
+            authorize->deleteLater();
+            if (job->cancelled) {
+                return;
+            }
+            const QString where = authorize->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl().toString();
+            const QString code = QUrlQuery(QUrl(where)).queryItemValue(QStringLiteral("code"));
+            if (code.isEmpty()) {
+                fail(job, QStringLiteral("Beatport didn't hand over a sign-in code (is the account confirmed?)"));
+                return;
+            }
+            QNetworkRequest t{QUrl(kbpBase + QStringLiteral("/auth/o/token/"))};
+            t.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/x-www-form-urlencoded"));
+            t.setRawHeader("User-Agent", kUserAgent);
+            t.setRawHeader("Accept", "application/json");
+            QUrlQuery form;
+            form.addQueryItem(QStringLiteral("grant_type"), QStringLiteral("authorization_code"));
+            form.addQueryItem(QStringLiteral("client_id"), kbpClientId);
+            form.addQueryItem(QStringLiteral("code"), code);
+            QNetworkReply* token = m_net.post(t, form.query(QUrl::FullyEncoded).toUtf8());
+            job->reply = token;
+            connect(token, &QNetworkReply::finished, this, [this, job, token] {
+                token->deleteLater();
+                const QByteArray body = token->readAll();
+                if (job->cancelled) {
+                    return;
+                }
+                const QJsonObject tok = QJsonDocument::fromJson(body).object();
+                if (token->error() != QNetworkReply::NoError || tok.value(QStringLiteral("access_token")).toString().isEmpty()) {
+                    fail(job, bpError(body, token->errorString()));
+                    return;
+                }
+                bpStore(tok);
+                finish(job, QJsonObject{{"signedIn", true}});
+            });
+        });
+    });
+}
+
+void Web::bpRefresh(std::function<void(bool)> done) {
+    const QString refresh = QSettings().value(kbpRefreshKey).toString();
+    if (refresh.isEmpty()) {
+        done(false);
+        return;
+    }
+    QNetworkRequest r{QUrl(kbpBase + QStringLiteral("/auth/o/token/"))};
+    r.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/x-www-form-urlencoded"));
+    r.setRawHeader("User-Agent", kUserAgent);
+    r.setRawHeader("Accept", "application/json");
+    QUrlQuery form;
+    form.addQueryItem(QStringLiteral("grant_type"), QStringLiteral("refresh_token"));
+    form.addQueryItem(QStringLiteral("client_id"), kbpClientId);
+    form.addQueryItem(QStringLiteral("refresh_token"), refresh);
+    QNetworkReply* reply = m_net.post(r, form.query(QUrl::FullyEncoded).toUtf8());
+    connect(reply, &QNetworkReply::finished, this, [reply, done] {
+        reply->deleteLater();
+        const QJsonObject tok = QJsonDocument::fromJson(reply->readAll()).object();
+        if (reply->error() != QNetworkReply::NoError || tok.value(QStringLiteral("access_token")).toString().isEmpty()) {
+            bpForget();   // (no good any more: the sign-in has to be done again)
+            done(false);
+            return;
+        }
+        bpStore(tok);
+        done(true);
+    });
+}
+
+// A catalog answer, with the account's token (refreshed first if it's near its end)
+void Web::bpRequest(Job* job, const QString& path, const QUrlQuery& query, std::function<void(const QJsonObject&)> done) {
+    if (bpFresh()) {
+        bpGet(job, path, query, false, done);
+    } else {
+        bpRefresh([this, job, path, query, done](bool ok) {
+            if (ok) {
+                bpGet(job, path, query, false, done);
+            } else {
+                fail(job, QStringLiteral("Sign in to Beatport first"));
+            }
+        });
+    }
+}
+
+// The GET itself: a stale token (401) is refreshed once, then it's asked again
+void Web::bpGet(Job* job, const QString& path, const QUrlQuery& query, bool retried, std::function<void(const QJsonObject&)> done) {
+    if (job->cancelled) {
+        return;
+    }
+    QUrl url(kbpBase + path);
+    if (!query.isEmpty()) {
+        url.setQuery(query);
+    }
+    QNetworkRequest r(url);
+    r.setRawHeader("User-Agent", kUserAgent);
+    r.setRawHeader("Accept", "application/json");
+    r.setRawHeader("Authorization", "Bearer " + bpAccess().toUtf8());
+    QNetworkReply* reply = m_net.get(r);
+    job->reply = reply;
+    connect(reply, &QNetworkReply::finished, this, [this, job, reply, path, query, retried, done] {
+        reply->deleteLater();
+        const QByteArray body = reply->readAll();
+        if (job->cancelled) {
+            return;
+        }
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (status == 401 && !retried) {
+            bpRefresh([this, job, path, query, done](bool ok) {
+                if (ok) {
+                    bpGet(job, path, query, true, done);
+                } else {
+                    fail(job, QStringLiteral("Beatport's sign-in ran out: sign in again"));
+                }
+            });
+            return;
+        }
+        const QJsonDocument doc = QJsonDocument::fromJson(body);
+        if (reply->error() != QNetworkReply::NoError) {
+            fail(job, QStringLiteral("Beatport: ") + bpError(body, reply->errorString()));
+        } else if (doc.isObject()) {
+            done(doc.object());
+        } else if (doc.isArray()) {   // (an endpoint that answers with bare tracks)
+            done(QJsonObject{{"results", doc.array()}});
+        } else {
+            fail(job, QStringLiteral("Beatport: ") + bpError(body, QStringLiteral("unexpected answer")));
+        }
+    });
+}
+
+void Web::genres(Job* job) {
+    job->message = QStringLiteral("Asking Beatport");
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("per_page"), QStringLiteral("200"));
+    bpRequest(job, QStringLiteral("/catalog/genres/"), query, [this, job](const QJsonObject& data) {
+        QList<QJsonObject> list;
+        QList<qint64> seen;
+        for (const QJsonValue& v : data.value(QStringLiteral("results")).toArray()) {
+            const QJsonObject g = v.toObject();
+            const qint64 id = g.value(QStringLiteral("id")).toInteger();
+            if (g.value(QStringLiteral("name")).toString().isEmpty() || seen.contains(id)) {
+                continue;
+            }
+            seen.append(id);
+            list.append(QJsonObject{{"id", static_cast<double>(id)}, {"name", g.value(QStringLiteral("name"))}});
+        }
+        std::sort(list.begin(), list.end(), [](const QJsonObject& a, const QJsonObject& b) {
+            return a.value(QStringLiteral("name")).toString().toLower() < b.value(QStringLiteral("name")).toString().toLower();
+        });
+        QJsonArray out;
+        for (const QJsonObject& g : list) {
+            out.append(g);
+        }
+        finish(job, out);
+    });
+}
+
+void Web::chart(Job* job, const QString& genre, const QString& kind, int limit) {
+    limit = std::clamp(limit, 1, 100);
+    job->message = QStringLiteral("Asking Beatport");
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("genre_id"), genre);
+    const bool newest = kind == QLatin1String("new");
+    if (newest) {   // (the Top 100's own endpoint has no ordering: its order is the chart)
+        query.addQueryItem(QStringLiteral("order_by"), QStringLiteral("-publish_date"));
+        query.addQueryItem(QStringLiteral("per_page"), QString::number(limit));
+    }
+    bpRequest(job, newest ? QStringLiteral("/catalog/tracks/") : QStringLiteral("/catalog/tracks/top/100/"), query,
+            [this, job, limit](const QJsonObject& data) {
+                QJsonArray out;
+                for (const QJsonValue& v : data.value(QStringLiteral("results")).toArray()) {
+                    if (out.size() >= limit) {
+                        break;
+                    }
+                    const QJsonObject t = v.toObject();
+                    if (t.value(QStringLiteral("id")).toInteger() > 0) {
+                        out.append(chartEntry(t));
+                    }
+                }
+                finish(job, out);
+            });
+}
+
 // ---- download -------------------------------------------------------------------------------------------------
 void Web::download(Job* job, const QString& url) {
     const QString dir = folder();
@@ -1269,6 +1721,9 @@ void Web::downloaded(Job* job, const QJsonObject& info) {
             fail(job, QStringLiteral("Couldn't move the download into %1").arg(dir));
             return;
         }
+        if (!job->keySig.isEmpty()) {   // (a chart's key: Mixxx reads the initialkey atom)
+            addFreeformAtom(to, "initialkey", job->keySig.toUtf8());
+        }
         static const QStringList playable{".m4a", ".mp4", ".mp3", ".ogg", ".opus", ".flac", ".wav", ".webm"};
         const QJsonObject result{{"path", to}, {"artist", artist}, {"title", title}, {"duration", info.value(QStringLiteral("duration"))},
                 {"codec", codec}, {"kbps", static_cast<int>(std::lround(tbr))}, {"playable", playable.contains(ext)}};
@@ -1289,10 +1744,15 @@ void Web::downloaded(Job* job, const QJsonObject& info) {
     auto* p = new QProcess(this);
     job->process = p;
     p->setProgram(ff);
-    p->setArguments({QStringLiteral("-nostdin"), QStringLiteral("-y"), QStringLiteral("-loglevel"), QStringLiteral("error"),
+    QStringList args{QStringLiteral("-nostdin"), QStringLiteral("-y"), QStringLiteral("-loglevel"), QStringLiteral("error"),
             QStringLiteral("-i"), path, QStringLiteral("-map"), QStringLiteral("0"), QStringLiteral("-c"), QStringLiteral("copy"),
             QStringLiteral("-metadata"), QStringLiteral("title=") + title, QStringLiteral("-metadata"), QStringLiteral("artist=") + artist,
-            QStringLiteral("-metadata"), QStringLiteral("comment=") + page, tagged});
+            QStringLiteral("-metadata"), QStringLiteral("comment=") + page};
+    if (job->bpm > 0) {   // (a chart's BPM: Mixxx reads tmpo)
+        args << QStringLiteral("-metadata") << QStringLiteral("tmpo=%1").arg(job->bpm);
+    }
+    args << tagged;
+    p->setArguments(args);
     connect(p, &QProcess::finished, this, [job, p, path, tagged, move](int code) {
         p->deleteLater();
         if (job->cancelled) {

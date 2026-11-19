@@ -62,6 +62,28 @@
   .r.offer.yt { border-left-color: var(--yt); }
   @media (max-width: 560px) { .r { grid-template-columns: 84px minmax(0, 1fr); } .picking .r:not(.offer) { grid-template-columns: auto 84px minmax(0, 1fr); }
     .r img { width: 84px; } }
+  /* Beatport charts: a genre's Top 100 (or its newest), then the same YouTube downloads */
+  .wrow { display: flex; gap: 8px; margin-top: 8px; }
+  .wrow button { flex: 1; }
+  .r.wchart { grid-template-columns: 34px minmax(0, 1fr); }
+  .picking .r.wchart { grid-template-columns: auto 34px minmax(0, 1fr); }
+  .r.wchart .rank { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .badge.bp { color: #01ff95; }
+  .wgenres { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; max-height: 50vh; overflow: auto; }
+  .wgenres button { border-radius: 18px; min-height: 36px; }
+  .wgenres button.on, .wkind button.on { background: var(--go); border-color: var(--go); color: #fff; }
+  .wkind { display: flex; gap: 8px; margin-top: 12px; }
+  .wkind button { flex: 1; }
+  .bpform { display: grid; gap: 8px; margin-top: 12px; }
+  .bpform input { height: 44px; border-radius: 10px; border: 1px solid #444; background: #121212; padding: 0 14px; color: var(--text); font: inherit; }
+  .bpmsg { color: var(--dim); font-size: 14px; margin-top: 10px; }
+  .bplink a { color: var(--goText); }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.62); display: none; z-index: 10; padding: 16px; overflow: auto; }
+  .modal.on { display: block; }
+  .mbox { max-width: 640px; margin: 6vh auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .mbox h2 { font-size: 17px; margin: 0 0 4px; }
+  .mbox .sub { color: var(--dim); font-size: 13px; margin-bottom: 12px; }
+  .mbox .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
 </style>
 </head>
 <body>
@@ -71,10 +93,12 @@
     <input id="q" type="search" placeholder="Search YouTube, or paste a link or BV code" autocomplete="off" autofocus>
     <button id="go" class="go">Search</button>
   </div>
+  <div class="wrow"><button id="bp">Beatport charts</button></div>
   <div id="note"></div>
   <ul id="jobs"></ul>
   <ul id="res"></ul>
 </main>
+<div id="bpmodal" class="modal"><div class="mbox"></div></div>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -140,7 +164,8 @@ function jobRow(title) {
 async function download(r, deck) {
   const row = jobRow(r.title);
   try {
-    const res = await job("download", { url: r.url, title: r.title, ...(deck ? { deck } : {}) },
+    const res = await job("download", { url: r.url, title: r.title, ...(deck ? { deck } : {}),
+        ...(r.bpm ? { bpm: r.bpm } : {}), ...(r.keySig ? { key: r.keySig } : {}) },
       j => row.show(j.progress, j.message, j.speed), row.started);
     const q = res.codec === "flac" ? "Hi-Res FLAC" : res.kbps ? `${res.kbps} kbps` : "";
     row.end("ok", `${deck ? (res.loaded ? `In deck ${deck}` : `Not loaded: ${res.loadError || "deck busy"}`) : "In Mixxx's ZyDeck Web crate"}` +
@@ -227,6 +252,201 @@ function show(list, offers, playlist, listName) {
   paint();
 }
 $("q").value = store.get("q", "");
+
+// ---- Beatport charts: a discovery source (a genre's Top 100, or its newest) ----------------------
+// Beatport's own API needs an account (free is enough); it signs in once here and only the token is kept.
+// A chart track's "Artist - Title (Mix)" is a YouTube search like any other: its best match downloads
+// straight away, or the results open to pick from.
+let bpGenres = null, bpChart = null;
+const modal = html => { const m = $("bpmodal"), b = m.querySelector(".mbox"); b.innerHTML = html; m.classList.add("on"); return b; };
+const closeModal = () => $("bpmodal").classList.remove("on");
+$("bpmodal").addEventListener("click", e => { if (e.target.id === "bpmodal") closeModal(); });
+async function bpState() { try { return !!(await api("bpstate")).signedIn; } catch { return false; } }
+async function bpLogin(user, password) {   // (in the body, never the URL)
+  const r = await fetch("/web/bp/login", { method: "POST",
+    headers: { "Content-Type": "text/plain;charset=UTF-8", "X-ZyDeck": "page" },
+    body: JSON.stringify({ user, password }) });
+  const b = await r.json().catch(() => null);
+  if (!r.ok || !b || b.ok === false) throw new Error((b && b.error) || r.statusText || "Beatport sign-in failed");
+  return followJob(b.job);
+}
+async function followJob(id) {
+  for (;;) {
+    const j = await api("job", { id });
+    if (j.state === "done") return j.result;
+    if (j.state === "error") throw new Error(j.error || "Failed");
+    await sleep(400);
+  }
+}
+function signInIfNeeded(e) {
+  const msg = String((e && e.message) || e);
+  if (/sign in to beatport|sign-in ran out/i.test(msg)) beatportSignIn(msg);
+  else $("note").innerHTML = `<span class="err">${esc(msg)}</span>`;
+}
+async function openCharts() {
+  if (!(await bpState())) return beatportSignIn();
+  if (!bpGenres) {
+    $("note").textContent = "Asking Beatport for its genres…";
+    try { bpGenres = await job("genres", {}); } catch (e) { $("note").textContent = ""; return signInIfNeeded(e); }
+    $("note").textContent = "";
+  }
+  chartsModal();
+}
+function chartsModal() {
+  let kind = (bpChart && bpChart.kind) || "top";
+  const box = modal(`<h2>Beatport charts</h2><div class="sub">Pick a genre, then what to see</div>` +
+    `<div class="wkind"><button data-kind="top">Top 100</button><button data-kind="new">New releases</button></div>` +
+    `<div class="wgenres"></div>` +
+    `<div class="row"><button class="out">Sign out of Beatport</button></div>`);
+  const paint = () => {
+    box.querySelectorAll(".wkind button").forEach(b => b.classList.toggle("on", b.dataset.kind === kind));
+    box.querySelectorAll(".wgenres button").forEach(b => b.classList.toggle("on", bpChart && String(bpChart.id) === b.dataset.genre));
+  };
+  box.querySelectorAll(".wkind button").forEach(b => b.addEventListener("click", () => { kind = b.dataset.kind; paint(); }));
+  for (const g of bpGenres || []) {
+    const b = h("button", "", esc(g.name));
+    b.dataset.genre = String(g.id);
+    b.addEventListener("click", () => { closeModal(); loadChart(g, kind); });
+    box.querySelector(".wgenres").appendChild(b);
+  }
+  box.querySelector(".out").addEventListener("click", async () => {
+    try { await api("bpout"); } catch {}
+    bpGenres = null; bpChart = null;
+    closeModal(); $("note").textContent = "Signed out of Beatport";
+  });
+  paint();
+}
+async function loadChart(genre, kind) {
+  $("res").innerHTML = "";
+  $("note").textContent = `${genre.name} · ${kind === "new" ? "New releases" : "Top 100"}…`;
+  try {
+    const list = await job("chart", { genre: genre.id, kind, limit: 100 });
+    bpChart = { id: genre.id, name: genre.name, kind };
+    $("note").textContent = `${genre.name} · ${kind === "new" ? "New releases" : "Top 100"} · ${list.length} tracks`;
+    renderChart(list);
+  } catch (e) { signInIfNeeded(e); }
+}
+function renderChart(list) {
+  const res = $("res"), picked = new Set(), rows = [];
+  let picking = false;
+  res.innerHTML = "";
+  const bar = h("li", "sel");
+  const paint = () => {
+    res.classList.toggle("picking", picking);
+    rows.forEach((li, i) => li.classList.toggle("picked", picked.has(i)));
+    bar.innerHTML = picking
+      ? `<span>${esc((bpChart && bpChart.name) || "Chart")} · ${list.length} tracks · ${picked.size} picked</span>` +
+        `<button class="small all">${picked.size === list.length ? "None" : "All"}</button>` +
+        `<button class="small go"${picked.size ? "" : " disabled"}>Best matches ${picked.size || ""}</button>` +
+        `<button class="small done">Done</button>`
+      : `<span>${list.length} tracks · click one for its YouTube match</span><button class="small pick">Select</button>`;
+    bar.querySelector(".pick")?.addEventListener("click", () => { picking = true; paint(); });
+    bar.querySelector(".done")?.addEventListener("click", () => { picking = false; picked.clear(); paint(); });
+    bar.querySelector(".all")?.addEventListener("click", () => { if (picked.size === list.length) picked.clear(); else list.forEach((_, i) => picked.add(i)); paint(); });
+    bar.querySelector(".go")?.addEventListener("click", () => { const todo = list.filter((_, i) => picked.has(i)); picked.clear(); paint(); downloadChartMany(todo); });
+  };
+  if (list.length) res.appendChild(bar);
+  list.forEach((r, i) => {
+    const li = h("li", "r wchart", `<span class="tick"></span><div class="rank">${i + 1}</div>` +
+      `<div><div class="t">${esc(r.artist ? `${r.artist} — ${r.title}` : r.title)}</div><div class="a">` +
+      `<span class="badge bp">BEATPORT</span>${[r.bpm ? r.bpm + " BPM" : "", r.key, r.genre, r.label].filter(Boolean).map(esc).join(" · ")}</div></div>`);
+    li.addEventListener("click", () => {
+      if (!picking) return openChartSheet(r);
+      if (picked.has(i)) picked.delete(i); else picked.add(i);
+      paint();
+    });
+    rows.push(li);
+    res.appendChild(li);
+  });
+  paint();
+}
+function openChartSheet(r) {
+  const box = modal(`<h2>${esc(r.title)}</h2><div class="sub">${esc(r.artist)}${r.bpm ? " · " + r.bpm + " BPM" : ""}${r.key ? " · " + esc(r.key) : ""}${r.genre ? " · " + esc(r.genre) : ""}${r.label ? " · " + esc(r.label) : ""}</div>` +
+    `<div class="row"><button class="go best">Download best YouTube match</button><button class="sel">Choose on YouTube</button>` +
+    (r.url ? `<span class="bplink"><a href="${esc(r.url)}" target="_blank" rel="noreferrer">Open on Beatport</a></span>` : "") + `</div>`);
+  box.querySelector(".best").addEventListener("click", () => { closeModal(); downloadChartMatch(r); });
+  box.querySelector(".sel").addEventListener("click", () => { closeModal(); $("q").value = r.query; search(); });
+}
+// The best-looking YouTube result for a chart track: its name and artist in the title, its length, not a cover
+function pickMatch(list, r) {
+  if (!list.length) return null;
+  const norm = s => String(s || "").toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+  const artist = norm(r.artist), name = norm(r.name), mix = norm(r.mix);
+  const words = artist.split(" ").filter(w => w.length > 2);
+  let best = null, score = -Infinity;
+  for (const v of list) {
+    const t = norm(v.title), ch = String(v.channel || "").toLowerCase();
+    let sc = 0;
+    if (artist && t.includes(artist)) sc += 3;
+    else if (words.some(w => t.includes(w))) sc += 1;
+    if (name && t.includes(name)) sc += 3;
+    if (mix && t.includes(mix)) sc += 1;
+    if (/cover|karaoke|nightcore|8d|sped up|slowed|reverb|tutorial|instrumental/.test(t)) sc -= 5;
+    if (/topic|vevo/.test(ch) || (artist && ch.includes(artist))) sc += 2;
+    if (v.duration && r.duration) {
+      const d = Math.abs(v.duration - r.duration);
+      if (d <= 8) sc += 2; else if (d <= 30) sc += 1; else if (d > 75) sc -= 2;
+    }
+    if (v.views > 0) sc += Math.min(1, Math.log10(v.views) / 7);
+    if (sc > score) { score = sc; best = v; }
+  }
+  return score >= 3 ? best : null;
+}
+async function downloadChartMatch(r, quiet) {
+  try {
+    const found = await job("search", { q: r.query });
+    const best = pickMatch(found.filter(x => !x.kind), r);
+    if (!best) {
+      $("note").textContent = "No good YouTube match: choose one";
+      $("q").value = r.query;
+      return search();
+    }
+    if (!quiet) $("note").textContent = `Best match: ${best.title}`;
+    best.bpm = r.bpm; best.keySig = r.key;   // (the chart's: into the file's tags)
+    return await download(best);
+  } catch (e) {
+    $("note").innerHTML = `<span class="err">${esc(e.message)}</span>`;
+    return "cancelled";
+  }
+}
+async function downloadChartMany(list) {
+  let ok = 0;
+  for (let i = 0; i < list.length; i++) {
+    $("note").textContent = `Downloading ${i + 1} of ${list.length}: ${list[i].title}`;
+    if (await downloadChartMatch(list[i], true) === "cancelled") { $("note").textContent = `Stopped after ${i} of ${list.length}`; return; }
+    ok++;
+  }
+  $("note").textContent = `Downloaded ${ok} track${ok > 1 ? "s" : ""}`;
+}
+function beatportSignIn(why) {
+  const box = modal(`<h2>Sign in to Beatport</h2>` +
+    `<div class="sub">Charts come from Beatport; an account reads them (a free one is enough). Only the token is kept on this computer, never the password.</div>` +
+    (why ? `<div class="bpmsg"><span class="err">${esc(why)}</span></div>` : "") +
+    `<div class="bpform"><input id="bpuser" type="email" autocomplete="username" placeholder="Beatport email">` +
+    `<input id="bppass" type="password" autocomplete="current-password" placeholder="Password"></div>` +
+    `<div class="row"><button class="go in">Sign in</button><button class="cancel">Cancel</button></div><div class="bpmsg" id="bpmsg"></div>`);
+  const go = async () => {
+    const user = box.querySelector("#bpuser").value.trim(), pass = box.querySelector("#bppass").value;
+    if (!user || !pass) return;
+    box.querySelector(".in").disabled = true;
+    box.querySelector("#bpmsg").textContent = "Signing in…";
+    try {
+      await bpLogin(user, pass);
+      box.querySelector("#bppass").value = "";
+      bpGenres = null;
+      closeModal();
+      openCharts();
+    } catch (e) {
+      box.querySelector("#bpmsg").innerHTML = `<span class="err">${esc(e.message)}</span>`;
+      box.querySelector(".in").disabled = false;
+    }
+  };
+  box.querySelector(".in").addEventListener("click", go);
+  box.querySelector(".cancel").addEventListener("click", closeModal);
+  box.querySelector("#bppass").addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+}
+$("bp").addEventListener("click", openCharts);
+
 $("go").addEventListener("click", () => search());
 $("q").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); search(); } });
 </script>

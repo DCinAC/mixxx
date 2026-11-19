@@ -103,7 +103,11 @@ jobs:
               windeployqt --release --no-translations "dist/ZyDeck Connect/ZyDeck Connect.exe"
               cp tools-bin/yt-dlp.exe "dist/ZyDeck Connect/" ;;
             Linux)
-              cp build/zydeck-connect tools-bin/yt-dlp dist/ ;;
+              # the program, yt-dlp, its icon and the installer: extracting the artifact and running
+              # ./install-linux.sh puts it in ~/.local with a menu entry (the script sees the program beside it)
+              cp build/zydeck-connect tools-bin/yt-dlp dist/
+              cp install-linux.sh dist/
+              cp icon/zydeck-connect.png icon/zydeck-connect.svg dist/ ;;
           esac
           cp MIDI.md dist/
       - uses: actions/upload-artifact@v4

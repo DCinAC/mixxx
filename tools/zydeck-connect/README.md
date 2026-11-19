@@ -18,6 +18,8 @@ device that linked before still links.
 
 Builds come from the **ZyDeck Connect** workflow (Actions tab): macOS (universal), Windows (needs the free
 [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) driver for its MIDI port), Linux.
+On Linux, `install-linux.sh` (in this folder) builds and installs it for this user, with a menu entry and its icon;
+run beside the CI artifact's `zydeck-connect`, it installs that one instead of building.
 By hand, with Qt 6.4 or newer:
 
     cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/Qt/6.x/<platform> && cmake --build build
