@@ -292,6 +292,16 @@ QJsonObject webPrefsSaved() {
     return prefs;
 }
 
+// Whether Beatport's signed in, from zydek_web.py's token file: here, so the page knows it without starting Python
+QByteArray bpStateSaved() {
+    bool signedIn = false;
+    QFile f(QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("beatport.json")));
+    if (f.open(QIODevice::ReadOnly)) {
+        signedIn = !QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("access_token")).toString().isEmpty();
+    }
+    return QJsonDocument(QJsonObject{{"ok", true}, {"signedIn", signedIn}}).toJson(QJsonDocument::Compact);
+}
+
 QByteArray webPrefs(const QJsonObject& args) {
     const QString path = webPrefsPath();
     QJsonObject prefs = webPrefsSaved();
@@ -758,6 +768,9 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
                                                                                                     // is drawn, and how
         return staticFile(path.mid(1));
     }
+    if (path == QLatin1String("/zydeck-bigwave.js")) {   // the Big Wave panel (the phone page's decks, the deck page's T4·4 rows)
+        return staticFile(path.mid(1));
+    }
     if (path == QLatin1String("/zydeck-knob.js")) {   // touch and knobs (the deck page, the phone page's mixer)
         return staticFile(path.mid(1));
     }
@@ -825,6 +838,7 @@ HttpServer::Response Hub::handleHttp(const QString& path, const HttpServer::Quer
         const QByteArray body = noLogin
                 ? QJsonDocument(QJsonObject{{"ok", true}, {"cn", QJsonObject{{"login", false}}}, {"intl", QJsonObject{{"login", false}}},
                           {"hiRes", webPrefsSaved().value(QStringLiteral("biliHiRes")).toBool(true)}}).toJson(QJsonDocument::Compact)
+                : name == QLatin1String("bpstate") && !python::ready() ? bpStateSaved()
                 : name == QLatin1String("prefs") && !python::ready() ? webPrefs(args)
                 : name == QLatin1String("jobs") ? QJsonDocument(QJsonObject{{"ok", true}, {"jobs", webDownloads()}}).toJson(QJsonDocument::Compact)
                 : forPipe(name, args) ? pipeCall(name, args)
